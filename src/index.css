@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply min-h-dvh bg-[#e8eef6] text-slate-900 font-sans dark:bg-zinc-950 dark:text-zinc-100;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@layer components {
+  /* לבן, פינות מעוגלות מאוד וצל עדין — תוכן “צף” על רקע בהיר */
+  .app-floating-surface {
+    @apply rounded-[2rem] bg-white text-slate-900 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] dark:ring-zinc-800;
+  }
+}
+
+@layer utilities {
+  .safe-pb-nav {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
+}
