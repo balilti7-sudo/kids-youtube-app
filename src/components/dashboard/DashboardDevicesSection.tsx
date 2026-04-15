@@ -102,21 +102,21 @@ export function DashboardDevicesSection() {
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
       aria-labelledby="devices-section-title"
     >
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-4 flex flex-col gap-3">
         <div>
           <h2 id="devices-section-title" className="text-lg font-bold text-zinc-50">
             מכשירים
           </h2>
           <p className="text-xs text-zinc-500">מכשירים מקושרים: {devices.length} / {max}</p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          <Button type="button" variant="secondary" className="w-full shrink-0 sm:w-auto" onClick={() => setQrModalOpen(true)}>
+        <div className="grid w-full gap-2 sm:grid-cols-2">
+          <Button type="button" variant="secondary" className="w-full justify-center" onClick={() => setQrModalOpen(true)}>
             <QrCode className="h-4 w-4" />
             Add New Device (QR)
           </Button>
           <Button
             type="button"
-            className="w-full shrink-0 sm:w-auto"
+            className="w-full justify-center"
             onClick={openModal}
             disabled={atLimit || !ownerUserId}
           >
