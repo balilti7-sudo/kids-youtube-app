@@ -63,6 +63,51 @@ export interface ChannelVideoItem {
   channelTitle: string
 }
 
+function isQuotaErrorMessage(message: string) {
+  const msg = message.toLowerCase()
+  return msg.includes('quota') || msg.includes('exceeded your') || msg.includes('quotaexceeded')
+}
+
+async function fetchChannelVideosFromRss(channelId: string): Promise<{
+  data: ChannelVideoItem[] | null
+  error: Error | null
+}> {
+  try {
+    const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`
+    const res = await fetch(proxyUrl)
+    if (!res.ok) {
+      return { data: null, error: new Error(`RSS fetch failed (${res.status})`) }
+    }
+    const xml = await res.text()
+    if (!xml.trim()) return { data: [], error: null }
+
+    const doc = new DOMParser().parseFromString(xml, 'application/xml')
+    const parserError = doc.querySelector('parsererror')
+    if (parserError) return { data: null, error: new Error('RSS parse failed') }
+
+    const entries = Array.from(doc.getElementsByTagName('entry'))
+    const items: ChannelVideoItem[] = entries
+      .map((entry) => {
+        const videoId = entry.getElementsByTagName('yt:videoId')[0]?.textContent?.trim() ?? ''
+        const title = entry.getElementsByTagName('title')[0]?.textContent?.trim() ?? ''
+        const channelTitle = entry.getElementsByTagName('name')[0]?.textContent?.trim() ?? ''
+        if (!videoId || !title) return null
+        return {
+          videoId,
+          title,
+          thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+          channelTitle,
+        }
+      })
+      .filter(Boolean) as ChannelVideoItem[]
+
+    return { data: items, error: null }
+  } catch (e) {
+    return { data: null, error: e instanceof Error ? e : new Error('RSS fallback failed') }
+  }
+}
+
 function normalizeYouTubeError(message: string) {
   const msg = message.toLowerCase()
   if (msg.includes('quota') || msg.includes('exceeded your') || msg.includes('quotaexceeded')) {
@@ -615,9 +660,15 @@ export async function getLatestVideosForChannel(channelId: string): Promise<{
     return { data: results, error: null }
   } catch (e) {
     console.error('[youtube] getLatestVideosForChannel', e)
-    return {
-      data: null,
-      error: e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה'),
+    const normalized =
+      e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה')
+
+    // Fallback: when API quota is exhausted, read the public channel RSS feed.
+    if (isQuotaErrorMessage(normalized.message)) {
+      const fallback = await fetchChannelVideosFromRss(id)
+      if (!fallback.error) return { data: fallback.data, error: null }
     }
+
+    return { data: null, error: normalized }
   }
 }
