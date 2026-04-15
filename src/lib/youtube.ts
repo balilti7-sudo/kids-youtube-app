@@ -186,6 +186,60 @@ export function extractYouTubeChannelId(input: string): string | null {
   return null
 }
 
+function extractYouTubeHandle(input: string): string | null {
+  const raw = input.trim()
+  if (!raw) return null
+  if (raw.startsWith('@') && raw.length > 1) {
+    const handle = raw.slice(1).trim()
+    return /^[a-zA-Z0-9._-]{3,}$/.test(handle) ? handle : null
+  }
+  try {
+    const url = new URL(raw)
+    if (!url.hostname.includes('youtube.com')) return null
+    const parts = url.pathname.split('/').filter(Boolean)
+    const handlePart = parts.find((p) => p.startsWith('@'))
+    if (!handlePart) return null
+    const handle = handlePart.slice(1).trim()
+    return /^[a-zA-Z0-9._-]{3,}$/.test(handle) ? handle : null
+  } catch {
+    return null
+  }
+}
+
+function extractYouTubeUsername(input: string): string | null {
+  const raw = input.trim()
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    if (!url.hostname.includes('youtube.com')) return null
+    const parts = url.pathname.split('/').filter(Boolean)
+    const userIdx = parts.findIndex((p) => p === 'user')
+    if (userIdx < 0) return null
+    const username = parts[userIdx + 1]?.trim()
+    if (!username) return null
+    return /^[a-zA-Z0-9._-]{2,}$/.test(username) ? username : null
+  } catch {
+    return null
+  }
+}
+
+function extractYouTubeCustomSlug(input: string): string | null {
+  const raw = input.trim()
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    if (!url.hostname.includes('youtube.com')) return null
+    const parts = url.pathname.split('/').filter(Boolean)
+    const customIdx = parts.findIndex((p) => p === 'c')
+    if (customIdx < 0) return null
+    const slug = parts[customIdx + 1]?.trim()
+    if (!slug) return null
+    return /^[a-zA-Z0-9._-]{2,}$/.test(slug) ? slug : null
+  } catch {
+    return null
+  }
+}
+
 export function extractYouTubeVideoId(input: string): string | null {
   const raw = input.trim()
   if (!raw) return null
@@ -331,12 +385,138 @@ export async function getYouTubeChannelById(channelId: string): Promise<{
   }
 }
 
+async function getYouTubeChannelByHandle(handle: string): Promise<{
+  data: YouTubeChannelResult | null
+  error: Error | null
+}> {
+  const clean = handle.replace(/^@+/, '').trim()
+  if (!clean) return { data: null, error: new Error('Handle לא תקין') }
+  const key = getApiKey()
+  if (!key) {
+    return {
+      data: null,
+      error: new Error(
+        'חסר מפתח YouTube: הוסיפו VITE_YOUTUBE_API_KEY לקובץ .env.local והפעילו מחדש את שרת הפיתוח (npm run dev).'
+      ),
+    }
+  }
+  try {
+    const chUrl = new URL(`${YT_API}/channels`)
+    chUrl.searchParams.set('part', 'snippet,statistics')
+    chUrl.searchParams.set('forHandle', clean)
+    chUrl.searchParams.set('maxResults', '1')
+    chUrl.searchParams.set('key', key)
+    const res = await fetch(chUrl.toString())
+    const json = (await res.json()) as {
+      items?: ChannelItem[]
+      error?: { message?: string; errors?: { message?: string }[] }
+    }
+    if (!res.ok) {
+      const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
+      throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
+    }
+    const item = json.items?.[0]
+    if (!item?.id) return { data: null, error: new Error('לא נמצא ערוץ עבור ה-handle שנשלח.') }
+    const stats = item.statistics
+    let subs = '—'
+    if (stats?.hiddenSubscriberCount) subs = 'מוסתר'
+    else if (stats?.subscriberCount !== undefined) subs = formatSubscriberCount(stats.subscriberCount)
+    return {
+      data: {
+        channelId: item.id,
+        title: item.snippet?.title ?? 'ללא שם',
+        thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
+        subscriberCount: subs,
+        description: (item.snippet?.description ?? '').slice(0, 500),
+      },
+      error: null,
+    }
+  } catch (e) {
+    return {
+      data: null,
+      error: e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת ערוץ נכשלה'),
+    }
+  }
+}
+
+async function getYouTubeChannelByUsername(username: string): Promise<{
+  data: YouTubeChannelResult | null
+  error: Error | null
+}> {
+  const clean = username.trim()
+  if (!clean) return { data: null, error: new Error('Username לא תקין') }
+  const key = getApiKey()
+  if (!key) {
+    return {
+      data: null,
+      error: new Error(
+        'חסר מפתח YouTube: הוסיפו VITE_YOUTUBE_API_KEY לקובץ .env.local והפעילו מחדש את שרת הפיתוח (npm run dev).'
+      ),
+    }
+  }
+  try {
+    const chUrl = new URL(`${YT_API}/channels`)
+    chUrl.searchParams.set('part', 'snippet,statistics')
+    chUrl.searchParams.set('forUsername', clean)
+    chUrl.searchParams.set('maxResults', '1')
+    chUrl.searchParams.set('key', key)
+    const res = await fetch(chUrl.toString())
+    const json = (await res.json()) as {
+      items?: ChannelItem[]
+      error?: { message?: string; errors?: { message?: string }[] }
+    }
+    if (!res.ok) {
+      const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
+      throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
+    }
+    const item = json.items?.[0]
+    if (!item?.id) return { data: null, error: new Error('לא נמצא ערוץ עבור המשתמש שנשלח.') }
+    const stats = item.statistics
+    let subs = '—'
+    if (stats?.hiddenSubscriberCount) subs = 'מוסתר'
+    else if (stats?.subscriberCount !== undefined) subs = formatSubscriberCount(stats.subscriberCount)
+    return {
+      data: {
+        channelId: item.id,
+        title: item.snippet?.title ?? 'ללא שם',
+        thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
+        subscriberCount: subs,
+        description: (item.snippet?.description ?? '').slice(0, 500),
+      },
+      error: null,
+    }
+  } catch (e) {
+    return {
+      data: null,
+      error: e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת ערוץ נכשלה'),
+    }
+  }
+}
+
 export async function resolveYouTubeChannelFromInput(input: string): Promise<{
   data: YouTubeChannelResult | null
   error: Error | null
 }> {
   const channelId = extractYouTubeChannelId(input)
   if (channelId) return getYouTubeChannelById(channelId)
+
+  const handle = extractYouTubeHandle(input)
+  if (handle) return getYouTubeChannelByHandle(handle)
+
+  const username = extractYouTubeUsername(input)
+  if (username) return getYouTubeChannelByUsername(username)
+
+  const customSlug = extractYouTubeCustomSlug(input)
+  if (customSlug) {
+    const { data, error } = await searchYouTubeChannels(customSlug)
+    if (error) return { data: null, error }
+    if (!data?.length) return { data: null, error: new Error('לא נמצא ערוץ עבור הקישור שנשלח.') }
+    const exact =
+      data.find((c) => c.title.toLowerCase() === customSlug.toLowerCase()) ??
+      data.find((c) => c.channelId) ??
+      null
+    return { data: exact, error: exact ? null : new Error('לא נמצא ערוץ עבור הקישור שנשלח.') }
+  }
 
   const videoId = extractYouTubeVideoId(input)
   if (!videoId) {
