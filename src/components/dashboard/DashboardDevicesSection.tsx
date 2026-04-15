@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Smartphone, Trash2 } from 'lucide-react'
+import { Plus, QrCode, Smartphone, Trash2 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useSubscription } from '../../hooks/useSubscription'
@@ -18,6 +19,7 @@ function randomSixDigits() {
 }
 
 export function DashboardDevicesSection() {
+  const KID_MODE_URL = 'https://kids-youtube-app.vercel.app/kid'
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
@@ -25,6 +27,7 @@ export function DashboardDevicesSection() {
   const removeDevice = useDeviceStore((s) => s.removeDevice)
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [qrModalOpen, setQrModalOpen] = useState(false)
   const [deviceName, setDeviceName] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -106,15 +109,21 @@ export function DashboardDevicesSection() {
           </h2>
           <p className="text-xs text-zinc-500">מכשירים מקושרים: {devices.length} / {max}</p>
         </div>
-        <Button
-          type="button"
-          className="w-full shrink-0 sm:w-auto"
-          onClick={openModal}
-          disabled={atLimit || !ownerUserId}
-        >
-          <Plus className="h-4 w-4" />
-          הוספת מכשיר חדש
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Button type="button" variant="secondary" className="w-full shrink-0 sm:w-auto" onClick={() => setQrModalOpen(true)}>
+            <QrCode className="h-4 w-4" />
+            Add New Device (QR)
+          </Button>
+          <Button
+            type="button"
+            className="w-full shrink-0 sm:w-auto"
+            onClick={openModal}
+            disabled={atLimit || !ownerUserId}
+          >
+            <Plus className="h-4 w-4" />
+            הוספת מכשיר חדש
+          </Button>
+        </div>
       </div>
 
       {isDevFallback ? (
@@ -218,6 +227,38 @@ export function DashboardDevicesSection() {
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && void handleAdd()}
         />
+      </Modal>
+
+      <Modal
+        open={qrModalOpen}
+        onClose={() => setQrModalOpen(false)}
+        title="Add New Device - QR"
+        footer={
+          <>
+            <Button type="button" variant="secondary" onClick={() => setQrModalOpen(false)}>
+              סגור
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(KID_MODE_URL)
+                toast.success('הקישור הועתק')
+              }}
+            >
+              העתק קישור
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-sm text-zinc-400">סרקו עם המכשיר של הילד כדי להיכנס ישירות ל-Child Mode.</p>
+          <div className="rounded-2xl bg-white p-3">
+            <QRCodeSVG value={KID_MODE_URL} size={220} />
+          </div>
+          <p className="text-xs text-zinc-500" dir="ltr">
+            {KID_MODE_URL}
+          </p>
+        </div>
       </Modal>
     </section>
   )
