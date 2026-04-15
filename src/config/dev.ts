@@ -2,7 +2,7 @@
  * When true: skip login + onboarding; open the app on Home (dashboard) without a session.
  * Set to false before production or when testing auth again.
  */
-export const BYPASS_AUTH = true
+export const BYPASS_AUTH = false
 
 /**
  * When true and there is no session: use VITE_DEV_DEVICE_OWNER_ID or a stable UUID in localStorage

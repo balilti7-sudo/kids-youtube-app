@@ -10,6 +10,7 @@ import { ChannelsPage } from './pages/ChannelsPage'
 import { DeviceLinkPage } from './pages/DeviceLinkPage'
 import { SubscriptionPage } from './pages/SubscriptionPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { KidModePage } from './pages/KidModePage'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Toaster richColors position="top-center" dir="rtl" theme="dark" />
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/kid" element={<KidModePage />} />
           <Route
             path="/onboarding"
             element={

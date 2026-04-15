@@ -34,29 +34,37 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
 
   fetchDevices: async (userId) => {
     set({ loading: true, error: null })
-    const { data, error } = await supabase
-      .from('devices')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+    try {
+      const { data, error } = await supabase
+        .from('devices')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
 
-    if (error) {
-      const msg = formatSupabaseError(error)
-      console.error('[deviceStore.fetchDevices]', error)
-      set({ loading: false, error: msg })
-      return
-    }
-    const rows = (data ?? []) as Device[]
-    const withCounts = await Promise.all(
-      rows.map(async (d) => {
-        const { count } = await supabase
-          .from('device_whitelist')
-          .select('*', { count: 'exact', head: true })
-          .eq('device_id', d.id)
-        return { ...d, channel_count: count ?? 0 }
+      if (error) {
+        const msg = formatSupabaseError(error)
+        console.error('[deviceStore.fetchDevices]', error)
+        set({ loading: false, error: msg })
+        return
+      }
+      const rows = (data ?? []) as Device[]
+      const withCounts = await Promise.all(
+        rows.map(async (d) => {
+          const { count } = await supabase
+            .from('device_whitelist')
+            .select('*', { count: 'exact', head: true })
+            .eq('device_id', d.id)
+          return { ...d, channel_count: count ?? 0 }
+        })
+      )
+      set({ devices: withCounts, loading: false })
+    } catch (err) {
+      console.error('[deviceStore.fetchDevices] Network/runtime failure:', err)
+      set({
+        loading: false,
+        error: 'לא ניתן להתחבר ל-Supabase כרגע (Network error). בדוק חיבור אינטרנט, חוסם פרסומות, או Firewall.',
       })
-    )
-    set({ devices: withCounts, loading: false })
+    }
   },
 
   toggleBlock: async (deviceId, isBlocked) => {

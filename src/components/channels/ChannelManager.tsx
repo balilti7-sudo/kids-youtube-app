@@ -8,7 +8,9 @@ import type { WhitelistedChannel } from '../../types'
 import { WhitelistView } from './WhitelistView'
 import { ChannelSearch } from './ChannelSearch'
 import { RemoveChannelModal } from './RemoveChannelModal'
+import { ApprovedVideosPanel } from './ApprovedVideosPanel'
 import { Button } from '../ui/Button'
+import { Input } from '../ui/Input'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
 
@@ -20,18 +22,32 @@ export function ChannelManager() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
+  const [addingVideoId, setAddingVideoId] = useState<string | null>(null)
+  const [addingChannelByUrl, setAddingChannelByUrl] = useState(false)
+  const [channelUrlInput, setChannelUrlInput] = useState('')
   const [removeLoading, setRemoveLoading] = useState(false)
+  const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
 
   const {
     whitelist,
+    approvedVideos,
     searchResults,
+    videoSearchResults,
     searchLoading,
+    videoSearchLoading,
     searchError,
+    videoSearchError,
     loading: listLoading,
     search,
+    searchVideos,
     loadWhitelist,
+    loadApprovedVideos,
+    addVideoByUrlOrId,
+    addChannelByUrlOrId,
     addToWhitelist,
+    addToApprovedVideos,
     removeFromWhitelist,
+    removeFromApprovedVideos,
   } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId)
 
   useEffect(() => {
@@ -40,15 +56,20 @@ export function ChannelManager() {
 
   useEffect(() => {
     loadWhitelist()
-  }, [deviceId, loadWhitelist])
+    loadApprovedVideos()
+  }, [deviceId, loadWhitelist, loadApprovedVideos])
 
   const handleAdd = async (c: import('../../types').YouTubeChannelResult) => {
+    if (!selectedDevice) {
+      toast.error('לא נבחר מכשיר להוספה')
+      return
+    }
     setAddingId(c.channelId)
     const { error } = await addToWhitelist(c)
     setAddingId(null)
     if (error) toast.error(error.message)
     else {
-      toast.success('הערוץ נוסף')
+      toast.success(`הערוץ נוסף למכשיר ${selectedDevice.name}`)
       setSearchOpen(false)
     }
   }
@@ -65,10 +86,72 @@ export function ChannelManager() {
     }
   }
 
+  const handleAddChannelByUrl = async () => {
+    const trimmed = channelUrlInput.trim()
+    if (!trimmed) {
+      toast.error('הדביקו לינק לערוץ או לסרטון YouTube')
+      return
+    }
+    if (!selectedDevice) {
+      toast.error('לא נבחר מכשיר להוספה')
+      return
+    }
+    setAddingChannelByUrl(true)
+    const { error } = await addChannelByUrlOrId(trimmed)
+    setAddingChannelByUrl(false)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    setChannelUrlInput('')
+    toast.success(`הערוץ נוסף למכשיר ${selectedDevice.name}`)
+  }
+
+  const handleAddVideoByUrl = async (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      toast.error('הדביקו קישור לסרטון או מזהה וידאו')
+      return
+    }
+    setAddingVideoId('url')
+    const { error } = await addVideoByUrlOrId(trimmed)
+    setAddingVideoId(null)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success('הסרטון אושר למכשיר')
+  }
+
+  const handleAddVideoFromSearch = async (video: import('../../types').YouTubeVideoResult) => {
+    setAddingVideoId(video.videoId)
+    const { error } = await addToApprovedVideos(video)
+    setAddingVideoId(null)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success('הסרטון אושר למכשיר')
+  }
+
+  const handleRemoveVideo = async (videoId: string) => {
+    const { error } = await removeFromApprovedVideos(videoId)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success('הסרטון הוסר מהרשימה')
+  }
+
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-4 pb-4">
       <header className="flex flex-col gap-2">
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ערוצים</h1>
+        {selectedDevice ? (
+          <p className="text-xs text-slate-500 dark:text-zinc-400">
+            המכשיר הפעיל כעת: <span className="font-semibold text-slate-700 dark:text-zinc-200">{selectedDevice.name}</span>
+          </p>
+        ) : null}
         {devices.length > 1 ? (
           <select
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
@@ -82,6 +165,21 @@ export function ChannelManager() {
             ))}
           </select>
         ) : null}
+        <div className="rounded-xl border border-slate-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-900">
+          <p className="mb-2 text-xs text-slate-500 dark:text-zinc-400">הוספה מהירה לפי לינק ערוץ/סרטון (חוסך מכסת חיפוש)</p>
+          <div className="flex gap-2">
+            <Input
+              dir="ltr"
+              placeholder="https://www.youtube.com/channel/... או https://youtu.be/..."
+              value={channelUrlInput}
+              onChange={(e) => setChannelUrlInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void handleAddChannelByUrl()}
+            />
+            <Button onClick={() => void handleAddChannelByUrl()} disabled={addingChannelByUrl}>
+              {addingChannelByUrl ? '...' : 'הוסף'}
+            </Button>
+          </div>
+        </div>
       </header>
 
       {devLoading || listLoading ? (
@@ -89,7 +187,20 @@ export function ChannelManager() {
       ) : devices.length === 0 ? (
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>
       ) : (
-        <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} />
+        <div className="flex flex-col gap-4">
+          <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} />
+          <ApprovedVideosPanel
+            videos={approvedVideos}
+            onAddByUrl={handleAddVideoByUrl}
+            onSearchVideos={searchVideos}
+            searchResults={videoSearchResults}
+            searchLoading={videoSearchLoading}
+            searchError={videoSearchError}
+            onAddFromSearch={handleAddVideoFromSearch}
+            onRemove={handleRemoveVideo}
+            addingId={addingVideoId}
+          />
+        </div>
       )}
 
       <Button
@@ -109,6 +220,7 @@ export function ChannelManager() {
         error={searchError}
         onAdd={handleAdd}
         addingId={addingId}
+        deviceLabel={selectedDevice?.name}
       />
 
       <RemoveChannelModal

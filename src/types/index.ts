@@ -32,6 +32,16 @@ export interface WhitelistedChannel {
   created_at: string
 }
 
+export interface WhitelistedVideo {
+  id: string
+  youtube_video_id: string
+  title: string
+  thumbnail_url: string | null
+  youtube_channel_id: string | null
+  duration_seconds: number | null
+  created_at: string
+}
+
 export interface DeviceWhitelist {
   id: string
   device_id: string
@@ -77,4 +87,11 @@ export interface YouTubeChannelResult {
   thumbnail: string
   subscriberCount: string
   description: string
+}
+
+export interface YouTubeVideoResult {
+  videoId: string
+  title: string
+  thumbnail: string
+  channelTitle: string
 }

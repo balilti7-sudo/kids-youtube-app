@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { Search } from 'lucide-react'
+import type { YouTubeVideoResult } from '../../types'
 import { Modal } from '../ui/Modal'
-import { Input } from '../ui/Input'
 import { Button } from '../ui/Button'
-import { ChannelCard } from './ChannelCard'
-import type { YouTubeChannelResult } from '../../types'
+import { Input } from '../ui/Input'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { ErrorState } from '../ui/ErrorState'
+import { ApprovedVideoCard } from './ApprovedVideoCard'
 
-export function ChannelSearch({
+export function VideoSearchModal({
   open,
   onClose,
   onSearch,
@@ -17,17 +17,15 @@ export function ChannelSearch({
   error,
   onAdd,
   addingId,
-  deviceLabel,
 }: {
   open: boolean
   onClose: () => void
   onSearch: (q: string) => void
-  results: YouTubeChannelResult[]
+  results: YouTubeVideoResult[]
   loading: boolean
   error: string | null
-  onAdd: (c: YouTubeChannelResult) => void
+  onAdd: (v: YouTubeVideoResult) => void
   addingId: string | null
-  deviceLabel?: string
 }) {
   const [q, setQ] = useState('')
 
@@ -35,7 +33,7 @@ export function ChannelSearch({
     <Modal
       open={open}
       onClose={onClose}
-      title={deviceLabel ? `חיפוש ערוץ עבור ${deviceLabel}` : 'חיפוש ערוץ'}
+      title="חיפוש סרטון"
       footer={
         <Button variant="secondary" onClick={onClose}>
           סגור
@@ -46,7 +44,7 @@ export function ChannelSearch({
         <div className="flex gap-2">
           <Input
             dir="ltr"
-            placeholder="שם ערוץ..."
+            placeholder="שם סרטון..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && onSearch(q)}
@@ -64,13 +62,13 @@ export function ChannelSearch({
       ) : null}
 
       <div className="flex flex-col gap-2">
-        {results.map((c) => (
-          <ChannelCard
-            key={c.channelId}
+        {results.map((v) => (
+          <ApprovedVideoCard
+            key={v.videoId}
             variant="search"
-            channel={c}
-            onAdd={() => onAdd(c)}
-            adding={addingId === c.channelId}
+            video={v}
+            onAdd={() => onAdd(v)}
+            adding={addingId === v.videoId}
           />
         ))}
       </div>

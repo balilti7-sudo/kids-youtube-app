@@ -16,6 +16,7 @@ interface AuthState {
   fetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>
+  verifyEmailCode: (email: string, code: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
 }
 
@@ -68,6 +69,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { error: new Error(error.message) }
     }
     return { error: null }
+  },
+
+  verifyEmailCode: async (email, code) => {
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: code,
+      type: 'signup',
+    })
+    return { error: error ? new Error(error.message) : null }
   },
 
   signOut: async () => {
