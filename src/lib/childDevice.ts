@@ -22,6 +22,7 @@ export interface ChildAllowedChannel {
   channel_id: string
   youtube_channel_id: string
   channel_name: string
+  category: string | null
   channel_thumbnail: string | null
   subscriber_count: string | null
 }

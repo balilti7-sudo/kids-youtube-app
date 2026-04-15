@@ -49,6 +49,9 @@ export function KidModePage() {
   const [channelLoading, setChannelLoading] = useState(false)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
+  const [playerOpen, setPlayerOpen] = useState(false)
+  const [videoSearch, setVideoSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [playerNonce, setPlayerNonce] = useState(0)
   const [iframeLoaded, setIframeLoaded] = useState(false)
@@ -65,6 +68,19 @@ export function KidModePage() {
     () => channelVideos.find((v) => v.videoId === activeVideoId) ?? channelVideos[0] ?? null,
     [channelVideos, activeVideoId]
   )
+  const categories = useMemo(() => {
+    const set = new Set(channels.map((c) => c.category?.trim()).filter(Boolean) as string[])
+    return ['all', ...Array.from(set)]
+  }, [channels])
+  const filteredChannels = useMemo(() => {
+    if (selectedCategory === 'all') return channels
+    return channels.filter((c) => (c.category ?? '').trim() === selectedCategory)
+  }, [channels, selectedCategory])
+  const filteredVideos = useMemo(() => {
+    const q = videoSearch.trim().toLowerCase()
+    if (!q) return channelVideos
+    return channelVideos.filter((v) => v.title.toLowerCase().includes(q))
+  }, [channelVideos, videoSearch])
 
   useEffect(() => {
     setIframeLoaded(false)
@@ -96,6 +112,7 @@ export function KidModePage() {
     }))
     setChannelVideos(next)
     setActiveVideoId(next[0]?.videoId ?? null)
+    setPlayerOpen(false)
   }, [accessToken])
 
   const loadChildData = useCallback(async (token: string) => {
@@ -117,6 +134,7 @@ export function KidModePage() {
     if (!preferred) {
       setChannelVideos([])
       setActiveVideoId(null)
+      setPlayerOpen(false)
     }
   }, [activeChannelId])
 
@@ -310,6 +328,18 @@ export function KidModePage() {
           </div>
         </div>
       </header>
+      <div className="flex flex-wrap gap-2">
+        {categories.map((cat) => (
+          <Button
+            key={cat}
+            variant={selectedCategory === cat ? 'primary' : 'secondary'}
+            className="!px-3 !py-1.5 text-xs"
+            onClick={() => setSelectedCategory(cat)}
+          >
+            {cat === 'all' ? 'הכול' : cat}
+          </Button>
+        ))}
+      </div>
       {showInstallHint ? (
         <p className="text-xs text-zinc-500">
           אם לא הופיעה התקנה אוטומטית, בדפדפן פתחו תפריט ובחרו &quot;Add to Home screen&quot; / &quot;Install app&quot;.
@@ -326,8 +356,13 @@ export function KidModePage() {
       ) : (
         <section className="grid flex-1 gap-3 lg:grid-cols-[2fr,1fr,1fr]">
           <article className="rounded-2xl border border-slate-200 bg-black p-2 shadow-sm dark:border-zinc-700">
-            {activeVideo ? (
+            {playerOpen && activeVideo ? (
               <>
+                <div className="mb-2 flex justify-start">
+                  <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={() => setPlayerOpen(false)}>
+                    חזרה לגלריה
+                  </Button>
+                </div>
                 <div className="relative overflow-hidden rounded-xl pt-[56.25%]">
                   <iframe
                     title={activeVideo.title}
@@ -364,9 +399,34 @@ export function KidModePage() {
                 <p className="mt-2 px-1 text-sm font-semibold text-zinc-100">{activeVideo.title}</p>
               </>
             ) : (
-              <div className="flex h-full min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 text-zinc-300">
-                <Unplug className="h-8 w-8 text-zinc-500" />
-                <p className="text-sm">בחרו ערוץ כדי לראות סרטונים</p>
+              <div className="grid gap-3 p-1 sm:grid-cols-2">
+                {filteredVideos.length > 0 ? (
+                  filteredVideos.map((video) => (
+                    <button
+                      key={video.videoId}
+                      type="button"
+                      onClick={() => {
+                        setActiveVideoId(video.videoId)
+                        setPlayerOpen(true)
+                      }}
+                      className="overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 text-right transition hover:border-brand-500"
+                    >
+                      {video.thumbnail ? (
+                        <img src={video.thumbnail} alt="" className="h-36 w-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="flex h-36 w-full items-center justify-center bg-zinc-800">
+                          <Smartphone className="h-5 w-5 text-zinc-500" />
+                        </div>
+                      )}
+                      <p className="line-clamp-2 px-3 py-2 text-sm font-semibold text-zinc-100">{video.title}</p>
+                    </button>
+                  ))
+                ) : (
+                  <div className="col-span-full flex h-full min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 text-zinc-300">
+                    <Unplug className="h-8 w-8 text-zinc-500" />
+                    <p className="text-sm">בחרו ערוץ כדי לראות סרטונים</p>
+                  </div>
+                )}
               </div>
             )}
           </article>
@@ -374,7 +434,7 @@ export function KidModePage() {
           <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">ערוצים מאושרים</h2>
             <div className="grid max-h-[65vh] gap-2 overflow-auto pr-1">
-              {channels.map((channel) => {
+              {filteredChannels.map((channel) => {
                 const selected = channel.youtube_channel_id === activeChannelId
                 return (
                   <button
@@ -407,6 +467,7 @@ export function KidModePage() {
                     <span className="line-clamp-2 text-xs font-medium text-slate-700 dark:text-zinc-200">
                       {channel.channel_name}
                     </span>
+                    {channel.category ? <span className="text-[11px] text-brand-500">{channel.category}</span> : null}
                   </button>
                 )
               })}
@@ -415,19 +476,28 @@ export function KidModePage() {
 
           <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">סרטונים אחרונים בערוץ</h2>
+            <Input
+              value={videoSearch}
+              onChange={(e) => setVideoSearch(e.target.value)}
+              placeholder="חיפוש בתוך הסרטונים המאוחסנים"
+              className="mb-2"
+            />
             {channelLoading ? (
               <div className="flex items-center justify-center py-8">
                 <LoadingSpinner className="h-6 w-6 border-brand-500 border-t-transparent" />
               </div>
             ) : (
               <div className="grid max-h-[65vh] gap-2 overflow-auto pr-1">
-                {channelVideos.map((video) => {
+                {filteredVideos.map((video) => {
                   const selected = video.videoId === activeVideo?.videoId
                   return (
                     <button
                       key={video.videoId}
                       type="button"
-                      onClick={() => setActiveVideoId(video.videoId)}
+                      onClick={() => {
+                        setActiveVideoId(video.videoId)
+                        setPlayerOpen(true)
+                      }}
                       className={`flex items-center gap-2 rounded-xl border p-2 text-right transition ${
                         selected
                           ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'

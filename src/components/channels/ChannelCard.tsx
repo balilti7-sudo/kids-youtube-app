@@ -9,11 +9,13 @@ type Props =
       channel: YouTubeChannelResult
       onAdd: () => void
       adding?: boolean
+      manageLocked?: boolean
     }
   | {
       variant: 'whitelist'
       channel: WhitelistedChannel
       onRemove: () => void
+      manageLocked?: boolean
     }
 
 export function ChannelCard(props: Props) {
@@ -69,13 +71,16 @@ export function ChannelCard(props: Props) {
       )}
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold text-slate-900 dark:text-zinc-100">{title}</p>
+        {props.variant === 'whitelist' && props.channel.category ? (
+          <p className="text-xs text-brand-600 dark:text-brand-400">{props.channel.category}</p>
+        ) : null}
         {subs ? <p className="text-xs text-slate-500 dark:text-zinc-500">{subs} מנויים</p> : null}
       </div>
       {props.variant === 'search' ? (
-        <Button className="shrink-0 self-center" onClick={props.onAdd} disabled={props.adding}>
+        <Button className="shrink-0 self-center" onClick={props.onAdd} disabled={props.adding || props.manageLocked}>
           {props.adding ? '...' : 'הוסף'}
         </Button>
-      ) : (
+      ) : props.manageLocked ? null : (
         <Button variant="danger" className="shrink-0 self-center !py-2 !px-3 text-xs" onClick={props.onRemove}>
           הסר
         </Button>

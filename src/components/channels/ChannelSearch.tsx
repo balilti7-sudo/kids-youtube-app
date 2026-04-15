@@ -18,6 +18,7 @@ export function ChannelSearch({
   onAdd,
   addingId,
   deviceLabel,
+  manageLocked,
 }: {
   open: boolean
   onClose: () => void
@@ -28,6 +29,7 @@ export function ChannelSearch({
   onAdd: (c: YouTubeChannelResult) => void
   addingId: string | null
   deviceLabel?: string
+  manageLocked?: boolean
 }) {
   const [q, setQ] = useState('')
 
@@ -71,6 +73,7 @@ export function ChannelSearch({
             channel={c}
             onAdd={() => onAdd(c)}
             adding={addingId === c.channelId}
+            manageLocked={manageLocked}
           />
         ))}
       </div>

@@ -26,6 +26,7 @@ interface ChannelState {
     deviceId: string
     userId: string
     yt: YouTubeChannelResult
+    category?: string | null
   }) => Promise<{ error: Error | null }>
   addVideoToDevice: (params: {
     deviceId: string
@@ -92,22 +93,31 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     set({ approvedVideos: videos, loading: false })
   },
 
-  addChannelToDevice: async ({ deviceId, userId, yt }) => {
+  addChannelToDevice: async ({ deviceId, userId, yt, category }) => {
     let channelId: string
+    const normalizedCategory = category?.trim() ? category.trim() : null
     const existing = await supabase
       .from('whitelisted_channels')
-      .select('id')
+      .select('id, category')
       .eq('youtube_channel_id', yt.channelId)
       .maybeSingle()
 
     if (existing.data?.id) {
       channelId = existing.data.id
+      if (normalizedCategory && existing.data.category !== normalizedCategory) {
+        const { error: updateError } = await supabase
+          .from('whitelisted_channels')
+          .update({ category: normalizedCategory })
+          .eq('id', channelId)
+        if (updateError) return { error: new Error(updateError.message) }
+      }
     } else {
       const ins = await supabase
         .from('whitelisted_channels')
         .insert({
           youtube_channel_id: yt.channelId,
           channel_name: yt.title,
+          category: normalizedCategory,
           channel_thumbnail: yt.thumbnail || null,
           subscriber_count: yt.subscriberCount || null,
           description: yt.description || null,

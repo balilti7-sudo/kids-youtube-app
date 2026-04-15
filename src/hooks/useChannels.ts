@@ -130,19 +130,19 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
   )
 
   const addToWhitelist = useCallback(
-    async (yt: import('../types').YouTubeChannelResult) => {
+    async (yt: import('../types').YouTubeChannelResult, category?: string | null) => {
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
-      return addChannelToDevice({ deviceId, userId, yt })
+      return addChannelToDevice({ deviceId, userId, yt, category })
     },
     [deviceId, userId, addChannelToDevice]
   )
 
   const addChannelByUrlOrId = useCallback(
-    async (input: string) => {
+    async (input: string, category?: string | null) => {
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       const { data, error } = await resolveYouTubeChannelFromInput(input)
       if (error || !data) return { error: error ?? new Error('לא נמצא ערוץ מהקישור') }
-      return addChannelToDevice({ deviceId, userId, yt: data })
+      return addChannelToDevice({ deviceId, userId, yt: data, category })
     },
     [deviceId, userId, addChannelToDevice]
   )

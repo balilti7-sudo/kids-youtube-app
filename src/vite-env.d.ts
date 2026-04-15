@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_YOUTUBE_API_KEY?: string
   /** PIN for parent-only device disconnect action in kid mode */
   readonly VITE_PARENT_UNLOCK_PIN?: string
+  /** PIN for parent-only channel management controls */
+  readonly VITE_PARENT_MANAGEMENT_PIN?: string
   /** אופציונלי: UUID קיים ב-profiles כש-FK פעיל ואין התחברות */
   readonly VITE_DEV_DEVICE_OWNER_ID?: string
 }

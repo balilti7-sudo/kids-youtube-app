@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, RefreshCcw } from 'lucide-react'
+import { Lock, LockOpen, Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
@@ -10,6 +10,7 @@ import { ChannelSearch } from './ChannelSearch'
 import { RemoveChannelModal } from './RemoveChannelModal'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
+import { Modal } from '../ui/Modal'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
 
@@ -23,9 +24,15 @@ export function ChannelManager() {
   const [addingId, setAddingId] = useState<string | null>(null)
   const [addingChannelByUrl, setAddingChannelByUrl] = useState(false)
   const [channelUrlInput, setChannelUrlInput] = useState('')
+  const [channelCategory, setChannelCategory] = useState('')
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
+  const [manageLocked, setManageLocked] = useState(true)
+  const [pinModalOpen, setPinModalOpen] = useState(false)
+  const [pinInput, setPinInput] = useState('')
+  const [pinError, setPinError] = useState<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
+  const managementPin = import.meta.env.VITE_PARENT_MANAGEMENT_PIN?.trim() || import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() || ''
 
   const {
     whitelist,
@@ -55,7 +62,7 @@ export function ChannelManager() {
       return
     }
     setAddingId(c.channelId)
-    const { error } = await addToWhitelist(c)
+    const { error } = await addToWhitelist(c, channelCategory.trim() || null)
     setAddingId(null)
     if (error) toast.error(error.message)
     else {
@@ -87,7 +94,7 @@ export function ChannelManager() {
       return
     }
     setAddingChannelByUrl(true)
-    const { error } = await addChannelByUrlOrId(trimmed)
+    const { error } = await addChannelByUrlOrId(trimmed, channelCategory.trim() || null)
     setAddingChannelByUrl(false)
     if (error) {
       toast.error(error.message)
@@ -108,6 +115,23 @@ export function ChannelManager() {
     toast.success('סרטוני הערוץ עודכנו במטמון')
   }
 
+  const handleUnlockManagement = () => {
+    if (!managementPin) {
+      setManageLocked(false)
+      toast.success('ניהול ערוצים נפתח (ללא PIN מוגדר)')
+      return
+    }
+    if (pinInput !== managementPin) {
+      setPinError('PIN שגוי')
+      return
+    }
+    setManageLocked(false)
+    setPinModalOpen(false)
+    setPinInput('')
+    setPinError(null)
+    toast.success('ניהול ערוצים נפתח')
+  }
+
   useEffect(() => {
     if (whitelist.length === 0 || refreshingChannelId) return
     const stale = whitelist.find((c) => {
@@ -123,6 +147,23 @@ export function ChannelManager() {
     <div className="mx-auto flex max-w-lg flex-col gap-4 pb-4">
       <header className="flex flex-col gap-2">
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ערוצים</h1>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-slate-500 dark:text-zinc-400">
+            {manageLocked ? 'מצב מוגן לילדים: נעול' : 'ניהול ערוצים פתוח'}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="!px-3 !py-1.5 text-xs"
+            onClick={() => {
+              if (manageLocked) setPinModalOpen(true)
+              else setManageLocked(true)
+            }}
+          >
+            {manageLocked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+            {manageLocked ? 'פתח ניהול' : 'נעל ניהול'}
+          </Button>
+        </div>
         {selectedDevice ? (
           <p className="text-xs text-slate-500 dark:text-zinc-400">
             המכשיר הפעיל כעת: <span className="font-semibold text-slate-700 dark:text-zinc-200">{selectedDevice.name}</span>
@@ -143,15 +184,22 @@ export function ChannelManager() {
         ) : null}
         <div className="rounded-xl border border-slate-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-900">
           <p className="mb-2 text-xs text-slate-500 dark:text-zinc-400">הוספה מהירה לפי לינק ערוץ/סרטון (חוסך מכסת חיפוש)</p>
+          <Input
+            placeholder="קטגוריה (למשל: Songs / Stories / Education)"
+            value={channelCategory}
+            onChange={(e) => setChannelCategory(e.target.value)}
+            className="mb-2"
+          />
           <div className="flex gap-2">
             <Input
               dir="ltr"
               placeholder="https://www.youtube.com/channel/... או https://youtu.be/..."
               value={channelUrlInput}
               onChange={(e) => setChannelUrlInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void handleAddChannelByUrl()}
+              onKeyDown={(e) => e.key === 'Enter' && !manageLocked && void handleAddChannelByUrl()}
+              disabled={manageLocked}
             />
-            <Button onClick={() => void handleAddChannelByUrl()} disabled={addingChannelByUrl}>
+            <Button onClick={() => void handleAddChannelByUrl()} disabled={addingChannelByUrl || manageLocked}>
               {addingChannelByUrl ? '...' : 'הוסף'}
             </Button>
           </div>
@@ -164,7 +212,7 @@ export function ChannelManager() {
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>
       ) : (
         <div className="flex flex-col gap-4">
-          <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} />
+          <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} manageLocked={manageLocked} />
           {whitelist.length > 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
               <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">רענון סרטוני ערוץ (Cache)</p>
@@ -197,6 +245,7 @@ export function ChannelManager() {
       <Button
         className="fixed bottom-24 left-4 right-4 z-30 mx-auto max-w-lg gap-2 shadow-lg"
         onClick={() => setSearchOpen(true)}
+        disabled={manageLocked}
       >
         <Plus className="h-5 w-5" />
         חיפוש ערוץ
@@ -212,6 +261,7 @@ export function ChannelManager() {
         onAdd={handleAdd}
         addingId={addingId}
         deviceLabel={selectedDevice?.name}
+        manageLocked={manageLocked}
       />
 
       <RemoveChannelModal
@@ -221,6 +271,37 @@ export function ChannelManager() {
         onConfirm={confirmRemove}
         loading={removeLoading}
       />
+
+      <Modal
+        open={pinModalOpen}
+        onClose={() => {
+          setPinModalOpen(false)
+          setPinInput('')
+          setPinError(null)
+        }}
+        title="PIN הורה לניהול ערוצים"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPinModalOpen(false)}>
+              ביטול
+            </Button>
+            <Button onClick={handleUnlockManagement}>פתח</Button>
+          </>
+        }
+      >
+        <Input
+          type="password"
+          placeholder="4 ספרות"
+          value={pinInput}
+          onChange={(e) => {
+            setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))
+            if (pinError) setPinError(null)
+          }}
+          autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && handleUnlockManagement()}
+        />
+        {pinError ? <p className="mt-2 text-sm text-danger-600">{pinError}</p> : null}
+      </Modal>
     </div>
   )
 }
