@@ -32,7 +32,8 @@ export function ChannelManager() {
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
-  const managementPin = import.meta.env.VITE_PARENT_MANAGEMENT_PIN?.trim() || import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() || ''
+  const managementPin =
+    import.meta.env.VITE_PARENT_MANAGEMENT_PIN?.trim() || import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() || '1234'
 
   const {
     whitelist,
