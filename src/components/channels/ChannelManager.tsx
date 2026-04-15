@@ -8,7 +8,6 @@ import type { WhitelistedChannel } from '../../types'
 import { WhitelistView } from './WhitelistView'
 import { ChannelSearch } from './ChannelSearch'
 import { RemoveChannelModal } from './RemoveChannelModal'
-import { ApprovedVideosPanel } from './ApprovedVideosPanel'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { toast } from 'sonner'
@@ -22,7 +21,6 @@ export function ChannelManager() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
-  const [addingVideoId, setAddingVideoId] = useState<string | null>(null)
   const [addingChannelByUrl, setAddingChannelByUrl] = useState(false)
   const [channelUrlInput, setChannelUrlInput] = useState('')
   const [removeLoading, setRemoveLoading] = useState(false)
@@ -30,24 +28,15 @@ export function ChannelManager() {
 
   const {
     whitelist,
-    approvedVideos,
     searchResults,
-    videoSearchResults,
     searchLoading,
-    videoSearchLoading,
     searchError,
-    videoSearchError,
     loading: listLoading,
     search,
-    searchVideos,
     loadWhitelist,
-    loadApprovedVideos,
-    addVideoByUrlOrId,
     addChannelByUrlOrId,
     addToWhitelist,
-    addToApprovedVideos,
     removeFromWhitelist,
-    removeFromApprovedVideos,
   } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId)
 
   useEffect(() => {
@@ -56,8 +45,7 @@ export function ChannelManager() {
 
   useEffect(() => {
     loadWhitelist()
-    loadApprovedVideos()
-  }, [deviceId, loadWhitelist, loadApprovedVideos])
+  }, [deviceId, loadWhitelist])
 
   const handleAdd = async (c: import('../../types').YouTubeChannelResult) => {
     if (!selectedDevice) {
@@ -107,42 +95,6 @@ export function ChannelManager() {
     toast.success(`הערוץ נוסף למכשיר ${selectedDevice.name}`)
   }
 
-  const handleAddVideoByUrl = async (value: string) => {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      toast.error('הדביקו קישור לסרטון או מזהה וידאו')
-      return
-    }
-    setAddingVideoId('url')
-    const { error } = await addVideoByUrlOrId(trimmed)
-    setAddingVideoId(null)
-    if (error) {
-      toast.error(error.message)
-      return
-    }
-    toast.success('הסרטון אושר למכשיר')
-  }
-
-  const handleAddVideoFromSearch = async (video: import('../../types').YouTubeVideoResult) => {
-    setAddingVideoId(video.videoId)
-    const { error } = await addToApprovedVideos(video)
-    setAddingVideoId(null)
-    if (error) {
-      toast.error(error.message)
-      return
-    }
-    toast.success('הסרטון אושר למכשיר')
-  }
-
-  const handleRemoveVideo = async (videoId: string) => {
-    const { error } = await removeFromApprovedVideos(videoId)
-    if (error) {
-      toast.error(error.message)
-      return
-    }
-    toast.success('הסרטון הוסר מהרשימה')
-  }
-
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-4 pb-4">
       <header className="flex flex-col gap-2">
@@ -189,17 +141,6 @@ export function ChannelManager() {
       ) : (
         <div className="flex flex-col gap-4">
           <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} />
-          <ApprovedVideosPanel
-            videos={approvedVideos}
-            onAddByUrl={handleAddVideoByUrl}
-            onSearchVideos={searchVideos}
-            searchResults={videoSearchResults}
-            searchLoading={videoSearchLoading}
-            searchError={videoSearchError}
-            onAddFromSearch={handleAddVideoFromSearch}
-            onRemove={handleRemoveVideo}
-            addingId={addingVideoId}
-          />
         </div>
       )}
 
