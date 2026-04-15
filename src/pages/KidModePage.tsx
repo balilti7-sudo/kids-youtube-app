@@ -100,17 +100,16 @@ export function KidModePage() {
       return
     }
 
+    setError(null)
     setChannels(channelsRes.data)
     const availableIds = new Set(channelsRes.data.map((c) => c.youtube_channel_id))
     const preferred = activeChannelId && availableIds.has(activeChannelId) ? activeChannelId : channelsRes.data[0]?.youtube_channel_id ?? null
-    setActiveChannelId(preferred)
-    if (preferred) {
-      await loadChannelVideos(preferred)
-    } else {
+    setActiveChannelId((prev) => (prev === preferred ? prev : preferred))
+    if (!preferred) {
       setChannelVideos([])
       setActiveVideoId(null)
     }
-  }, [activeChannelId, loadChannelVideos])
+  }, [activeChannelId])
 
   useEffect(() => {
     const boot = async () => {
@@ -146,6 +145,11 @@ export function KidModePage() {
     }, 3_000)
     return () => window.clearInterval(id)
   }, [accessToken, loadChildData])
+
+  useEffect(() => {
+    if (!activeChannelId) return
+    void loadChannelVideos(activeChannelId)
+  }, [activeChannelId, loadChannelVideos])
 
   useEffect(() => {
     const onBeforeInstallPrompt = (event: Event) => {
