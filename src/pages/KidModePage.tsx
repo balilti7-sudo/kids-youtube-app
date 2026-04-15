@@ -18,6 +18,11 @@ import {
 } from '../lib/childDevice'
 import { getLatestVideosForChannel, type ChannelVideoItem } from '../lib/youtube'
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
 function buildSafeEmbedUrl(videoId: string) {
   const params = new URLSearchParams({
     autoplay: '0',
@@ -51,6 +56,8 @@ export function KidModePage() {
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [showInstallHint, setShowInstallHint] = useState(false)
   const parentUnlockPin = import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() ?? ''
 
   const activeVideo = useMemo(
@@ -72,7 +79,11 @@ export function KidModePage() {
     setChannelLoading(true)
     const { data, error: ytError } = await getLatestVideosForChannel(channelId)
     setChannelLoading(false)
-    if (ytError) throw ytError
+    if (ytError) {
+      // Keep child mode connected even when YouTube API quota/network fails.
+      setError(ytError.message)
+      return
+    }
     const next = data ?? []
     setChannelVideos(next)
     setActiveVideoId(next[0]?.videoId ?? null)
@@ -82,9 +93,13 @@ export function KidModePage() {
     const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
     if (stateRes.error) throw stateRes.error
     if (!stateRes.data) throw new Error('המכשיר לא נמצא. התחברו מחדש עם קוד צימוד.')
-    if (channelsRes.error) throw channelsRes.error
 
     setDevice(stateRes.data)
+    if (channelsRes.error) {
+      setError(channelsRes.error.message)
+      return
+    }
+
     setChannels(channelsRes.data)
     const availableIds = new Set(channelsRes.data.map((c) => c.youtube_channel_id))
     const preferred = activeChannelId && availableIds.has(activeChannelId) ? activeChannelId : channelsRes.data[0]?.youtube_channel_id ?? null
@@ -108,8 +123,12 @@ export function KidModePage() {
         setAccessToken(token)
         await loadChildData(token)
       } catch (e) {
-        clearChildAccessToken()
-        setAccessToken(null)
+        // Clear token only for fatal state errors. Quota/network errors should not disconnect child mode.
+        const message = e instanceof Error ? e.message : String(e)
+        if (message.includes('המכשיר לא נמצא')) {
+          clearChildAccessToken()
+          setAccessToken(null)
+        }
         setError(e instanceof Error ? e.message : 'טעינת מצב ילד נכשלה')
       } finally {
         setBootLoading(false)
@@ -121,10 +140,34 @@ export function KidModePage() {
   useEffect(() => {
     if (!accessToken) return
     const id = window.setInterval(() => {
-      void Promise.all([childHeartbeat(accessToken), loadChildData(accessToken)])
+      void Promise.all([childHeartbeat(accessToken), loadChildData(accessToken)]).catch((e) => {
+        setError(e instanceof Error ? e.message : 'עדכון מצב נכשל')
+      })
     }, 3_000)
     return () => window.clearInterval(id)
   }, [accessToken, loadChildData])
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as BeforeInstallPromptEvent)
+      setShowInstallHint(false)
+    }
+
+    const onAppInstalled = () => {
+      setInstallPrompt(null)
+      setShowInstallHint(false)
+      setError(null)
+    }
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+    window.addEventListener('appinstalled', onAppInstalled)
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', onAppInstalled)
+    }
+  }, [])
 
   useEffect(() => {
     if (!accessToken) return
@@ -190,6 +233,16 @@ export function KidModePage() {
     await handleDisconnect()
   }
 
+  const handleInstallApp = async () => {
+    if (!installPrompt) {
+      setShowInstallHint(true)
+      return
+    }
+    await installPrompt.prompt()
+    await installPrompt.userChoice
+    setInstallPrompt(null)
+  }
+
   if (bootLoading) {
     return (
       <div className="mx-auto flex min-h-dvh max-w-5xl items-center justify-center px-4">
@@ -234,11 +287,21 @@ export function KidModePage() {
             <h1 className="truncate text-lg font-extrabold text-slate-900 dark:text-zinc-50">{device.device_name}</h1>
             <p className="text-xs text-slate-500 dark:text-zinc-400">SafeTube Kids - מצב מוגן</p>
           </div>
-          <Button variant="secondary" className="shrink-0 text-xs" onClick={() => setPinModalOpen(true)}>
-            נתק מכשיר (הורה)
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="secondary" className="text-xs" onClick={() => void handleInstallApp()}>
+              התקן אפליקציה
+            </Button>
+            <Button variant="secondary" className="text-xs" onClick={() => setPinModalOpen(true)}>
+              נתק מכשיר (הורה)
+            </Button>
+          </div>
         </div>
       </header>
+      {showInstallHint ? (
+        <p className="text-xs text-zinc-500">
+          אם לא הופיעה התקנה אוטומטית, בדפדפן פתחו תפריט ובחרו &quot;Add to Home screen&quot; / &quot;Install app&quot;.
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-danger-600">{error}</p> : null}
 
       {device.is_blocked ? (
