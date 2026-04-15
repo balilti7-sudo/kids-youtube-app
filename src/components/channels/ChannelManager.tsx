@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
@@ -24,6 +24,7 @@ export function ChannelManager() {
   const [addingChannelByUrl, setAddingChannelByUrl] = useState(false)
   const [channelUrlInput, setChannelUrlInput] = useState('')
   const [removeLoading, setRemoveLoading] = useState(false)
+  const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
 
   const {
@@ -35,6 +36,7 @@ export function ChannelManager() {
     search,
     loadWhitelist,
     addChannelByUrlOrId,
+    refreshChannelVideosCache,
     addToWhitelist,
     removeFromWhitelist,
   } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId)
@@ -95,6 +97,28 @@ export function ChannelManager() {
     toast.success(`הערוץ נוסף למכשיר ${selectedDevice.name}`)
   }
 
+  const handleRefreshChannelVideos = async (channelId: string, ytChannelId: string, force = true) => {
+    setRefreshingChannelId(channelId)
+    const { error } = await refreshChannelVideosCache(channelId, ytChannelId, force)
+    setRefreshingChannelId(null)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success('סרטוני הערוץ עודכנו במטמון')
+  }
+
+  useEffect(() => {
+    if (whitelist.length === 0 || refreshingChannelId) return
+    const stale = whitelist.find((c) => {
+      if (!c.last_videos_refresh_at) return true
+      return Date.now() - new Date(c.last_videos_refresh_at).getTime() > 24 * 60 * 60 * 1000
+    })
+    if (!stale) return
+    void handleRefreshChannelVideos(stale.id, stale.youtube_channel_id, false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [whitelist])
+
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-4 pb-4">
       <header className="flex flex-col gap-2">
@@ -141,6 +165,32 @@ export function ChannelManager() {
       ) : (
         <div className="flex flex-col gap-4">
           <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} />
+          {whitelist.length > 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+              <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">רענון סרטוני ערוץ (Cache)</p>
+              <div className="grid gap-2">
+                {whitelist.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 p-2 dark:border-zinc-800">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-zinc-100">{c.channel_name}</p>
+                      <p className="text-xs text-slate-500 dark:text-zinc-500">
+                        רענון אחרון: {c.last_videos_refresh_at ? new Date(c.last_videos_refresh_at).toLocaleString() : 'עדיין לא רוענן'}
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      className="shrink-0 !px-3 !py-2 text-xs"
+                      onClick={() => void handleRefreshChannelVideos(c.id, c.youtube_channel_id)}
+                      disabled={refreshingChannelId === c.id}
+                    >
+                      <RefreshCcw className="h-3.5 w-3.5" />
+                      {refreshingChannelId === c.id ? 'מרענן...' : 'רענן'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

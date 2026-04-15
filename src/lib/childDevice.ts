@@ -26,6 +26,13 @@ export interface ChildAllowedChannel {
   subscriber_count: string | null
 }
 
+export interface ChildCachedChannelVideo {
+  youtube_video_id: string
+  title: string
+  thumbnail_url: string | null
+  published_at: string | null
+}
+
 export function getSavedChildAccessToken() {
   return localStorage.getItem(CHILD_ACCESS_TOKEN_KEY)
 }
@@ -83,6 +90,18 @@ export async function getChildAllowedChannels(accessToken: string): Promise<{
   })
   if (error) return { data: [], error: new Error(error.message) }
   return { data: (data ?? []) as ChildAllowedChannel[], error: null }
+}
+
+export async function getChildCachedChannelVideos(accessToken: string, youtubeChannelId: string): Promise<{
+  data: ChildCachedChannelVideo[]
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('child_get_cached_channel_videos', {
+    p_access_token: accessToken,
+    p_youtube_channel_id: youtubeChannelId,
+  })
+  if (error) return { data: [], error: new Error(error.message) }
+  return { data: (data ?? []) as ChildCachedChannelVideo[], error: null }
 }
 
 export async function childHeartbeat(accessToken: string) {

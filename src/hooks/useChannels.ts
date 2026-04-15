@@ -1,6 +1,8 @@
 import { useCallback } from 'react'
 import { extractYouTubeVideoId, resolveYouTubeChannelFromInput, searchYouTubeChannels, searchYouTubeVideos } from '../lib/youtube'
 import { useChannelStore } from '../stores/channelStore'
+import { supabase } from '../lib/supabase'
+import { getLatestVideosForChannel } from '../lib/youtube'
 
 export function useChannels(deviceId: string | undefined, userId: string | undefined) {
   const whitelist = useChannelStore((s) => s.whitelist)
@@ -24,6 +26,50 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
   const addVideoToDevice = useChannelStore((s) => s.addVideoToDevice)
   const removeChannelFromDevice = useChannelStore((s) => s.removeChannelFromDevice)
   const removeVideoFromDevice = useChannelStore((s) => s.removeVideoFromDevice)
+
+  const refreshChannelVideosCache = useCallback(
+    async (channelDbId: string, youtubeChannelId: string, force = false) => {
+      const { data: meta, error: metaError } = await supabase
+        .from('whitelisted_channels')
+        .select('last_videos_refresh_at')
+        .eq('id', channelDbId)
+        .maybeSingle()
+      if (metaError) return { error: new Error(metaError.message) }
+
+      const last = meta?.last_videos_refresh_at ? new Date(meta.last_videos_refresh_at).getTime() : 0
+      const isFresh = last > 0 && Date.now() - last < 24 * 60 * 60 * 1000
+      if (!force && isFresh) return { error: null }
+
+      const { data: videos, error: ytError } = await getLatestVideosForChannel(youtubeChannelId)
+      if (ytError) return { error: ytError }
+
+      const { error: deleteError } = await supabase.from('channel_videos_cache').delete().eq('channel_id', channelDbId)
+      if (deleteError) return { error: new Error(deleteError.message) }
+
+      if ((videos ?? []).length > 0) {
+        const rows = (videos ?? []).map((v, idx) => ({
+          channel_id: channelDbId,
+          youtube_video_id: v.videoId,
+          title: v.title,
+          thumbnail_url: v.thumbnail || null,
+          published_at: null,
+          position: idx,
+        }))
+        const { error: insertError } = await supabase.from('channel_videos_cache').insert(rows)
+        if (insertError) return { error: new Error(insertError.message) }
+      }
+
+      const { error: updateError } = await supabase
+        .from('whitelisted_channels')
+        .update({ last_videos_refresh_at: new Date().toISOString() })
+        .eq('id', channelDbId)
+      if (updateError) return { error: new Error(updateError.message) }
+
+      if (deviceId) await fetchWhitelistForDevice(deviceId)
+      return { error: null }
+    },
+    [deviceId, fetchWhitelistForDevice]
+  )
 
   const search = useCallback(
     async (query: string) => {
@@ -141,6 +187,7 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
     loadApprovedVideos,
     addVideoByUrlOrId,
     addChannelByUrlOrId,
+    refreshChannelVideosCache,
     addToWhitelist,
     addToApprovedVideos,
     removeFromWhitelist,

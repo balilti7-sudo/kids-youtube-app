@@ -9,6 +9,7 @@ import {
   childMarkOffline,
   clearChildAccessToken,
   getChildAllowedChannels,
+  getChildCachedChannelVideos,
   getChildDeviceState,
   getSavedChildAccessToken,
   pairChildDevice,
@@ -16,7 +17,7 @@ import {
   type ChildAllowedChannel,
   type ChildDeviceState,
 } from '../lib/childDevice'
-import { getLatestVideosForChannel, type ChannelVideoItem } from '../lib/youtube'
+import type { ChannelVideoItem } from '../lib/youtube'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -77,17 +78,25 @@ export function KidModePage() {
 
   const loadChannelVideos = useCallback(async (channelId: string) => {
     setChannelLoading(true)
-    const { data, error: ytError } = await getLatestVideosForChannel(channelId)
-    setChannelLoading(false)
-    if (ytError) {
-      // Keep child mode connected even when YouTube API quota/network fails.
-      setError(ytError.message)
+    if (!accessToken) {
+      setChannelLoading(false)
       return
     }
-    const next = data ?? []
+    const { data, error: cacheError } = await getChildCachedChannelVideos(accessToken, channelId)
+    setChannelLoading(false)
+    if (cacheError) {
+      setError(cacheError.message)
+      return
+    }
+    const next: ChannelVideoItem[] = (data ?? []).map((v) => ({
+      videoId: v.youtube_video_id,
+      title: v.title,
+      thumbnail: v.thumbnail_url ?? '',
+      channelTitle: '',
+    }))
     setChannelVideos(next)
     setActiveVideoId(next[0]?.videoId ?? null)
-  }, [])
+  }, [accessToken])
 
   const loadChildData = useCallback(async (token: string) => {
     const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])

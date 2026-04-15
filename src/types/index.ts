@@ -29,6 +29,7 @@ export interface WhitelistedChannel {
   channel_thumbnail: string | null
   subscriber_count: string | null
   description: string | null
+  last_videos_refresh_at?: string | null
   created_at: string
 }
 
