@@ -55,9 +55,30 @@ export async function pairChildDevice(pairingCode: string): Promise<{
     p_pairing_code: pairingCode.trim(),
   })
 
-  if (error) return { accessToken: null, deviceName: null, error: new Error(error.message) }
+  if (error) {
+    const e = error as { message?: string; details?: string; hint?: string }
+    const raw = [e.message, e.details, e.hint].filter(Boolean).join(' ')
+    if (raw.includes('PAIRING_CODE_ALREADY_USED')) {
+      return {
+        accessToken: null,
+        deviceName: null,
+        error: new Error(
+          'המכשיר כבר מחובר אצל ההורה עם הקוד הזה — החיבור כבר בוצע והקוד אינו פעיל יותר. אין צורך לחבר שוב. אם מדובר בטאבלט אחר או בתיקון, בקשו מההורה קוד חדש ממסך המכשירים.'
+        ),
+      }
+    }
+    return { accessToken: null, deviceName: null, error: new Error(error.message) }
+  }
   const row = Array.isArray(data) ? data[0] : null
-  if (!row?.access_token) return { accessToken: null, deviceName: null, error: new Error('קוד צימוד לא תקין או שפג תוקפו') }
+  if (!row?.access_token) {
+    return {
+      accessToken: null,
+      deviceName: null,
+      error: new Error(
+        'לא מצאנו את הקוד. בדקו שההקלדה נכונה, או בקשו מההורה קוד עדכני מהמסך של המכשירים.'
+      ),
+    }
+  }
   return { accessToken: String(row.access_token), deviceName: String(row.device_name ?? ''), error: null }
 }
 
