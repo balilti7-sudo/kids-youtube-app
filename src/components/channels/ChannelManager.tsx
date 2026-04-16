@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { KeyRound, Lock, Plus, RefreshCcw } from 'lucide-react'
+import { Clapperboard, KeyRound, Lock, Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
@@ -9,6 +9,7 @@ import { extractYouTubeVideoId } from '../../lib/youtube'
 import { WhitelistView } from './WhitelistView'
 import { ApprovedVideosPanel } from './ApprovedVideosPanel'
 import { ChannelSearch } from './ChannelSearch'
+import { VideoSearchModal } from './VideoSearchModal'
 import { RemoveChannelModal } from './RemoveChannelModal'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -22,6 +23,7 @@ export function ChannelManager() {
   const { devices, loading: devLoading } = useDevices(ownerUserId)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [videoSearchOpen, setVideoSearchOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [addingVideoId, setAddingVideoId] = useState<string | null>(null)
@@ -39,7 +41,7 @@ export function ChannelManager() {
     import.meta.env.VITE_PARENT_MANAGEMENT_PIN?.trim() || import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() || '1234'
 
   /** אחרי אימות PIN באמצעות לחיצה על "הוסף" / חיפוש — להריץ פעולה שנחסמה כשהמסך היה נעול */
-  const pendingAfterUnlockRef = useRef<'addChannelUrl' | 'openChannelSearch' | null>(null)
+  const pendingAfterUnlockRef = useRef<'addChannelUrl' | 'openChannelSearch' | 'openVideoSearch' | null>(null)
 
   const {
     whitelist,
@@ -162,6 +164,7 @@ export function ChannelManager() {
     if (error) toast.error(error.message)
     else {
       toast.success('הסרטון אושר ויופיע אצל הילד תוך רגעים')
+      setVideoSearchOpen(false)
       void loadApprovedVideos()
     }
   }
@@ -191,6 +194,7 @@ export function ChannelManager() {
     pendingAfterUnlockRef.current = null
     if (p === 'addChannelUrl') void handleAddChannelByUrl()
     if (p === 'openChannelSearch') setSearchOpen(true)
+    if (p === 'openVideoSearch') setVideoSearchOpen(true)
   }
 
   const handleUnlockManagement = () => {
@@ -231,6 +235,15 @@ export function ChannelManager() {
       return
     }
     setSearchOpen(true)
+  }
+
+  const requestOpenVideoSearch = () => {
+    if (manageLocked) {
+      pendingAfterUnlockRef.current = 'openVideoSearch'
+      setPinModalOpen(true)
+      return
+    }
+    setVideoSearchOpen(true)
   }
 
   useEffect(() => {
@@ -337,17 +350,7 @@ export function ChannelManager() {
         <div className="flex flex-col gap-4">
           <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} manageLocked={manageLocked} />
           <div className={manageLocked ? 'pointer-events-none opacity-45' : ''}>
-            <ApprovedVideosPanel
-              videos={approvedVideos}
-              onAddByUrl={handleAddVideoByUrl}
-              onSearchVideos={searchVideos}
-              searchResults={videoSearchResults}
-              searchLoading={videoSearchLoading}
-              searchError={videoSearchError}
-              onAddFromSearch={handleAddVideoFromSearch}
-              onRemove={handleRemoveApprovedVideo}
-              addingId={addingVideoId}
-            />
+            <ApprovedVideosPanel videos={approvedVideos} onAddByUrl={handleAddVideoByUrl} onRemove={handleRemoveApprovedVideo} />
           </div>
           {whitelist.length > 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
@@ -378,13 +381,25 @@ export function ChannelManager() {
         </div>
       )}
 
-      <Button
-        className="fixed bottom-24 left-4 right-4 z-30 mx-auto max-w-lg gap-2 shadow-lg"
-        onClick={() => requestOpenChannelSearch()}
-      >
-        <Plus className="h-5 w-5" />
-        חיפוש ערוץ
-      </Button>
+      <div className="fixed bottom-24 left-4 right-4 z-30 mx-auto flex max-w-lg gap-2 shadow-lg">
+        <Button
+          type="button"
+          className="min-h-[48px] flex-1 gap-2 px-2 text-sm font-bold shadow-md sm:text-base"
+          onClick={() => requestOpenChannelSearch()}
+        >
+          <Plus className="h-5 w-5 shrink-0" />
+          חיפוש ערוץ
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-[48px] flex-1 gap-2 border border-slate-300 px-2 text-sm font-bold shadow-md dark:border-zinc-600 sm:text-base"
+          onClick={() => requestOpenVideoSearch()}
+        >
+          <Clapperboard className="h-5 w-5 shrink-0" />
+          חיפוש סרטון
+        </Button>
+      </div>
 
       <ChannelSearch
         open={searchOpen}
@@ -397,6 +412,17 @@ export function ChannelManager() {
         addingId={addingId}
         deviceLabel={selectedDevice?.name}
         manageLocked={manageLocked}
+      />
+
+      <VideoSearchModal
+        open={videoSearchOpen}
+        onClose={() => setVideoSearchOpen(false)}
+        onSearch={searchVideos}
+        results={videoSearchResults}
+        loading={videoSearchLoading}
+        error={videoSearchError}
+        onAdd={handleAddVideoFromSearch}
+        addingId={addingVideoId}
       />
 
       <RemoveChannelModal
@@ -429,7 +455,7 @@ export function ChannelManager() {
           הזינו את קוד ההורה (4 ספרות). כך מוודאים שרק אתם מוסיפים או מסירים תוכן עבור המכשיר של הילד.
         </p>
         <p className="mb-3 rounded-lg border border-brand-200/80 bg-brand-50/90 px-3 py-2 text-xs leading-relaxed text-brand-900 dark:border-brand-800/60 dark:bg-brand-950/40 dark:text-brand-100/95">
-          פתחתם מלחיצה על &quot;הוסף&quot; או על &quot;חיפוש ערוץ&quot;? אחרי קוד נכון — ההוספה או החיפוש ימשיכו אוטומטית.
+          פתחתם מלחיצה על &quot;הוסף&quot;, &quot;חיפוש ערוץ&quot; או &quot;חיפוש סרטון&quot;? אחרי קוד נכון — הפעולה תמשיך אוטומטית.
         </p>
         <Input
           type="password"
