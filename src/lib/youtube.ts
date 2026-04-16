@@ -423,6 +423,20 @@ export async function getYouTubeChannelById(channelId: string): Promise<{
       error: null,
     }
   } catch (e) {
+    // Quota-safe fallback for direct /channel/UC... links:
+    // allow adding the channel with minimal metadata even if YouTube API is unavailable.
+    if (e instanceof Error && isQuotaErrorMessage(e.message)) {
+      return {
+        data: {
+          channelId: id,
+          title: `Channel ${id.slice(0, 8)}`,
+          thumbnail: `https://i.ytimg.com/vi/0/hqdefault.jpg`,
+          subscriberCount: '—',
+          description: '',
+        },
+        error: null,
+      }
+    }
     return {
       data: null,
       error: e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת ערוץ נכשלה'),
