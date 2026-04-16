@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ShieldAlert, Smartphone, Unplug } from 'lucide-react'
+import { Keyboard, ShieldAlert, Smartphone, Unplug } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -67,6 +67,10 @@ export function KidModePage() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [showInstallHint, setShowInstallHint] = useState(false)
   const [showManualPairing, setShowManualPairing] = useState(false)
+  const [addAnotherDeviceOpen, setAddAnotherDeviceOpen] = useState(false)
+  const [anotherPairingCode, setAnotherPairingCode] = useState('')
+  const [anotherPairingLoading, setAnotherPairingLoading] = useState(false)
+  const [anotherPairingError, setAnotherPairingError] = useState<string | null>(null)
   const parentUnlockPin = import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() ?? ''
 
   /** נקרא פעם אחת — לזיהוי סריקת QR לפני הסרת הפרמטר מהכתובת */
@@ -316,6 +320,33 @@ export function KidModePage() {
     }
   }
 
+  /** מכשיר נוסף / החלפת צימוד — בלי מצלמה, רק קוד מההורה */
+  const handlePairAnotherDevice = async () => {
+    const code = anotherPairingCode.trim()
+    if (!code) {
+      setAnotherPairingError('יש להזין קוד צימוד (6 ספרות)')
+      return
+    }
+    if (!accessToken) return
+    setAnotherPairingLoading(true)
+    setAnotherPairingError(null)
+    try {
+      await childMarkOffline(accessToken).catch(() => {})
+      const { accessToken: token, error: pairError } = await pairChildDevice(code)
+      if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
+      saveChildAccessToken(token)
+      setAccessToken(token)
+      await loadChildData(token)
+      setAddAnotherDeviceOpen(false)
+      setAnotherPairingCode('')
+      setError(null)
+    } catch (e) {
+      setAnotherPairingError(e instanceof Error ? e.message : 'צימוד נכשל')
+    } finally {
+      setAnotherPairingLoading(false)
+    }
+  }
+
   const handleDisconnect = async () => {
     if (!accessToken) return
     setDisconnecting(true)
@@ -443,7 +474,19 @@ export function KidModePage() {
             <h1 className="truncate text-lg font-extrabold text-slate-900 dark:text-zinc-50">{device.device_name}</h1>
             <p className="text-xs text-slate-500 dark:text-zinc-400">SafeTube Kids - מצב מוגן</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex max-w-[min(100%,22rem)] shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button
+              variant="secondary"
+              className="gap-1 text-xs"
+              onClick={() => {
+                setAnotherPairingCode('')
+                setAnotherPairingError(null)
+                setAddAnotherDeviceOpen(true)
+              }}
+            >
+              <Keyboard className="h-3.5 w-3.5" aria-hidden />
+              מכשיר נוסף (קוד)
+            </Button>
             <Button variant="secondary" className="text-xs" onClick={() => void handleInstallApp()}>
               התקן אפליקציה
             </Button>
@@ -656,6 +699,57 @@ export function KidModePage() {
           </aside>
         </section>
       )}
+
+      <Modal
+        open={addAnotherDeviceOpen}
+        onClose={() => {
+          if (anotherPairingLoading) return
+          setAddAnotherDeviceOpen(false)
+          setAnotherPairingCode('')
+          setAnotherPairingError(null)
+        }}
+        title="מכשיר נוסף — בלי מצלמה"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setAddAnotherDeviceOpen(false)
+                setAnotherPairingCode('')
+                setAnotherPairingError(null)
+              }}
+              disabled={anotherPairingLoading}
+            >
+              ביטול
+            </Button>
+            <Button type="button" onClick={() => void handlePairAnotherDevice()} disabled={anotherPairingLoading}>
+              {anotherPairingLoading ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
+              {anotherPairingLoading ? 'מתחבר…' : 'חבר מכשיר זה'}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+          אין צורך בסריקת QR או במצלמה. בקשו מההורה את <strong className="text-slate-800 dark:text-zinc-200">קוד החיבור</strong>{' '}
+          למכשיר החדש (במסך המכשירים או אחרי יצירת מכשיר) והזינו כאן את 6 הספרות. במכשיר הזה יוצגו הערוצים של המכשיר החדש.
+        </p>
+        <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">קוד צימוד</label>
+        <Input
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={anotherPairingCode}
+          onChange={(e) => {
+            setAnotherPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+            if (anotherPairingError) setAnotherPairingError(null)
+          }}
+          placeholder="לדוגמה: 123456"
+          className="text-center text-lg tracking-[0.2em]"
+          onKeyDown={(e) => e.key === 'Enter' && void handlePairAnotherDevice()}
+          autoFocus
+        />
+        {anotherPairingError ? <p className="mt-2 text-sm text-danger-600">{anotherPairingError}</p> : null}
+      </Modal>
 
       <Modal
         open={pinModalOpen}
