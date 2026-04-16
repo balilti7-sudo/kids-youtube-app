@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ShieldAlert, Smartphone, Unplug } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -9,12 +9,14 @@ import {
   childMarkOffline,
   clearChildAccessToken,
   getChildAllowedChannels,
+  getChildAllowedVideos,
   getChildCachedChannelVideos,
   getChildDeviceState,
   getSavedChildAccessToken,
   pairChildDevice,
   saveChildAccessToken,
   type ChildAllowedChannel,
+  type ChildAllowedVideo,
   type ChildDeviceState,
 } from '../lib/childDevice'
 import type { ChannelVideoItem } from '../lib/youtube'
@@ -45,6 +47,8 @@ export function KidModePage() {
   const [error, setError] = useState<string | null>(null)
   const [device, setDevice] = useState<ChildDeviceState | null>(null)
   const [channels, setChannels] = useState<ChildAllowedChannel[]>([])
+  /** סרטונים שאושרו בנפרד (מסך ההורה — לא רק ממטמון הערוץ) */
+  const [parentPickedVideos, setParentPickedVideos] = useState<ChildAllowedVideo[]>([])
   const [channelVideos, setChannelVideos] = useState<ChannelVideoItem[]>([])
   const [channelLoading, setChannelLoading] = useState(false)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
@@ -62,11 +66,33 @@ export function KidModePage() {
   const [disconnecting, setDisconnecting] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [showInstallHint, setShowInstallHint] = useState(false)
+  const [showManualPairing, setShowManualPairing] = useState(false)
   const parentUnlockPin = import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() ?? ''
 
+  /** נקרא פעם אחת — לזיהוי סריקת QR לפני הסרת הפרמטר מהכתובת */
+  const [pendingUrlPairCode] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('code')?.trim() || null
+    } catch {
+      return null
+    }
+  })
+
+  const mergedVideos = useMemo((): ChannelVideoItem[] => {
+    const fromParent: ChannelVideoItem[] = parentPickedVideos.map((v) => ({
+      videoId: v.youtube_video_id,
+      title: v.title,
+      thumbnail: v.thumbnail_url ?? '',
+      channelTitle: '',
+    }))
+    const ids = new Set(fromParent.map((v) => v.videoId))
+    const fromCache = channelVideos.filter((v) => !ids.has(v.videoId))
+    return [...fromParent, ...fromCache]
+  }, [parentPickedVideos, channelVideos])
+
   const activeVideo = useMemo(
-    () => channelVideos.find((v) => v.videoId === activeVideoId) ?? channelVideos[0] ?? null,
-    [channelVideos, activeVideoId]
+    () => mergedVideos.find((v) => v.videoId === activeVideoId) ?? mergedVideos[0] ?? null,
+    [mergedVideos, activeVideoId]
   )
   const categories = useMemo(() => {
     const set = new Set(channels.map((c) => c.category?.trim()).filter(Boolean) as string[])
@@ -78,9 +104,9 @@ export function KidModePage() {
   }, [channels, selectedCategory])
   const filteredVideos = useMemo(() => {
     const q = videoSearch.trim().toLowerCase()
-    if (!q) return channelVideos
-    return channelVideos.filter((v) => v.title.toLowerCase().includes(q))
-  }, [channelVideos, videoSearch])
+    if (!q) return mergedVideos
+    return mergedVideos.filter((v) => v.title.toLowerCase().includes(q))
+  }, [mergedVideos, videoSearch])
 
   useEffect(() => {
     setIframeLoaded(false)
@@ -111,16 +137,24 @@ export function KidModePage() {
       channelTitle: '',
     }))
     setChannelVideos(next)
-    setActiveVideoId(next[0]?.videoId ?? null)
     setPlayerOpen(false)
   }, [accessToken])
 
   const loadChildData = useCallback(async (token: string) => {
-    const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
+    const [stateRes, channelsRes, pickedRes] = await Promise.all([
+      getChildDeviceState(token),
+      getChildAllowedChannels(token),
+      getChildAllowedVideos(token),
+    ])
     if (stateRes.error) throw stateRes.error
     if (!stateRes.data) throw new Error('המכשיר לא נמצא. התחברו מחדש עם קוד צימוד.')
 
     setDevice(stateRes.data)
+    if (pickedRes.error) {
+      setParentPickedVideos([])
+    } else {
+      setParentPickedVideos(pickedRes.data ?? [])
+    }
     if (channelsRes.error) {
       setError(channelsRes.error.message)
       return
@@ -133,13 +167,55 @@ export function KidModePage() {
     setActiveChannelId((prev) => (prev === preferred ? prev : preferred))
     if (!preferred) {
       setChannelVideos([])
-      setActiveVideoId(null)
       setPlayerOpen(false)
     }
   }, [activeChannelId])
 
+  const loadChildDataRef = useRef(loadChildData)
+  loadChildDataRef.current = loadChildData
+  const bootOnceRef = useRef(false)
+
   useEffect(() => {
+    if (bootOnceRef.current) return
+    bootOnceRef.current = true
+
+    const stripPairCodeFromUrl = () => {
+      const path = window.location.pathname || '/kid'
+      window.history.replaceState({}, document.title, path)
+    }
+
     const boot = async () => {
+      let urlCode: string | null = null
+      try {
+        urlCode = new URLSearchParams(window.location.search).get('code')?.trim() || null
+      } catch {
+        urlCode = null
+      }
+
+      if (urlCode) {
+        clearChildAccessToken()
+        setAccessToken(null)
+        setDevice(null)
+        setChannels([])
+        setParentPickedVideos([])
+        setError(null)
+        try {
+          const { accessToken: token, error: pairError } = await pairChildDevice(urlCode)
+          if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
+          saveChildAccessToken(token)
+          setAccessToken(token)
+          await loadChildDataRef.current(token)
+          stripPairCodeFromUrl()
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'צימוד נכשל'
+          setError(msg)
+          stripPairCodeFromUrl()
+        } finally {
+          setBootLoading(false)
+        }
+        return
+      }
+
       const token = getSavedChildAccessToken()
       if (!token) {
         setBootLoading(false)
@@ -147,9 +223,8 @@ export function KidModePage() {
       }
       try {
         setAccessToken(token)
-        await loadChildData(token)
+        await loadChildDataRef.current(token)
       } catch (e) {
-        // Clear token only for fatal state errors. Quota/network errors should not disconnect child mode.
         const message = e instanceof Error ? e.message : String(e)
         if (message.includes('המכשיר לא נמצא')) {
           clearChildAccessToken()
@@ -161,7 +236,7 @@ export function KidModePage() {
       }
     }
     void boot()
-  }, [loadChildData])
+  }, [])
 
   useEffect(() => {
     if (!accessToken) return
@@ -177,6 +252,16 @@ export function KidModePage() {
     if (!activeChannelId) return
     void loadChannelVideos(activeChannelId)
   }, [activeChannelId, loadChannelVideos])
+
+  useEffect(() => {
+    if (mergedVideos.length === 0) {
+      setActiveVideoId(null)
+      return
+    }
+    setActiveVideoId((prev) =>
+      prev && mergedVideos.some((v) => v.videoId === prev) ? prev : mergedVideos[0].videoId
+    )
+  }, [mergedVideos])
 
   useEffect(() => {
     const onBeforeInstallPrompt = (event: Event) => {
@@ -241,10 +326,12 @@ export function KidModePage() {
       setAccessToken(null)
       setDevice(null)
       setChannels([])
+      setParentPickedVideos([])
       setChannelVideos([])
       setActiveChannelId(null)
       setActiveVideoId(null)
       setPairingCode('')
+      setShowManualPairing(false)
       setPinInput('')
       setPinError(null)
       setPinModalOpen(false)
@@ -276,8 +363,11 @@ export function KidModePage() {
 
   if (bootLoading) {
     return (
-      <div className="mx-auto flex min-h-dvh max-w-5xl items-center justify-center px-4">
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
         <LoadingSpinner className="h-10 w-10 border-brand-500 border-t-transparent" />
+        <p className="text-sm text-slate-600 dark:text-zinc-400">
+          {pendingUrlPairCode ? 'מחברים את המכשיר אחרי הסריקה…' : 'טוען…'}
+        </p>
       </div>
     )
   }
@@ -287,25 +377,60 @@ export function KidModePage() {
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-10 pt-8">
         <div className="text-center">
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">SafeTube Kids</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">הזינו קוד צימוד כדי לצפות בתוכן המאושר בלבד</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+            בקושי אחד: ההורה פותח QR במסך הניהול — אתם סורקים עם המצלמה או הדפדפן, והחיבור נעשה לבד.
+          </p>
         </div>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-          <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-zinc-300">Pairing Code</label>
-          <Input
-            inputMode="numeric"
-            value={pairingCode}
-            onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="לדוגמה: 123456"
-            className="text-center text-lg tracking-[0.2em]"
-            onKeyDown={(e) => e.key === 'Enter' && void handlePair()}
-          />
-          {error ? <p className="mt-2 text-sm text-danger-600">{error}</p> : null}
-          <Button className="mt-4 w-full" disabled={submitting} onClick={() => void handlePair()}>
-            {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-            {submitting ? 'מתחבר...' : 'חבר מכשיר'}
-          </Button>
-        </section>
+        {!showManualPairing ? (
+          <section className="rounded-2xl border border-slate-200 bg-brand-50/80 p-5 text-center shadow-sm dark:border-zinc-700 dark:bg-zinc-900/80">
+            <p className="text-sm font-medium text-slate-800 dark:text-zinc-200">סריקה = התחברות מלאה</p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
+              אין צורך להקליד כלום. אם משהו לא עובד, אפשר להזין את הקוד שקיבלתם מההורה למטה.
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-4 w-full"
+              onClick={() => {
+                setShowManualPairing(true)
+                setError(null)
+              }}
+            >
+              הזנת קוד ידנית (גיבוי)
+            </Button>
+            {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
+          </section>
+        ) : (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+            <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-zinc-300">קוד צימוד (6 ספרות)</label>
+            <Input
+              inputMode="numeric"
+              value={pairingCode}
+              onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="לדוגמה: 123456"
+              className="text-center text-lg tracking-[0.2em]"
+              onKeyDown={(e) => e.key === 'Enter' && void handlePair()}
+              autoFocus
+            />
+            {error ? <p className="mt-2 text-sm text-danger-600">{error}</p> : null}
+            <Button className="mt-4 w-full" disabled={submitting} onClick={() => void handlePair()}>
+              {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
+              {submitting ? 'מתחבר...' : 'חבר מכשיר'}
+            </Button>
+            <button
+              type="button"
+              className="mt-3 w-full text-center text-xs text-slate-500 underline-offset-2 hover:underline dark:text-zinc-500"
+              onClick={() => {
+                setShowManualPairing(false)
+                setPairingCode('')
+                setError(null)
+              }}
+            >
+              חזרה להסבר על הסריקה
+            </button>
+          </section>
+        )}
       </main>
     )
   }
@@ -424,7 +549,15 @@ export function KidModePage() {
                 ) : (
                   <div className="col-span-full flex h-full min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 text-zinc-300">
                     <Unplug className="h-8 w-8 text-zinc-500" />
-                    <p className="text-sm">בחרו ערוץ כדי לראות סרטונים</p>
+                    <p className="max-w-sm text-center text-sm">
+                      {channelLoading
+                        ? 'טוענים סרטונים…'
+                        : channels.length === 0 && parentPickedVideos.length === 0
+                          ? 'אין תוכן מאושר עדיין. ההורה מוסיף ערוצים או סרטונים ממסך הניהול.'
+                          : channels.length === 0
+                            ? 'אין ערוצים — אם ההורה אישר סרטונים בנפרד, הם אמורים להופיע כאן.'
+                            : 'בחרו ערוץ מהרשימה משמאל כדי לטעון סרטונים מהמטמון.'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -475,7 +608,10 @@ export function KidModePage() {
           </aside>
 
           <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">סרטונים אחרונים בערוץ</h2>
+            <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">סרטונים מאושרים</h2>
+            <p className="mb-2 text-[11px] leading-snug text-slate-500 dark:text-zinc-500">
+              כולל סרטונים שההורה אישר ישירות וסרטונים מהערוץ שנבחר.
+            </p>
             <Input
               value={videoSearch}
               onChange={(e) => setVideoSearch(e.target.value)}

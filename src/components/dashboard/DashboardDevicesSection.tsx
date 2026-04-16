@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, QrCode, Smartphone, Trash2 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -18,8 +18,21 @@ function randomSixDigits() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
+function kidModePairUrl(origin: string, pairingCode: string) {
+  const base = origin.replace(/\/$/, '')
+  const params = new URLSearchParams({ code: pairingCode })
+  return `${base}/kid?${params.toString()}`
+}
+
 export function DashboardDevicesSection() {
-  const KID_MODE_URL = 'https://kids-youtube-app.vercel.app/kid'
+  /** כתובת האתר ל־QR — בפרודקשן כדאי להגדיר VITE_APP_URL אם הדומיין שונה מ־origin הנוכחי */
+  const appOrigin = useMemo(() => {
+    const fromEnv = import.meta.env.VITE_APP_URL as string | undefined
+    if (fromEnv && String(fromEnv).trim()) return String(fromEnv).trim()
+    if (typeof window !== 'undefined') return window.location.origin
+    return 'https://kids-youtube-app.vercel.app'
+  }, [])
+
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
@@ -28,8 +41,26 @@ export function DashboardDevicesSection() {
 
   const [modalOpen, setModalOpen] = useState(false)
   const [qrModalOpen, setQrModalOpen] = useState(false)
+  const [qrDeviceId, setQrDeviceId] = useState<string | null>(null)
   const [deviceName, setDeviceName] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const devicesWithPairingCode = useMemo(
+    () => devices.filter((d) => d.pairing_code && String(d.pairing_code).trim()),
+    [devices]
+  )
+  const selectedForQr = devices.find((d) => d.id === qrDeviceId) ?? null
+  const pairUrl =
+    selectedForQr?.pairing_code != null && String(selectedForQr.pairing_code).trim()
+      ? kidModePairUrl(appOrigin, String(selectedForQr.pairing_code).trim())
+      : null
+
+  useEffect(() => {
+    if (!qrModalOpen) return
+    if (!qrDeviceId || !devicesWithPairingCode.some((d) => d.id === qrDeviceId)) {
+      setQrDeviceId(devicesWithPairingCode[0]?.id ?? null)
+    }
+  }, [qrModalOpen, qrDeviceId, devicesWithPairingCode])
 
   const max = subscription?.max_devices ?? 3
   const atLimit = devices.length >= max
@@ -73,10 +104,12 @@ export function DashboardDevicesSection() {
         return
       }
       if (data) {
-        toast.success('המכשיר נוסף', { description: `קוד חיבור: ${pairing}` })
+        toast.success('המכשיר נוסף', { description: 'סרקו את ה-QR עם המכשיר של הילד כדי להתחבר' })
         await refetch()
         setModalOpen(false)
         setDeviceName('')
+        setQrDeviceId(data.id)
+        setQrModalOpen(true)
       }
     } catch (e) {
       console.error('Connection Error:', e)
@@ -109,20 +142,43 @@ export function DashboardDevicesSection() {
           </h2>
           <p className="text-xs text-zinc-500">מכשירים מקושרים: {devices.length} / {max}</p>
         </div>
-        <div className="grid w-full gap-2 sm:grid-cols-2">
-          <Button type="button" variant="secondary" className="w-full justify-center" onClick={() => setQrModalOpen(true)}>
-            <QrCode className="h-4 w-4" />
-            Add New Device (QR)
-          </Button>
-          <Button
-            type="button"
-            className="w-full justify-center"
-            onClick={openModal}
-            disabled={atLimit || !ownerUserId}
-          >
-            <Plus className="h-4 w-4" />
-            הוספת מכשיר חדש
-          </Button>
+
+        <div className="rounded-2xl border border-zinc-700/90 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80">
+          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">חיבור לילד</p>
+          <p className="mb-3 text-[13px] leading-snug text-zinc-400">
+            צעד אחד: יוצרים מכשיר, מציגים QR — הילד סורק ומתחבר בלי הקלדה.
+          </p>
+          <div className="flex flex-col gap-2">
+            <Button
+              type="button"
+              className="w-full justify-center py-3 text-[15px] font-bold shadow-md shadow-black/20"
+              onClick={openModal}
+              disabled={atLimit || !ownerUserId}
+            >
+              <Plus className="h-5 w-5" />
+              צור מכשיר חדש
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full justify-center border border-zinc-600/80 bg-zinc-900/80 py-2.5 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+              onClick={() => {
+                setQrDeviceId(devicesWithPairingCode[0]?.id ?? null)
+                setQrModalOpen(true)
+              }}
+              disabled={devicesWithPairingCode.length === 0}
+            >
+              <QrCode className="h-4 w-4" />
+              הצג QR לסריקה מהמכשיר
+            </Button>
+          </div>
+          {devicesWithPairingCode.length === 0 && devices.length > 0 ? (
+            <p className="mt-2 text-center text-[11px] text-zinc-500">
+              כל המכשירים כבר הוצמדו — אין QR פעיל. צרו מכשיר חדש אם צריך להעביר עוד טאבלט.
+            </p>
+          ) : devicesWithPairingCode.length === 0 && devices.length === 0 ? (
+            <p className="mt-2 text-center text-[11px] text-zinc-500">אחרי &quot;צור מכשיר&quot; יופיע כאן גם QR.</p>
+          ) : null}
         </div>
       </div>
 
@@ -148,7 +204,7 @@ export function DashboardDevicesSection() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-8 text-center">
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
           <p className="text-sm font-medium text-zinc-300">אין מכשירים עדיין</p>
-          <p className="max-w-xs text-xs text-zinc-500">לחצו על &quot;הוספת מכשיר חדש&quot; כדי לשמור מכשיר ב-Supabase.</p>
+          <p className="max-w-xs text-xs text-zinc-500">השתמשו בכפתור &quot;צור מכשיר חדש&quot; למעלה — ואז בסריקת QR מהטאבלט.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -232,7 +288,7 @@ export function DashboardDevicesSection() {
       <Modal
         open={qrModalOpen}
         onClose={() => setQrModalOpen(false)}
-        title="Add New Device - QR"
+        title="סריקה מחברת את המכשיר"
         footer={
           <>
             <Button type="button" variant="secondary" onClick={() => setQrModalOpen(false)}>
@@ -240,9 +296,11 @@ export function DashboardDevicesSection() {
             </Button>
             <Button
               type="button"
+              disabled={!pairUrl}
               onClick={() => {
-                void navigator.clipboard.writeText(KID_MODE_URL)
-                toast.success('הקישור הועתק')
+                if (!pairUrl) return
+                void navigator.clipboard.writeText(pairUrl)
+                toast.success('הקישור עם קוד החיבור הועתק')
               }}
             >
               העתק קישור
@@ -250,14 +308,43 @@ export function DashboardDevicesSection() {
           </>
         }
       >
-        <div className="flex flex-col items-center gap-3 text-center">
-          <p className="text-sm text-zinc-400">סרקו עם המכשיר של הילד כדי להיכנס ישירות ל-Child Mode.</p>
-          <div className="rounded-2xl bg-white p-3">
-            <QRCodeSVG value={KID_MODE_URL} size={220} />
-          </div>
-          <p className="text-xs text-zinc-500" dir="ltr">
-            {KID_MODE_URL}
+        <div className="flex flex-col gap-3 text-center">
+          <p className="text-sm leading-relaxed text-zinc-300">
+            בחרו מכשיר עם קוד חיבור פעיל. סריקת ה-QR בטאבלט או בטלפון של הילד מזהה את המכשיר ומפעילה התחברות מלאה — בלי הקלדה.
           </p>
+          {devicesWithPairingCode.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-zinc-600 bg-zinc-950/50 px-3 py-4 text-sm text-zinc-400">
+              אין כרגע מכשיר עם קוד חיבור פתוח (או שכל המכשירים כבר מחוברים). הוסיפו מכשיר חדש כדי לקבל QR.
+              <Button type="button" className="mt-3 w-full" onClick={() => { setQrModalOpen(false); openModal() }}>
+                צור מכשיר חדש
+              </Button>
+            </div>
+          ) : (
+            <>
+              <label className="block text-right text-xs font-medium text-zinc-400">מכשיר לחיבור</label>
+              <select
+                className="w-full rounded-xl border border-zinc-600 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100"
+                value={qrDeviceId ?? ''}
+                onChange={(e) => setQrDeviceId(e.target.value || null)}
+              >
+                {devicesWithPairingCode.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} · קוד {d.pairing_code}
+                  </option>
+                ))}
+              </select>
+              {pairUrl ? (
+                <>
+                  <div className="mx-auto rounded-2xl bg-white p-3">
+                    <QRCodeSVG value={pairUrl} size={220} />
+                  </div>
+                  <p className="break-all text-xs text-zinc-500" dir="ltr">
+                    {pairUrl}
+                  </p>
+                </>
+              ) : null}
+            </>
+          )}
         </div>
       </Modal>
     </section>
