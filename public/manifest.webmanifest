@@ -1,0 +1,28 @@
+{
+  "id": "/",
+  "name": "SafeTube — הורה",
+  "short_name": "SafeTube",
+  "description": "ניהול צפייה בטוחה ב-YouTube לילדים",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "dir": "rtl",
+  "lang": "he",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

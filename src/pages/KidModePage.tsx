@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Keyboard, ShieldAlert, Smartphone, Unplug } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Camera, ShieldAlert, Smartphone, Unplug } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
+import { useAuth } from '../hooks/useAuth'
 import {
   childHeartbeat,
   childMarkOffline,
@@ -19,12 +21,14 @@ import {
   type ChildAllowedVideo,
   type ChildDeviceState,
 } from '../lib/childDevice'
+import { getResolvedParentPin, pinsMatch } from '../lib/parentPin'
+import { parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
 import type { ChannelVideoItem } from '../lib/youtube'
+import type { Html5Qrcode } from 'html5-qrcode'
 
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
-}
+const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
+const PARENT_MODE_UNLOCK_KEY = 'safetube_parent_mode_unlock_until'
+const PARENT_MODE_UNLOCK_MS = 10 * 60 * 1000
 
 function buildSafeEmbedUrl(videoId: string) {
   const params = new URLSearchParams({
@@ -38,6 +42,30 @@ function buildSafeEmbedUrl(videoId: string) {
     disablekb: '0',
   })
   return `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`
+}
+
+function KidQrScanModal({
+  open,
+  onClose,
+  scanCameraError,
+}: {
+  open: boolean
+  onClose: () => void
+  scanCameraError: string | null
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title="סריקת QR לחיבור">
+      <p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+        כוונו את המצלמה לקוד ה־QR במסך ההורה. הקוד מכיל קישור — אחרי זיהוי, החיבור יבוצע אוטומטית.
+      </p>
+      <div id="kid-mode-html5-qrcode-reader" className="min-h-[260px] w-full overflow-hidden rounded-xl bg-black" />
+      {scanCameraError ? (
+        <p className="mt-3 text-sm text-danger-600" role="alert">
+          {scanCameraError}
+        </p>
+      ) : null}
+    </Modal>
+  )
 }
 
 export function KidModePage() {
@@ -55,7 +83,6 @@ export function KidModePage() {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [playerOpen, setPlayerOpen] = useState(false)
   const [videoSearch, setVideoSearch] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [playerNonce, setPlayerNonce] = useState(0)
   const [iframeLoaded, setIframeLoaded] = useState(false)
@@ -64,14 +91,18 @@ export function KidModePage() {
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [showInstallHint, setShowInstallHint] = useState(false)
+  const [parentModeUnlocked, setParentModeUnlocked] = useState(false)
+  const [parentModePinOpen, setParentModePinOpen] = useState(false)
+  const [parentModePinInput, setParentModePinInput] = useState('')
+  const [parentModePinError, setParentModePinError] = useState<string | null>(null)
+  const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
   const [showManualPairing, setShowManualPairing] = useState(false)
-  const [addAnotherDeviceOpen, setAddAnotherDeviceOpen] = useState(false)
-  const [anotherPairingCode, setAnotherPairingCode] = useState('')
-  const [anotherPairingLoading, setAnotherPairingLoading] = useState(false)
-  const [anotherPairingError, setAnotherPairingError] = useState<string | null>(null)
-  const parentUnlockPin = import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() ?? ''
+  const [qrScanOpen, setQrScanOpen] = useState(false)
+  const [scanCameraError, setScanCameraError] = useState<string | null>(null)
+  const qrScannerRef = useRef<Html5Qrcode | null>(null)
+  const qrDecodeLockRef = useRef(false)
+  const navigate = useNavigate()
+  const { isAuthenticated } = useAuth()
 
   /** נקרא פעם אחת — לזיהוי סריקת QR לפני הסרת הפרמטר מהכתובת */
   const [pendingUrlPairCode] = useState(() => {
@@ -98,14 +129,6 @@ export function KidModePage() {
     () => mergedVideos.find((v) => v.videoId === activeVideoId) ?? mergedVideos[0] ?? null,
     [mergedVideos, activeVideoId]
   )
-  const categories = useMemo(() => {
-    const set = new Set(channels.map((c) => c.category?.trim()).filter(Boolean) as string[])
-    return ['all', ...Array.from(set)]
-  }, [channels])
-  const filteredChannels = useMemo(() => {
-    if (selectedCategory === 'all') return channels
-    return channels.filter((c) => (c.category ?? '').trim() === selectedCategory)
-  }, [channels, selectedCategory])
   const filteredVideos = useMemo(() => {
     const q = videoSearch.trim().toLowerCase()
     if (!q) return mergedVideos
@@ -160,12 +183,13 @@ export function KidModePage() {
       setParentPickedVideos(pickedRes.data ?? [])
     }
     if (channelsRes.error) {
+      setChannels([])
       setError(channelsRes.error.message)
       return
     }
 
     setError(null)
-    setChannels(channelsRes.data)
+    setChannels(channelsRes.data ?? [])
     const availableIds = new Set(channelsRes.data.map((c) => c.youtube_channel_id))
     const preferred = activeChannelId && availableIds.has(activeChannelId) ? activeChannelId : channelsRes.data[0]?.youtube_channel_id ?? null
     setActiveChannelId((prev) => (prev === preferred ? prev : preferred))
@@ -268,28 +292,6 @@ export function KidModePage() {
   }, [mergedVideos])
 
   useEffect(() => {
-    const onBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault()
-      setInstallPrompt(event as BeforeInstallPromptEvent)
-      setShowInstallHint(false)
-    }
-
-    const onAppInstalled = () => {
-      setInstallPrompt(null)
-      setShowInstallHint(false)
-      setError(null)
-    }
-
-    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
-    window.addEventListener('appinstalled', onAppInstalled)
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
-      window.removeEventListener('appinstalled', onAppInstalled)
-    }
-  }, [])
-
-  useEffect(() => {
     if (!accessToken) return
     const onBeforeUnload = () => {
       void childMarkOffline(accessToken)
@@ -298,54 +300,107 @@ export function KidModePage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [accessToken])
 
-  const handlePair = async () => {
-    const code = pairingCode.trim()
-    if (!code) {
-      setError('יש להזין קוד צימוד')
-      return
-    }
-
-    setSubmitting(true)
-    setError(null)
-    try {
-      const { accessToken: token, error: pairError } = await pairChildDevice(code)
-      if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
-      saveChildAccessToken(token)
-      setAccessToken(token)
-      await loadChildData(token)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'צימוד נכשל')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  /** מכשיר נוסף / החלפת צימוד — בלי מצלמה, רק קוד מההורה */
-  const handlePairAnotherDevice = async () => {
-    const code = anotherPairingCode.trim()
-    if (!code) {
-      setAnotherPairingError('יש להזין קוד צימוד (6 ספרות)')
-      return
-    }
-    if (!accessToken) return
-    setAnotherPairingLoading(true)
-    setAnotherPairingError(null)
-    try {
-      await childMarkOffline(accessToken).catch(() => {})
-      const { accessToken: token, error: pairError } = await pairChildDevice(code)
-      if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
-      saveChildAccessToken(token)
-      setAccessToken(token)
-      await loadChildData(token)
-      setAddAnotherDeviceOpen(false)
-      setAnotherPairingCode('')
+  const pairByCodeInitial = useCallback(
+    async (codeRaw: string) => {
+      const code = codeRaw.trim()
+      if (!code) {
+        setError('יש להזין קוד צימוד')
+        return
+      }
+      setSubmitting(true)
       setError(null)
-    } catch (e) {
-      setAnotherPairingError(e instanceof Error ? e.message : 'צימוד נכשל')
-    } finally {
-      setAnotherPairingLoading(false)
+      try {
+        const { accessToken: token, error: pairError } = await pairChildDevice(code)
+        if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
+        saveChildAccessToken(token)
+        setAccessToken(token)
+        await loadChildData(token)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'צימוד נכשל')
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [loadChildData]
+  )
+
+  const handlePair = () => void pairByCodeInitial(pairingCode)
+
+  const pairByCodeInitialRef = useRef(pairByCodeInitial)
+  pairByCodeInitialRef.current = pairByCodeInitial
+
+  useEffect(() => {
+    if (!qrScanOpen) {
+      qrDecodeLockRef.current = false
+      return
     }
-  }
+    qrDecodeLockRef.current = false
+    setScanCameraError(null)
+
+    let cancelled = false
+
+    const stopScanner = async (scanner: Html5Qrcode) => {
+      try {
+        await scanner.stop()
+        await scanner.clear()
+      } catch {
+        /* כבר נעצר או נוקה */
+      }
+      if (qrScannerRef.current === scanner) qrScannerRef.current = null
+    }
+
+    void (async () => {
+      const { Html5Qrcode } = await import('html5-qrcode')
+      await new Promise<void>((r) => queueMicrotask(r))
+      if (cancelled) return
+
+      if (!document.getElementById('kid-mode-html5-qrcode-reader')) {
+        setScanCameraError('לא ניתן להפעיל את תצוגת הסריקה. נסו שוב.')
+        return
+      }
+
+      const scanner = new Html5Qrcode('kid-mode-html5-qrcode-reader', false)
+      qrScannerRef.current = scanner
+
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },
+          {
+            fps: 10,
+            qrbox: (w, h) => {
+              const edge = Math.min(250, Math.floor(Math.min(w, h) * 0.72))
+              return { width: edge, height: edge }
+            },
+          },
+          async (decodedText) => {
+            if (qrDecodeLockRef.current || cancelled) return
+            const pairing = parsePairingCodeFromScan(decodedText)
+            if (!pairing) return
+            qrDecodeLockRef.current = true
+            await stopScanner(scanner)
+            setQrScanOpen(false)
+            await pairByCodeInitialRef.current(pairing)
+          },
+          () => {}
+        )
+      } catch (e) {
+        if (!cancelled) {
+          setScanCameraError(
+            e instanceof Error
+              ? e.message
+              : 'המצלמה לא נפתחה. בדקו הרשאות בדפדפן או השתמשו בהזנת קוד ידנית.'
+          )
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      const s = qrScannerRef.current
+      qrScannerRef.current = null
+      if (s) void stopScanner(s)
+    }
+  }, [qrScanOpen])
 
   const handleDisconnect = async () => {
     if (!accessToken) return
@@ -366,31 +421,109 @@ export function KidModePage() {
       setPinInput('')
       setPinError(null)
       setPinModalOpen(false)
+      lockParentMode()
+      setParentModePinOpen(false)
+      setParentModePinInput('')
+      setParentModePinError(null)
+      setPendingParentAction(null)
       setDisconnecting(false)
     }
   }
 
   const confirmPinAndDisconnect = async () => {
-    if (!parentUnlockPin) {
-      setPinError('חסר PIN הורי. הגדירו VITE_PARENT_UNLOCK_PIN בקובץ .env והפעילו מחדש.')
-      return
-    }
-    if (pinInput !== parentUnlockPin) {
-      setPinError('PIN שגוי')
+    const expected = getResolvedParentPin()
+    if (!pinsMatch(pinInput, expected)) {
+      setPinError('PIN שגוי. אותו קוד כמו בניהול ערוצים אצל ההורה (ללא הגדרה: 1234).')
       return
     }
     await handleDisconnect()
   }
 
-  const handleInstallApp = async () => {
-    if (!installPrompt) {
-      setShowInstallHint(true)
+  const runParentAction = (action: 'home' | 'channels') => {
+    const target = action === 'home' ? '/dashboard' : '/channels'
+    if (action === 'home') {
+      navigate(isAuthenticated ? target : `/auth?next=${encodeURIComponent(target)}`)
       return
     }
-    await installPrompt.prompt()
-    await installPrompt.userChoice
-    setInstallPrompt(null)
+    navigate(isAuthenticated ? target : `/auth?next=${encodeURIComponent(target)}`)
   }
+
+  const lockParentMode = useCallback(() => {
+    setParentModeUnlocked(false)
+    setPendingParentAction(null)
+    try {
+      window.sessionStorage.removeItem(PARENT_MODE_UNLOCK_KEY)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const unlockParentMode = useCallback(() => {
+    setParentModeUnlocked(true)
+    const unlockUntil = Date.now() + PARENT_MODE_UNLOCK_MS
+    try {
+      window.sessionStorage.setItem(PARENT_MODE_UNLOCK_KEY, String(unlockUntil))
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const requestParentAction = (action: 'home' | 'channels') => {
+    if (parentModeUnlocked) {
+      runParentAction(action)
+      return
+    }
+    setPendingParentAction(action)
+    setParentModePinInput('')
+    setParentModePinError(null)
+    setParentModePinOpen(true)
+  }
+
+  const confirmParentModePin = () => {
+    const expected = getResolvedParentPin()
+    if (!pinsMatch(parentModePinInput, expected)) {
+      setParentModePinError('PIN שגוי')
+      return
+    }
+    unlockParentMode()
+    setParentModePinOpen(false)
+    setParentModePinInput('')
+    setParentModePinError(null)
+    const action = pendingParentAction
+    setPendingParentAction(null)
+    if (action) runParentAction(action)
+  }
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(PARENT_MODE_UNLOCK_KEY)
+      const unlockUntil = raw ? Number(raw) : 0
+      if (unlockUntil > Date.now()) {
+        setParentModeUnlocked(true)
+      } else {
+        window.sessionStorage.removeItem(PARENT_MODE_UNLOCK_KEY)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!parentModeUnlocked) return
+    const raw = (() => {
+      try {
+        return window.sessionStorage.getItem(PARENT_MODE_UNLOCK_KEY)
+      } catch {
+        return null
+      }
+    })()
+    const unlockUntil = raw ? Number(raw) : Date.now() + PARENT_MODE_UNLOCK_MS
+    const remainingMs = Math.max(500, unlockUntil - Date.now())
+    const timeoutId = window.setTimeout(() => {
+      lockParentMode()
+    }, remainingMs)
+    return () => window.clearTimeout(timeoutId)
+  }, [parentModeUnlocked, lockParentMode])
 
   if (bootLoading) {
     return (
@@ -407,7 +540,7 @@ export function KidModePage() {
     return (
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-10 pt-8">
         <div className="text-center">
-          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">SafeTube Kids</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">{KID_APP_DISPLAY_NAME}</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
             בקושי אחד: ההורה פותח QR במסך הניהול — אתם סורקים עם המצלמה או הדפדפן, והחיבור נעשה לבד.
           </p>
@@ -421,14 +554,30 @@ export function KidModePage() {
             </p>
             <Button
               type="button"
-              variant="secondary"
               className="mt-4 w-full"
+              onClick={() => setQrScanOpen(true)}
+            >
+              <Camera className="h-4 w-4" aria-hidden />
+              סריקה במצלמה
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-3 w-full"
               onClick={() => {
                 setShowManualPairing(true)
                 setError(null)
               }}
             >
               הזנת קוד ידנית (גיבוי)
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-3 w-full"
+              onClick={() => requestParentAction('home')}
+            >
+              {isAuthenticated ? 'מעבר לניהול הורה במכשיר הזה' : 'התחברות הורה במכשיר הזה'}
             </Button>
             {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
           </section>
@@ -462,6 +611,11 @@ export function KidModePage() {
             </button>
           </section>
         )}
+        <KidQrScanModal
+          open={qrScanOpen}
+          onClose={() => setQrScanOpen(false)}
+          scanCameraError={scanCameraError}
+        />
       </main>
     )
   }
@@ -472,57 +626,40 @@ export function KidModePage() {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-extrabold text-slate-900 dark:text-zinc-50">{device.device_name}</h1>
-            <p className="text-xs text-slate-500 dark:text-zinc-400">SafeTube Kids - מצב מוגן</p>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">{KID_APP_DISPLAY_NAME} — מצב מוגן</p>
           </div>
-          <div className="flex max-w-[min(100%,22rem)] shrink-0 flex-wrap items-center justify-end gap-2">
-            <Button
-              variant="secondary"
-              className="gap-1 text-xs"
-              onClick={() => {
-                setAnotherPairingCode('')
-                setAnotherPairingError(null)
-                setAddAnotherDeviceOpen(true)
-              }}
-            >
-              <Keyboard className="h-3.5 w-3.5" aria-hidden />
-              מכשיר נוסף (קוד)
-            </Button>
-            <Button variant="secondary" className="text-xs" onClick={() => void handleInstallApp()}>
-              התקן אפליקציה
-            </Button>
-            <Button variant="secondary" className="text-xs" onClick={() => setPinModalOpen(true)}>
-              נתק מכשיר (הורה)
-            </Button>
-          </div>
+          <Button variant="secondary" className="shrink-0 text-xs" onClick={() => setPinModalOpen(true)}>
+            נתק מכשיר (הורה)
+          </Button>
         </div>
       </header>
-      <div className="flex flex-wrap gap-2">
-        {categories.map((cat) => (
-          <Button
-            key={cat}
-            variant={selectedCategory === cat ? 'primary' : 'secondary'}
-            className="!px-3 !py-1.5 text-xs"
-            onClick={() => setSelectedCategory(cat)}
-          >
-            {cat === 'all' ? 'הכול' : cat}
-          </Button>
-        ))}
-      </div>
-      {showInstallHint ? (
-        <p className="text-xs text-zinc-500">
-          אם לא הופיעה התקנה אוטומטית, בדפדפן פתחו תפריט ובחרו &quot;Add to Home screen&quot; / &quot;Install app&quot;.
-        </p>
-      ) : null}
       {error ? <p className="text-sm text-danger-600">{error}</p> : null}
 
       {device.is_blocked ? (
         <section className="rounded-2xl border border-danger-700/60 bg-danger-950/50 p-6 text-center text-danger-100">
-          <ShieldAlert className="mx-auto mb-3 h-10 w-10" />
-          <h2 className="text-xl font-black">YouTube חסום כרגע</h2>
-          <p className="mt-2 text-sm">הורה חסם את הצפייה מהמכשיר הזה. חכו לאישור מחדש.</p>
+          <ShieldAlert className="mx-auto mb-3 h-10 w-10" aria-hidden />
+          <h2 className="text-xl font-black tracking-tight">{KID_APP_DISPLAY_NAME}</h2>
+          <p className="mt-3 text-sm leading-relaxed opacity-95">
+            הצפייה חסומה כרגע מההורה. אפשר לבקש לפתוח שוב — או לנתק את המכשיר בלחיצה על &quot;נתק מכשיר&quot; למעלה (נדרש אישור הורה).
+          </p>
         </section>
       ) : (
         <section className="grid flex-1 gap-3 lg:grid-cols-[2fr,1fr,1fr]">
+          {channels.length === 0 ? (
+            <div className="lg:col-span-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+              <p className="font-semibold">אין ערוצים שמקושרים למכשיר הזה</p>
+              <p className="mt-2 text-amber-900/90 dark:text-amber-200/90">
+                במסך ההורה, תחת <strong className="font-bold">ניהול ערוצים</strong>, הערוצים נוספים ל<strong className="font-bold">
+                  מכשיר ספציפי
+                </strong>
+                . ודאו שנבחר באותו ממשק המכשיר בשם <strong className="font-bold">«{device.device_name}»</strong> — זה שם המכשיר
+                שמוצג כאן למעלה. אם ההוספה בוצעה תחת מכשיר אחר, כאן לא יופיעו ערוצים עד שתקשרו אותם לאותו מכשיר.
+              </p>
+              <Button type="button" variant="secondary" className="mt-3" onClick={() => requestParentAction('home')}>
+                פתחו ניהול הורה במכשיר הזה
+              </Button>
+            </div>
+          ) : null}
           <article className="rounded-2xl border border-slate-200 bg-black p-2 shadow-sm dark:border-zinc-700">
             {playerOpen && activeVideo ? (
               <>
@@ -595,11 +732,15 @@ export function KidModePage() {
                     <p className="max-w-sm text-center text-sm">
                       {channelLoading
                         ? 'טוענים סרטונים…'
-                        : channels.length === 0 && parentPickedVideos.length === 0
-                          ? 'אין תוכן מאושר עדיין. ההורה מוסיף ערוצים או סרטונים ממסך הניהול.'
-                          : channels.length === 0
-                            ? 'אין ערוצים — אם ההורה אישר סרטונים בנפרד, הם אמורים להופיע כאן.'
-                            : 'בחרו ערוץ מהרשימה משמאל כדי לטעון סרטונים מהמטמון.'}
+                        : videoSearch.trim()
+                          ? 'אין תוצאות לחיפוש — נסו מילה אחרת או רוקנו את שדה החיפוש בעמודת &quot;סרטונים מאושרים&quot;.'
+                          : channels.length === 0 && parentPickedVideos.length === 0
+                            ? 'אין תוכן מאושר עדיין. ההורה מוסיף ערוצים או סרטונים ממסך הניהול.'
+                            : channels.length === 0
+                              ? 'אין ערוצים במכשיר הזה. וודאו שחיברתם את אותו מכשיר שההורה קיבע אליו ערוצים.'
+                              : mergedVideos.length === 0
+                                ? 'יש ערוצים ברשימה, אבל עדיין אין סרטונים זמינים. במסך ההורה צריך לפתוח/לסנכרן את הערוץ (מטמון סרטונים), או לאשר סרטונים בודדים לילד.'
+                                : 'בחרו ערוץ מהרשימה כדי לטעון סרטונים מהמטמון.'}
                     </p>
                   </div>
                 )}
@@ -610,7 +751,7 @@ export function KidModePage() {
           <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">ערוצים מאושרים</h2>
             <div className="grid max-h-[65vh] gap-2 overflow-auto pr-1">
-              {filteredChannels.map((channel) => {
+              {channels.map((channel) => {
                 const selected = channel.youtube_channel_id === activeChannelId
                 return (
                   <button
@@ -700,55 +841,77 @@ export function KidModePage() {
         </section>
       )}
 
-      <Modal
-        open={addAnotherDeviceOpen}
-        onClose={() => {
-          if (anotherPairingLoading) return
-          setAddAnotherDeviceOpen(false)
-          setAnotherPairingCode('')
-          setAnotherPairingError(null)
-        }}
-        title="מכשיר נוסף — בלי מצלמה"
-        footer={
-          <>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">מצב הורה במכשיר הזה</h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
+          כל הפעולות יכולות להתבצע כאן: חסימה/פתיחה, אישור ערוצים וניהול הגדרות.
+        </p>
+        <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">
+          {parentModeUnlocked ? 'מצב הורה פתוח ל-10 דקות במכשיר הזה.' : 'מצב הורה נעול. פתיחה דורשת PIN הורה.'}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('home')}>
+            {isAuthenticated ? 'לוח בקרה הורה' : 'התחברות הורה'}
+          </Button>
+          <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('channels')}>
+            {isAuthenticated ? 'ניהול ערוצים' : 'התחברו כדי לנהל ערוצים'}
+          </Button>
+          {parentModeUnlocked ? (
             <Button
               type="button"
               variant="secondary"
+              className="text-xs"
+              onClick={lockParentMode}
+            >
+              נעל מצב הורה
+            </Button>
+          ) : null}
+        </div>
+      </section>
+
+      <Modal
+        open={parentModePinOpen}
+        onClose={() => {
+          setParentModePinOpen(false)
+          setParentModePinInput('')
+          setParentModePinError(null)
+          setPendingParentAction(null)
+        }}
+        title="פתיחת מצב הורה"
+        footer={
+          <>
+            <Button
+              variant="secondary"
               onClick={() => {
-                setAddAnotherDeviceOpen(false)
-                setAnotherPairingCode('')
-                setAnotherPairingError(null)
+                setParentModePinOpen(false)
+                setParentModePinInput('')
+                setParentModePinError(null)
+                setPendingParentAction(null)
               }}
-              disabled={anotherPairingLoading}
             >
               ביטול
             </Button>
-            <Button type="button" onClick={() => void handlePairAnotherDevice()} disabled={anotherPairingLoading}>
-              {anotherPairingLoading ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-              {anotherPairingLoading ? 'מתחבר…' : 'חבר מכשיר זה'}
-            </Button>
+            <Button onClick={confirmParentModePin}>אשר</Button>
           </>
         }
       >
-        <p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-          אין צורך בסריקת QR או במצלמה. בקשו מההורה את <strong className="text-slate-800 dark:text-zinc-200">קוד החיבור</strong>{' '}
-          למכשיר החדש (במסך המכשירים או אחרי יצירת מכשיר) והזינו כאן את 6 הספרות. במכשיר הזה יוצגו הערוצים של המכשיר החדש.
+        <p className="mb-2 text-sm text-slate-600 dark:text-zinc-400">
+          הכניסה לניהול הורה מהמכשיר הזה מוגנת ב-PIN.
         </p>
-        <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-zinc-300">קוד צימוד</label>
         <Input
+          type="password"
           inputMode="numeric"
           autoComplete="one-time-code"
-          value={anotherPairingCode}
+          value={parentModePinInput}
           onChange={(e) => {
-            setAnotherPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))
-            if (anotherPairingError) setAnotherPairingError(null)
+            setParentModePinInput(e.target.value)
+            if (parentModePinError) setParentModePinError(null)
           }}
-          placeholder="לדוגמה: 123456"
-          className="text-center text-lg tracking-[0.2em]"
-          onKeyDown={(e) => e.key === 'Enter' && void handlePairAnotherDevice()}
+          placeholder="PIN הורה"
           autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && confirmParentModePin()}
         />
-        {anotherPairingError ? <p className="mt-2 text-sm text-danger-600">{anotherPairingError}</p> : null}
+        {parentModePinError ? <p className="mt-2 text-sm text-danger-600">{parentModePinError}</p> : null}
       </Modal>
 
       <Modal
@@ -780,15 +943,19 @@ export function KidModePage() {
           </>
         }
       >
-        <p className="mb-2 text-sm text-slate-600 dark:text-zinc-400">להמשך ניתוק המכשיר יש להזין PIN הורי.</p>
+        <p className="mb-2 text-sm text-slate-600 dark:text-zinc-400">
+          הזינו את קוד הניהול שמופעל אצל ההורה (במסך ניהול הערוצים). אם לא הוגדר מיוחד — נסו <strong>1234</strong>.
+        </p>
         <Input
           type="password"
+          inputMode="numeric"
+          autoComplete="one-time-code"
           value={pinInput}
           onChange={(e) => {
             setPinInput(e.target.value)
             if (pinError) setPinError(null)
           }}
-          placeholder="PIN הורי"
+          placeholder="למשל: 1234"
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && void confirmPinAndDisconnect()}
         />

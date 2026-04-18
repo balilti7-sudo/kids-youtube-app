@@ -30,7 +30,8 @@ function SmartEntryRoute() {
     )
   }
 
-  if (hasKidToken && !isAuthenticated) return <Navigate to="/kid" replace />
+  // Kid-first: אם זה מכשיר ילד מצומד, תמיד נכנסים קודם למסך הילד.
+  if (hasKidToken) return <Navigate to="/kid" replace />
   if (!isAuthenticated) return <Navigate to="/auth" replace />
   if (profile && !profile.onboarding_done) return <Navigate to="/onboarding" replace />
   return <Navigate to="/dashboard" replace />

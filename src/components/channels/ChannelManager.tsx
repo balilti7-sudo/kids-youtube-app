@@ -16,6 +16,7 @@ import { Input } from '../ui/Input'
 import { Modal } from '../ui/Modal'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
+import { getResolvedParentPin, pinsMatch } from '../../lib/parentPin'
 
 export function ChannelManager() {
   const { user } = useAuth()
@@ -37,8 +38,7 @@ export function ChannelManager() {
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
-  const managementPin =
-    import.meta.env.VITE_PARENT_MANAGEMENT_PIN?.trim() || import.meta.env.VITE_PARENT_UNLOCK_PIN?.trim() || '1234'
+  const managementPin = getResolvedParentPin()
 
   /** אחרי אימות PIN באמצעות לחיצה על "הוסף" / חיפוש — להריץ פעולה שנחסמה כשהמסך היה נעול */
   const pendingAfterUnlockRef = useRef<'addChannelUrl' | 'openChannelSearch' | 'openVideoSearch' | null>(null)
@@ -207,7 +207,7 @@ export function ChannelManager() {
       runPendingAfterUnlock()
       return
     }
-    if (pinInput !== managementPin) {
+    if (!pinsMatch(pinInput, managementPin)) {
       setPinError('PIN שגוי')
       return
     }

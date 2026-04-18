@@ -103,6 +103,22 @@ export async function getChildAllowedVideos(accessToken: string): Promise<{
   return { data: (data ?? []) as ChildAllowedVideo[], error: null }
 }
 
+/** שורות מ־PostgREST לעיתים מגיעות עם שמות שדות שונים — מנרמלים לפני התצוגה */
+function mapChildAllowedChannelRow(row: Record<string, unknown>): ChildAllowedChannel | null {
+  const channelId = row.channel_id ?? row.channelId
+  const ytId = row.youtube_channel_id ?? row.youtubeChannelId
+  const name = row.channel_name ?? row.channelName
+  if (typeof channelId !== 'string' || typeof ytId !== 'string' || typeof name !== 'string') return null
+  return {
+    channel_id: channelId,
+    youtube_channel_id: ytId,
+    channel_name: name,
+    category: row.category != null && row.category !== '' ? String(row.category) : null,
+    channel_thumbnail: row.channel_thumbnail != null ? String(row.channel_thumbnail) : null,
+    subscriber_count: row.subscriber_count != null ? String(row.subscriber_count) : null,
+  }
+}
+
 export async function getChildAllowedChannels(accessToken: string): Promise<{
   data: ChildAllowedChannel[]
   error: Error | null
@@ -111,7 +127,9 @@ export async function getChildAllowedChannels(accessToken: string): Promise<{
     p_access_token: accessToken,
   })
   if (error) return { data: [], error: new Error(error.message) }
-  return { data: (data ?? []) as ChildAllowedChannel[], error: null }
+  const raw = (data ?? []) as Record<string, unknown>[]
+  const mapped = raw.map(mapChildAllowedChannelRow).filter((c): c is ChildAllowedChannel => c !== null)
+  return { data: mapped, error: null }
 }
 
 export async function getChildCachedChannelVideos(accessToken: string, youtubeChannelId: string): Promise<{
