@@ -18,9 +18,11 @@ function randomSixDigits() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
+/** קישור מלא ל־SPA: תמיד `/kid?code=######` (אין התחברות הורה בצימוד) */
 function kidModePairUrl(origin: string, pairingCode: string) {
   const base = origin.replace(/\/$/, '')
-  const params = new URLSearchParams({ code: pairingCode })
+  const code = String(pairingCode).trim()
+  const params = new URLSearchParams({ code })
   return `${base}/kid?${params.toString()}`
 }
 

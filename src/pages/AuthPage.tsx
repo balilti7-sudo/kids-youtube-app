@@ -8,7 +8,7 @@ import { parsePairingCodeFromLocationSearch } from '../lib/pairingCodeFromQr'
 export function AuthPage() {
   const { isAuthenticated, loading, profileLoading, profile } = useAuth()
   const location = useLocation()
-  const pairFromUrl = parsePairingCodeFromLocationSearch(location.search)
+  const pairFromUrl = parsePairingCodeFromLocationSearch(location.search, location.hash)
   if (pairFromUrl) {
     return <Navigate to={`/kid?code=${encodeURIComponent(pairFromUrl)}`} replace />
   }

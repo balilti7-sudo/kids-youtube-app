@@ -20,7 +20,7 @@ import {
   type ChildDeviceState,
 } from '../lib/childDevice'
 import { getResolvedParentPin, pinsMatch } from '../lib/parentPin'
-import { parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
+import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import type { ChannelVideoItem } from '../lib/youtube'
 import type { Html5Qrcode } from 'html5-qrcode'
@@ -106,7 +106,7 @@ export function KidModePage() {
   /** נקרא פעם אחת — לזיהוי סריקת QR לפני הסרת הפרמטר מהכתובת */
   const [pendingUrlPairCode] = useState(() => {
     try {
-      return new URLSearchParams(window.location.search).get('code')?.trim() || null
+      return parsePairingCodeFromLocationSearch(window.location.search, window.location.hash)
     } catch {
       return null
     }
@@ -211,7 +211,7 @@ export function KidModePage() {
     const boot = async () => {
       let urlCode: string | null = null
       try {
-        urlCode = new URLSearchParams(window.location.search).get('code')?.trim() || null
+        urlCode = parsePairingCodeFromLocationSearch(window.location.search, window.location.hash)
       } catch {
         urlCode = null
       }

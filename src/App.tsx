@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -26,7 +27,7 @@ function KidModeRoute() {
 function SmartEntryRoute() {
   const location = useLocation()
   const { isAuthenticated, loading, profileLoading, profile } = useAuth()
-  const pairFromUrl = parsePairingCodeFromLocationSearch(location.search)
+  const pairFromUrl = parsePairingCodeFromLocationSearch(location.search, location.hash)
   if (pairFromUrl) {
     return <Navigate to={`/kid?code=${encodeURIComponent(pairFromUrl)}`} replace />
   }
@@ -51,10 +52,32 @@ function SmartEntryRoute() {
   return <Navigate to="/dashboard" replace />
 }
 
+/** מסלול לא ידוע: לא לאבד ?code= — מפנה ל־/kid או ל־/ */
+function CatchAllRedirect() {
+  const location = useLocation()
+  const pair = parsePairingCodeFromLocationSearch(location.search, location.hash)
+  if (pair) {
+    return <Navigate to={`/kid?code=${encodeURIComponent(pair)}`} replace />
+  }
+  return <Navigate to="/" replace />
+}
+
+/** לוג דיבוג לפי דרישה — אחרי שינויי ניתוב */
+function PairingCodeUrlLogger() {
+  const location = useLocation()
+  useEffect(() => {
+    const code = parsePairingCodeFromLocationSearch(location.search, location.hash)
+    // eslint-disable-next-line no-console -- דיבוג זמני לפי דרישת מוצר
+    console.log('Detected code in URL: ' + (code ?? '(none)'))
+  }, [location.pathname, location.search, location.hash])
+  return null
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        <PairingCodeUrlLogger />
         <Toaster richColors position="top-center" dir="rtl" theme="dark" />
         <Routes>
           <Route path="/" element={<SmartEntryRoute />} />
@@ -82,7 +105,7 @@ export default function App() {
             <Route path="/devices" element={<DeviceLinkPage />} />
             <Route path="/subscription" element={<SubscriptionPage />} />
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<CatchAllRedirect />} />
         </Routes>
       </BrowserRouter>
     </ErrorBoundary>
