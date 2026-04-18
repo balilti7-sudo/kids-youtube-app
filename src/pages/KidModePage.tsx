@@ -164,15 +164,24 @@ export function KidModePage() {
     }
 
     setError(null)
-    setChannels(channelsRes.data ?? [])
-    const availableIds = new Set(channelsRes.data.map((c) => c.youtube_channel_id))
-    const preferred = activeChannelId && availableIds.has(activeChannelId) ? activeChannelId : channelsRes.data[0]?.youtube_channel_id ?? null
-    setActiveChannelId((prev) => (prev === preferred ? prev : preferred))
-    if (!preferred) {
+    const list = channelsRes.data ?? []
+    setChannels(list)
+    const availableIds = new Set(list.map((c) => c.youtube_channel_id))
+
+    if (list.length === 0) {
+      setActiveChannelId(null)
       setChannelVideos([])
       setPlayerOpen(false)
+      return
     }
-  }, [activeChannelId])
+
+    // אל תשתמשו ב-activeChannelId מהסגירה — בקשות polling ישנות יכולות לסיים אחרי בחירת ערוץ
+    // ולדרוס את הבחירה; תמיד לעגנו ל־prev המעודכן מול הרשימה החדשה מהשרת.
+    setActiveChannelId((prev) => {
+      if (prev && availableIds.has(prev)) return prev
+      return list[0]?.youtube_channel_id ?? null
+    })
+  }, [])
 
   const loadChildDataRef = useRef(loadChildData)
   loadChildDataRef.current = loadChildData
