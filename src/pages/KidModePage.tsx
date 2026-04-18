@@ -542,6 +542,9 @@ export function KidModePage() {
           <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-zinc-500">
             קוד ה־QR בלוח ההורה מיועד ל<strong className="font-semibold text-slate-700 dark:text-zinc-300">טלפון נוסף</strong> של ההורה (צפייה / ניטור) — לא חובה להגדרה על המכשיר הזה.
           </p>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
+            אם נפתח מסך התחברות (אימייל) במקום צימוד — סגרו אותו ופתחו שוב את הקישור מה־QR, או הזינו את קוד ה־6 ספרות ידנית כאן.
+          </p>
         </div>
 
         {!showManualPairing ? (

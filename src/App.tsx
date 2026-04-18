@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
@@ -15,9 +15,22 @@ import { ProfilePage } from './pages/ProfilePage'
 import { KidModePage } from './pages/KidModePage'
 import { useAuth } from './hooks/useAuth'
 import { BYPASS_AUTH } from './config/dev'
+import { parsePairingCodeFromLocationSearch } from './lib/pairingCodeFromQr'
+
+/** Remount כשמשנים query (למשל אחרי סריקת QR) כדי ש־boot עם קוד ירוץ שוב */
+function KidModeRoute() {
+  const [searchParams] = useSearchParams()
+  return <KidModePage key={searchParams.toString()} />
+}
 
 function SmartEntryRoute() {
+  const location = useLocation()
   const { isAuthenticated, loading, profileLoading, profile } = useAuth()
+  const pairFromUrl = parsePairingCodeFromLocationSearch(location.search)
+  if (pairFromUrl) {
+    return <Navigate to={`/kid?code=${encodeURIComponent(pairFromUrl)}`} replace />
+  }
+
   const hasKidToken =
     typeof window !== 'undefined' && Boolean(window.localStorage.getItem('safetube_kid_access_token'))
 
@@ -46,7 +59,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<SmartEntryRoute />} />
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/kid" element={<KidModePage />} />
+          <Route path="/kid" element={<KidModeRoute />} />
           <Route
             path="/onboarding"
             element={

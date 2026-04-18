@@ -1,3 +1,14 @@
+/** מחלץ `code` מתוך `location.search` (?code=123456) — לניתוב מ־/ או /auth למסך ילד */
+export function parsePairingCodeFromLocationSearch(search: string): string | null {
+  try {
+    const code = new URLSearchParams(search || '').get('code')?.trim()
+    if (code && /^\d{6}$/.test(code)) return code
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
 /** מחלץ קוד צימוד של 6 ספרות מטקסט QR — קישור עם ?code= או רק המספרים */
 export function parsePairingCodeFromScan(raw: string): string | null {
   const trimmed = raw.trim()
