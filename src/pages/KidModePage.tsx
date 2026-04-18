@@ -11,14 +11,12 @@ import {
   childMarkOffline,
   clearChildAccessToken,
   getChildAllowedChannels,
-  getChildAllowedVideos,
   getChildCachedChannelVideos,
   getChildDeviceState,
   getSavedChildAccessToken,
   pairChildDevice,
   saveChildAccessToken,
   type ChildAllowedChannel,
-  type ChildAllowedVideo,
   type ChildDeviceState,
 } from '../lib/childDevice'
 import { getResolvedParentPin, pinsMatch } from '../lib/parentPin'
@@ -75,8 +73,6 @@ export function KidModePage() {
   const [error, setError] = useState<string | null>(null)
   const [device, setDevice] = useState<ChildDeviceState | null>(null)
   const [channels, setChannels] = useState<ChildAllowedChannel[]>([])
-  /** סרטונים שאושרו בנפרד (מסך ההורה — לא רק ממטמון הערוץ) */
-  const [parentPickedVideos, setParentPickedVideos] = useState<ChildAllowedVideo[]>([])
   const [channelVideos, setChannelVideos] = useState<ChannelVideoItem[]>([])
   const [channelLoading, setChannelLoading] = useState(false)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
@@ -113,27 +109,15 @@ export function KidModePage() {
     }
   })
 
-  const mergedVideos = useMemo((): ChannelVideoItem[] => {
-    const fromParent: ChannelVideoItem[] = parentPickedVideos.map((v) => ({
-      videoId: v.youtube_video_id,
-      title: v.title,
-      thumbnail: v.thumbnail_url ?? '',
-      channelTitle: '',
-    }))
-    const ids = new Set(fromParent.map((v) => v.videoId))
-    const fromCache = channelVideos.filter((v) => !ids.has(v.videoId))
-    return [...fromParent, ...fromCache]
-  }, [parentPickedVideos, channelVideos])
-
   const activeVideo = useMemo(
-    () => mergedVideos.find((v) => v.videoId === activeVideoId) ?? mergedVideos[0] ?? null,
-    [mergedVideos, activeVideoId]
+    () => channelVideos.find((v) => v.videoId === activeVideoId) ?? channelVideos[0] ?? null,
+    [channelVideos, activeVideoId]
   )
   const filteredVideos = useMemo(() => {
     const q = videoSearch.trim().toLowerCase()
-    if (!q) return mergedVideos
-    return mergedVideos.filter((v) => v.title.toLowerCase().includes(q))
-  }, [mergedVideos, videoSearch])
+    if (!q) return channelVideos
+    return channelVideos.filter((v) => v.title.toLowerCase().includes(q))
+  }, [channelVideos, videoSearch])
 
   useEffect(() => {
     setIframeLoaded(false)
@@ -168,20 +152,11 @@ export function KidModePage() {
   }, [accessToken])
 
   const loadChildData = useCallback(async (token: string) => {
-    const [stateRes, channelsRes, pickedRes] = await Promise.all([
-      getChildDeviceState(token),
-      getChildAllowedChannels(token),
-      getChildAllowedVideos(token),
-    ])
+    const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
     if (stateRes.error) throw stateRes.error
     if (!stateRes.data) throw new Error('המכשיר לא נמצא. התחברו מחדש עם קוד צימוד.')
 
     setDevice(stateRes.data)
-    if (pickedRes.error) {
-      setParentPickedVideos([])
-    } else {
-      setParentPickedVideos(pickedRes.data ?? [])
-    }
     if (channelsRes.error) {
       setChannels([])
       setError(channelsRes.error.message)
@@ -225,7 +200,6 @@ export function KidModePage() {
         setAccessToken(null)
         setDevice(null)
         setChannels([])
-        setParentPickedVideos([])
         setError(null)
         try {
           const { accessToken: token, error: pairError } = await pairChildDevice(urlCode)
@@ -282,14 +256,14 @@ export function KidModePage() {
   }, [activeChannelId, loadChannelVideos])
 
   useEffect(() => {
-    if (mergedVideos.length === 0) {
+    if (channelVideos.length === 0) {
       setActiveVideoId(null)
       return
     }
     setActiveVideoId((prev) =>
-      prev && mergedVideos.some((v) => v.videoId === prev) ? prev : mergedVideos[0].videoId
+      prev && channelVideos.some((v) => v.videoId === prev) ? prev : channelVideos[0].videoId
     )
-  }, [mergedVideos])
+  }, [channelVideos])
 
   useEffect(() => {
     if (!accessToken) return
@@ -412,7 +386,6 @@ export function KidModePage() {
       setAccessToken(null)
       setDevice(null)
       setChannels([])
-      setParentPickedVideos([])
       setChannelVideos([])
       setActiveChannelId(null)
       setActiveVideoId(null)
@@ -644,9 +617,9 @@ export function KidModePage() {
           </p>
         </section>
       ) : (
-        <section className="grid flex-1 gap-3 lg:grid-cols-[2fr,1fr,1fr]">
+        <section className="grid flex-1 gap-3 lg:grid-cols-[2fr,1fr]">
           {channels.length === 0 ? (
-            <div className="lg:col-span-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+            <div className="lg:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
               <p className="font-semibold">אין ערוצים שמקושרים למכשיר הזה</p>
               <p className="mt-2 text-amber-900/90 dark:text-amber-200/90">
                 במסך ההורה, תחת <strong className="font-bold">ניהול ערוצים</strong>, הערוצים נוספים ל<strong className="font-bold">
@@ -705,6 +678,12 @@ export function KidModePage() {
               </>
             ) : (
               <div className="grid gap-3 p-1 sm:grid-cols-2">
+                <Input
+                  value={videoSearch}
+                  onChange={(e) => setVideoSearch(e.target.value)}
+                  placeholder="חיפוש בתוך סרטוני הערוץ"
+                  className="border-zinc-600 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500 sm:col-span-2"
+                />
                 {filteredVideos.length > 0 ? (
                   filteredVideos.map((video) => (
                     <button
@@ -733,14 +712,12 @@ export function KidModePage() {
                       {channelLoading
                         ? 'טוענים סרטונים…'
                         : videoSearch.trim()
-                          ? 'אין תוצאות לחיפוש — נסו מילה אחרת או רוקנו את שדה החיפוש בעמודת &quot;סרטונים מאושרים&quot;.'
-                          : channels.length === 0 && parentPickedVideos.length === 0
-                            ? 'אין תוכן מאושר עדיין. ההורה מוסיף ערוצים או סרטונים ממסך הניהול.'
-                            : channels.length === 0
-                              ? 'אין ערוצים במכשיר הזה. וודאו שחיברתם את אותו מכשיר שההורה קיבע אליו ערוצים.'
-                              : mergedVideos.length === 0
-                                ? 'יש ערוצים ברשימה, אבל עדיין אין סרטונים זמינים. במסך ההורה צריך לפתוח/לסנכרן את הערוץ (מטמון סרטונים), או לאשר סרטונים בודדים לילד.'
-                                : 'בחרו ערוץ מהרשימה כדי לטעון סרטונים מהמטמון.'}
+                          ? 'אין תוצאות לחיפוש — נסו מילה אחרת או רוקנו את שדה החיפוש למעלה.'
+                          : channels.length === 0
+                            ? 'אין ערוצים במכשיר הזה. ההורה מוסיף ערוצים במסך הניהול — ודאו שמקושרים לאותו מכשיר.'
+                            : channelVideos.length === 0
+                              ? 'יש ערוצים ברשימה, אבל אין סרטונים במטמון. במסך ההורה: &quot;רענון סרטוני ערוץ&quot; לערוץ הזה, או הוסיפו את הערוץ מחדש (סנכרון אוטומטי אחרי האישור).'
+                              : 'בחרו ערוץ מהרשימה כדי לטעון סרטונים מהמטמון.'}
                     </p>
                   </div>
                 )}
@@ -789,54 +766,6 @@ export function KidModePage() {
                 )
               })}
             </div>
-          </aside>
-
-          <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">סרטונים מאושרים</h2>
-            <p className="mb-2 text-[11px] leading-snug text-slate-500 dark:text-zinc-500">
-              כולל סרטונים שההורה אישר ישירות וסרטונים מהערוץ שנבחר.
-            </p>
-            <Input
-              value={videoSearch}
-              onChange={(e) => setVideoSearch(e.target.value)}
-              placeholder="חיפוש בתוך הסרטונים המאוחסנים"
-              className="mb-2"
-            />
-            {channelLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <LoadingSpinner className="h-6 w-6 border-brand-500 border-t-transparent" />
-              </div>
-            ) : (
-              <div className="grid max-h-[65vh] gap-2 overflow-auto pr-1">
-                {filteredVideos.map((video) => {
-                  const selected = video.videoId === activeVideo?.videoId
-                  return (
-                    <button
-                      key={video.videoId}
-                      type="button"
-                      onClick={() => {
-                        setActiveVideoId(video.videoId)
-                        setPlayerOpen(true)
-                      }}
-                      className={`flex items-center gap-2 rounded-xl border p-2 text-right transition ${
-                        selected
-                          ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
-                          : 'border-slate-200 hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      {video.thumbnail ? (
-                        <img src={video.thumbnail} alt="" className="h-14 w-20 rounded-lg object-cover" loading="lazy" />
-                      ) : (
-                        <div className="flex h-14 w-20 items-center justify-center rounded-lg bg-slate-100 text-slate-400 dark:bg-zinc-800">
-                          <Smartphone className="h-4 w-4" />
-                        </div>
-                      )}
-                      <span className="line-clamp-2 text-xs font-medium text-slate-700 dark:text-zinc-200">{video.title}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
           </aside>
         </section>
       )}

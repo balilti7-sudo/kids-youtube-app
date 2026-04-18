@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Clapperboard, KeyRound, Lock, Plus, RefreshCcw } from 'lucide-react'
+import { KeyRound, Lock, Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
 import { useChannels } from '../../hooks/useChannels'
-import type { WhitelistedChannel, YouTubeVideoResult } from '../../types'
+import type { WhitelistedChannel } from '../../types'
 import { extractYouTubeVideoId } from '../../lib/youtube'
 import { WhitelistView } from './WhitelistView'
-import { ApprovedVideosPanel } from './ApprovedVideosPanel'
 import { ChannelSearch } from './ChannelSearch'
-import { VideoSearchModal } from './VideoSearchModal'
 import { RemoveChannelModal } from './RemoveChannelModal'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -24,10 +22,8 @@ export function ChannelManager() {
   const { devices, loading: devLoading } = useDevices(ownerUserId)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [videoSearchOpen, setVideoSearchOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
-  const [addingVideoId, setAddingVideoId] = useState<string | null>(null)
   const [addingChannelByUrl, setAddingChannelByUrl] = useState(false)
   const [channelUrlInput, setChannelUrlInput] = useState('')
   const [channelCategory, setChannelCategory] = useState('')
@@ -41,29 +37,20 @@ export function ChannelManager() {
   const managementPin = getResolvedParentPin()
 
   /** אחרי אימות PIN באמצעות לחיצה על "הוסף" / חיפוש — להריץ פעולה שנחסמה כשהמסך היה נעול */
-  const pendingAfterUnlockRef = useRef<'addChannelUrl' | 'openChannelSearch' | 'openVideoSearch' | null>(null)
+  const pendingAfterUnlockRef = useRef<'addChannelUrl' | 'openChannelSearch' | null>(null)
 
   const {
     whitelist,
-    approvedVideos,
     searchResults,
-    videoSearchResults,
     searchLoading,
-    videoSearchLoading,
     searchError,
-    videoSearchError,
     loading: listLoading,
     search,
-    searchVideos,
     loadWhitelist,
-    loadApprovedVideos,
     addChannelByUrlOrId,
     refreshChannelVideosCache,
     addToWhitelist,
     removeFromWhitelist,
-    addVideoByUrlOrId,
-    addToApprovedVideos,
-    removeFromApprovedVideos,
   } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId)
 
   useEffect(() => {
@@ -73,10 +60,6 @@ export function ChannelManager() {
   useEffect(() => {
     loadWhitelist()
   }, [deviceId, loadWhitelist])
-
-  useEffect(() => {
-    loadApprovedVideos()
-  }, [deviceId, loadApprovedVideos])
 
   const handleAdd = async (c: import('../../types').YouTubeChannelResult) => {
     if (!selectedDevice) {
@@ -88,7 +71,7 @@ export function ChannelManager() {
     setAddingId(null)
     if (error) toast.error(error.message)
     else {
-      toast.success(`הערוץ נוסף למכשיר ${selectedDevice.name}`)
+      toast.success(`הערוץ נוסף וסונכרן למכשיר ${selectedDevice.name}`)
       setSearchOpen(false)
     }
   }
@@ -108,7 +91,7 @@ export function ChannelManager() {
   const handleAddChannelByUrl = async () => {
     const trimmed = channelUrlInput.trim()
     if (!trimmed) {
-      toast.error('הדביקו לינק לערוץ או לסרטון YouTube')
+      toast.error('הדביקו לינק לערוץ YouTube')
       return
     }
     if (!selectedDevice) {
@@ -119,14 +102,7 @@ export function ChannelManager() {
     try {
       const looksLikeVideo = Boolean(extractYouTubeVideoId(trimmed))
       if (looksLikeVideo) {
-        const { error } = await addVideoByUrlOrId(trimmed)
-        if (error) {
-          toast.error(error.message)
-          return
-        }
-        setChannelUrlInput('')
-        toast.success(`הסרטון אושר למכשיר ${selectedDevice.name} — יופיע אצל הילד`)
-        void loadApprovedVideos()
+        toast.error('האפליקציה מאשרת רק ערוצים שלמים, לא סרטון בודד. הדביקו לינק לערוץ או חפשו ערוץ.')
         return
       }
 
@@ -136,45 +112,9 @@ export function ChannelManager() {
         return
       }
       setChannelUrlInput('')
-      toast.success(`הערוץ נוסף למכשיר ${selectedDevice.name}`)
+      toast.success(`הערוץ נוסף וסונכרן למכשיר ${selectedDevice.name}`)
     } finally {
       setAddingChannelByUrl(false)
-    }
-  }
-
-  const handleAddVideoByUrl = async (value: string) => {
-    if (!selectedDevice) {
-      toast.error('לא נבחר מכשיר')
-      return
-    }
-    setAddingVideoId('url')
-    const { error } = await addVideoByUrlOrId(value)
-    setAddingVideoId(null)
-    if (error) toast.error(error.message)
-    else {
-      toast.success('הסרטון אושר ויופיע אצל הילד תוך רגעים')
-      void loadApprovedVideos()
-    }
-  }
-
-  const handleAddVideoFromSearch = async (v: YouTubeVideoResult) => {
-    setAddingVideoId(v.videoId)
-    const { error } = await addToApprovedVideos(v)
-    setAddingVideoId(null)
-    if (error) toast.error(error.message)
-    else {
-      toast.success('הסרטון אושר ויופיע אצל הילד תוך רגעים')
-      setVideoSearchOpen(false)
-      void loadApprovedVideos()
-    }
-  }
-
-  const handleRemoveApprovedVideo = async (whitelistedVideoId: string) => {
-    const { error } = await removeFromApprovedVideos(whitelistedVideoId)
-    if (error) toast.error(error.message)
-    else {
-      toast.success('הוסר מהרשימה')
-      void loadApprovedVideos()
     }
   }
 
@@ -194,7 +134,6 @@ export function ChannelManager() {
     pendingAfterUnlockRef.current = null
     if (p === 'addChannelUrl') void handleAddChannelByUrl()
     if (p === 'openChannelSearch') setSearchOpen(true)
-    if (p === 'openVideoSearch') setVideoSearchOpen(true)
   }
 
   const handleUnlockManagement = () => {
@@ -215,7 +154,7 @@ export function ChannelManager() {
     setPinModalOpen(false)
     setPinInput('')
     setPinError(null)
-    toast.success('מסך ההוספה נפתח — אפשר להוסיף ערוצים וסרטונים')
+    toast.success('מסך ההוספה נפתח — אפשר להוסיף ערוצים')
     runPendingAfterUnlock()
   }
 
@@ -235,15 +174,6 @@ export function ChannelManager() {
       return
     }
     setSearchOpen(true)
-  }
-
-  const requestOpenVideoSearch = () => {
-    if (manageLocked) {
-      pendingAfterUnlockRef.current = 'openVideoSearch'
-      setPinModalOpen(true)
-      return
-    }
-    setVideoSearchOpen(true)
   }
 
   useEffect(() => {
@@ -279,7 +209,7 @@ export function ChannelManager() {
               onClick={() => setPinModalOpen(true)}
             >
               <KeyRound className="h-5 w-5 shrink-0" aria-hidden />
-              הזינו PIN והמשיכו להוספת ערוצים וסרטונים
+              הזינו PIN והמשיכו להוספת ערוצים
             </Button>
           </div>
         ) : (
@@ -318,8 +248,7 @@ export function ChannelManager() {
         ) : null}
         <div className="rounded-xl border border-slate-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-900">
           <p className="mb-2 text-xs text-slate-500 dark:text-zinc-400">
-            הדביקו כאן לינק: <strong className="text-slate-700 dark:text-zinc-300">לסרטון</strong> (youtu.be / watch?v=) — יאושר{' '}
-            <strong className="text-slate-700 dark:text-zinc-300">רק הסרטון</strong>; לינק לערוץ — יתווסף הערוץ כולו.
+            הדביקו כאן <strong className="text-slate-700 dark:text-zinc-300">רק לינק לערוץ</strong> (דף ערוץ / @handle / channel/…). קישור לסרטון בודד לא יתקבל — צריך לאשר את הערוץ כולו.
           </p>
           <Input
             placeholder="קטגוריה (למשל: Songs / Stories / Education)"
@@ -330,7 +259,7 @@ export function ChannelManager() {
           <div className="flex gap-2">
             <Input
               dir="ltr"
-              placeholder="https://www.youtube.com/channel/... או https://youtu.be/..."
+              placeholder="https://www.youtube.com/@ערוץ או .../channel/UC..."
               value={channelUrlInput}
               onChange={(e) => setChannelUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void requestAddChannelByUrl()}
@@ -349,9 +278,6 @@ export function ChannelManager() {
       ) : (
         <div className="flex flex-col gap-4">
           <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} manageLocked={manageLocked} />
-          <div className={manageLocked ? 'pointer-events-none opacity-45' : ''}>
-            <ApprovedVideosPanel videos={approvedVideos} onAddByUrl={handleAddVideoByUrl} onRemove={handleRemoveApprovedVideo} />
-          </div>
           {whitelist.length > 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
               <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">רענון סרטוני ערוץ (Cache)</p>
@@ -381,23 +307,14 @@ export function ChannelManager() {
         </div>
       )}
 
-      <div className="fixed bottom-24 left-4 right-4 z-30 mx-auto flex max-w-lg gap-2 shadow-lg">
+      <div className="fixed bottom-24 left-4 right-4 z-30 mx-auto flex max-w-lg shadow-lg">
         <Button
           type="button"
-          className="min-h-[48px] flex-1 gap-2 px-2 text-sm font-bold shadow-md sm:text-base"
+          className="min-h-[48px] w-full gap-2 px-2 text-sm font-bold shadow-md sm:text-base"
           onClick={() => requestOpenChannelSearch()}
         >
           <Plus className="h-5 w-5 shrink-0" />
           חיפוש ערוץ
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          className="min-h-[48px] flex-1 gap-2 border border-slate-300 px-2 text-sm font-bold shadow-md dark:border-zinc-600 sm:text-base"
-          onClick={() => requestOpenVideoSearch()}
-        >
-          <Clapperboard className="h-5 w-5 shrink-0" />
-          חיפוש סרטון
         </Button>
       </div>
 
@@ -412,17 +329,6 @@ export function ChannelManager() {
         addingId={addingId}
         deviceLabel={selectedDevice?.name}
         manageLocked={manageLocked}
-      />
-
-      <VideoSearchModal
-        open={videoSearchOpen}
-        onClose={() => setVideoSearchOpen(false)}
-        onSearch={searchVideos}
-        results={videoSearchResults}
-        loading={videoSearchLoading}
-        error={videoSearchError}
-        onAdd={handleAddVideoFromSearch}
-        addingId={addingVideoId}
       />
 
       <RemoveChannelModal
@@ -455,7 +361,7 @@ export function ChannelManager() {
           הזינו את קוד ההורה (4 ספרות). כך מוודאים שרק אתם מוסיפים או מסירים תוכן עבור המכשיר של הילד.
         </p>
         <p className="mb-3 rounded-lg border border-brand-200/80 bg-brand-50/90 px-3 py-2 text-xs leading-relaxed text-brand-900 dark:border-brand-800/60 dark:bg-brand-950/40 dark:text-brand-100/95">
-          פתחתם מלחיצה על &quot;הוסף&quot;, &quot;חיפוש ערוץ&quot; או &quot;חיפוש סרטון&quot;? אחרי קוד נכון — הפעולה תמשיך אוטומטית.
+          פתחתם מלחיצה על &quot;הוסף&quot; או &quot;חיפוש ערוץ&quot;? אחרי קוד נכון — הפעולה תמשיך אוטומטית.
         </p>
         <Input
           type="password"
