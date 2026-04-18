@@ -135,10 +135,12 @@ export function KidModePage() {
     return () => window.clearTimeout(timeoutId)
   }, [activeVideo, iframeLoaded, playerNonce])
 
-  const loadChannelVideos = useCallback(async (channelId: string) => {
+  const loadChannelVideos = useCallback(async (youtubeChannelId: string) => {
     const rid = ++channelVideosRequestRef.current
-    const yt = channelId.trim()
-    if (!yt) {
+    // לא לעשות trim ל-youtube_channel_id לפני RPC:
+    // אם הערך ב-DB נשמר עם רווחים/תווים נסתרים, ה-RPC מסנן לפי התאמה מדויקת.
+    const yt = youtubeChannelId
+    if (!yt || !yt.trim()) {
       return
     }
     setChannelLoading(true)
@@ -180,7 +182,8 @@ export function KidModePage() {
     setError(null)
     const list = channelsRes.data ?? []
     setChannels(list)
-    const availableIds = new Set(list.map((c) => c.youtube_channel_id.trim()))
+    // חשוב: לא לעשות trim כאן כדי לא לשבור התאמה מדויקת מול RPC.
+    const availableIds = new Set(list.map((c) => c.youtube_channel_id))
 
     if (list.length === 0) {
       setActiveChannelId(null)
@@ -192,9 +195,9 @@ export function KidModePage() {
     // אל תשתמשו ב-activeChannelId מהסגירה — בקשות polling ישנות יכולות לסיים אחרי בחירת ערוץ
     // ולדרוס את הבחירה; תמיד לעגנו ל־prev המעודכן מול הרשימה החדשה מהשרת.
     setActiveChannelId((prev) => {
-      const p = prev?.trim() ?? ''
+      const p = prev ?? ''
       if (p && availableIds.has(p)) return p
-      return list[0]?.youtube_channel_id?.trim() ?? null
+      return list[0]?.youtube_channel_id ?? null
     })
   }, [])
 
@@ -275,8 +278,8 @@ export function KidModePage() {
   }, [accessToken, loadChildData])
 
   useEffect(() => {
-    const yt = activeChannelId?.trim()
-    if (!yt) return
+    const yt = activeChannelId
+    if (!yt || !yt.trim()) return
     void loadChannelVideos(yt)
   }, [activeChannelId, channelPickNonce, loadChannelVideos])
 
@@ -810,8 +813,8 @@ export function KidModePage() {
             <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">ערוצים מאושרים</h2>
             <div className="grid max-h-[65vh] touch-manipulation gap-2 overflow-y-auto overscroll-contain pr-1">
               {channels.map((channel) => {
-                const yt = channel.youtube_channel_id.trim()
-                const selected = yt === (activeChannelId?.trim() ?? '')
+                const yt = channel.youtube_channel_id
+                const selected = yt === (activeChannelId ?? '')
                 return (
                   <button
                     key={channel.channel_id}
