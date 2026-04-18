@@ -18,8 +18,15 @@ export function useDevices(userId: string | undefined) {
   useEffect(() => {
     if (!userId) return
 
+    // שם ערוץ ייחודי לכל hook instance — אחרת שני קומפוננטות עם אותו userId
+    // משתפות ערוץ Realtime אחד ומנסות להוסיף .on() אחרי subscribe() (שגיאת Supabase).
+    const channelSuffix =
+      typeof globalThis.crypto !== 'undefined' && 'randomUUID' in globalThis.crypto
+        ? globalThis.crypto.randomUUID()
+        : `rt-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+
     const channel = supabase
-      .channel(`devices-${userId}`)
+      .channel(`devices-${userId}-${channelSuffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'devices', filter: `user_id=eq.${userId}` },
