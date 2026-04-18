@@ -2,20 +2,28 @@ import { useEffect } from 'react'
 import type { Device } from '../types'
 import { supabase } from '../lib/supabase'
 import { useDeviceStore } from '../stores/deviceStore'
+import { useLocalParentManagement } from './useLocalParentManagement'
 
 export function useDevices(userId: string | undefined) {
+  const localParent = useLocalParentManagement()
   const devices = useDeviceStore((s) => s.devices)
   const loading = useDeviceStore((s) => s.loading)
   const error = useDeviceStore((s) => s.error)
   const fetchDevices = useDeviceStore((s) => s.fetchDevices)
+  const fetchLocalParentDeviceFromToken = useDeviceStore((s) => s.fetchLocalParentDeviceFromToken)
   const setFromRealtime = useDeviceStore((s) => s.setFromRealtime)
 
   useEffect(() => {
+    if (localParent.isActive && localParent.localAccessToken) {
+      void fetchLocalParentDeviceFromToken(localParent.localAccessToken)
+      return
+    }
     if (!userId) return
     void fetchDevices(userId)
-  }, [userId, fetchDevices])
+  }, [userId, localParent.isActive, localParent.localAccessToken, fetchDevices, fetchLocalParentDeviceFromToken])
 
   useEffect(() => {
+    if (localParent.isActive) return
     if (!userId) return
 
     // שם ערוץ ייחודי לכל hook instance — אחרת שני קומפוננטות עם אותו userId
@@ -46,13 +54,17 @@ export function useDevices(userId: string | undefined) {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [userId, setFromRealtime])
+  }, [userId, localParent.isActive, setFromRealtime])
 
   return {
     devices,
     loading,
     error,
     refetch: async () => {
+      if (localParent.isActive && localParent.localAccessToken) {
+        await fetchLocalParentDeviceFromToken(localParent.localAccessToken)
+        return
+      }
       if (userId) await fetchDevices(userId)
     },
   }

@@ -12,6 +12,7 @@ interface DeviceState {
   devices: Device[]
   loading: boolean
   error: string | null
+  fetchLocalParentDeviceFromToken: (accessToken: string) => Promise<void>
   fetchDevices: (userId: string) => Promise<void>
   toggleBlock: (deviceId: string, isBlocked: boolean) => Promise<{ error: Error | null }>
   addDevice: (payload: {
@@ -31,6 +32,39 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   error: null,
 
   setDevices: (devices) => set({ devices }),
+
+  fetchLocalParentDeviceFromToken: async (accessToken) => {
+    set({ loading: true, error: null })
+    try {
+      const { data, error } = await supabase.rpc('local_parent_device_summary', {
+        p_access_token: accessToken,
+      })
+      if (error) {
+        const msg = formatSupabaseError(error)
+        console.error('[deviceStore.fetchLocalParentDeviceFromToken]', error)
+        set({ loading: false, error: msg, devices: [] })
+        return
+      }
+      const row = Array.isArray(data) ? data[0] : null
+      if (!row) {
+        set({ loading: false, devices: [] })
+        return
+      }
+      const d = row as Device
+      const withCount: Device = {
+        ...d,
+        channel_count: typeof d.channel_count === 'number' ? d.channel_count : Number(d.channel_count ?? 0),
+      }
+      set({ devices: [withCount], loading: false })
+    } catch (err) {
+      console.error('[deviceStore.fetchLocalParentDeviceFromToken]', err)
+      set({
+        loading: false,
+        error: 'לא ניתן לטעון את פרטי המכשיר.',
+        devices: [],
+      })
+    }
+  },
 
   fetchDevices: async (userId) => {
     set({ loading: true, error: null })

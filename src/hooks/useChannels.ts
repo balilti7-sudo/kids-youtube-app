@@ -4,7 +4,16 @@ import { useChannelStore } from '../stores/channelStore'
 import { supabase } from '../lib/supabase'
 import { getLatestVideosForChannel } from '../lib/youtube'
 
-export function useChannels(deviceId: string | undefined, userId: string | undefined) {
+export function useChannels(
+  deviceId: string | undefined,
+  userId: string | undefined,
+  options?: {
+    localAccessToken?: string | null
+    getLocalParentPin?: () => string | null
+  }
+) {
+  const localAccessToken = options?.localAccessToken ?? null
+  const getLocalParentPin = options?.getLocalParentPin
   const whitelist = useChannelStore((s) => s.whitelist)
   const searchResults = useChannelStore((s) => s.searchResults)
   const approvedVideos = useChannelStore((s) => s.approvedVideos)
@@ -26,9 +35,43 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
   const addVideoToDevice = useChannelStore((s) => s.addVideoToDevice)
   const removeChannelFromDevice = useChannelStore((s) => s.removeChannelFromDevice)
   const removeVideoFromDevice = useChannelStore((s) => s.removeVideoFromDevice)
+  const fetchWhitelistForLocalParent = useChannelStore((s) => s.fetchWhitelistForLocalParent)
+  const addChannelLocalParent = useChannelStore((s) => s.addChannelLocalParent)
+  const removeChannelLocalParent = useChannelStore((s) => s.removeChannelLocalParent)
+  const replaceChannelCacheLocalParent = useChannelStore((s) => s.replaceChannelCacheLocalParent)
 
   const refreshChannelVideosCache = useCallback(
     async (channelDbId: string, youtubeChannelId: string, force = false) => {
+      if (localAccessToken) {
+        const pin = getLocalParentPin?.() ?? null
+        if (!pin) return { error: null }
+
+        const chMeta = useChannelStore.getState().whitelist.find((c) => c.id === channelDbId)
+        const last = chMeta?.last_videos_refresh_at ? new Date(chMeta.last_videos_refresh_at).getTime() : 0
+        const isFresh = last > 0 && Date.now() - last < 24 * 60 * 60 * 1000
+        if (!force && isFresh) return { error: null }
+
+        const { data: videos, error: ytError } = await getLatestVideosForChannel(youtubeChannelId)
+        if (ytError) return { error: ytError }
+
+        const rows = (videos ?? []).map((v, idx) => ({
+          youtube_video_id: v.videoId,
+          title: v.title,
+          thumbnail_url: v.thumbnail || null,
+          published_at: null as string | null,
+          position: idx,
+        }))
+        const rep = await replaceChannelCacheLocalParent({
+          accessToken: localAccessToken,
+          pin,
+          channelDbId,
+          videos: rows,
+        })
+        if (rep.error) return rep
+        await fetchWhitelistForLocalParent(localAccessToken)
+        return { error: null }
+      }
+
       const { data: meta, error: metaError } = await supabase
         .from('whitelisted_channels')
         .select('last_videos_refresh_at')
@@ -68,7 +111,14 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
       if (deviceId) await fetchWhitelistForDevice(deviceId)
       return { error: null }
     },
-    [deviceId, fetchWhitelistForDevice]
+    [
+      deviceId,
+      fetchWhitelistForDevice,
+      localAccessToken,
+      getLocalParentPin,
+      replaceChannelCacheLocalParent,
+      fetchWhitelistForLocalParent,
+    ]
   )
 
   const search = useCallback(
@@ -88,8 +138,12 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
   )
 
   const loadWhitelist = useCallback(() => {
+    if (localAccessToken) {
+      void fetchWhitelistForLocalParent(localAccessToken)
+      return
+    }
     if (deviceId) void fetchWhitelistForDevice(deviceId)
-  }, [deviceId, fetchWhitelistForDevice])
+  }, [deviceId, localAccessToken, fetchWhitelistForDevice, fetchWhitelistForLocalParent])
 
   const loadApprovedVideos = useCallback(() => {
     if (deviceId) void fetchApprovedVideosForDevice(deviceId)
@@ -132,6 +186,18 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
   const addToWhitelist = useCallback(
     async (yt: import('../types').YouTubeChannelResult, category?: string | null) => {
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
+      if (localAccessToken) {
+        const pin = getLocalParentPin?.() ?? ''
+        if (!pin) return { error: new Error('לא מוכן PIN') }
+        const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
+        if (res.error) return res
+        const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
+        if (ch?.id) {
+          const ref = await refreshChannelVideosCache(ch.id, yt.channelId, true)
+          if (ref.error) return ref
+        }
+        return { error: null }
+      }
       const res = await addChannelToDevice({ deviceId, userId, yt, category })
       if (res.error) return res
       await fetchWhitelistForDevice(deviceId)
@@ -142,7 +208,16 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
       }
       return { error: null }
     },
-    [deviceId, userId, addChannelToDevice, fetchWhitelistForDevice, refreshChannelVideosCache]
+    [
+      deviceId,
+      userId,
+      localAccessToken,
+      getLocalParentPin,
+      addChannelLocalParent,
+      addChannelToDevice,
+      fetchWhitelistForDevice,
+      refreshChannelVideosCache,
+    ]
   )
 
   const addChannelByUrlOrId = useCallback(
@@ -150,6 +225,18 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       const { data, error } = await resolveYouTubeChannelFromInput(input)
       if (error || !data) return { error: error ?? new Error('לא נמצא ערוץ מהקישור') }
+      if (localAccessToken) {
+        const pin = getLocalParentPin?.() ?? ''
+        if (!pin) return { error: new Error('לא מוכן PIN') }
+        const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt: data, category })
+        if (res.error) return res
+        const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
+        if (ch?.id) {
+          const ref = await refreshChannelVideosCache(ch.id, data.channelId, true)
+          if (ref.error) return ref
+        }
+        return { error: null }
+      }
       const res = await addChannelToDevice({ deviceId, userId, yt: data, category })
       if (res.error) return res
       await fetchWhitelistForDevice(deviceId)
@@ -160,15 +247,29 @@ export function useChannels(deviceId: string | undefined, userId: string | undef
       }
       return { error: null }
     },
-    [deviceId, userId, addChannelToDevice, fetchWhitelistForDevice, refreshChannelVideosCache]
+    [
+      deviceId,
+      userId,
+      localAccessToken,
+      getLocalParentPin,
+      addChannelLocalParent,
+      addChannelToDevice,
+      fetchWhitelistForDevice,
+      refreshChannelVideosCache,
+    ]
   )
 
   const removeFromWhitelist = useCallback(
     async (channelId: string) => {
       if (!deviceId) return { error: new Error('לא נבחר מכשיר') }
+      if (localAccessToken) {
+        const pin = getLocalParentPin?.() ?? ''
+        if (!pin) return { error: new Error('לא מוכן PIN') }
+        return removeChannelLocalParent(localAccessToken, pin, channelId)
+      }
       return removeChannelFromDevice(deviceId, channelId)
     },
-    [deviceId, removeChannelFromDevice]
+    [deviceId, localAccessToken, getLocalParentPin, removeChannelLocalParent, removeChannelFromDevice]
   )
 
   const addToApprovedVideos = useCallback(

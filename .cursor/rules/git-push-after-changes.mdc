@@ -1,15 +1,16 @@
 ---
-description: After implementing an upgrade or meaningful feature work, commit and push to GitHub.
+description: After each fix or coherent change, commit, push to GitHub, and verify remote is up to date.
 alwaysApply: true
 ---
 
-# Git: commit and push after upgrades
+# Git: commit, push, and verify after every fix
 
-When you finish a coherent set of changes (feature, fix, UX upgrade, or dependency bump):
+When you finish a coherent set of changes (bug fix, feature, UX tweak, or dependency bump):
 
 1. Run `git status` and review what changed.
 2. Stage with `git add -A` (or scoped files), write a clear **Conventional-style** commit message (e.g. `feat:`, `fix:`, `chore:`) describing the user-visible outcome.
-3. Push to `origin` on the current branch (usually `main`): `git push origin <branch>`.
+3. Push to GitHub: `git push origin <current-branch>` (usually `main`).
+4. **Verify everything is updated on the remote:** run `git fetch origin`, then confirm `git status` shows the branch is **up to date with `origin/<branch>`** and that `git log -1 --oneline` matches `git log -1 --oneline origin/<branch>` (same commit hash as remote tip).
 
 Skip only if the user explicitly says not to commit/push, or if there is nothing to commit.
 

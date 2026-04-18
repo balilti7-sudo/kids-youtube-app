@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { KeyRound, Lock, Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -15,10 +15,14 @@ import { Modal } from '../ui/Modal'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
 import { getResolvedParentPin, pinsMatch } from '../../lib/parentPin'
+import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 
 export function ChannelManager() {
   const { user } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
+  const localParent = useLocalParentManagement()
+  const localParentPinForRpcRef = useRef<string | null>(null)
+  const getLocalParentPin = useCallback(() => localParentPinForRpcRef.current, [])
   const { devices, loading: devLoading } = useDevices(ownerUserId)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -51,7 +55,10 @@ export function ChannelManager() {
     refreshChannelVideosCache,
     addToWhitelist,
     removeFromWhitelist,
-  } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId)
+  } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId, {
+    localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
+    getLocalParentPin: localParent.isActive ? getLocalParentPin : undefined,
+  })
 
   useEffect(() => {
     if (!deviceId && devices[0]?.id) setDeviceId(devices[0].id)
@@ -138,6 +145,7 @@ export function ChannelManager() {
 
   const handleUnlockManagement = () => {
     if (!managementPin) {
+      localParentPinForRpcRef.current = getResolvedParentPin()
       setManageLocked(false)
       setPinModalOpen(false)
       setPinInput('')
@@ -150,6 +158,7 @@ export function ChannelManager() {
       setPinError('PIN שגוי')
       return
     }
+    localParentPinForRpcRef.current = pinInput.replace(/\s+/g, '').trim()
     setManageLocked(false)
     setPinModalOpen(false)
     setPinInput('')
@@ -221,7 +230,10 @@ export function ChannelManager() {
               type="button"
               variant="secondary"
               className="shrink-0 !px-3 !py-2 text-xs font-semibold"
-              onClick={() => setManageLocked(true)}
+              onClick={() => {
+                localParentPinForRpcRef.current = null
+                setManageLocked(true)
+              }}
             >
               <Lock className="h-4 w-4" />
               נעל את מסך ההוספה

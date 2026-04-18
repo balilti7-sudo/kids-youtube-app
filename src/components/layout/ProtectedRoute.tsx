@@ -1,6 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { BYPASS_AUTH } from '../../config/dev'
 import { useAuth } from '../../hooks/useAuth'
+import { getSavedChildAccessToken } from '../../lib/childDevice'
+import { isLocalParentSessionValid } from '../../lib/localParentAdmin'
 import { parsePairingCodeFromLocationSearch } from '../../lib/pairingCodeFromQr'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
@@ -27,6 +29,9 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
+    if (isLocalParentSessionValid() && getSavedChildAccessToken()) {
+      return <>{children}</>
+    }
     return <Navigate to="/auth" state={{ from: location }} replace />
   }
 

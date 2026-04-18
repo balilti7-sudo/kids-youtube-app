@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { clearLocalParentSession } from './localParentAdmin'
 
 const CHILD_ACCESS_TOKEN_KEY = 'safetube_kid_access_token'
 
@@ -49,6 +50,7 @@ export function saveChildAccessToken(token: string) {
 
 export function clearChildAccessToken() {
   localStorage.removeItem(CHILD_ACCESS_TOKEN_KEY)
+  clearLocalParentSession()
   try {
     window.dispatchEvent(new CustomEvent('safetube-kid-token-changed'))
   } catch {

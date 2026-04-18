@@ -35,6 +35,20 @@ interface ChannelState {
   }) => Promise<{ error: Error | null }>
   removeChannelFromDevice: (deviceId: string, channelId: string) => Promise<{ error: Error | null }>
   removeVideoFromDevice: (deviceId: string, videoId: string) => Promise<{ error: Error | null }>
+  fetchWhitelistForLocalParent: (accessToken: string) => Promise<void>
+  addChannelLocalParent: (params: {
+    accessToken: string
+    pin: string
+    yt: import('../types').YouTubeChannelResult
+    category?: string | null
+  }) => Promise<{ error: Error | null }>
+  removeChannelLocalParent: (accessToken: string, pin: string, channelId: string) => Promise<{ error: Error | null }>
+  replaceChannelCacheLocalParent: (params: {
+    accessToken: string
+    pin: string
+    channelDbId: string
+    videos: { youtube_video_id: string; title: string; thumbnail_url: string | null; published_at: string | null; position: number }[]
+  }) => Promise<{ error: Error | null }>
 }
 
 export const useChannelStore = create<ChannelState>((set, get) => ({
@@ -201,6 +215,79 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       .eq('video_id', videoId)
     if (error) return { error: new Error(error.message) }
     set({ approvedVideos: get().approvedVideos.filter((v) => v.id !== videoId) })
+    return { error: null }
+  },
+
+  fetchWhitelistForLocalParent: async (accessToken) => {
+    set({ loading: true })
+    const { data, error } = await supabase.rpc('local_parent_whitelist_for_device', {
+      p_access_token: accessToken,
+    })
+    if (error) {
+      set({ loading: false, whitelist: [] })
+      return
+    }
+    const raw = data as unknown
+    const arr = Array.isArray(raw) ? raw : []
+    if (!Array.isArray(arr)) {
+      set({ loading: false, whitelist: [] })
+      return
+    }
+    const channels = arr as WhitelistedChannel[]
+    set({ whitelist: channels, loading: false })
+  },
+
+  addChannelLocalParent: async ({ accessToken, pin, yt, category }) => {
+    const normalizedCategory = category?.trim() ? category.trim() : null
+    const { data, error } = await supabase.rpc('local_parent_add_channel', {
+      p_access_token: accessToken,
+      p_pin: pin,
+      p_youtube_channel_id: yt.channelId,
+      p_channel_name: yt.title,
+      p_channel_thumbnail: yt.thumbnail ?? '',
+      p_subscriber_count: yt.subscriberCount ?? '',
+      p_description: yt.description ?? '',
+      p_category: normalizedCategory ?? '',
+    })
+    if (error) return { error: new Error(error.message) }
+    const row = data as { ok?: boolean; error?: string } | null
+    if (!row?.ok) {
+      const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה בהוספת ערוץ'
+      return { error: new Error(msg) }
+    }
+    await get().fetchWhitelistForLocalParent(accessToken)
+    return { error: null }
+  },
+
+  removeChannelLocalParent: async (accessToken, pin, channelId) => {
+    const { data, error } = await supabase.rpc('local_parent_remove_channel', {
+      p_access_token: accessToken,
+      p_pin: pin,
+      p_channel_id: channelId,
+    })
+    if (error) return { error: new Error(error.message) }
+    const row = data as { ok?: boolean; error?: string } | null
+    if (!row?.ok) {
+      const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה בהסרה'
+      return { error: new Error(msg) }
+    }
+    set({ whitelist: get().whitelist.filter((c) => c.id !== channelId) })
+    return { error: null }
+  },
+
+  replaceChannelCacheLocalParent: async ({ accessToken, pin, channelDbId, videos }) => {
+    const { data, error } = await supabase.rpc('local_parent_replace_channel_videos_cache', {
+      p_access_token: accessToken,
+      p_pin: pin,
+      p_channel_id: channelDbId,
+      p_videos: videos,
+    })
+    if (error) return { error: new Error(error.message) }
+    const row = data as { ok?: boolean; error?: string } | null
+    if (!row?.ok) {
+      const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה ברענון מטמון'
+      return { error: new Error(msg) }
+    }
     return { error: null }
   },
 }))

@@ -20,8 +20,10 @@ import {
   type ChildDeviceState,
 } from '../lib/childDevice'
 import { getResolvedParentPin, pinsMatch } from '../lib/parentPin'
+import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
+import { supabase } from '../lib/supabase'
 import type { ChannelVideoItem } from '../lib/youtube'
 import type { Html5Qrcode } from 'html5-qrcode'
 
@@ -94,6 +96,7 @@ export function KidModePage() {
   const [parentModePinInput, setParentModePinInput] = useState('')
   const [parentModePinError, setParentModePinError] = useState<string | null>(null)
   const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
+  const [parentBootstrapBusy, setParentBootstrapBusy] = useState(false)
   const [showManualPairing, setShowManualPairing] = useState(false)
   const [qrScanOpen, setQrScanOpen] = useState(false)
   const [scanCameraError, setScanCameraError] = useState<string | null>(null)
@@ -436,11 +439,15 @@ export function KidModePage() {
 
   const runParentAction = (action: 'home' | 'channels') => {
     const target = action === 'home' ? '/dashboard' : '/channels'
-    if (action === 'home') {
-      navigate(isAuthenticated ? target : `/auth?next=${encodeURIComponent(target)}`)
+    if (isAuthenticated) {
+      navigate(target)
       return
     }
-    navigate(isAuthenticated ? target : `/auth?next=${encodeURIComponent(target)}`)
+    if (getSavedChildAccessToken() && isLocalParentSessionValid()) {
+      navigate(target)
+      return
+    }
+    navigate(`/auth?next=${encodeURIComponent(target)}`)
   }
 
   const lockParentMode = useCallback(() => {
@@ -464,6 +471,17 @@ export function KidModePage() {
   }, [])
 
   const requestParentAction = (action: 'home' | 'channels') => {
+    if (isLocalParentSessionValid() && getSavedChildAccessToken()) {
+      runParentAction(action)
+      return
+    }
+    if (!isAuthenticated && getSavedChildAccessToken()) {
+      setPendingParentAction(action)
+      setParentModePinInput('')
+      setParentModePinError(null)
+      setParentModePinOpen(true)
+      return
+    }
     if (parentModeUnlocked) {
       runParentAction(action)
       return
@@ -474,12 +492,38 @@ export function KidModePage() {
     setParentModePinOpen(true)
   }
 
-  const confirmParentModePin = () => {
+  const confirmParentModePin = async () => {
     const expected = getResolvedParentPin()
     if (!pinsMatch(parentModePinInput, expected)) {
       setParentModePinError('PIN שגוי')
       return
     }
+    const pinForServer = parentModePinInput.replace(/\s+/g, '').trim()
+    const savedToken = getSavedChildAccessToken()
+
+    if (!isAuthenticated && savedToken) {
+      setParentBootstrapBusy(true)
+      try {
+        const { data, error } = await supabase.rpc('local_parent_bootstrap', {
+          p_access_token: savedToken,
+          p_pin: pinForServer,
+        })
+        const row = Array.isArray(data) ? data[0] : null
+        if (error || !row?.device_id) {
+          setParentModePinError(error?.message ?? 'אימות נכשל. בדקו PIN או חיבור לרשת.')
+          return
+        }
+        writeLocalParentSession({
+          until: Date.now() + LOCAL_PARENT_SESSION_MS,
+          deviceId: String(row.device_id),
+          ownerUserId: String(row.owner_user_id),
+          accessToken: savedToken,
+        })
+      } finally {
+        setParentBootstrapBusy(false)
+      }
+    }
+
     unlockParentMode()
     setParentModePinOpen(false)
     setParentModePinInput('')
@@ -816,10 +860,18 @@ export function KidModePage() {
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('home')}>
-            {isAuthenticated ? 'לוח בקרה (כבר מחוברים)' : 'התחברות הורה'}
+            {isAuthenticated
+              ? 'לוח בקרה (כבר מחוברים)'
+              : isLocalParentSessionValid() && getSavedChildAccessToken()
+                ? 'לוח בקרה'
+                : 'התחברות הורה'}
           </Button>
           <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('channels')}>
-            {isAuthenticated ? 'ניהול ערוצים' : 'התחברו כדי לנהל ערוצים'}
+            {isAuthenticated
+              ? 'ניהול ערוצים'
+              : isLocalParentSessionValid() && getSavedChildAccessToken()
+                ? 'ניהול ערוצים'
+                : 'התחברו כדי לנהל ערוצים'}
           </Button>
           {parentModeUnlocked ? (
             <Button
@@ -856,7 +908,9 @@ export function KidModePage() {
             >
               ביטול
             </Button>
-            <Button onClick={confirmParentModePin}>אשר</Button>
+            <Button onClick={() => void confirmParentModePin()} disabled={parentBootstrapBusy}>
+              {parentBootstrapBusy ? 'מאמת…' : 'אשר'}
+            </Button>
           </>
         }
       >
@@ -874,7 +928,7 @@ export function KidModePage() {
           }}
           placeholder="PIN הורה"
           autoFocus
-          onKeyDown={(e) => e.key === 'Enter' && confirmParentModePin()}
+          onKeyDown={(e) => e.key === 'Enter' && !parentBootstrapBusy && void confirmParentModePin()}
         />
         {parentModePinError ? <p className="mt-2 text-sm text-danger-600">{parentModePinError}</p> : null}
       </Modal>
