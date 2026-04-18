@@ -79,6 +79,8 @@ export function KidModePage() {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [playerOpen, setPlayerOpen] = useState(false)
   const [videoSearch, setVideoSearch] = useState('')
+  /** כל לחיצה על ערוץ (גם על אותו ערוץ) — כדי ש־useEffect יטען מחדש גם כש־activeChannelId לא משתנה */
+  const [channelPickNonce, setChannelPickNonce] = useState(0)
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [playerNonce, setPlayerNonce] = useState(0)
   const [iframeLoaded, setIframeLoaded] = useState(false)
@@ -97,6 +99,7 @@ export function KidModePage() {
   const [scanCameraError, setScanCameraError] = useState<string | null>(null)
   const qrScannerRef = useRef<Html5Qrcode | null>(null)
   const qrDecodeLockRef = useRef(false)
+  const channelVideosRequestRef = useRef(0)
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
 
@@ -130,12 +133,19 @@ export function KidModePage() {
   }, [activeVideo, iframeLoaded, playerNonce])
 
   const loadChannelVideos = useCallback(async (channelId: string) => {
-    setChannelLoading(true)
-    if (!accessToken) {
-      setChannelLoading(false)
+    const rid = ++channelVideosRequestRef.current
+    const yt = channelId.trim()
+    if (!yt) {
       return
     }
-    const { data, error: cacheError } = await getChildCachedChannelVideos(accessToken, channelId)
+    setChannelLoading(true)
+    setError(null)
+    if (!accessToken) {
+      if (rid === channelVideosRequestRef.current) setChannelLoading(false)
+      return
+    }
+    const { data, error: cacheError } = await getChildCachedChannelVideos(accessToken, yt)
+    if (rid !== channelVideosRequestRef.current) return
     setChannelLoading(false)
     if (cacheError) {
       setError(cacheError.message)
@@ -147,6 +157,7 @@ export function KidModePage() {
       thumbnail: v.thumbnail_url ?? '',
       channelTitle: '',
     }))
+    if (rid !== channelVideosRequestRef.current) return
     setChannelVideos(next)
     setPlayerOpen(false)
   }, [accessToken])
@@ -166,7 +177,7 @@ export function KidModePage() {
     setError(null)
     const list = channelsRes.data ?? []
     setChannels(list)
-    const availableIds = new Set(list.map((c) => c.youtube_channel_id))
+    const availableIds = new Set(list.map((c) => c.youtube_channel_id.trim()))
 
     if (list.length === 0) {
       setActiveChannelId(null)
@@ -178,8 +189,9 @@ export function KidModePage() {
     // אל תשתמשו ב-activeChannelId מהסגירה — בקשות polling ישנות יכולות לסיים אחרי בחירת ערוץ
     // ולדרוס את הבחירה; תמיד לעגנו ל־prev המעודכן מול הרשימה החדשה מהשרת.
     setActiveChannelId((prev) => {
-      if (prev && availableIds.has(prev)) return prev
-      return list[0]?.youtube_channel_id ?? null
+      const p = prev?.trim() ?? ''
+      if (p && availableIds.has(p)) return p
+      return list[0]?.youtube_channel_id?.trim() ?? null
     })
   }, [])
 
@@ -260,9 +272,10 @@ export function KidModePage() {
   }, [accessToken, loadChildData])
 
   useEffect(() => {
-    if (!activeChannelId) return
-    void loadChannelVideos(activeChannelId)
-  }, [activeChannelId, loadChannelVideos])
+    const yt = activeChannelId?.trim()
+    if (!yt) return
+    void loadChannelVideos(yt)
+  }, [activeChannelId, channelPickNonce, loadChannelVideos])
 
   useEffect(() => {
     if (channelVideos.length === 0) {
@@ -626,7 +639,7 @@ export function KidModePage() {
           </p>
         </section>
       ) : (
-        <section className="grid flex-1 gap-3 lg:grid-cols-[2fr,1fr]">
+        <section className="grid flex-1 gap-3 lg:grid-cols-[2fr,1fr] [&>*]:min-w-0">
           {channels.length === 0 ? (
             <div className="lg:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
               <p className="font-semibold">אין ערוצים שמקושרים למכשיר הזה</p>
@@ -642,7 +655,7 @@ export function KidModePage() {
               </Button>
             </div>
           ) : null}
-          <article className="rounded-2xl border border-slate-200 bg-black p-2 shadow-sm dark:border-zinc-700">
+          <article className="order-2 min-h-0 rounded-2xl border border-slate-200 bg-black p-2 shadow-sm dark:border-zinc-700 lg:order-none">
             {playerOpen && activeVideo ? (
               <>
                 <div className="mb-2 flex justify-start">
@@ -734,20 +747,19 @@ export function KidModePage() {
             )}
           </article>
 
-          <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+          <aside className="relative z-10 order-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 lg:order-none">
             <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">ערוצים מאושרים</h2>
-            <div className="grid max-h-[65vh] gap-2 overflow-auto pr-1">
+            <div className="grid max-h-[65vh] touch-manipulation gap-2 overflow-y-auto overscroll-contain pr-1">
               {channels.map((channel) => {
-                const selected = channel.youtube_channel_id === activeChannelId
+                const yt = channel.youtube_channel_id.trim()
+                const selected = yt === (activeChannelId?.trim() ?? '')
                 return (
                   <button
                     key={channel.channel_id}
                     type="button"
                     onClick={() => {
-                      setActiveChannelId(channel.youtube_channel_id)
-                      void loadChannelVideos(channel.youtube_channel_id).catch((e) =>
-                        setError(e instanceof Error ? e.message : 'טעינת סרטוני ערוץ נכשלה')
-                      )
+                      setActiveChannelId(yt)
+                      setChannelPickNonce((n) => n + 1)
                     }}
                     className={`flex items-center gap-2 rounded-xl border p-2 text-right transition ${
                       selected
