@@ -1,10 +1,11 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { CreditCard, Link2, Info, LogOut } from 'lucide-react'
+import { CreditCard, Link2, Info, LogOut, UserCircle } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useSubscription } from '../../hooks/useSubscription'
 import { Button } from '../ui/Button'
 
 const items = [
+  { to: '/profile', label: 'חשבון והתחברות', icon: UserCircle },
   { to: '/subscription', label: 'ניהול מנוי', icon: CreditCard },
   { to: '/devices', label: 'חיבור מכשיר', icon: Link2 },
   { to: '#', label: 'אודות', icon: Info },
@@ -12,11 +13,11 @@ const items = [
 
 export function SettingsPanel() {
   const navigate = useNavigate()
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, signOutClearEverything } = useAuth()
   const { subscription } = useSubscription(user?.id)
 
   const handleLogout = async () => {
-    await signOut()
+    await signOutClearEverything()
     navigate('/auth', { replace: true })
   }
 
@@ -60,7 +61,7 @@ export function SettingsPanel() {
 
       <Button variant="danger" className="w-full gap-2" onClick={() => void handleLogout()}>
         <LogOut className="h-5 w-5" />
-        התנתקות
+        התנתקות (כולל טוקן ילד מקומי)
       </Button>
     </div>
   )

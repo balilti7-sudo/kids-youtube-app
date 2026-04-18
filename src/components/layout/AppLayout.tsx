@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { BottomNav } from './BottomNav'
 import { PageBackBar } from './PageBackBar'
+import { ParentAppFooter } from './ParentAppFooter'
 
 export function AppLayout() {
   return (
@@ -9,6 +10,7 @@ export function AppLayout() {
         <div className="app-floating-surface mx-auto w-full max-w-lg p-5 sm:p-6">
           <PageBackBar />
           <Outlet />
+          <ParentAppFooter />
         </div>
       </main>
       <BottomNav />

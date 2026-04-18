@@ -21,11 +21,11 @@ import {
 } from '../lib/childDevice'
 import { getResolvedParentPin, pinsMatch } from '../lib/parentPin'
 import { parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
+import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import type { ChannelVideoItem } from '../lib/youtube'
 import type { Html5Qrcode } from 'html5-qrcode'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
-const PARENT_MODE_UNLOCK_KEY = 'safetube_parent_mode_unlock_until'
 const PARENT_MODE_UNLOCK_MS = 10 * 60 * 1000
 
 function buildSafeEmbedUrl(videoId: string) {
@@ -447,7 +447,7 @@ export function KidModePage() {
     setParentModeUnlocked(false)
     setPendingParentAction(null)
     try {
-      window.sessionStorage.removeItem(PARENT_MODE_UNLOCK_KEY)
+      window.sessionStorage.removeItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY)
     } catch {
       /* ignore */
     }
@@ -457,7 +457,7 @@ export function KidModePage() {
     setParentModeUnlocked(true)
     const unlockUntil = Date.now() + PARENT_MODE_UNLOCK_MS
     try {
-      window.sessionStorage.setItem(PARENT_MODE_UNLOCK_KEY, String(unlockUntil))
+      window.sessionStorage.setItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY, String(unlockUntil))
     } catch {
       /* ignore */
     }
@@ -491,12 +491,12 @@ export function KidModePage() {
 
   useEffect(() => {
     try {
-      const raw = window.sessionStorage.getItem(PARENT_MODE_UNLOCK_KEY)
+      const raw = window.sessionStorage.getItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY)
       const unlockUntil = raw ? Number(raw) : 0
       if (unlockUntil > Date.now()) {
         setParentModeUnlocked(true)
       } else {
-        window.sessionStorage.removeItem(PARENT_MODE_UNLOCK_KEY)
+        window.sessionStorage.removeItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY)
       }
     } catch {
       /* ignore */
@@ -507,7 +507,7 @@ export function KidModePage() {
     if (!parentModeUnlocked) return
     const raw = (() => {
       try {
-        return window.sessionStorage.getItem(PARENT_MODE_UNLOCK_KEY)
+        return window.sessionStorage.getItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY)
       } catch {
         return null
       }
@@ -611,6 +611,9 @@ export function KidModePage() {
           onClose={() => setQrScanOpen(false)}
           scanCameraError={scanCameraError}
         />
+        <p className="mt-8 text-center text-[10px] text-slate-500 dark:text-zinc-500" dir="ltr">
+          מזהה מכשיר (דיבוג): לא מחובר
+        </p>
       </main>
     )
   }
@@ -700,6 +703,12 @@ export function KidModePage() {
               </>
             ) : (
               <div className="grid gap-3 p-1 sm:grid-cols-2">
+                {channelLoading ? (
+                  <div className="flex items-center justify-center gap-3 rounded-xl border border-brand-500/35 bg-zinc-900/95 px-4 py-4 sm:col-span-2">
+                    <LoadingSpinner className="h-7 w-7 shrink-0 border-2 border-brand-500 border-t-transparent" />
+                    <span className="text-sm font-semibold text-zinc-100">טוען סרטונים מהמטמון…</span>
+                  </div>
+                ) : null}
                 <Input
                   value={videoSearch}
                   onChange={(e) => setVideoSearch(e.target.value)}
@@ -911,6 +920,11 @@ export function KidModePage() {
         />
         {pinError ? <p className="mt-2 text-sm text-danger-600">{pinError}</p> : null}
       </Modal>
+
+      <p className="mt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-center text-[10px] leading-relaxed text-slate-500 dark:text-zinc-500" dir="ltr">
+        מזהה מכשיר (דיבוג): …
+        {device.device_id && device.device_id.length >= 4 ? device.device_id.slice(-4) : '—'}
+      </p>
     </main>
   )
 }

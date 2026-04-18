@@ -11,6 +11,7 @@ import { ChannelsPage } from './pages/ChannelsPage'
 import { DeviceLinkPage } from './pages/DeviceLinkPage'
 import { SubscriptionPage } from './pages/SubscriptionPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ProfilePage } from './pages/ProfilePage'
 import { KidModePage } from './pages/KidModePage'
 import { useAuth } from './hooks/useAuth'
 import { BYPASS_AUTH } from './config/dev'
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route path="/devices" element={<DeviceLinkPage />} />
             <Route path="/subscription" element={<SubscriptionPage />} />
           </Route>

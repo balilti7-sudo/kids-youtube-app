@@ -12,6 +12,7 @@ export function useAuth() {
   const setLoading = useAuthStore((s) => s.setLoading)
   const fetchProfile = useAuthStore((s) => s.fetchProfile)
   const signOut = useAuthStore((s) => s.signOut)
+  const signOutClearEverything = useAuthStore((s) => s.signOutClearEverything)
 
   useEffect(() => {
     let mounted = true
@@ -49,6 +50,7 @@ export function useAuth() {
     isAuthenticated: Boolean(user),
     onboardingDone: profile?.onboarding_done ?? false,
     signOut,
+    signOutClearEverything,
     refreshProfile: fetchProfile,
   }
 }

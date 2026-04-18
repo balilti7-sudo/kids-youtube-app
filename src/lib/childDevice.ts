@@ -89,7 +89,21 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
   if (error) return { data: null, error: new Error(error.message) }
   const row = Array.isArray(data) ? data[0] : null
   if (!row) return { data: null, error: null }
-  return { data: row as ChildDeviceState, error: null }
+  const r = row as Record<string, unknown>
+  const rawId = r.device_id ?? r.id
+  const deviceId = rawId != null && String(rawId).trim() ? String(rawId).trim() : ''
+  const rawName = r.device_name ?? r.name
+  const deviceName = rawName != null ? String(rawName) : ''
+  return {
+    data: {
+      device_id: deviceId,
+      device_name: deviceName,
+      is_blocked: Boolean(r.is_blocked),
+      is_online: Boolean(r.is_online),
+      last_seen_at: r.last_seen_at != null ? String(r.last_seen_at) : null,
+    },
+    error: null,
+  }
 }
 
 export async function getChildAllowedVideos(accessToken: string): Promise<{

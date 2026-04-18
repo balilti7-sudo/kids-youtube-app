@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { User, Session } from '@supabase/supabase-js'
 import type { Profile } from '../types'
 import { supabase } from '../lib/supabase'
+import { clearChildAccessToken } from '../lib/childDevice'
+import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 
 interface AuthState {
   user: User | null
@@ -18,6 +20,8 @@ interface AuthState {
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>
   verifyEmailCode: (email: string, code: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
+  /** ניקוי טוקן ילד, מצב הורה זמני ב-sessionStorage, והתנתקות Supabase */
+  signOutClearEverything: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -81,6 +85,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
+    await supabase.auth.signOut()
+    set({ user: null, session: null, profile: null, profileLoading: false })
+  },
+
+  signOutClearEverything: async () => {
+    clearChildAccessToken()
+    try {
+      window.sessionStorage.removeItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY)
+    } catch {
+      /* ignore */
+    }
     await supabase.auth.signOut()
     set({ user: null, session: null, profile: null, profileLoading: false })
   },
