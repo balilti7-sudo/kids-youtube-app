@@ -104,7 +104,9 @@ export function DashboardDevicesSection() {
         return
       }
       if (data) {
-        toast.success('המכשיר נוסף', { description: 'סרקו את ה-QR עם המכשיר של הילד כדי להתחבר' })
+        toast.success('המכשיר נוסף', {
+          description: 'על מסך הילד: הזינו את קוד הצימוד או סריקת QR. QR נוח גם מטלפון נוסף של ההורה.',
+        })
         await refetch()
         setModalOpen(false)
         setDeviceName('')
@@ -146,7 +148,7 @@ export function DashboardDevicesSection() {
         <div className="rounded-2xl border border-zinc-700/90 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80">
           <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">חיבור לילד</p>
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
-            צעד אחד: יוצרים מכשיר, מציגים QR — הילד סורק ומתחבר בלי הקלדה.
+            יוצרים מכשיר, ואז על <strong className="font-semibold text-zinc-300">מסך הילד</strong> מזינים את קוד הצימוד (או סריקה). QR למטה — בעיקר לטלפון נוסף של ההורה.
           </p>
           <div className="flex flex-col gap-2">
             <Button
@@ -169,7 +171,7 @@ export function DashboardDevicesSection() {
               disabled={devicesWithPairingCode.length === 0}
             >
               <QrCode className="h-4 w-4" />
-              הצג QR לסריקה מהמכשיר
+              הצג QR (מכשיר נוסף)
             </Button>
           </div>
           {devicesWithPairingCode.length === 0 && devices.length > 0 ? (
@@ -204,7 +206,9 @@ export function DashboardDevicesSection() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-8 text-center">
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
           <p className="text-sm font-medium text-zinc-300">אין מכשירים עדיין</p>
-          <p className="max-w-xs text-xs text-zinc-500">השתמשו בכפתור &quot;צור מכשיר חדש&quot; למעלה — ואז בסריקת QR מהטאבלט.</p>
+          <p className="max-w-xs text-xs text-zinc-500">
+            צרו מכשיר כאן, ואז על <strong className="font-semibold text-zinc-400">מסך הילד</strong> הזינו את קוד הצימוד (או סריקה אופציונלית). QR מיועד בעיקר לטלפון נוסף של ההורה.
+          </p>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -288,7 +292,7 @@ export function DashboardDevicesSection() {
       <Modal
         open={qrModalOpen}
         onClose={() => setQrModalOpen(false)}
-        title="סריקה מחברת את המכשיר"
+        title="QR לצפייה ממכשיר נוסף (אופציונלי)"
         footer={
           <>
             <Button type="button" variant="secondary" onClick={() => setQrModalOpen(false)}>
@@ -310,7 +314,7 @@ export function DashboardDevicesSection() {
       >
         <div className="flex flex-col gap-3 text-center">
           <p className="text-sm leading-relaxed text-zinc-300">
-            בחרו מכשיר עם קוד חיבור פעיל. סריקת ה-QR בטאבלט או בטלפון של הילד מזהה את המכשיר ומפעילה התחברות מלאה — בלי הקלדה.
+            <strong className="text-zinc-200">הגדרה ראשית:</strong> על מסך הילד הזינו את קוד הצימוד או התחברו שם כהורה. QR כאן נוח כשההורה רוצה לפתוח את מצב הילד <strong className="text-zinc-200">מטלפון אחר</strong> לצפייה — לא חובה להתקנה על הטאבלט.
           </p>
           {devicesWithPairingCode.length === 0 ? (
             <div className="rounded-xl border border-dashed border-zinc-600 bg-zinc-950/50 px-3 py-4 text-sm text-zinc-400">

@@ -31,8 +31,8 @@ function SmartEntryRoute() {
     )
   }
 
-  // Kid-first: אם זה מכשיר ילד מצומד, תמיד נכנסים קודם למסך הילד.
-  if (hasKidToken) return <Navigate to="/kid" replace />
+  // מצב ילד בראש רק כשאין סשן הורה: על מכשיר הילד ההורה מתחבר כאן ומגדיר — לא ננעל מחוץ ללוח בגלל טוקן הילד ב־localStorage.
+  if (!isAuthenticated && hasKidToken) return <Navigate to="/kid" replace />
   if (!isAuthenticated) return <Navigate to="/auth" replace />
   if (profile && !profile.onboarding_done) return <Navigate to="/onboarding" replace />
   return <Navigate to="/dashboard" replace />

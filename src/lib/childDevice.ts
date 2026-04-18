@@ -40,10 +40,20 @@ export function getSavedChildAccessToken() {
 
 export function saveChildAccessToken(token: string) {
   localStorage.setItem(CHILD_ACCESS_TOKEN_KEY, token)
+  try {
+    window.dispatchEvent(new CustomEvent('safetube-kid-token-changed'))
+  } catch {
+    /* ignore */
+  }
 }
 
 export function clearChildAccessToken() {
   localStorage.removeItem(CHILD_ACCESS_TOKEN_KEY)
+  try {
+    window.dispatchEvent(new CustomEvent('safetube-kid-token-changed'))
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function pairChildDevice(pairingCode: string): Promise<{

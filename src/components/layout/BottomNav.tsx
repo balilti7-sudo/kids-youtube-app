@@ -1,14 +1,33 @@
+import { useSyncExternalStore } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Home, Tv, Settings } from 'lucide-react'
+import { Home, Tv, Settings, Tablet } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { getSavedChildAccessToken } from '../../lib/childDevice'
 
-const links = [
-  { to: '/dashboard', label: 'בית', icon: Home },
-  { to: '/channels', label: 'ערוצים', icon: Tv },
-  { to: '/settings', label: 'הגדרות', icon: Settings },
-]
+function subscribeKidTokenChanged(onStoreChange: () => void) {
+  const fn = () => onStoreChange()
+  window.addEventListener('storage', fn)
+  window.addEventListener('safetube-kid-token-changed', fn as EventListener)
+  return () => {
+    window.removeEventListener('storage', fn)
+    window.removeEventListener('safetube-kid-token-changed', fn as EventListener)
+  }
+}
+
+function getKidTokenPresent() {
+  return typeof window !== 'undefined' && Boolean(getSavedChildAccessToken())
+}
 
 export function BottomNav() {
+  const hasKidToken = useSyncExternalStore(subscribeKidTokenChanged, getKidTokenPresent, () => false)
+
+  const links = [
+    { to: '/dashboard', label: 'בית', icon: Home },
+    { to: '/channels', label: 'ערוצים', icon: Tv },
+    ...(hasKidToken ? [{ to: '/kid', label: 'ילד', icon: Tablet }] as const : []),
+    { to: '/settings', label: 'הגדרות', icon: Settings },
+  ]
+
   return (
     <nav
       className="fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95"

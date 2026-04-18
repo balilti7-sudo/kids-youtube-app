@@ -54,7 +54,7 @@ function KidQrScanModal({
   return (
     <Modal open={open} onClose={onClose} title="סריקת QR לחיבור">
       <p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-        כוונו את המצלמה לקוד ה־QR במסך ההורה. הקוד מכיל קישור — אחרי זיהוי, החיבור יבוצע אוטומטית.
+        כוונו את המצלמה לקוד ה־QR (לרוב מהטלפון של ההורה). הקישור מכיל את קוד הצימוד — אחרי זיהוי החיבור נשמר במכשיר.
       </p>
       <div id="kid-mode-html5-qrcode-reader" className="min-h-[260px] w-full overflow-hidden rounded-xl bg-black" />
       {scanCameraError ? (
@@ -537,15 +537,18 @@ export function KidModePage() {
         <div className="text-center">
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">{KID_APP_DISPLAY_NAME}</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-            בקושי אחד: ההורה פותח QR במסך הניהול — אתם סורקים עם המצלמה או הדפדפן, והחיבור נעשה לבד.
+            <strong className="text-slate-800 dark:text-zinc-200">ההתקנה העיקרית כאן:</strong> התחברו כהורה באותו דפדפן (אימייל וסיסמה), צרו מכשיר בלוח הבקרה, והזינו למטה את <strong>קוד הצימוד בן 6 הספרות</strong> — החיבור נשמר במכשיר ולא יבקשו שוב התחברות הורה.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-zinc-500">
+            קוד ה־QR בלוח ההורה מיועד ל<strong className="font-semibold text-slate-700 dark:text-zinc-300">טלפון נוסף</strong> של ההורה (צפייה / ניטור) — לא חובה להגדרה על המכשיר הזה.
           </p>
         </div>
 
         {!showManualPairing ? (
           <section className="rounded-2xl border border-slate-200 bg-brand-50/80 p-5 text-center shadow-sm dark:border-zinc-700 dark:bg-zinc-900/80">
-            <p className="text-sm font-medium text-slate-800 dark:text-zinc-200">סריקה = התחברות מלאה</p>
+            <p className="text-sm font-medium text-slate-800 dark:text-zinc-200">סריקת QR (אופציונלי)</p>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-              אין צורך להקליד כלום. אם משהו לא עובד, אפשר להזין את הקוד שקיבלתם מההורה למטה.
+              אם יש לכם קישור עם קוד מההורה — אפשר לסרוק. אחרת מומלץ להתחבר כהורה כאן ולהזין קוד ידנית.
             </p>
             <Button
               type="button"
@@ -572,7 +575,7 @@ export function KidModePage() {
               className="mt-3 w-full"
               onClick={() => requestParentAction('home')}
             >
-              {isAuthenticated ? 'מעבר לניהול הורה במכשיר הזה' : 'התחברות הורה במכשיר הזה'}
+              {isAuthenticated ? 'מעבר ללוח ההורה (אותו מכשיר)' : 'התחברות הורה — הגדרה על המכשיר הזה'}
             </Button>
             {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
           </section>
@@ -803,14 +806,14 @@ export function KidModePage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">מצב הורה במכשיר הזה</h2>
         <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-          כל הפעולות יכולות להתבצע כאן: חסימה/פתיחה, אישור ערוצים וניהול הגדרות.
+          אם כבר התחברתם כהורה באותו דפדפן — עוברים ללוח בלי להקליד שוב אימייל. מכשיר נשאר מצומד ב־localStorage עד ניתוק מפורש.
         </p>
         <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">
           {parentModeUnlocked ? 'מצב הורה פתוח ל-10 דקות במכשיר הזה.' : 'מצב הורה נעול. פתיחה דורשת PIN הורה.'}
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('home')}>
-            {isAuthenticated ? 'לוח בקרה הורה' : 'התחברות הורה'}
+            {isAuthenticated ? 'לוח בקרה (כבר מחוברים)' : 'התחברות הורה'}
           </Button>
           <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('channels')}>
             {isAuthenticated ? 'ניהול ערוצים' : 'התחברו כדי לנהל ערוצים'}
