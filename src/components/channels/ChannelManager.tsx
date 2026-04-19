@@ -373,6 +373,18 @@ export function ChannelManager() {
           localParent.isActive && localParent.localAccessToken ? 'kid_rpc' : user ? 'parent_db' : 'none'
         }
         localAccessToken={localParent.isActive ? localParent.localAccessToken : null}
+        onRefreshFromYouTube={
+          previewChannel
+            ? async () => {
+                const { error } = await refreshChannelVideosCache(
+                  previewChannel.id,
+                  previewChannel.youtube_channel_id.trim(),
+                  true
+                )
+                return { error: error?.message ?? null }
+              }
+            : undefined
+        }
       />
 
       <Modal

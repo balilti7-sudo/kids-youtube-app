@@ -620,6 +620,86 @@ export async function resolveYouTubeChannelFromInput(input: string): Promise<{
   }
 }
 
+/** מקסימום סרטונים שנמשכים מ־YouTube בעת רענון המטמון (פלייליסט ההעלאות, עם דפדוף). */
+export const CHANNEL_VIDEOS_CACHE_MAX_FETCH = 500
+
+type ChannelsContentDetailsResponse = {
+  items?: Array<{
+    contentDetails?: { relatedPlaylists?: { uploads?: string } }
+  }>
+  error?: { message?: string; errors?: { message?: string }[] }
+}
+
+type PlaylistItemsListResponse = {
+  items?: Array<{
+    snippet?: {
+      title?: string
+      channelTitle?: string
+      resourceId?: { videoId?: string; kind?: string }
+      thumbnails?: { medium?: { url?: string }; default?: { url?: string } }
+    }
+  }>
+  nextPageToken?: string
+  error?: { message?: string; errors?: { message?: string }[] }
+}
+
+async function fetchChannelUploadsPlaylistId(channelId: string, key: string): Promise<string | null> {
+  const url = new URL(`${YT_API}/channels`)
+  url.searchParams.set('part', 'contentDetails')
+  url.searchParams.set('id', channelId.trim())
+  url.searchParams.set('key', key)
+  const res = await fetch(url.toString())
+  const json = (await res.json()) as ChannelsContentDetailsResponse
+  if (!res.ok) {
+    const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
+    throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
+  }
+  const uploads = json.items?.[0]?.contentDetails?.relatedPlaylists?.uploads?.trim()
+  return uploads || null
+}
+
+async function fetchUploadsPlaylistVideos(
+  uploadsPlaylistId: string,
+  key: string,
+  maxVideos: number
+): Promise<ChannelVideoItem[]> {
+  const out: ChannelVideoItem[] = []
+  let pageToken: string | undefined
+
+  while (out.length < maxVideos) {
+    const url = new URL(`${YT_API}/playlistItems`)
+    url.searchParams.set('part', 'snippet')
+    url.searchParams.set('playlistId', uploadsPlaylistId)
+    url.searchParams.set('maxResults', String(Math.min(50, maxVideos - out.length)))
+    url.searchParams.set('key', key)
+    if (pageToken) url.searchParams.set('pageToken', pageToken)
+
+    const res = await fetch(url.toString())
+    const json = (await res.json()) as PlaylistItemsListResponse
+    if (!res.ok) {
+      const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
+      throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
+    }
+
+    for (const item of json.items ?? []) {
+      const vid = item.snippet?.resourceId?.videoId?.trim()
+      if (!vid) continue
+      out.push({
+        videoId: vid,
+        title: item.snippet?.title ?? 'ללא כותרת',
+        thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
+        channelTitle: item.snippet?.channelTitle ?? '',
+      })
+      if (out.length >= maxVideos) break
+    }
+
+    pageToken = json.nextPageToken
+    if (!pageToken || (json.items?.length ?? 0) === 0) break
+  }
+
+  return out
+}
+
 export async function getLatestVideosForChannel(channelId: string): Promise<{
   data: ChannelVideoItem[] | null
   error: Error | null
@@ -637,47 +717,18 @@ export async function getLatestVideosForChannel(channelId: string): Promise<{
   }
 
   try {
-    const searchUrl = new URL(`${YT_API}/search`)
-    searchUrl.searchParams.set('part', 'snippet')
-    searchUrl.searchParams.set('channelId', id)
-    searchUrl.searchParams.set('type', 'video')
-    searchUrl.searchParams.set('order', 'date')
-    searchUrl.searchParams.set('videoEmbeddable', 'true')
-    searchUrl.searchParams.set('safeSearch', 'strict')
-    searchUrl.searchParams.set('maxResults', '20')
-    searchUrl.searchParams.set('key', key)
-
-    const res = await fetch(searchUrl.toString())
-    const json = (await res.json()) as {
-      items?: VideoSearchItem[]
-      error?: { message?: string; errors?: { message?: string }[] }
+    const uploadsPlaylistId = await fetchChannelUploadsPlaylistId(id, key)
+    if (!uploadsPlaylistId) {
+      return { data: [], error: new Error('לא נמצאה רשימת העלאות לערוץ (ייתכן שהערוץ לא זמין ב־API).') }
     }
-
-    if (!res.ok) {
-      const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
-      throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
-    }
-
-    const results = (json.items ?? [])
-      .map((item) => {
-        const videoId = item.id?.videoId
-        if (!videoId) return null
-        return {
-          videoId,
-          title: item.snippet?.title ?? 'ללא כותרת',
-          thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
-          channelTitle: item.snippet?.channelTitle ?? '',
-        }
-      })
-      .filter(Boolean) as ChannelVideoItem[]
-
+    const results = await fetchUploadsPlaylistVideos(uploadsPlaylistId, key, CHANNEL_VIDEOS_CACHE_MAX_FETCH)
     return { data: results, error: null }
   } catch (e) {
     console.error('[youtube] getLatestVideosForChannel', e)
     const normalized =
       e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה')
 
-    // Fallback: when API quota is exhausted, read the public channel RSS feed.
+    // Fallback: when API quota is exhausted, read the public channel RSS feed (~15 אחרונים).
     if (isQuotaErrorMessage(normalized.message)) {
       const fallback = await fetchChannelVideosFromRss(id)
       if (!fallback.error) return { data: fallback.data, error: null }

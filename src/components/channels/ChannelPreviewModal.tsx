@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { getChildCachedChannelVideos } from '../../lib/childDevice'
+import { CHANNEL_VIDEOS_CACHE_MAX_FETCH } from '../../lib/youtube'
 import { buildSafeEmbedUrl } from '../../lib/youtubeEmbed'
 import type { WhitelistedChannel } from '../../types'
 import { Modal } from '../ui/Modal'
@@ -17,21 +18,27 @@ export function ChannelPreviewModal({
   channel,
   previewMode,
   localAccessToken,
+  onRefreshFromYouTube,
 }: {
   open: boolean
   onClose: () => void
   channel: WhitelistedChannel | null
   previewMode: PreviewMode
   localAccessToken: string | null
+  /** רענון כפוי של המטמון מהערוץ (YouTube API), ואז טעינה מחדש של הרשימה */
+  onRefreshFromYouTube?: () => Promise<{ error: string | null }>
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [videos, setVideos] = useState<PreviewRow[]>([])
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [iframeLoaded, setIframeLoaded] = useState(false)
+  const [listReloadNonce, setListReloadNonce] = useState(0)
+  const [ytRefreshing, setYtRefreshing] = useState(false)
 
   useEffect(() => {
     if (!open || !channel) return
+    void listReloadNonce
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -101,13 +108,42 @@ export function ChannelPreviewModal({
       onClose={onClose}
       title={channel ? `תצוגת ערוץ — ${channel.channel_name}` : 'תצוגת ערוץ'}
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          סגור
-        </Button>
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
+          {onRefreshFromYouTube ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={ytRefreshing || !channel}
+              onClick={() => {
+                if (!onRefreshFromYouTube) return
+                void (async () => {
+                  setYtRefreshing(true)
+                  try {
+                    const { error: refErr } = await onRefreshFromYouTube()
+                    if (refErr) {
+                      setError(refErr)
+                      return
+                    }
+                    setListReloadNonce((n) => n + 1)
+                  } finally {
+                    setYtRefreshing(false)
+                  }
+                })()
+              }}
+            >
+              {ytRefreshing ? 'מעדכן מהערוץ…' : 'עדכן רשימה מהערוץ'}
+            </Button>
+          ) : null}
+          <Button variant="secondary" onClick={onClose}>
+            סגור
+          </Button>
+        </div>
       }
     >
       <p className="mb-3 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-        תצוגה מוגבלת: רק סרטונים שנשמרו במטמון של SafeTube לערוץ הזה. אין קישור לדף הבית של YouTube, Shorts או המלצות.
+        הרשימה מגיעה מהמטמון של SafeTube (עד {CHANNEL_VIDEOS_CACHE_MAX_FETCH} סרטונים אחרונים לאחר &quot;רענן&quot; או
+        &quot;עדכן רשימה מהערוץ&quot;). אין כאן דף הבית, Shorts או המלצות של YouTube. פרסומות בתוך הנגן נקבעות על ידי
+        YouTube ולא ניתן להסיר אותן לחלוטין מתוך embed.
       </p>
 
       {loading ? (
