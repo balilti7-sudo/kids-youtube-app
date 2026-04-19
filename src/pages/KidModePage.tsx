@@ -238,19 +238,42 @@ export function KidModePage() {
         urlCode = null
       }
 
+      const token = getSavedChildAccessToken()
+      if (urlCode && token) {
+        // מכשיר ילד יכול להיות מצומד להורה אחד בכל רגע נתון.
+        // לא מחליפים צימוד קיים ע"י סריקה חדשה — רק אחרי ניתוק מפורש.
+        try {
+          setAccessToken(token)
+          await loadChildDataRef.current(token)
+          setError('המכשיר כבר מחובר להורה. כדי לחבר להורה אחר, נתקו קודם את המכשיר במסך זה ואז סרקו שוב.')
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e)
+          if (message.includes('המכשיר לא נמצא')) {
+            clearChildAccessToken()
+            setAccessToken(null)
+            setError('נמצא קוד חדש, אבל החיבור הישן לא תקין. בצעו צימוד מחדש.')
+          } else {
+            setError(e instanceof Error ? e.message : 'טעינת מצב ילד נכשלה')
+          }
+        } finally {
+          stripPairCodeFromUrl()
+          setBootLoading(false)
+        }
+        return
+      }
+
       if (urlCode) {
-        clearChildAccessToken()
         setAccessToken(null)
         setDevice(null)
         setChannels([])
         setError(null)
         try {
-          const { accessToken: token, error: pairError } = await pairChildDevice(urlCode)
-          if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
-          saveChildAccessToken(token)
-          void ensureLocalParentSessionNoPin(token)
-          setAccessToken(token)
-          await loadChildDataRef.current(token)
+          const { accessToken: newToken, error: pairError } = await pairChildDevice(urlCode)
+          if (pairError || !newToken) throw pairError ?? new Error('צימוד נכשל')
+          saveChildAccessToken(newToken)
+          void ensureLocalParentSessionNoPin(newToken)
+          setAccessToken(newToken)
+          await loadChildDataRef.current(newToken)
           stripPairCodeFromUrl()
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'צימוד נכשל'
@@ -262,7 +285,6 @@ export function KidModePage() {
         return
       }
 
-      const token = getSavedChildAccessToken()
       if (!token) {
         setBootLoading(false)
         return
