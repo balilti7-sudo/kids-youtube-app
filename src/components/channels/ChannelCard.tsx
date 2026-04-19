@@ -15,6 +15,7 @@ type Props =
       variant: 'whitelist'
       channel: WhitelistedChannel
       onRemove: () => void
+      onOpenChannel: () => void
       manageLocked?: boolean
     }
 
@@ -24,13 +25,6 @@ export function ChannelCard(props: Props) {
   const subs =
     props.variant === 'search' ? props.channel.subscriberCount : props.channel.subscriber_count
 
-  const openWhitelistedChannelOnYouTube = () => {
-    if (props.variant !== 'whitelist') return
-    const id = props.channel.youtube_channel_id.trim()
-    if (!id) return
-    const url = `https://www.youtube.com/channel/${encodeURIComponent(id)}`
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
   const proxiedThumb = useMemo(() => {
     if (!thumb) return ''
     const noProtocol = thumb.replace(/^https?:\/\//, '')
@@ -90,12 +84,7 @@ export function ChannelCard(props: Props) {
         </Button>
       ) : (
         <div className="flex shrink-0 flex-col gap-1 self-center sm:flex-row sm:items-center">
-          <Button
-            type="button"
-            variant="secondary"
-            className="!px-3 !py-2 text-xs whitespace-nowrap"
-            onClick={openWhitelistedChannelOnYouTube}
-          >
+          <Button type="button" variant="secondary" className="!px-3 !py-2 text-xs whitespace-nowrap" onClick={props.onOpenChannel}>
             כנס לערוץ
           </Button>
           {!props.manageLocked ? (

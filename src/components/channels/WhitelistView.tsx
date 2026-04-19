@@ -6,10 +6,12 @@ import { Tv } from 'lucide-react'
 export function WhitelistView({
   channels,
   onRemoveRequest,
+  onPreviewRequest,
   manageLocked,
 }: {
   channels: WhitelistedChannel[]
   onRemoveRequest: (c: WhitelistedChannel) => void
+  onPreviewRequest: (c: WhitelistedChannel) => void
   manageLocked?: boolean
 }) {
   if (channels.length === 0) {
@@ -26,7 +28,14 @@ export function WhitelistView({
     <div className="flex flex-col gap-2">
       <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{channels.length} ערוצים מאושרים</p>
       {channels.map((c) => (
-        <ChannelCard key={c.id} variant="whitelist" channel={c} onRemove={() => onRemoveRequest(c)} manageLocked={manageLocked} />
+        <ChannelCard
+          key={c.id}
+          variant="whitelist"
+          channel={c}
+          onRemove={() => onRemoveRequest(c)}
+          onOpenChannel={() => onPreviewRequest(c)}
+          manageLocked={manageLocked}
+        />
       ))}
     </div>
   )

@@ -9,6 +9,7 @@ import { extractYouTubeVideoId } from '../../lib/youtube'
 import { WhitelistView } from './WhitelistView'
 import { ChannelSearch } from './ChannelSearch'
 import { RemoveChannelModal } from './RemoveChannelModal'
+import { ChannelPreviewModal } from './ChannelPreviewModal'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Modal } from '../ui/Modal'
@@ -37,6 +38,7 @@ export function ChannelManager() {
   const [pinModalOpen, setPinModalOpen] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
+  const [previewChannel, setPreviewChannel] = useState<WhitelistedChannel | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const managementPin = getResolvedParentPin()
 
@@ -296,7 +298,12 @@ export function ChannelManager() {
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>
       ) : (
         <div className="flex flex-col gap-4">
-          <WhitelistView channels={whitelist} onRemoveRequest={setRemoveTarget} manageLocked={manageLocked} />
+          <WhitelistView
+            channels={whitelist}
+            onRemoveRequest={setRemoveTarget}
+            onPreviewRequest={(c) => setPreviewChannel(c)}
+            manageLocked={manageLocked}
+          />
           {whitelist.length > 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
               <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">רענון סרטוני ערוץ (Cache)</p>
@@ -356,6 +363,16 @@ export function ChannelManager() {
         onClose={() => setRemoveTarget(null)}
         onConfirm={confirmRemove}
         loading={removeLoading}
+      />
+
+      <ChannelPreviewModal
+        open={Boolean(previewChannel)}
+        channel={previewChannel}
+        onClose={() => setPreviewChannel(null)}
+        previewMode={
+          localParent.isActive && localParent.localAccessToken ? 'kid_rpc' : user ? 'parent_db' : 'none'
+        }
+        localAccessToken={localParent.isActive ? localParent.localAccessToken : null}
       />
 
       <Modal

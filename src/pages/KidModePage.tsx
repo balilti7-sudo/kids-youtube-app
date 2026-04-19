@@ -26,24 +26,11 @@ import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKey
 import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
 import type { ChannelVideoItem } from '../lib/youtube'
+import { buildSafeEmbedUrl } from '../lib/youtubeEmbed'
 import type { Html5Qrcode } from 'html5-qrcode'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
 const PARENT_MODE_UNLOCK_MS = 10 * 60 * 1000
-
-function buildSafeEmbedUrl(videoId: string) {
-  const params = new URLSearchParams({
-    autoplay: '0',
-    controls: '1',
-    rel: '0',
-    modestbranding: '1',
-    iv_load_policy: '3',
-    fs: '0',
-    playsinline: '1',
-    disablekb: '0',
-  })
-  return `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`
-}
 
 function KidQrScanModal({
   open,
