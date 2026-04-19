@@ -23,6 +23,14 @@ export function ChannelCard(props: Props) {
   const title = props.variant === 'search' ? props.channel.title : props.channel.channel_name
   const subs =
     props.variant === 'search' ? props.channel.subscriberCount : props.channel.subscriber_count
+
+  const openWhitelistedChannelOnYouTube = () => {
+    if (props.variant !== 'whitelist') return
+    const id = props.channel.youtube_channel_id.trim()
+    if (!id) return
+    const url = `https://www.youtube.com/channel/${encodeURIComponent(id)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
   const proxiedThumb = useMemo(() => {
     if (!thumb) return ''
     const noProtocol = thumb.replace(/^https?:\/\//, '')
@@ -80,10 +88,22 @@ export function ChannelCard(props: Props) {
         <Button className="shrink-0 self-center" onClick={props.onAdd} disabled={props.adding || props.manageLocked}>
           {props.adding ? '...' : 'הוסף'}
         </Button>
-      ) : props.manageLocked ? null : (
-        <Button variant="danger" className="shrink-0 self-center !py-2 !px-3 text-xs" onClick={props.onRemove}>
-          הסר
-        </Button>
+      ) : (
+        <div className="flex shrink-0 flex-col gap-1 self-center sm:flex-row sm:items-center">
+          <Button
+            type="button"
+            variant="secondary"
+            className="!px-3 !py-2 text-xs whitespace-nowrap"
+            onClick={openWhitelistedChannelOnYouTube}
+          >
+            כנס לערוץ
+          </Button>
+          {!props.manageLocked ? (
+            <Button variant="danger" className="!px-3 !py-2 text-xs whitespace-nowrap" onClick={props.onRemove}>
+              הסר
+            </Button>
+          ) : null}
+        </div>
       )}
     </div>
   )
