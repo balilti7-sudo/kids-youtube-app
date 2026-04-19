@@ -33,7 +33,7 @@ export function ChannelManager() {
   const [channelCategory, setChannelCategory] = useState('')
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
-  const [manageLocked, setManageLocked] = useState(true)
+  const [manageLocked, setManageLocked] = useState(!localParent.isActive)
   const [pinModalOpen, setPinModalOpen] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
@@ -63,6 +63,13 @@ export function ChannelManager() {
   useEffect(() => {
     if (!deviceId && devices[0]?.id) setDeviceId(devices[0].id)
   }, [devices, deviceId])
+
+  useEffect(() => {
+    if (localParent.isActive) {
+      localParentPinForRpcRef.current = ''
+      setManageLocked(false)
+    }
+  }, [localParent.isActive])
 
   useEffect(() => {
     loadWhitelist()

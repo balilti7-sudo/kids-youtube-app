@@ -43,8 +43,7 @@ export function useChannels(
   const refreshChannelVideosCache = useCallback(
     async (channelDbId: string, youtubeChannelId: string, force = false) => {
       if (localAccessToken) {
-        const pin = getLocalParentPin?.() ?? null
-        if (!pin) return { error: null }
+        const pin = getLocalParentPin?.() ?? ''
 
         const chMeta = useChannelStore.getState().whitelist.find((c) => c.id === channelDbId)
         const last = chMeta?.last_videos_refresh_at ? new Date(chMeta.last_videos_refresh_at).getTime() : 0
@@ -188,7 +187,6 @@ export function useChannels(
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       if (localAccessToken) {
         const pin = getLocalParentPin?.() ?? ''
-        if (!pin) return { error: new Error('לא מוכן PIN') }
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
         if (res.error) return res
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
@@ -227,7 +225,6 @@ export function useChannels(
       if (error || !data) return { error: error ?? new Error('לא נמצא ערוץ מהקישור') }
       if (localAccessToken) {
         const pin = getLocalParentPin?.() ?? ''
-        if (!pin) return { error: new Error('לא מוכן PIN') }
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt: data, category })
         if (res.error) return res
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
@@ -264,7 +261,6 @@ export function useChannels(
       if (!deviceId) return { error: new Error('לא נבחר מכשיר') }
       if (localAccessToken) {
         const pin = getLocalParentPin?.() ?? ''
-        if (!pin) return { error: new Error('לא מוכן PIN') }
         return removeChannelLocalParent(localAccessToken, pin, channelId)
       }
       return removeChannelFromDevice(deviceId, channelId)

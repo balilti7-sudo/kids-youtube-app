@@ -102,6 +102,22 @@ export function KidModePage() {
   const [scanCameraError, setScanCameraError] = useState<string | null>(null)
   const qrScannerRef = useRef<Html5Qrcode | null>(null)
   const qrDecodeLockRef = useRef(false)
+
+  const ensureLocalParentSessionNoPin = useCallback(async (token: string) => {
+    const { data, error } = await supabase.rpc('local_parent_device_summary', {
+      p_access_token: token,
+    })
+    if (error) return false
+    const row = Array.isArray(data) ? data[0] : null
+    if (!row?.id || !row?.user_id) return false
+    writeLocalParentSession({
+      until: Date.now() + LOCAL_PARENT_SESSION_MS,
+      deviceId: String(row.id),
+      ownerUserId: String(row.user_id),
+      accessToken: token,
+    })
+    return true
+  }, [])
   const channelVideosRequestRef = useRef(0)
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
@@ -232,6 +248,7 @@ export function KidModePage() {
           const { accessToken: token, error: pairError } = await pairChildDevice(urlCode)
           if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
           saveChildAccessToken(token)
+          void ensureLocalParentSessionNoPin(token)
           setAccessToken(token)
           await loadChildDataRef.current(token)
           stripPairCodeFromUrl()
@@ -315,6 +332,7 @@ export function KidModePage() {
         const { accessToken: token, error: pairError } = await pairChildDevice(code)
         if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
         saveChildAccessToken(token)
+        void ensureLocalParentSessionNoPin(token)
         setAccessToken(token)
         await loadChildData(token)
       } catch (e) {
@@ -473,17 +491,26 @@ export function KidModePage() {
     }
   }, [])
 
-  const requestParentAction = (action: 'home' | 'channels') => {
+  const requestParentAction = async (action: 'home' | 'channels') => {
     if (isLocalParentSessionValid() && getSavedChildAccessToken()) {
       runParentAction(action)
       return
     }
     if (!isAuthenticated && getSavedChildAccessToken()) {
-      setPendingParentAction(action)
-      setParentModePinInput('')
-      setParentModePinError(null)
-      setParentModePinOpen(true)
-      return
+      const savedToken = getSavedChildAccessToken()
+      if (savedToken) {
+        setParentBootstrapBusy(true)
+        try {
+          const ok = await ensureLocalParentSessionNoPin(savedToken)
+          if (ok) {
+            runParentAction(action)
+            return
+          }
+          setParentModePinError('לא הצלחנו לפתוח ניהול מקומי. נסו שוב.')
+        } finally {
+          setParentBootstrapBusy(false)
+        }
+      }
     }
     if (parentModeUnlocked) {
       runParentAction(action)
@@ -623,7 +650,7 @@ export function KidModePage() {
               type="button"
               variant="secondary"
               className="mt-3 w-full"
-              onClick={() => requestParentAction('home')}
+              onClick={() => void requestParentAction('home')}
             >
               {isAuthenticated ? 'מעבר ללוח ההורה (אותו מכשיר)' : 'התחברות הורה — הגדרה על המכשיר הזה'}
             </Button>
@@ -820,6 +847,7 @@ export function KidModePage() {
                     key={channel.channel_id}
                     type="button"
                     onClick={() => {
+                      setVideoSearch('')
                       setActiveChannelId(yt)
                       setChannelPickNonce((n) => n + 1)
                     }}
@@ -862,14 +890,14 @@ export function KidModePage() {
           {parentModeUnlocked ? 'מצב הורה פתוח ל-10 דקות במכשיר הזה.' : 'מצב הורה נעול. פתיחה דורשת PIN הורה.'}
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('home')}>
+          <Button type="button" variant="secondary" className="text-xs" onClick={() => void requestParentAction('home')}>
             {isAuthenticated
               ? 'לוח בקרה (כבר מחוברים)'
               : isLocalParentSessionValid() && getSavedChildAccessToken()
                 ? 'לוח בקרה'
                 : 'התחברות הורה'}
           </Button>
-          <Button type="button" variant="secondary" className="text-xs" onClick={() => requestParentAction('channels')}>
+          <Button type="button" variant="secondary" className="text-xs" onClick={() => void requestParentAction('channels')}>
             {isAuthenticated
               ? 'ניהול ערוצים'
               : isLocalParentSessionValid() && getSavedChildAccessToken()
