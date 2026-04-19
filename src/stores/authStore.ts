@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import type { User, Session } from '@supabase/supabase-js'
 import type { Profile } from '../types'
 import { supabase } from '../lib/supabase'
-import { clearChildAccessToken } from '../lib/childDevice'
+import { clearChildAccessToken, getSavedChildAccessToken } from '../lib/childDevice'
+import { clearAppMode, setAppModeKid, setAppModeParent } from '../lib/appMode'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 
 interface AuthState {
@@ -53,6 +54,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signIn: async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (!error) {
+      setAppModeParent()
+    }
     return { error: error ? new Error(error.message) : null }
   },
 
@@ -87,6 +91,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     await supabase.auth.signOut()
     set({ user: null, session: null, profile: null, profileLoading: false })
+    if (getSavedChildAccessToken()) {
+      setAppModeKid()
+    } else {
+      clearAppMode()
+    }
   },
 
   signOutClearEverything: async () => {

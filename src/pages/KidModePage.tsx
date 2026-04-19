@@ -24,6 +24,7 @@ import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSIO
 import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import { supabase } from '../lib/supabase'
+import { setAppModeKid } from '../lib/appMode'
 import type { ChannelVideoItem } from '../lib/youtube'
 import type { Html5Qrcode } from 'html5-qrcode'
 
@@ -271,6 +272,7 @@ export function KidModePage() {
           const { accessToken: newToken, error: pairError } = await pairChildDevice(urlCode)
           if (pairError || !newToken) throw pairError ?? new Error('צימוד נכשל')
           saveChildAccessToken(newToken)
+          setAppModeKid()
           void ensureLocalParentSessionNoPin(newToken)
           setAccessToken(newToken)
           await loadChildDataRef.current(newToken)
@@ -354,6 +356,7 @@ export function KidModePage() {
         const { accessToken: token, error: pairError } = await pairChildDevice(code)
         if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
         saveChildAccessToken(token)
+        setAppModeKid()
         void ensureLocalParentSessionNoPin(token)
         setAccessToken(token)
         await loadChildData(token)
