@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { getChildCachedChannelVideos } from '../../lib/childDevice'
-import { CHANNEL_VIDEOS_CACHE_MAX_FETCH } from '../../lib/youtube'
 import { buildSafeEmbedUrl } from '../../lib/youtubeEmbed'
 import type { WhitelistedChannel } from '../../types'
 import { Modal } from '../ui/Modal'
@@ -141,9 +140,9 @@ export function ChannelPreviewModal({
       }
     >
       <p className="mb-3 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-        הרשימה מגיעה מהמטמון של SafeTube (עד {CHANNEL_VIDEOS_CACHE_MAX_FETCH} סרטונים אחרונים לאחר &quot;רענן&quot; או
-        &quot;עדכן רשימה מהערוץ&quot;). אין כאן דף הבית, Shorts או המלצות של YouTube. פרסומות בתוך הנגן נקבעות על ידי
-        YouTube ולא ניתן להסיר אותן לחלוטין מתוך embed.
+        הרשימה מגיעה מהמטמון של SafeTube לערוץ הזה בלבד (אחרי &quot;רענן&quot; או &quot;עדכן רשימה מהערוץ&quot; נטענת
+        רשימת ההעלאות המלאה מהערוץ, בלי תקרה מלאכותית). אין כאן דף הבית, Shorts או המלצות של YouTube. פרסומות בתוך
+        הנגן נקבעות על ידי YouTube ולא ניתן להסיר אותן לחלוטין מתוך embed.
       </p>
 
       {loading ? (

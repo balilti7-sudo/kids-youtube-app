@@ -48,6 +48,8 @@ interface ChannelState {
     pin: string
     channelDbId: string
     videos: { youtube_video_id: string; title: string; thumbnail_url: string | null; published_at: string | null; position: number }[]
+    /** ברירת מחדל true: מוחק את כל המטמון לערוץ לפני ההכנסה. false: מוסיף אצווה (אחרי אצווה עם clear). */
+    clearExisting?: boolean
   }) => Promise<{ error: Error | null }>
 }
 
@@ -275,12 +277,13 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return { error: null }
   },
 
-  replaceChannelCacheLocalParent: async ({ accessToken, pin, channelDbId, videos }) => {
+  replaceChannelCacheLocalParent: async ({ accessToken, pin, channelDbId, videos, clearExisting = true }) => {
     const { data, error } = await supabase.rpc('local_parent_replace_channel_videos_cache', {
       p_access_token: accessToken,
       p_pin: pin,
       p_channel_id: channelDbId,
       p_videos: videos,
+      p_clear_existing: clearExisting,
     })
     if (error) return { error: new Error(error.message) }
     const row = data as { ok?: boolean; error?: string } | null

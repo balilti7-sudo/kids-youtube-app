@@ -4,6 +4,10 @@ import { useChannelStore } from '../stores/channelStore'
 import { supabase } from '../lib/supabase'
 import { getLatestVideosForChannel } from '../lib/youtube'
 
+const CHANNEL_CACHE_INSERT_CHUNK = 500
+/** אצוות קטנות יותר ל־RPC (גודל גוף JSON) */
+const LOCAL_PARENT_CACHE_RPC_CHUNK = 350
+
 export function useChannels(
   deviceId: string | undefined,
   userId: string | undefined,
@@ -60,13 +64,17 @@ export function useChannels(
           published_at: null as string | null,
           position: idx,
         }))
-        const rep = await replaceChannelCacheLocalParent({
-          accessToken: localAccessToken,
-          pin,
-          channelDbId,
-          videos: rows,
-        })
-        if (rep.error) return rep
+        for (let offset = 0; offset < rows.length; offset += LOCAL_PARENT_CACHE_RPC_CHUNK) {
+          const slice = rows.slice(offset, offset + LOCAL_PARENT_CACHE_RPC_CHUNK)
+          const rep = await replaceChannelCacheLocalParent({
+            accessToken: localAccessToken,
+            pin,
+            channelDbId,
+            videos: slice,
+            clearExisting: offset === 0,
+          })
+          if (rep.error) return rep
+        }
         await fetchWhitelistForLocalParent(localAccessToken)
         return { error: null }
       }
@@ -97,8 +105,11 @@ export function useChannels(
           published_at: null,
           position: idx,
         }))
-        const { error: insertError } = await supabase.from('channel_videos_cache').insert(rows)
-        if (insertError) return { error: new Error(insertError.message) }
+        for (let offset = 0; offset < rows.length; offset += CHANNEL_CACHE_INSERT_CHUNK) {
+          const slice = rows.slice(offset, offset + CHANNEL_CACHE_INSERT_CHUNK)
+          const { error: insertError } = await supabase.from('channel_videos_cache').insert(slice)
+          if (insertError) return { error: new Error(insertError.message) }
+        }
       }
 
       const { error: updateError } = await supabase
