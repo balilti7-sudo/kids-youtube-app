@@ -752,47 +752,92 @@ export function KidModePage() {
           ) : null}
           <article className="order-2 min-h-0 rounded-2xl border border-slate-200 bg-black p-2 shadow-sm dark:border-zinc-700 lg:order-none">
             {playerOpen && activeVideo ? (
-              <>
-                <div className="mb-2 flex justify-start">
-                  <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={() => setPlayerOpen(false)}>
-                    חזרה לגלריה
-                  </Button>
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
+                <div className="min-w-0">
+                  <div className="relative overflow-hidden rounded-xl pt-[56.25%]">
+                    <iframe
+                      title={activeVideo.title}
+                      src={buildSafeEmbedUrl(activeVideo.videoId)}
+                      key={`${activeVideo.videoId}-${playerNonce}`}
+                      className="absolute inset-0 h-full w-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      sandbox="allow-scripts allow-same-origin allow-presentation"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen={false}
+                      onLoad={() => {
+                        setIframeLoaded(true)
+                        setShowPlayerFallback(false)
+                      }}
+                    />
+                    <div className="pointer-events-auto absolute right-0 top-0 h-12 w-20" aria-hidden />
+                    {showPlayerFallback ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 px-4 text-center">
+                        <p className="text-sm text-zinc-100">YouTube לא נטען כרגע. זה קורה לפעמים בגלל הגנת אנטי-בוט.</p>
+                        <Button
+                          variant="secondary"
+                          className="!bg-white/90 !text-slate-900 hover:!bg-white"
+                          onClick={() => {
+                            setPlayerNonce((n) => n + 1)
+                            setIframeLoaded(false)
+                            setShowPlayerFallback(false)
+                          }}
+                        >
+                          נסה שוב
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 px-1 text-base font-bold leading-snug text-zinc-100">{activeVideo.title}</p>
                 </div>
-                <div className="relative overflow-hidden rounded-xl pt-[56.25%]">
-                  <iframe
-                    title={activeVideo.title}
-                    src={buildSafeEmbedUrl(activeVideo.videoId)}
-                    key={`${activeVideo.videoId}-${playerNonce}`}
-                    className="absolute inset-0 h-full w-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    sandbox="allow-scripts allow-same-origin allow-presentation"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    allowFullScreen={false}
-                    onLoad={() => {
-                      setIframeLoaded(true)
-                      setShowPlayerFallback(false)
-                    }}
+
+                <aside className="min-w-0 rounded-xl bg-zinc-950/40 p-2 xl:max-h-[70vh] xl:overflow-y-auto">
+                  <Input
+                    value={videoSearch}
+                    onChange={(e) => setVideoSearch(e.target.value)}
+                    placeholder="חיפוש בסרטוני הערוץ"
+                    className="mb-2 border-zinc-600 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500"
                   />
-                  <div className="pointer-events-auto absolute right-0 top-0 h-12 w-20" aria-hidden />
-                  {showPlayerFallback ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 px-4 text-center">
-                      <p className="text-sm text-zinc-100">YouTube לא נטען כרגע. זה קורה לפעמים בגלל הגנת אנטי-בוט.</p>
-                      <Button
-                        variant="secondary"
-                        className="!bg-white/90 !text-slate-900 hover:!bg-white"
-                        onClick={() => {
-                          setPlayerNonce((n) => n + 1)
-                          setIframeLoaded(false)
-                          setShowPlayerFallback(false)
-                        }}
-                      >
-                        נסה שוב
-                      </Button>
-                    </div>
+                  <ul className="flex flex-col gap-2">
+                    {filteredVideos
+                      .filter((v) => v.videoId !== activeVideo.videoId)
+                      .map((video) => (
+                        <li key={video.videoId}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveVideoId(video.videoId)
+                              setPlayerOpen(true)
+                            }}
+                            className="group flex w-full gap-2 rounded-xl border border-transparent p-1 text-right transition hover:border-brand-500 hover:bg-zinc-800/70"
+                          >
+                            <div className="relative aspect-video w-36 shrink-0 overflow-hidden rounded-lg bg-zinc-800 sm:w-40">
+                              {video.thumbnail ? (
+                                <img
+                                  src={video.thumbnail}
+                                  alt=""
+                                  loading="lazy"
+                                  className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-500">
+                                  וידאו
+                                </div>
+                              )}
+                            </div>
+                            <p className="line-clamp-2 flex-1 py-1 text-xs font-semibold leading-snug text-zinc-100">
+                              {video.title}
+                            </p>
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                  {filteredVideos.length <= 1 ? (
+                    <p className="mt-3 text-center text-[11px] text-zinc-500">
+                      אין עוד סרטונים להצגה בערוץ הזה.
+                    </p>
                   ) : null}
-                </div>
-                <p className="mt-2 px-1 text-sm font-semibold text-zinc-100">{activeVideo.title}</p>
-              </>
+                </aside>
+              </div>
             ) : (
               <div className="grid gap-3 p-1 sm:grid-cols-2">
                 {channelLoading ? (
