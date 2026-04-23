@@ -1,5 +1,12 @@
 node_modules
 dist
+
+# Media Bridge bundled tools (run: cd server && npm run download-tools)
+server/yt-dlp.exe
+server/yt-dlp
+server/ffmpeg.exe
+server/.ffmpeg-download.zip
+server/.ffmpeg-extract/
 *.local
 .env
 .DS_Store
