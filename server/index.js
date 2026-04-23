@@ -21,12 +21,31 @@ const DEFAULT_YT_DLP =
   process.platform === 'win32' ? path.join(SERVER_DIR, 'yt-dlp.exe') : path.join(SERVER_DIR, 'yt-dlp')
 
 const PORT = Number(process.env.PORT) || 8787
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*'
+/** Local Vite dev ports + optional comma-separated extra origins via CORS_ORIGIN (e.g. production web app). */
+const CORS_ALLOWED_ORIGINS = [
+  ...new Set([
+    'http://localhost:5175',
+    'http://localhost:5174',
+    'http://localhost:5173',
+    ...(process.env.CORS_ORIGIN || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s && s !== '*'),
+  ]),
+]
+
+const corsOptions = {
+  origin: CORS_ALLOWED_ORIGINS,
+  credentials: true,
+  methods: ['GET', 'HEAD', 'OPTIONS'],
+}
 
 const STREAM_CACHE_TTL_MS = Number(process.env.STREAM_CACHE_TTL_MS) || 50 * 60 * 1000
 const SEGMENT_TOKEN_TTL_MS = Number(process.env.SEGMENT_TOKEN_TTL_MS) || 60 * 60 * 1000
 const YT_DLP_PATH = (process.env.YT_DLP_PATH || DEFAULT_YT_DLP).trim()
 const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' || process.env.YT_DLP_ENABLE === 'true'
+/** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
+const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
 
 function bundledFfmpegPath() {
   const p =
@@ -96,13 +115,8 @@ const YT_ID_RE = /^[a-zA-Z0-9_-]{11}$/
 const app = express()
 app.set('x-powered-by', false)
 app.set('trust proxy', 1)
-app.use(
-  cors({
-    origin: CORS_ORIGIN,
-    methods: ['GET', 'HEAD', 'OPTIONS'],
-  })
-)
-app.options('*', cors({ origin: CORS_ORIGIN }))
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'safetube-media-bridge' })
@@ -615,14 +629,18 @@ function pickYtdlFormatResult(info) {
 
 async function resolveViaYtDlpCli(videoId) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
-  const args = ['--no-warnings', '--get-url', '-f', 'b/best', watchUrl]
-  if (process.env.YOUTUBE_COOKIES_FILE) {
-    args.push('--cookies', process.env.YOUTUBE_COOKIES_FILE)
+  const args = ['--no-warnings', '--get-url', '-f', 'b/best']
+  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookiesFile =
+    cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  if (cookiesFile) {
+    args.push('--cookies', cookiesFile)
   }
   const ff = bundledFfmpegPath()
   if (ff) {
     args.push('--ffmpeg-location', ff)
   }
+  args.push(watchUrl)
   const { stdout } = await execFileAsync(YT_DLP_PATH, args, {
     timeout: 120_000,
     maxBuffer: 4 * 1024 * 1024,

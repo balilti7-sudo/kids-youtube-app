@@ -82,6 +82,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<SmartEntryRoute />} />
           <Route path="/auth" element={<AuthPage />} />
+          {/** /kid = KidModePage — approved videos play via `CleanPlayer` (no alternate embed on this route). */}
           <Route path="/kid" element={<KidModeRoute />} />
           <Route
             path="/onboarding"
