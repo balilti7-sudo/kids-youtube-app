@@ -84,6 +84,9 @@ const BROWSER_UA =
   process.env.BROWSER_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
+/** Match exported cookies/browser; override in Render via YT_DLP_USER_AGENT (Chrome UA recommended). */
+const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || BROWSER_UA
+
 const PIPED_FETCH_HEADERS = {
   accept: 'application/json, text/plain, */*',
   'accept-language': 'en-US,en;q=0.9',
@@ -918,6 +921,9 @@ function pickYtdlFormatResult(info) {
 
 async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
+  /** youtube:player_client selects InnerTube clients; web_embedded + mweb look less like anonymous bot traffic. */
+  const primaryExtractorArgs =
+    (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web_embedded,mweb'
   const baseArgs = [
     '--no-warnings',
     '--no-cookies-from-browser',
@@ -926,7 +932,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     '-f',
     'b/best',
     '--user-agent',
-    BROWSER_UA,
+    YT_DLP_UA,
     '--add-header',
     'Accept-Language:en-US,en;q=0.9',
   ]
@@ -934,22 +940,27 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const cookiesFile =
     cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
+  /** One --extractor-args per attempt — yt-dlp does not use separate --player-client CLI flags like some wrappers. */
   const attempts = []
   if (cookieStatus.usable && cookieStatus.hasRequiredAuthCookies) {
     attempts.push({
-      name: 'cookies-file',
-      args: ['--cookies', cookiesFile],
+      name: 'cookies-web_embedded',
+      args: ['--cookies', cookiesFile, '--extractor-args', primaryExtractorArgs],
+    })
+    attempts.push({
+      name: 'cookies-fallback_tv',
+      args: ['--cookies', cookiesFile, '--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
     })
   } else if (cookieStatus.filePath) {
     console.warn(`[ytdlp] cookies file not auth-ready (${cookieStatus.reason || 'unknown'})`)
   }
   attempts.push({
-    name: 'no-cookies-clients-a',
-    args: ['--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
+    name: 'no-cookies-web_embedded',
+    args: ['--extractor-args', primaryExtractorArgs],
   })
   attempts.push({
-    name: 'no-cookies-clients-b',
-    args: ['--extractor-args', 'youtube:player_client=web_embedded,mweb,web_safari'],
+    name: 'no-cookies-fallback_tv',
+    args: ['--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
   })
 
   const ff = bundledFfmpegPath()
