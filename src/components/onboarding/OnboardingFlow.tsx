@@ -83,6 +83,8 @@ export function OnboardingFlow() {
 
     const pin = normalizePin(pinInput)
     const pin2 = normalizePin(pinConfirm)
+    const userId = user?.id
+    if (!userId) return
 
     if (pin.length < 4) {
       setPinError('PIN קצר מדי (מינימום 4 ספרות)')
@@ -96,7 +98,10 @@ export function OnboardingFlow() {
     setSettingPin(true)
     setPinError(null)
     try {
-      const { error } = await supabase.rpc('set_parent_pin', { p_pin: pin })
+      const { error } = await supabase
+        .from('parent_settings')
+        .update({ pin_hash: pin })
+        .eq('user_id', userId)
       if (error) {
         setPinError(error.message)
         return
