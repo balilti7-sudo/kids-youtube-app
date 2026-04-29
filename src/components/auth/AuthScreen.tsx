@@ -1,12 +1,8 @@
-import { useState } from 'react'
 import { PageBackBar } from '../layout/PageBackBar'
-import { LoginForm } from './LoginForm'
-import { RegisterForm } from './RegisterForm'
 import { GoogleAuthButton } from './GoogleAuthButton'
+import { MagicLinkForm } from './MagicLinkForm'
 
 export function AuthScreen() {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
-
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-12 pt-10">
       <PageBackBar fallback="/dashboard" className="mb-0 justify-center sm:justify-start" />
@@ -16,11 +12,7 @@ export function AuthScreen() {
       </div>
 
       <div className="app-floating-surface p-6">
-        {mode === 'login' ? (
-          <LoginForm onSwitchToRegister={() => setMode('register')} />
-        ) : (
-          <RegisterForm onSwitchToLogin={() => setMode('login')} />
-        )}
+        <MagicLinkForm />
 
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">

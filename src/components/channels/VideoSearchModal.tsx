@@ -62,6 +62,9 @@ export function VideoSearchModal({
       ) : null}
 
       <div className="flex flex-col gap-2">
+        {import.meta.env.DEV
+          ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/components/channels/VideoSearchModal.tsx' }), null)
+          : null}
         {results.map((v) => (
           <ApprovedVideoCard
             key={v.videoId}

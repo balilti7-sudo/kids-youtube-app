@@ -20,17 +20,18 @@ export function useLocalParentManagement() {
 
   const snapshot = useMemo(() => {
     if (!isLocalParentSessionValid()) {
-      return { isActive: false as const, localAccessToken: null as string | null, deviceId: null as string | null, ownerUserId: null as string | null }
+      return { isActive: false as const, localAccessToken: null as string | null, deviceId: null as string | null, ownerUserId: null as string | null, pin: null as string | null }
     }
     const s = readLocalParentSession()
     if (!s) {
-      return { isActive: false as const, localAccessToken: null as string | null, deviceId: null as string | null, ownerUserId: null as string | null }
+      return { isActive: false as const, localAccessToken: null as string | null, deviceId: null as string | null, ownerUserId: null as string | null, pin: null as string | null }
     }
     return {
       isActive: true as const,
       localAccessToken: s.accessToken,
       deviceId: s.deviceId,
       ownerUserId: s.ownerUserId,
+      pin: s.pin,
     }
   }, [tick])
 

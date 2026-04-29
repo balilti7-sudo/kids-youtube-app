@@ -42,10 +42,11 @@ export function ApprovedVideosPanel({
         </Button>
       </div>
 
-      {videos.length === 0 ? (
+          {videos.length === 0 ? (
         <EmptyState title="אין סרטונים מאושרים" description="הוסיפו לינק או השתמשו בחיפוש סרטון למטה." />
       ) : (
         <div className="flex flex-col gap-2">
+          {import.meta.env.DEV ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/components/channels/ApprovedVideosPanel.tsx' }), null) : null}
           <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{videos.length} סרטונים מאושרים</p>
           {videos.map((v) => (
             <ApprovedVideoCard key={v.id} variant="approved" video={v} onRemove={() => onRemove(v.id)} />

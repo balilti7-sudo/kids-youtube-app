@@ -10,6 +10,9 @@ export interface LocalParentSession {
   deviceId: string
   ownerUserId: string
   accessToken: string
+  /** PIN הורי בגרסת plain רק לצורך קריאות RPC מקומיות מהדפדפן.
+   *  נדרש כדי שלא יפתחו “פעולות ניהול” בלי שהמשתמש הזין PIN במסך ה-Kid. */
+  pin: string
 }
 
 function parseSession(raw: string | null): LocalParentSession | null {
@@ -24,11 +27,22 @@ function parseSession(raw: string | null): LocalParentSession | null {
     ) {
       return null
     }
+    // pin יכול להיות חסר רק בנתונים ישנים שיוצרו לפני השדרוג.
+    if (typeof o.pin !== 'string') {
+      return {
+        until: o.until,
+        deviceId: String(o.deviceId),
+        ownerUserId: String(o.ownerUserId),
+        accessToken: String(o.accessToken),
+        pin: '',
+      }
+    }
     return {
       until: o.until,
       deviceId: o.deviceId,
       ownerUserId: o.ownerUserId,
       accessToken: o.accessToken,
+      pin: o.pin,
     }
   } catch {
     return null
@@ -52,6 +66,7 @@ export function writeLocalParentSession(
     deviceId: payload.deviceId,
     ownerUserId: payload.ownerUserId,
     accessToken: payload.accessToken,
+    pin: payload.pin,
   }
   try {
     window.sessionStorage.setItem(SAFETUBE_LOCAL_PARENT_ADMIN_KEY, JSON.stringify(s))
@@ -78,6 +93,10 @@ export function isLocalParentSessionValid(): boolean {
     return false
   }
   if (s.accessToken !== token) {
+    clearLocalParentSession()
+    return false
+  }
+  if (typeof s.pin !== 'string' || s.pin.trim().length < 4) {
     clearLocalParentSession()
     return false
   }

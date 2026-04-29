@@ -20,6 +20,7 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>
   verifyEmailCode: (email: string, code: string) => Promise<{ error: Error | null }>
+  signInWithMagicLink: (email: string, emailRedirectTo: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   /** ניקוי טוקן ילד, מצב הורה זמני ב-sessionStorage, והתנתקות Supabase */
   signOutClearEverything: () => Promise<void>
@@ -84,6 +85,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       email,
       token: code,
       type: 'signup',
+    })
+    return { error: error ? new Error(error.message) : null }
+  },
+
+  signInWithMagicLink: async (email, emailRedirectTo) => {
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo,
+      },
     })
     return { error: error ? new Error(error.message) : null }
   },

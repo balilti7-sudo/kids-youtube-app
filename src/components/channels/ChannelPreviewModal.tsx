@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { getChildCachedChannelVideos } from '../../lib/childDevice'
-import { buildSafeEmbedUrl } from '../../lib/youtubeEmbed'
 import type { WhitelistedChannel } from '../../types'
+import { CleanPlayer } from '../player/CleanPlayer'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -33,7 +33,6 @@ export function ChannelPreviewModal({
   const [error, setError] = useState<string | null>(null)
   const [videos, setVideos] = useState<PreviewRow[]>([])
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
-  const [iframeLoaded, setIframeLoaded] = useState(false)
   const [listReloadNonce, setListReloadNonce] = useState(0)
   const [ytRefreshing, setYtRefreshing] = useState(false)
   const [query, setQuery] = useState('')
@@ -47,7 +46,6 @@ export function ChannelPreviewModal({
     setError(null)
     setVideos([])
     setActiveVideoId(null)
-    setIframeLoaded(false)
     setQuery('')
 
     void (async () => {
@@ -113,9 +111,9 @@ export function ChannelPreviewModal({
     return base.filter((v) => v.title.toLowerCase().includes(q))
   }, [videos, query, active])
 
-  const handlePickVideo = (videoId: string) => {
-    setActiveVideoId(videoId)
-    setIframeLoaded(false)
+  const handlePickVideo = (video: PreviewRow) => {
+    console.log('VIDEO CLICKED', video)
+    setActiveVideoId(video.videoId)
     requestAnimationFrame(() => {
       playerAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
@@ -131,7 +129,7 @@ export function ChannelPreviewModal({
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-slate-500 dark:text-zinc-500">
-            פרסומות בתוך נגן YouTube נקבעות על־ידם ולא ניתנות להסרה מתוך embed. הרשימה בצד היא רק סרטונים של הערוץ.
+            הניגון דרך Media Bridge בלבד (ללא iframe של YouTube). הרשימה בצד היא סרטונים מהמטמון של הערוץ.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {onRefreshFromYouTube ? (
@@ -166,7 +164,6 @@ export function ChannelPreviewModal({
         </div>
       }
     >
-      <div ref={playerAnchorRef} />
       {loading ? (
         <div className="flex items-center justify-center gap-3 py-20">
           <LoadingSpinner className="h-8 w-8 border-2 border-brand-500 border-t-transparent" />
@@ -182,25 +179,19 @@ export function ChannelPreviewModal({
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
-          <section className="min-w-0">
+          <section className="min-w-0" ref={playerAnchorRef}>
             {active ? (
               <>
                 <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-black pt-[56.25%] shadow-sm dark:border-zinc-700">
-                  <iframe
-                    title={active.title}
-                    src={buildSafeEmbedUrl(active.videoId)}
-                    key={active.videoId}
-                    className="absolute inset-0 h-full w-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    sandbox="allow-scripts allow-same-origin allow-presentation"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    allowFullScreen={false}
-                    onLoad={() => setIframeLoaded(true)}
-                  />
+                  <div className="absolute inset-0 min-h-0">
+                    <CleanPlayer
+                      key={active.videoId}
+                      videoId={active.videoId}
+                      title={active.title}
+                      className="h-full w-full"
+                    />
+                  </div>
                 </div>
-                {!iframeLoaded ? (
-                  <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">טוען נגן…</p>
-                ) : null}
                 <h3 className="mt-3 text-lg font-bold leading-snug text-slate-900 dark:text-zinc-100">{active.title}</h3>
                 <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">{channel?.channel_name}</p>
               </>
@@ -224,9 +215,12 @@ export function ChannelPreviewModal({
             </div>
 
             <ul className="flex flex-col gap-2">
+              {import.meta.env.DEV
+                ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/components/channels/ChannelPreviewModal.tsx' }), null)
+                : null}
               {sidebarVideos.map((v) => (
                 <li key={v.videoId}>
-                  <SidebarVideoRow row={v} onPick={handlePickVideo} channelName={channel?.channel_name ?? ''} />
+                  <SidebarVideoRow video={v} onClick={handlePickVideo} channelName={channel?.channel_name ?? ''} />
                 </li>
               ))}
             </ul>
@@ -244,27 +238,51 @@ export function ChannelPreviewModal({
 }
 
 function SidebarVideoRow({
-  row,
-  onPick,
+  video,
+  onClick,
   channelName,
 }: {
-  row: PreviewRow
-  onPick: (videoId: string) => void
+  video: PreviewRow
+  onClick: (video: PreviewRow) => void
   channelName: string
 }) {
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console -- explicit click target tracing requested
+    console.log('REAL CLICK TARGET RENDERED', {
+      file: 'src/components/channels/ChannelPreviewModal.tsx',
+      component: 'SidebarVideoRow',
+      props: {
+        videoId: video.videoId,
+        title: video.title,
+        channelName,
+      },
+    })
+  }
   return (
     <button
       type="button"
-      onClick={() => onPick(row.videoId)}
-      className="group flex w-full gap-2 rounded-xl border border-transparent p-1 text-right transition hover:border-brand-300 hover:bg-slate-50 dark:hover:border-brand-700 dark:hover:bg-zinc-800/60"
+      onClick={() => {
+        // eslint-disable-next-line no-console -- explicit click target tracing requested
+        console.log('VIDEO CLICKED', {
+          file: 'src/components/channels/ChannelPreviewModal.tsx',
+          component: 'SidebarVideoRow',
+          props: {
+            videoId: video.videoId,
+            title: video.title,
+            channelName,
+          },
+        })
+        onClick(video)
+      }}
+      className="group pointer-events-auto flex w-full gap-2 rounded-xl border border-transparent p-1 text-right transition hover:border-brand-300 hover:bg-slate-50 dark:hover:border-brand-700 dark:hover:bg-zinc-800/60"
     >
-      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-lg bg-slate-100 dark:bg-zinc-800 sm:w-48">
-        {row.thumbnail ? (
+      <div className="pointer-events-none relative aspect-video w-40 shrink-0 overflow-hidden rounded-lg bg-slate-100 dark:bg-zinc-800 sm:w-48">
+        {video.thumbnail ? (
           <img
-            src={row.thumbnail}
+            src={video.thumbnail}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+            className="pointer-events-none h-full w-full object-cover transition group-hover:scale-[1.02]"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400 dark:text-zinc-500">
@@ -273,7 +291,7 @@ function SidebarVideoRow({
         )}
       </div>
       <div className="min-w-0 flex-1 py-1">
-        <p className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900 dark:text-zinc-100">{row.title}</p>
+        <p className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900 dark:text-zinc-100">{video.title}</p>
         {channelName ? (
           <p className="mt-1 line-clamp-1 text-[11px] text-slate-500 dark:text-zinc-400">{channelName}</p>
         ) : null}

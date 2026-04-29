@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, ShieldAlert, Smartphone, Unplug } from 'lucide-react'
+import { Camera, Play, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -19,14 +19,13 @@ import {
   type ChildAllowedChannel,
   type ChildDeviceState,
 } from '../lib/childDevice'
-import { getResolvedParentPin, pinsMatch } from '../lib/parentPin'
 import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
 import type { ChannelVideoItem } from '../lib/youtube'
-import { buildSafeEmbedUrl } from '../lib/youtubeEmbed'
+import { CleanPlayer } from '../components/player/CleanPlayer'
 import type { Html5Qrcode } from 'html5-qrcode'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
@@ -67,14 +66,11 @@ export function KidModePage() {
   const [channelLoading, setChannelLoading] = useState(false)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
-  const [playerOpen, setPlayerOpen] = useState(false)
   const [videoSearch, setVideoSearch] = useState('')
+  const [kidSurface, setKidSurface] = useState<'watch' | 'parent'>('watch')
   /** כל לחיצה על ערוץ (גם על אותו ערוץ) — כדי ש־useEffect יטען מחדש גם כש־activeChannelId לא משתנה */
   const [channelPickNonce, setChannelPickNonce] = useState(0)
   const [accessToken, setAccessToken] = useState<string | null>(null)
-  const [playerNonce, setPlayerNonce] = useState(0)
-  const [iframeLoaded, setIframeLoaded] = useState(false)
-  const [showPlayerFallback, setShowPlayerFallback] = useState(false)
   const [pinModalOpen, setPinModalOpen] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
@@ -90,22 +86,6 @@ export function KidModePage() {
   const [scanCameraError, setScanCameraError] = useState<string | null>(null)
   const qrScannerRef = useRef<Html5Qrcode | null>(null)
   const qrDecodeLockRef = useRef(false)
-
-  const ensureLocalParentSessionNoPin = useCallback(async (token: string) => {
-    const { data, error } = await supabase.rpc('local_parent_device_summary', {
-      p_access_token: token,
-    })
-    if (error) return false
-    const row = Array.isArray(data) ? data[0] : null
-    if (!row?.id || !row?.user_id) return false
-    writeLocalParentSession({
-      until: Date.now() + LOCAL_PARENT_SESSION_MS,
-      deviceId: String(row.id),
-      ownerUserId: String(row.user_id),
-      accessToken: token,
-    })
-    return true
-  }, [])
   const channelVideosRequestRef = useRef(0)
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
@@ -128,16 +108,6 @@ export function KidModePage() {
     if (!q) return channelVideos
     return channelVideos.filter((v) => v.title.toLowerCase().includes(q))
   }, [channelVideos, videoSearch])
-
-  useEffect(() => {
-    setIframeLoaded(false)
-    setShowPlayerFallback(false)
-    if (!activeVideo) return
-    const timeoutId = window.setTimeout(() => {
-      if (!iframeLoaded) setShowPlayerFallback(true)
-    }, 9_000)
-    return () => window.clearTimeout(timeoutId)
-  }, [activeVideo, iframeLoaded, playerNonce])
 
   const loadChannelVideos = useCallback(async (youtubeChannelId: string) => {
     const rid = ++channelVideosRequestRef.current
@@ -168,7 +138,6 @@ export function KidModePage() {
     }))
     if (rid !== channelVideosRequestRef.current) return
     setChannelVideos(next)
-    setPlayerOpen(false)
   }, [accessToken])
 
   const loadChildData = useCallback(async (token: string) => {
@@ -192,7 +161,6 @@ export function KidModePage() {
     if (list.length === 0) {
       setActiveChannelId(null)
       setChannelVideos([])
-      setPlayerOpen(false)
       return
     }
 
@@ -260,7 +228,6 @@ export function KidModePage() {
           if (pairError || !newToken) throw pairError ?? new Error('צימוד נכשל')
           saveChildAccessToken(newToken)
           setAppModeKid()
-          void ensureLocalParentSessionNoPin(newToken)
           setAccessToken(newToken)
           await loadChildDataRef.current(newToken)
           stripPairCodeFromUrl()
@@ -344,7 +311,6 @@ export function KidModePage() {
         if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
         saveChildAccessToken(token)
         setAppModeKid()
-        void ensureLocalParentSessionNoPin(token)
         setAccessToken(token)
         await loadChildData(token)
       } catch (e) {
@@ -458,13 +424,29 @@ export function KidModePage() {
       setParentModePinError(null)
       setPendingParentAction(null)
       setDisconnecting(false)
+      setKidSurface('watch')
     }
   }
 
   const confirmPinAndDisconnect = async () => {
-    const expected = getResolvedParentPin()
-    if (!pinsMatch(pinInput, expected)) {
-      setPinError('PIN שגוי. אותו קוד כמו בניהול ערוצים אצל ההורה (ללא הגדרה: 1234).')
+    const pinForServer = pinInput.replace(/\s+/g, '').trim()
+    if (!accessToken) {
+      setPinError('המכשיר לא מחובר. נסו שוב.')
+      return
+    }
+    if (pinForServer.length < 4) {
+      setPinError('PIN שגוי')
+      return
+    }
+
+    setPinError(null)
+    const { data, error } = await supabase.rpc('local_parent_bootstrap', {
+      p_access_token: accessToken,
+      p_pin: pinForServer,
+    })
+    const row = Array.isArray(data) ? data[0] : null
+    if (error || !row?.device_id) {
+      setPinError('PIN שגוי')
       return
     }
     await handleDisconnect()
@@ -508,22 +490,6 @@ export function KidModePage() {
       runParentAction(action)
       return
     }
-    if (!isAuthenticated && getSavedChildAccessToken()) {
-      const savedToken = getSavedChildAccessToken()
-      if (savedToken) {
-        setParentBootstrapBusy(true)
-        try {
-          const ok = await ensureLocalParentSessionNoPin(savedToken)
-          if (ok) {
-            runParentAction(action)
-            return
-          }
-          setParentModePinError('לא הצלחנו לפתוח ניהול מקומי. נסו שוב.')
-        } finally {
-          setParentBootstrapBusy(false)
-        }
-      }
-    }
     if (parentModeUnlocked) {
       runParentAction(action)
       return
@@ -535,35 +501,37 @@ export function KidModePage() {
   }
 
   const confirmParentModePin = async () => {
-    const expected = getResolvedParentPin()
-    if (!pinsMatch(parentModePinInput, expected)) {
+    const pinForServer = parentModePinInput.replace(/\s+/g, '').trim()
+    const savedToken = getSavedChildAccessToken()
+    if (pinForServer.length < 4) {
       setParentModePinError('PIN שגוי')
       return
     }
-    const pinForServer = parentModePinInput.replace(/\s+/g, '').trim()
-    const savedToken = getSavedChildAccessToken()
+    if (!savedToken) {
+      setParentModePinError('המכשיר לא מחובר. נסו שוב.')
+      return
+    }
 
-    if (!isAuthenticated && savedToken) {
-      setParentBootstrapBusy(true)
-      try {
-        const { data, error } = await supabase.rpc('local_parent_bootstrap', {
-          p_access_token: savedToken,
-          p_pin: pinForServer,
-        })
-        const row = Array.isArray(data) ? data[0] : null
-        if (error || !row?.device_id) {
-          setParentModePinError(error?.message ?? 'אימות נכשל. בדקו PIN או חיבור לרשת.')
-          return
-        }
-        writeLocalParentSession({
-          until: Date.now() + LOCAL_PARENT_SESSION_MS,
-          deviceId: String(row.device_id),
-          ownerUserId: String(row.owner_user_id),
-          accessToken: savedToken,
-        })
-      } finally {
-        setParentBootstrapBusy(false)
+    setParentBootstrapBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('local_parent_bootstrap', {
+        p_access_token: savedToken,
+        p_pin: pinForServer,
+      })
+      const row = Array.isArray(data) ? data[0] : null
+      if (error || !row?.device_id) {
+        setParentModePinError('PIN שגוי')
+        return
       }
+      writeLocalParentSession({
+        until: Date.now() + LOCAL_PARENT_SESSION_MS,
+        deviceId: String(row.device_id),
+        ownerUserId: String(row.owner_user_id),
+        accessToken: savedToken,
+        pin: pinForServer,
+      })
+    } finally {
+      setParentBootstrapBusy(false)
     }
 
     unlockParentMode()
@@ -711,268 +679,354 @@ export function KidModePage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-6xl flex-col gap-4 px-3 py-3 sm:px-4">
-      <header className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-extrabold text-slate-900 dark:text-zinc-50">{device.device_name}</h1>
-            <p className="text-xs text-slate-500 dark:text-zinc-400">{KID_APP_DISPLAY_NAME} — מצב מוגן</p>
+    <div className="min-h-dvh bg-[#f3f3f3] text-slate-900 dark:bg-[#0f0f0f] dark:text-zinc-100">
+      <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/90 pb-[env(safe-area-inset-top)] shadow-sm backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90">
+        <div className="mx-auto flex max-w-[1920px] items-center justify-between gap-2 px-3 py-2.5 sm:px-4">
+          <div className="min-w-0 text-right">
+            <p className="truncate text-sm font-bold text-slate-900 dark:text-zinc-50">
+              {kidSurface === 'watch' ? device.device_name : 'אזור הורים'}
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-zinc-500">{KID_APP_DISPLAY_NAME}</p>
           </div>
-          <Button variant="secondary" className="shrink-0 text-xs" onClick={() => setPinModalOpen(true)}>
-            נתק מכשיר (הורה)
-          </Button>
+          <div
+            className="flex shrink-0 items-center gap-0.5 rounded-full border border-slate-200/90 bg-slate-100/50 p-0.5 dark:border-zinc-700 dark:bg-zinc-900/80"
+            role="tablist"
+            aria-label="מצב מסך"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={kidSurface === 'watch'}
+              onClick={() => setKidSurface('watch')}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                kidSurface === 'watch'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+              }`}
+            >
+              <Play className="h-3.5 w-3.5" aria-hidden />
+              צפייה
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={kidSurface === 'parent'}
+              onClick={() => setKidSurface('parent')}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                kidSurface === 'parent'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+              }`}
+            >
+              <Users className="h-3.5 w-3.5" aria-hidden />
+              הורים
+            </button>
+          </div>
         </div>
       </header>
-      {error ? <p className="text-sm text-danger-600">{error}</p> : null}
 
-      {device.is_blocked ? (
-        <section className="rounded-2xl border border-danger-700/60 bg-danger-950/50 p-6 text-center text-danger-100">
-          <ShieldAlert className="mx-auto mb-3 h-10 w-10" aria-hidden />
-          <h2 className="text-xl font-black tracking-tight">{KID_APP_DISPLAY_NAME}</h2>
-          <p className="mt-3 text-sm leading-relaxed opacity-95">
-            הצפייה חסומה כרגע מההורה. אפשר לבקש לפתוח שוב — או לנתק את המכשיר בלחיצה על &quot;נתק מכשיר&quot; למעלה (נדרש אישור הורה).
-          </p>
-        </section>
-      ) : (
-        <section className="grid flex-1 gap-3 lg:grid-cols-[2fr,1fr] [&>*]:min-w-0">
-          {channels.length === 0 ? (
-            <div className="lg:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
-              <p className="font-semibold">אין ערוצים שמקושרים למכשיר הזה</p>
-              <p className="mt-2 text-amber-900/90 dark:text-amber-200/90">
-                במסך ההורה, תחת <strong className="font-bold">ניהול ערוצים</strong>, הערוצים נוספים ל<strong className="font-bold">
-                  מכשיר ספציפי
-                </strong>
-                . ודאו שנבחר באותו ממשק המכשיר בשם <strong className="font-bold">«{device.device_name}»</strong> — זה שם המכשיר
-                שמוצג כאן למעלה. אם ההוספה בוצעה תחת מכשיר אחר, כאן לא יופיעו ערוצים עד שתקשרו אותם לאותו מכשיר.
-              </p>
-              <Button type="button" variant="secondary" className="mt-3" onClick={() => requestParentAction('home')}>
-                פתחו ניהול הורה במכשיר הזה
+      {error ? (
+        <p className="mx-auto max-w-[1920px] px-3 py-2 text-sm text-danger-600 sm:px-4">{error}</p>
+      ) : null}
+
+      {kidSurface === 'parent' ? (
+        <main className="mx-auto w-full max-w-lg px-3 py-4 sm:px-4">
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
+            <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">ניהול הורה במכשיר הזה</h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
+              אם כבר התחברתם כהורה באותו דפדפן — עוברים ללוח בלי להקליד שוב אימייל. מכשיר הילד נשאר מצומד ב־localStorage עד
+              ניתוק מפורש.
+            </p>
+            <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">
+              {parentModeUnlocked ? 'מצב הורה (PIN) נפתח ל־10 דקות.' : 'מעבר ללוח/ערוצים דורש PIN הורה או סשן שכבר אומת.'}
+            </p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full min-[400px]:w-auto"
+                onClick={() => void requestParentAction('home')}
+              >
+                {isAuthenticated
+                  ? 'לוח בקרה'
+                  : isLocalParentSessionValid() && getSavedChildAccessToken()
+                    ? 'לוח בקרה'
+                    : 'התחברות — לוח בקרה'}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full min-[400px]:w-auto"
+                onClick={() => void requestParentAction('channels')}
+              >
+                {isAuthenticated
+                  ? 'ניהול ערוצים'
+                  : isLocalParentSessionValid() && getSavedChildAccessToken()
+                    ? 'ניהול ערוצים'
+                    : 'התחברות — ערוצים'}
+              </Button>
+              {parentModeUnlocked ? (
+                <Button type="button" variant="secondary" onClick={lockParentMode} className="w-full min-[400px]:w-auto">
+                  נעל מצב הורה
+                </Button>
+              ) : null}
+            </div>
+            <div className="mt-5 border-t border-slate-200 pt-4 dark:border-zinc-800">
+              <p className="text-xs text-slate-600 dark:text-zinc-400">נתק את מכשיר הילד מההורה (נדרש PIN)</p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-2 w-full border-danger-200 text-danger-700 hover:bg-danger-50 dark:border-danger-800 dark:text-danger-300 dark:hover:bg-danger-950/40 sm:w-auto"
+                onClick={() => setPinModalOpen(true)}
+              >
+                נתק מכשיר
               </Button>
             </div>
-          ) : null}
-          <article className="order-2 min-h-0 rounded-2xl border border-slate-200 bg-black p-2 shadow-sm dark:border-zinc-700 lg:order-none">
-            {playerOpen && activeVideo ? (
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
-                <div className="min-w-0">
-                  <div className="relative overflow-hidden rounded-xl pt-[56.25%]">
-                    <iframe
-                      title={activeVideo.title}
-                      src={buildSafeEmbedUrl(activeVideo.videoId)}
-                      key={`${activeVideo.videoId}-${playerNonce}`}
-                      className="absolute inset-0 h-full w-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      sandbox="allow-scripts allow-same-origin allow-presentation"
-                      referrerPolicy="strict-origin-when-cross-origin"
-                      allowFullScreen={false}
-                      onLoad={() => {
-                        setIframeLoaded(true)
-                        setShowPlayerFallback(false)
-                      }}
-                    />
-                    <div className="pointer-events-auto absolute right-0 top-0 h-12 w-20" aria-hidden />
-                    {showPlayerFallback ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 px-4 text-center">
-                        <p className="text-sm text-zinc-100">YouTube לא נטען כרגע. זה קורה לפעמים בגלל הגנת אנטי-בוט.</p>
-                        <Button
-                          variant="secondary"
-                          className="!bg-white/90 !text-slate-900 hover:!bg-white"
+            <p className="mt-4 text-center text-[10px] leading-relaxed text-slate-500 dark:text-zinc-500" dir="ltr">
+              מזהה מכשיר (דיבוג): {device.device_id && device.device_id.length >= 4 ? `…${device.device_id.slice(-4)}` : '—'}
+            </p>
+          </section>
+        </main>
+      ) : device.is_blocked ? (
+        <section className="mx-auto max-w-lg px-4 py-10">
+          <div className="rounded-2xl border border-danger-700/50 bg-gradient-to-b from-danger-900/30 to-danger-950/80 p-8 text-center text-danger-100 shadow-inner">
+            <ShieldAlert className="mx-auto mb-3 h-12 w-12 opacity-90" aria-hidden />
+            <h2 className="text-xl font-black tracking-tight">{KID_APP_DISPLAY_NAME}</h2>
+            <p className="mt-3 text-sm leading-relaxed opacity-95">
+              הצפייה חסומה כרגע מההורה. בקשו לפתוח — או עברו ללשונית <strong>הורים</strong> לנתק או לנהל.
+            </p>
+          </div>
+        </section>
+      ) : (
+        <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-0 lg:grid lg:min-h-0 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] lg:items-start">
+          {channels.length === 0 ? (
+            <div className="px-3 py-4 sm:px-4 lg:col-span-2">
+              <div className="rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-5 text-sm leading-relaxed text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/35 dark:text-amber-100">
+                <p className="font-semibold">אין ערוצים שמקושרים למכשיר הזה</p>
+                <p className="mt-2 text-amber-900/95 dark:text-amber-200/90">
+                  בלשונית <strong className="font-bold">הורים</strong> — ניהול ערוצים, ובחרו את המכשיר &quot;{device.device_name}
+                  &quot;.
+                </p>
+                <Button type="button" variant="secondary" className="mt-4" onClick={() => setKidSurface('parent')}>
+                  מעבר ללשונית הורים
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <aside className="hidden min-h-0 border-s border-black/[0.06] bg-white dark:border-zinc-800 dark:bg-zinc-950/80 lg:sticky lg:top-[52px] lg:block lg:max-h-[calc(100dvh-3rem)] lg:shrink-0 lg:overflow-y-auto lg:pb-6">
+                <p className="border-b border-black/[0.06] bg-white/80 px-3 py-2.5 text-xs font-bold text-slate-600 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80 dark:text-zinc-400">
+                  הערוצים שלי
+                </p>
+                <div className="flex flex-col gap-0.5 p-2">
+                  {channels.map((channel) => {
+                    const yt = channel.youtube_channel_id
+                    const selected = yt === (activeChannelId ?? '')
+                    return (
+                      <button
+                        key={channel.channel_id}
+                        type="button"
+                        onClick={() => {
+                          setVideoSearch('')
+                          setActiveChannelId(yt)
+                          setChannelPickNonce((n) => n + 1)
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-xl p-2 text-right transition ${
+                          selected
+                            ? 'bg-slate-200/80 dark:bg-zinc-800'
+                            : 'hover:bg-slate-100 dark:hover:bg-zinc-800/80'
+                        }`}
+                      >
+                        {channel.channel_thumbnail ? (
+                          <img
+                            src={channel.channel_thumbnail}
+                            alt=""
+                            className="h-10 w-10 shrink-0 rounded-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-500 dark:bg-zinc-800">
+                            <Smartphone className="h-4 w-4" />
+                          </div>
+                        )}
+                        <span className="line-clamp-2 min-w-0 flex-1 text-xs font-medium leading-snug text-slate-800 dark:text-zinc-200">
+                          {channel.channel_name}
+                        </span>
+                        {channel.category ? (
+                          <span className="shrink-0 text-[10px] text-brand-600 dark:text-brand-400">{channel.category}</span>
+                        ) : null}
+                      </button>
+                    )
+                  })}
+                </div>
+              </aside>
+
+              <div className="min-w-0 flex-1 bg-[#f3f3f3] dark:bg-[#0f0f0f] lg:pt-0">
+                <div className="border-b border-black/[0.06] bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-950/90 lg:hidden">
+                  <p className="mb-1.5 px-1 text-[11px] font-bold text-slate-500">ערוץ</p>
+                  <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 pt-0.5">
+                    {channels.map((channel) => {
+                      const yt = channel.youtube_channel_id
+                      const selected = yt === (activeChannelId ?? '')
+                      return (
+                        <button
+                          key={channel.channel_id}
+                          type="button"
                           onClick={() => {
-                            setPlayerNonce((n) => n + 1)
-                            setIframeLoaded(false)
-                            setShowPlayerFallback(false)
+                            setVideoSearch('')
+                            setActiveChannelId(yt)
+                            setChannelPickNonce((n) => n + 1)
                           }}
+                          className={`flex shrink-0 flex-col items-center gap-1 rounded-2xl px-2 py-1.5 ${
+                            selected ? 'bg-slate-200 dark:bg-zinc-800' : 'bg-slate-100/80 dark:bg-zinc-900/80'
+                          }`}
                         >
-                          נסה שוב
-                        </Button>
-                      </div>
-                    ) : null}
+                          {channel.channel_thumbnail ? (
+                            <img
+                              src={channel.channel_thumbnail}
+                              alt=""
+                              className="h-12 w-12 rounded-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-200 dark:bg-zinc-800">
+                              <Smartphone className="h-5 w-5 text-slate-500" />
+                            </div>
+                          )}
+                          <span className="line-clamp-1 max-w-[4.5rem] text-center text-[10px] font-medium text-slate-800 dark:text-zinc-200">
+                            {channel.channel_name}
+                          </span>
+                        </button>
+                      )
+                    })}
                   </div>
-                  <p className="mt-2 px-1 text-base font-bold leading-snug text-zinc-100">{activeVideo.title}</p>
                 </div>
 
-                <aside className="min-w-0 rounded-xl bg-zinc-950/40 p-2 xl:max-h-[70vh] xl:overflow-y-auto">
-                  <Input
-                    value={videoSearch}
-                    onChange={(e) => setVideoSearch(e.target.value)}
-                    placeholder="חיפוש בסרטוני הערוץ"
-                    className="mb-2 border-zinc-600 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500"
-                  />
-                  <ul className="flex flex-col gap-2">
-                    {filteredVideos
-                      .filter((v) => v.videoId !== activeVideo.videoId)
-                      .map((video) => (
-                        <li key={video.videoId}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveVideoId(video.videoId)
-                              setPlayerOpen(true)
-                            }}
-                            className="group flex w-full gap-2 rounded-xl border border-transparent p-1 text-right transition hover:border-brand-500 hover:bg-zinc-800/70"
-                          >
-                            <div className="relative aspect-video w-36 shrink-0 overflow-hidden rounded-lg bg-zinc-800 sm:w-40">
-                              {video.thumbnail ? (
-                                <img
-                                  src={video.thumbnail}
-                                  alt=""
-                                  loading="lazy"
-                                  className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-500">
-                                  וידאו
-                                </div>
-                              )}
+                <div className="mx-auto max-w-[1600px] gap-0 px-2 pb-6 pt-2 sm:px-4 lg:flex lg:min-h-0 lg:gap-4 lg:px-4 lg:pt-3">
+                  <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
+                    {channelLoading ? (
+                      <div className="flex aspect-video max-w-5xl items-center justify-center gap-3 rounded-xl bg-black/90 text-zinc-200">
+                        <LoadingSpinner className="h-9 w-9 shrink-0 border-2 border-red-500 border-t-transparent" />
+                        <span className="text-sm font-medium">טוען…</span>
+                      </div>
+                    ) : activeVideo ? (
+                      <>
+                        <div className="relative w-full overflow-hidden rounded-none bg-black shadow-[0_0_0_1px_rgba(0,0,0,0.08)] sm:rounded-xl">
+                          <div className="relative pt-[56.25%]">
+                            <div className="absolute inset-0 min-h-0">
+                              <CleanPlayer
+                                key={activeVideo.videoId}
+                                videoId={activeVideo.videoId}
+                                title={activeVideo.title}
+                                className="h-full w-full"
+                              />
                             </div>
-                            <p className="line-clamp-2 flex-1 py-1 text-xs font-semibold leading-snug text-zinc-100">
-                              {video.title}
-                            </p>
-                          </button>
-                        </li>
-                      ))}
-                  </ul>
-                  {filteredVideos.length <= 1 ? (
-                    <p className="mt-3 text-center text-[11px] text-zinc-500">
-                      אין עוד סרטונים להצגה בערוץ הזה.
-                    </p>
-                  ) : null}
-                </aside>
-              </div>
-            ) : (
-              <div className="grid gap-3 p-1 sm:grid-cols-2">
-                {channelLoading ? (
-                  <div className="flex items-center justify-center gap-3 rounded-xl border border-brand-500/35 bg-zinc-900/95 px-4 py-4 sm:col-span-2">
-                    <LoadingSpinner className="h-7 w-7 shrink-0 border-2 border-brand-500 border-t-transparent" />
-                    <span className="text-sm font-semibold text-zinc-100">טוען סרטונים מהמטמון…</span>
-                  </div>
-                ) : null}
-                <Input
-                  value={videoSearch}
-                  onChange={(e) => setVideoSearch(e.target.value)}
-                  placeholder="חיפוש בתוך סרטוני הערוץ"
-                  className="border-zinc-600 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500 sm:col-span-2"
-                />
-                {filteredVideos.length > 0 ? (
-                  filteredVideos.map((video) => (
-                    <button
-                      key={video.videoId}
-                      type="button"
-                      onClick={() => {
-                        setActiveVideoId(video.videoId)
-                        setPlayerOpen(true)
-                      }}
-                      className="overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 text-right transition hover:border-brand-500"
-                    >
-                      {video.thumbnail ? (
-                        <img src={video.thumbnail} alt="" className="h-36 w-full object-cover" loading="lazy" />
-                      ) : (
-                        <div className="flex h-36 w-full items-center justify-center bg-zinc-800">
-                          <Smartphone className="h-5 w-5 text-zinc-500" />
+                          </div>
                         </div>
-                      )}
-                      <p className="line-clamp-2 px-3 py-2 text-sm font-semibold text-zinc-100">{video.title}</p>
-                    </button>
-                  ))
-                ) : (
-                  <div className="col-span-full flex h-full min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 text-zinc-300">
-                    <Unplug className="h-8 w-8 text-zinc-500" />
-                    <p className="max-w-sm text-center text-sm">
-                      {channelLoading
-                        ? 'טוענים סרטונים…'
-                        : videoSearch.trim()
-                          ? 'אין תוצאות לחיפוש — נסו מילה אחרת או רוקנו את שדה החיפוש למעלה.'
-                          : channels.length === 0
-                            ? 'אין ערוצים במכשיר הזה. ההורה מוסיף ערוצים במסך הניהול — ודאו שמקושרים לאותו מכשיר.'
-                            : channelVideos.length === 0
-                              ? 'יש ערוצים ברשימה, אבל אין סרטונים במטמון. במסך ההורה: &quot;רענון סרטוני ערוץ&quot; לערוץ הזה, או הוסיפו את הערוץ מחדש (סנכרון אוטומטי אחרי האישור).'
-                              : 'בחרו ערוץ מהרשימה כדי לטעון סרטונים מהמטמון.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </article>
-
-          <aside className="relative z-10 order-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 lg:order-none">
-            <h2 className="mb-2 text-sm font-bold text-slate-800 dark:text-zinc-100">ערוצים מאושרים</h2>
-            <div className="grid max-h-[65vh] touch-manipulation gap-2 overflow-y-auto overscroll-contain pr-1">
-              {channels.map((channel) => {
-                const yt = channel.youtube_channel_id
-                const selected = yt === (activeChannelId ?? '')
-                return (
-                  <button
-                    key={channel.channel_id}
-                    type="button"
-                    onClick={() => {
-                      setVideoSearch('')
-                      setActiveChannelId(yt)
-                      setChannelPickNonce((n) => n + 1)
-                    }}
-                    className={`flex items-center gap-2 rounded-xl border p-2 text-right transition ${
-                      selected
-                        ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
-                        : 'border-slate-200 hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800'
-                    }`}
-                  >
-                    {channel.channel_thumbnail ? (
-                      <img
-                        src={channel.channel_thumbnail}
-                        alt=""
-                        className="h-14 w-20 rounded-lg object-cover"
-                        loading="lazy"
-                      />
+                        <div className="mt-2 px-0 sm:px-1">
+                          <h2 className="text-base font-bold leading-snug text-slate-900 dark:text-zinc-50 sm:text-lg">
+                            {activeVideo.title}
+                          </h2>
+                          <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
+                        </div>
+                      </>
                     ) : (
-                      <div className="flex h-14 w-20 items-center justify-center rounded-lg bg-slate-100 text-slate-400 dark:bg-zinc-800">
-                        <Smartphone className="h-4 w-4" />
+                      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-sm text-slate-600 dark:border-zinc-700 dark:bg-zinc-900/30 dark:text-zinc-400">
+                        <Unplug className="h-10 w-10 text-slate-400" />
+                        <p>בחרו ערוץ כדי לטעון סרטונים.</p>
                       </div>
                     )}
-                    <span className="line-clamp-2 text-xs font-medium text-slate-700 dark:text-zinc-200">
-                      {channel.channel_name}
-                    </span>
-                    {channel.category ? <span className="text-[11px] text-brand-500">{channel.category}</span> : null}
-                  </button>
-                )
-              })}
-            </div>
-          </aside>
-        </section>
-      )}
+                  </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">מצב הורה במכשיר הזה</h2>
-        <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-          אם כבר התחברתם כהורה באותו דפדפן — עוברים ללוח בלי להקליד שוב אימייל. מכשיר נשאר מצומד ב־localStorage עד ניתוק מפורש.
-        </p>
-        <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">
-          {parentModeUnlocked ? 'מצב הורה פתוח ל-10 דקות במכשיר הזה.' : 'מצב הורה נעול. פתיחה דורשת PIN הורה.'}
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" className="text-xs" onClick={() => void requestParentAction('home')}>
-            {isAuthenticated
-              ? 'לוח בקרה (כבר מחוברים)'
-              : isLocalParentSessionValid() && getSavedChildAccessToken()
-                ? 'לוח בקרה'
-                : 'התחברות הורה'}
-          </Button>
-          <Button type="button" variant="secondary" className="text-xs" onClick={() => void requestParentAction('channels')}>
-            {isAuthenticated
-              ? 'ניהול ערוצים'
-              : isLocalParentSessionValid() && getSavedChildAccessToken()
-                ? 'ניהול ערוצים'
-                : 'התחברו כדי לנהל ערוצים'}
-          </Button>
-          {parentModeUnlocked ? (
-            <Button
-              type="button"
-              variant="secondary"
-              className="text-xs"
-              onClick={lockParentMode}
-            >
-              נעל מצב הורה
-            </Button>
-          ) : null}
+                  <aside className="mt-3 min-w-0 border-t border-black/[0.06] pt-3 dark:border-zinc-800 lg:mt-0 lg:w-[min(100%,400px)] lg:shrink-0 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-4 dark:lg:border-zinc-800">
+                    <div className="lg:sticky lg:top-[52px] lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:pb-8 lg:pe-1">
+                      <p className="mb-1.5 text-xs font-bold text-slate-700 dark:text-zinc-300">סרטונים בערוץ</p>
+                      <Input
+                        value={videoSearch}
+                        onChange={(e) => setVideoSearch(e.target.value)}
+                        placeholder="חיפוש ברשימה"
+                        className="mb-3 border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      />
+                      <ul className="flex flex-col gap-1">
+                        {import.meta.env.DEV
+                          ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/pages/KidModePage.tsx' }), null)
+                          : null}
+                        {filteredVideos.length > 0
+                          ? filteredVideos.map((video) => {
+                              const isCurrent = video.videoId === activeVideo?.videoId
+                              if (import.meta.env.DEV) {
+                                // eslint-disable-next-line no-console -- explicit click target tracing requested
+                                console.log('REAL CLICK TARGET RENDERED', {
+                                  file: 'src/pages/KidModePage.tsx',
+                                  component: 'KidModePage.VideoListButton',
+                                  props: {
+                                    videoId: video.videoId,
+                                    title: video.title,
+                                    isCurrent,
+                                  },
+                                })
+                              }
+                              return (
+                                <li key={video.videoId}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      console.log('VIDEO CLICKED FROM KID PAGE', video)
+                                      setActiveVideoId(video.videoId)
+                                    }}
+                                    className={`group pointer-events-auto flex w-full gap-2 rounded-lg p-1.5 text-right transition ${
+                                      isCurrent
+                                        ? 'bg-white shadow-sm ring-1 ring-brand-500/40 dark:bg-zinc-900'
+                                        : 'hover:bg-white/80 dark:hover:bg-zinc-900/60'
+                                    }`}
+                                  >
+                                    <div className="pointer-events-none relative aspect-video w-32 shrink-0 overflow-hidden rounded-md bg-slate-200 dark:bg-zinc-800 min-[400px]:w-[168px]">
+                                      {video.thumbnail ? (
+                                        <img
+                                          src={video.thumbnail}
+                                          alt=""
+                                          loading="lazy"
+                                          className="pointer-events-none h-full w-full object-cover transition group-hover:opacity-95"
+                                        />
+                                      ) : (
+                                        <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-500">
+                                          וידאו
+                                        </div>
+                                      )}
+                                      {isCurrent ? (
+                                        <span className="absolute bottom-1 right-1 rounded bg-red-600 px-1 py-0.5 text-[9px] font-bold text-white">
+                                          מנגן
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="line-clamp-2 flex-1 py-0.5 text-start text-xs font-medium leading-snug text-slate-800 dark:text-zinc-200">
+                                      {video.title}
+                                    </p>
+                                  </button>
+                                </li>
+                              )
+                            })
+                          : null}
+                      </ul>
+                      {!channelLoading && filteredVideos.length === 0 ? (
+                        <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300/80 bg-white/30 px-3 py-6 text-center text-xs text-slate-600 dark:border-zinc-700 dark:text-zinc-500">
+                          <p>
+                            {videoSearch.trim()
+                              ? 'אין תוצאות — נסו מילה אחרת.'
+                              : channelVideos.length === 0
+                                ? 'אין עדיין סרטונים במטמון. בקשו מההורה לרענן ערוץ בלשונית הורים.'
+                                : 'אין סרטונים.'}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </section>
+      )}
 
       <Modal
         open={parentModePinOpen}
@@ -1068,11 +1122,6 @@ export function KidModePage() {
         />
         {pinError ? <p className="mt-2 text-sm text-danger-600">{pinError}</p> : null}
       </Modal>
-
-      <p className="mt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-center text-[10px] leading-relaxed text-slate-500 dark:text-zinc-500" dir="ltr">
-        מזהה מכשיר (דיבוג): …
-        {device.device_id && device.device_id.length >= 4 ? device.device_id.slice(-4) : '—'}
-      </p>
-    </main>
+    </div>
   )
 }
