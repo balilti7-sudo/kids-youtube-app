@@ -30,8 +30,11 @@ if (existsSync(SERVER_ENV)) {
 if (!existsSync(ROOT_ENV) && !existsSync(SERVER_ENV)) {
   dotenv.config()
 }
-const DEFAULT_YT_DLP =
+const LOCAL_DEFAULT_YT_DLP =
   process.platform === 'win32' ? path.join(SERVER_DIR, 'yt-dlp.exe') : path.join(SERVER_DIR, 'yt-dlp')
+// On hosted Linux (Render/Railway), local binary may not exist on first deploy.
+// Fallback to PATH-installed yt-dlp so the bridge can still resolve streams.
+const DEFAULT_YT_DLP = existsSync(LOCAL_DEFAULT_YT_DLP) ? LOCAL_DEFAULT_YT_DLP : 'yt-dlp'
 
 const PORT = Number(process.env.PORT) || 8787
 const corsOptions = {
