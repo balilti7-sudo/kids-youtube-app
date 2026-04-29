@@ -9,4 +9,8 @@ export default defineConfig({
   plugins: [react()],
   // Load `.env`, `.env.local`, etc. from the repo root (next to this file).
   envDir: projectRoot,
+  server: {
+    port: 5174,
+    strictPort: true,
+  },
 })

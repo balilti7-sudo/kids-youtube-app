@@ -17,13 +17,9 @@ type Form = z.infer<typeof schema> & { fullName?: string }
 
 export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
   const signUp = useAuthStore((s) => s.signUp)
-  const verifyEmailCode = useAuthStore((s) => s.verifyEmailCode)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [codeError, setCodeError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [pendingEmail, setPendingEmail] = useState<string | null>(null)
-  const [verificationCode, setVerificationCode] = useState('')
-  const [verifying, setVerifying] = useState(false)
+  const [sentToEmail, setSentToEmail] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const {
     register,
@@ -42,72 +38,19 @@ export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void 
       setSubmitError(error.message)
       return
     }
-    setPendingEmail(values.email)
-  })
-
-  const onVerifyCode = async () => {
-    if (!pendingEmail) return
-    const code = verificationCode.trim()
-    if (!/^\d{6}$/.test(code)) {
-      setCodeError('יש להזין קוד אימות בן 6 ספרות')
-      return
-    }
-
-    setCodeError(null)
-    setVerifying(true)
-    const { error } = await verifyEmailCode(pendingEmail, code)
-    setVerifying(false)
-    if (error) {
-      setCodeError(error.message)
-      return
-    }
+    setSentToEmail(values.email)
     setSuccess(true)
-  }
+  })
 
   if (success) {
     return (
       <div className="space-y-3 text-center">
-        <p className="text-sm text-emerald-700 dark:text-emerald-400">האימייל אומת בהצלחה. אפשר להתחבר.</p>
+        <p className="text-sm text-emerald-700 dark:text-emerald-400">
+          שלחנו לך מייל אימות{sentToEmail ? ` ל־${sentToEmail}` : ''}. אנא אשר אותו כדי להתחבר.
+        </p>
         <Button type="button" className="w-full" onClick={onSwitchToLogin}>
           מעבר להתחברות
         </Button>
-      </div>
-    )
-  }
-
-  if (pendingEmail) {
-    return (
-      <div className="flex flex-col gap-3">
-        <p className="text-sm text-slate-700 dark:text-zinc-300">
-          שלחנו קוד אימות ל־<span dir="ltr">{pendingEmail}</span>. הזינו כאן את הקוד כדי להשלים הרשמה.
-        </p>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-zinc-300">קוד אימות</label>
-          <Input
-            dir="ltr"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            autoComplete="one-time-code"
-            placeholder="123456"
-            value={verificationCode}
-            onChange={(e) => setVerificationCode(e.target.value)}
-            maxLength={6}
-          />
-          {codeError ? <p className="mt-1 text-xs text-red-600">{codeError}</p> : null}
-        </div>
-        <Button type="button" disabled={verifying} className="w-full" onClick={() => void onVerifyCode()}>
-          {verifying ? (
-            <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" />
-          ) : null}
-          {verifying ? 'מאמת…' : 'אימות קוד והשלמת הרשמה'}
-        </Button>
-        <button
-          type="button"
-          onClick={() => setPendingEmail(null)}
-          className="w-full text-center text-sm font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-400"
-        >
-          חזרה להרשמה
-        </button>
       </div>
     )
   }

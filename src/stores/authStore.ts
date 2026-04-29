@@ -26,6 +26,12 @@ interface AuthState {
   signOutClearEverything: () => Promise<void>
 }
 
+function buildSignupRedirectUrl() {
+  const fromEnv = import.meta.env.VITE_AUTH_SIGNUP_REDIRECT_TO?.trim()
+  if (fromEnv) return fromEnv
+  return `${window.location.origin}/auth?emailVerified=1`
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   session: null,
@@ -62,9 +68,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signUp: async (email, password) => {
+    const emailRedirectTo = buildSignupRedirectUrl()
     const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo,
+      },
     })
     if (error) {
       const err = error as Error & { status?: number; code?: string }
@@ -77,6 +87,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })
       return { error: new Error(error.message) }
     }
+    // Never keep an active session after sign-up; user must verify email first.
+    await supabase.auth.signOut()
     return { error: null }
   },
 

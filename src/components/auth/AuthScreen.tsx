@@ -1,8 +1,11 @@
+import { useLocation } from 'react-router-dom'
 import { PageBackBar } from '../layout/PageBackBar'
 import { GoogleAuthButton } from './GoogleAuthButton'
 import { MagicLinkForm } from './MagicLinkForm'
 
 export function AuthScreen() {
+  const location = useLocation()
+  const emailVerified = new URLSearchParams(location.search).get('emailVerified') === '1'
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-12 pt-10">
       <PageBackBar fallback="/dashboard" className="mb-0 justify-center sm:justify-start" />
@@ -12,6 +15,11 @@ export function AuthScreen() {
       </div>
 
       <div className="app-floating-surface p-6">
+        {emailVerified ? (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/30 dark:text-emerald-100">
+            האימייל אומת בהצלחה. אפשר להתחבר.
+          </div>
+        ) : null}
         <MagicLinkForm />
 
         <div className="relative my-6">

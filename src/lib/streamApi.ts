@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 /** Response shape from `server` Media Bridge `GET /api/stream/:videoId` */
 export type StreamApiResponse = {
   videoId: string
@@ -50,12 +52,13 @@ function mimeToVideoJsType(mime: string | null, format: StreamApiResponse['forma
 }
 
 /**
- * Resolves the player `src` for Video.js. Always uses the same bridge origin as
- * `fetchStreamInfo` and always plays `GET /api/media/:videoId` — never the `url` field alone,
- * so a mistaken or legacy JSON payload cannot pass a raw YouTube / googlevideo URL to `<video>`.
+ * Resolves the player `src` for Video.js.
+ *
+ * Prefer the server-returned `url` (already proxied and may include auth/playback grant params).
+ * Fall back to computed `/api/media/:videoId` path for backward compatibility.
  */
 export function streamResponseToSource(data: StreamApiResponse): { src: string; type: string } {
-  const src = getMediaBridgeMediaUrl(data.videoId)
+  const src = data.url?.startsWith('http') ? data.url : getMediaBridgeMediaUrl(data.videoId)
   return { src, type: mimeToVideoJsType(data.mimeType, data.format) }
 }
 
@@ -95,9 +98,16 @@ export async function fetchStreamInfo(
   try {
     let res: Response
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const headers = new Headers({ accept: 'application/json' })
+      if (session?.access_token) {
+        headers.set('authorization', `Bearer ${session.access_token}`)
+      }
       res = await fetch(url, {
         credentials: 'omit',
-        headers: { accept: 'application/json' },
+        headers,
         signal: controller.signal,
       })
     } catch (e) {
@@ -130,6 +140,13 @@ export async function fetchStreamInfo(
       if (res.status === 403 && errorCode === 'PRIVATE_VIDEO') {
         throw new StreamApiError(
           'הסרטון פרטי ודורש חשבון YouTube עם הרשאה מתאימה (cookies תקינים).',
+          res.status,
+          detail
+        )
+      }
+      if (res.status === 403 && errorCode === 'EMAIL_NOT_CONFIRMED') {
+        throw new StreamApiError(
+          'צריך לאמת את כתובת האימייל לפני ניגון. בדקו את מייל האימות והתחברו מחדש.',
           res.status,
           detail
         )

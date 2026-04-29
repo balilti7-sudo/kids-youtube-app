@@ -41,7 +41,7 @@ export function DashboardDevicesSection() {
     }
 
     if (currentOrigin) return currentOrigin
-    return 'http://localhost:5173'
+    return 'http://localhost:5174'
   }, [])
 
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()

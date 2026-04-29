@@ -4,12 +4,16 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Express Media Bridge: resolve YouTube videoId to a direct stream URL (Piped / ytdl) for a custom video player",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
     "download-tools": "node download-tools.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
     "@distube/ytdl-core": "^4.16.12",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

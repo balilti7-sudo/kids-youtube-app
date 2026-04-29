@@ -2,7 +2,7 @@
  * Media Bridge — YouTube videoId → playable stream (Piped, @distube/ytdl-core, optional yt-dlp).
  * Streams are **proxied** through this server so the browser never requests geo/bot-protected CDNs directly.
  */
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { Readable } from 'node:stream'
@@ -13,6 +13,7 @@ import dotenv from 'dotenv'
 import cors from 'cors'
 import express from 'express'
 import ytdl from '@distube/ytdl-core'
+import { createClient } from '@supabase/supabase-js'
 
 const execFileAsync = promisify(execFile)
 
@@ -72,6 +73,14 @@ const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' |
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
+const SUPABASE_ANON_KEY = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim()
+const REQUIRE_CONFIRMED_EMAIL_FOR_STREAM =
+  (process.env.REQUIRE_CONFIRMED_EMAIL_FOR_STREAM || '1').toLowerCase() !== '0'
+const STREAM_GRANT_TTL_MS = Number(process.env.STREAM_GRANT_TTL_MS) || 15 * 60 * 1000
+const STREAM_GRANT_SECRET =
+  (process.env.MEDIA_BRIDGE_GRANT_SECRET || process.env.STREAM_GRANT_SECRET || process.env.SUPABASE_JWT_SECRET || '').trim() ||
+  'dev-media-bridge-grant-secret-change-me'
 
 function bundledFfmpegPath() {
   const p =
@@ -133,10 +142,16 @@ let cachedYtdlAgent = { key: null, agent: null }
 /** @type {Map<string, { exp: number, upstreamUrl: string, hls: boolean, mimeType: string, quality: string | null, source: string }>} */
 const streamCache = new Map()
 
-/** @type {Map<string, { url: string, exp: number }>} */
+/** @type {Map<string, { url: string, exp: number, grant: string }>} */
 const segmentTokens = new Map()
 
 const YT_ID_RE = /^[a-zA-Z0-9_-]{11}$/
+const supabaseAuthClient =
+  SUPABASE_URL && SUPABASE_ANON_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null
 
 const app = express()
 app.set('x-powered-by', false)
@@ -255,6 +270,64 @@ function getPublicBase(req) {
   return `${proto}://${host}`
 }
 
+function extractBearerToken(req) {
+  const v = req.get('authorization') || ''
+  const m = v.match(/^Bearer\s+(.+)$/i)
+  return m ? m[1].trim() : ''
+}
+
+async function getConfirmedUserFromBearer(req) {
+  if (!REQUIRE_CONFIRMED_EMAIL_FOR_STREAM) return null
+  const accessToken = extractBearerToken(req)
+  if (!accessToken) return null
+  if (!supabaseAuthClient) {
+    throw new Error('STREAM_AUTH_MISCONFIGURED: missing SUPABASE_URL/SUPABASE_ANON_KEY')
+  }
+  const { data, error } = await supabaseAuthClient.auth.getUser(accessToken)
+  if (error || !data.user) {
+    throw new Error(`STREAM_AUTH_INVALID_TOKEN: ${error?.message || 'Could not resolve user from bearer token'}`)
+  }
+  if (!data.user.email_confirmed_at) {
+    throw new Error('EMAIL_NOT_CONFIRMED')
+  }
+  return data.user
+}
+
+function signStreamGrant(payload) {
+  const json = JSON.stringify(payload)
+  const body = Buffer.from(json, 'utf8').toString('base64url')
+  const sig = createHmac('sha256', STREAM_GRANT_SECRET).update(body).digest('base64url')
+  return `${body}.${sig}`
+}
+
+function verifyStreamGrant(token) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null
+  const [body, sig] = token.split('.')
+  if (!body || !sig) return null
+  const expected = createHmac('sha256', STREAM_GRANT_SECRET).update(body).digest('base64url')
+  const sigBuf = Buffer.from(sig)
+  const expBuf = Buffer.from(expected)
+  if (sigBuf.length !== expBuf.length) return null
+  if (!timingSafeEqual(sigBuf, expBuf)) return null
+  try {
+    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
+  } catch {
+    return null
+  }
+}
+
+function assertValidPlaybackGrant(req, videoId) {
+  if (!REQUIRE_CONFIRMED_EMAIL_FOR_STREAM) return
+  const token = String(req.query.grant || '')
+  if (!token) return
+  const grant = verifyStreamGrant(token)
+  if (!grant || grant.videoId !== videoId || Date.now() > Number(grant.exp || 0)) {
+    const err = new Error('STREAM_GRANT_INVALID')
+    err.statusCode = 403
+    throw err
+  }
+}
+
 /**
  * GET /api/stream/:videoId — resolve and return a **proxy** URL the player should use (never a raw CDN URL).
  */
@@ -265,12 +338,21 @@ app.get('/api/stream/:videoId', async (req, res) => {
 
   const videoId = raw
   try {
+    const confirmedUser = await getConfirmedUserFromBearer(req)
     const resolved = await resolveUpstream(videoId)
     streamCache.set(videoId, { ...resolved, exp: Date.now() + STREAM_CACHE_TTL_MS })
 
     const base = getPublicBase(req)
     const playPath = `/api/media/${encodeURIComponent(videoId)}`
-    const playUrl = `${base}${playPath}`
+    let playUrl = `${base}${playPath}`
+    if (confirmedUser) {
+      const grant = signStreamGrant({
+        sub: confirmedUser.id,
+        videoId,
+        exp: Date.now() + STREAM_GRANT_TTL_MS,
+      })
+      playUrl = `${playUrl}?grant=${encodeURIComponent(grant)}`
+    }
 
     return res.json({
       videoId,
@@ -285,6 +367,19 @@ app.get('/api/stream/:videoId', async (req, res) => {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     console.error('[stream] resolve failed:', message)
+    if (message.includes('EMAIL_NOT_CONFIRMED')) {
+      return res.status(403).json({
+        error: 'EMAIL_NOT_CONFIRMED',
+        message: 'Email verification is required before playback.',
+      })
+    }
+    if (message.includes('STREAM_AUTH_INVALID_TOKEN') || message.includes('STREAM_AUTH_MISCONFIGURED')) {
+      return res.status(401).json({
+        error: 'STREAM_AUTH_REQUIRED',
+        detail: message,
+        message: 'A valid signed-in session is required for playback.',
+      })
+    }
     if (isBotCheckError(message)) {
       return res.status(429).json({
         error: 'BOT_CHECK',
@@ -320,6 +415,15 @@ app.get('/api/media/:videoId', async (req, res) => {
   const videoId = req.params.videoId
   if (!YT_ID_RE.test(videoId)) {
     return res.status(400).json({ error: 'Invalid YouTube video id' })
+  }
+  try {
+    assertValidPlaybackGrant(req, videoId)
+  } catch (e) {
+    const statusCode = Number(e?.statusCode || 403)
+    return res.status(statusCode).json({
+      error: 'STREAM_GRANT_INVALID',
+      message: 'Playback link expired or unauthorized. Please resolve stream again.',
+    })
   }
 
   const base = getPublicBase(req)
@@ -365,7 +469,7 @@ app.get('/api/media/:videoId', async (req, res) => {
       if (!/^\s*#EXTM3U/i.test(text) && !text.trim().startsWith('#EXTM3U')) {
         return res.status(502).type('text/plain').send('Expected m3u8 from upstream HLS url')
       }
-      const body = rewriteM3u8(text, entry.upstreamUrl, base)
+      const body = rewriteM3u8(text, entry.upstreamUrl, base, String(req.query.grant || ''))
       res.setHeader('cache-control', 'no-cache')
       return res.type('application/vnd.apple.mpegurl').send(body)
     }
@@ -386,6 +490,12 @@ app.get('/api/segment/:token', async (req, res) => {
   const rec = getSegmentRec(token)
   if (!rec) {
     return res.status(404).type('text/plain').send('Unknown or expired segment token')
+  }
+  if (REQUIRE_CONFIRMED_EMAIL_FOR_STREAM && rec.grant) {
+    const reqGrant = String(req.query.grant || '')
+    if (!reqGrant || reqGrant !== (rec.grant || '')) {
+      return res.status(403).type('text/plain').send('Segment grant is missing or invalid')
+    }
   }
 
   const base = getPublicBase(req)
@@ -409,7 +519,7 @@ app.get('/api/segment/:token', async (req, res) => {
       const text = await r.text()
       if (text.trimStart().startsWith('#EXTM3U')) {
         res.setHeader('cache-control', 'no-cache')
-        return res.type('application/vnd.apple.mpegurl').send(rewriteM3u8(text, finalUrl, base))
+        return res.type('application/vnd.apple.mpegurl').send(rewriteM3u8(text, finalUrl, base, rec.grant || ''))
       }
       return res
         .status(502)
@@ -466,16 +576,17 @@ function getCachedOrNull(videoId) {
 
 const urlToToken = new Map()
 
-function allocTokenForUrl(absoluteUrl) {
-  if (urlToToken.has(absoluteUrl)) {
-    const existing = urlToToken.get(absoluteUrl)
+function allocTokenForUrl(absoluteUrl, grant = '') {
+  const lookupKey = `${absoluteUrl}::${grant}`
+  if (urlToToken.has(lookupKey)) {
+    const existing = urlToToken.get(lookupKey)
     const r = segmentTokens.get(existing)
     if (r && Date.now() < r.exp) return existing
   }
   const token = randomBytes(16).toString('hex')
   const exp = Date.now() + SEGMENT_TOKEN_TTL_MS
-  segmentTokens.set(token, { url: absoluteUrl, exp })
-  urlToToken.set(absoluteUrl, token)
+  segmentTokens.set(token, { url: absoluteUrl, exp, grant })
+  urlToToken.set(lookupKey, token)
   if (segmentTokens.size > 15000) {
     for (const [k, v] of segmentTokens) {
       if (Date.now() > v.exp) segmentTokens.delete(k)
@@ -823,7 +934,19 @@ function pickYtdlFormatResult(info) {
 
 async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
-  const baseArgs = ['--no-warnings', '--get-url', '-f', 'b/best', '--geo-bypass', '--geo-bypass-country', 'US']
+  const baseArgs = [
+    '--no-warnings',
+    '--get-url',
+    '-f',
+    'b/best',
+    '--geo-bypass',
+    '--geo-bypass-country',
+    'US',
+    '--user-agent',
+    BROWSER_UA,
+    '--add-header',
+    'Accept-Language:en-US,en;q=0.9',
+  ]
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const cookiesFile =
     cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
@@ -840,6 +963,14 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   attempts.push({
     name: 'browser-chrome',
     args: ['--cookies-from-browser', 'chrome'],
+  })
+  attempts.push({
+    name: 'browser-edge',
+    args: ['--cookies-from-browser', 'edge'],
+  })
+  attempts.push({
+    name: 'browser-firefox',
+    args: ['--cookies-from-browser', 'firefox'],
   })
   attempts.push({
     name: 'no-cookies-clients-a',
@@ -870,7 +1001,13 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
       const chromeLocked =
         msg.includes('Could not copy Chrome cookie database') || msg.includes('failed to decrypt with DPAPI')
       if (attempt.name === 'browser-chrome' && chromeLocked) {
-        console.warn('[ytdlp] browser cookies locked; trying non-cookie modes')
+        console.warn('[ytdlp] chrome cookies locked; trying other browsers')
+        continue
+      }
+      const edgeLocked =
+        msg.includes('Could not copy Edge cookie database') || msg.includes('failed to decrypt with DPAPI')
+      if (attempt.name === 'browser-edge' && edgeLocked) {
+        console.warn('[ytdlp] edge cookies locked; trying other modes')
         continue
       }
 
@@ -1031,7 +1168,7 @@ function resolveM3u8Uri(s, baseHref) {
  * @param {string} documentBaseUrl
  * @param {string} publicBase
  */
-function rewriteM3u8(text, documentBaseUrl, publicBase) {
+function rewriteM3u8(text, documentBaseUrl, publicBase, grant = '') {
   const base = new URL(documentBaseUrl)
   const out = []
   for (const line of text.split(/\r?\n/)) {
@@ -1041,26 +1178,28 @@ function rewriteM3u8(text, documentBaseUrl, publicBase) {
     }
     if (line.trim().startsWith('#')) {
       if (/URI=/.test(line)) {
-        out.push(rewriteUriInTagLine(line, base.href, publicBase))
+        out.push(rewriteUriInTagLine(line, base.href, publicBase, grant))
       } else {
         out.push(line)
       }
       continue
     }
     const abs = resolveM3u8Uri(line, base.href)
-    const tok = allocTokenForUrl(abs)
-    out.push(`${publicBase}/api/segment/${tok}`)
+    const tok = allocTokenForUrl(abs, grant)
+    const grantQ = grant ? `?grant=${encodeURIComponent(grant)}` : ''
+    out.push(`${publicBase}/api/segment/${tok}${grantQ}`)
   }
   return out.join('\n')
 }
 
-function rewriteUriInTagLine(line, baseHref, publicBase) {
+function rewriteUriInTagLine(line, baseHref, publicBase, grant = '') {
   const repl = (u) => {
     const unquoted = u.replace(/^&quot;|&quot;$/g, '"')
     if (!unquoted) return u
     const abs = resolveM3u8Uri(unquoted, baseHref)
-    const tok = allocTokenForUrl(abs)
-    return `${publicBase}/api/segment/${tok}`
+    const tok = allocTokenForUrl(abs, grant)
+    const grantQ = grant ? `?grant=${encodeURIComponent(grant)}` : ''
+    return `${publicBase}/api/segment/${tok}${grantQ}`
   }
   return line
     .replace(/URI="([^"]+)"/g, (_m, u) => `URI="${repl(u)}"`)

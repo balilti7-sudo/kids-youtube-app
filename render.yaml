@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: safetube-media-bridge
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: PORT
+        value: 8787
+      - key: CORS_ORIGIN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: YOUTUBE_COOKIES_FILE
+        value: /etc/secrets/youtube.com_cookies.txt
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: MEDIA_BRIDGE_GRANT_SECRET
+        generateValue: true
