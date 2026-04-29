@@ -36,10 +36,15 @@ export function getStreamApiBaseUrl(): string {
   return MEDIA_BRIDGE_BASE.replace(/\/$/, '')
 }
 
+function buildStreamApiUrl(pathname: string): string {
+  const base = getStreamApiBaseUrl()
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`
+  return new URL(pathname.replace(/^\//, ''), normalizedBase).toString()
+}
+
 /** `GET /api/media/:videoId` on the same origin as the bridge — use for `<video src>`. */
 export function getMediaBridgeMediaUrl(videoId: string): string {
-  const base = getStreamApiBaseUrl()
-  return `${base}/api/media/${encodeURIComponent(videoId)}`
+  return buildStreamApiUrl(`/api/media/${encodeURIComponent(videoId)}`)
 }
 
 function mimeToVideoJsType(mime: string | null, format: StreamApiResponse['format']): string {
@@ -85,7 +90,7 @@ export async function fetchStreamInfo(
   { signal, timeoutMs = STREAM_INFO_TIMEOUT_MS }: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<StreamApiResponse> {
   const base = getStreamApiBaseUrl()
-  const url = `${base}/api/stream/${encodeURIComponent(videoId)}`
+  const url = buildStreamApiUrl(`/api/stream/${encodeURIComponent(videoId)}`)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), timeoutMs)
@@ -102,8 +107,10 @@ export async function fetchStreamInfo(
         data: { session },
       } = await supabase.auth.getSession()
       const headers = new Headers({ accept: 'application/json' })
-      if (session?.access_token) {
-        headers.set('authorization', `Bearer ${session.access_token}`)
+      const accessToken = session?.access_token?.trim() || ''
+      // Send bearer token only when it looks like a JWT (3 dot-separated parts).
+      if (accessToken && accessToken.split('.').length === 3) {
+        headers.set('authorization', `Bearer ${accessToken}`)
       }
       res = await fetch(url, {
         credentials: 'omit',
