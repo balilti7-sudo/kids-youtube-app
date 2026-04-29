@@ -920,7 +920,6 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
   const baseArgs = [
     '--no-warnings',
-    '--no-write-cookies',
     '--no-cookies-from-browser',
     '--no-check-certificate',
     '--get-url',
