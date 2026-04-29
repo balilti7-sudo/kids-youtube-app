@@ -8,9 +8,11 @@ export function GoogleAuthButton() {
 
   const signIn = async () => {
     setLoading(true)
+    const redirectFromEnv = import.meta.env.VITE_AUTH_OAUTH_REDIRECT_TO?.trim()
+    const redirectTo = redirectFromEnv || `${window.location.origin}/auth?next=${encodeURIComponent('/dashboard')}`
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/dashboard` },
+      options: { redirectTo },
     })
     setLoading(false)
     if (error) console.error(error)

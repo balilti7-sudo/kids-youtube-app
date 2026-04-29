@@ -1,11 +1,14 @@
 import { useLocation } from 'react-router-dom'
+import { useState } from 'react'
 import { PageBackBar } from '../layout/PageBackBar'
 import { GoogleAuthButton } from './GoogleAuthButton'
-import { MagicLinkForm } from './MagicLinkForm'
+import { LoginForm } from './LoginForm'
+import { RegisterForm } from './RegisterForm'
 
 export function AuthScreen() {
   const location = useLocation()
   const emailVerified = new URLSearchParams(location.search).get('emailVerified') === '1'
+  const [mode, setMode] = useState<'login' | 'register'>('login')
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-12 pt-10">
       <PageBackBar fallback="/dashboard" className="mb-0 justify-center sm:justify-start" />
@@ -20,7 +23,36 @@ export function AuthScreen() {
             האימייל אומת בהצלחה. אפשר להתחבר.
           </div>
         ) : null}
-        <MagicLinkForm />
+        <div className="mb-4 grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-700">
+          <button
+            type="button"
+            onClick={() => setMode('login')}
+            className={`px-3 py-2 text-sm font-semibold transition ${
+              mode === 'login'
+                ? 'bg-slate-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                : 'bg-transparent text-slate-600 dark:text-zinc-300'
+            }`}
+          >
+            התחברות
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('register')}
+            className={`px-3 py-2 text-sm font-semibold transition ${
+              mode === 'register'
+                ? 'bg-slate-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                : 'bg-transparent text-slate-600 dark:text-zinc-300'
+            }`}
+          >
+            הרשמה
+          </button>
+        </div>
+
+        {mode === 'login' ? (
+          <LoginForm onSwitchToRegister={() => setMode('register')} />
+        ) : (
+          <RegisterForm onSwitchToLogin={() => setMode('login')} />
+        )}
 
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
