@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { Home, Tv, Settings, Tablet } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { getSavedChildAccessToken } from '../../lib/childDevice'
@@ -19,6 +19,7 @@ function getKidTokenPresent() {
 }
 
 export function BottomNav() {
+  const { pathname } = useLocation()
   const hasKidToken = useSyncExternalStore(subscribeKidTokenChanged, getKidTokenPresent, () => false)
 
   const links = [
@@ -30,7 +31,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95"
+      className="bottom-nav fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95"
       aria-label="ניווט ראשי"
     >
       <div className="mx-auto flex max-w-lg items-stretch justify-around">
@@ -38,6 +39,11 @@ export function BottomNav() {
           <NavLink
             key={to}
             to={to}
+            onClick={(e) => {
+              if (pathname === to) {
+                e.preventDefault()
+              }
+            }}
             className={({ isActive }) =>
               cn(
                 'flex flex-1 flex-col items-center gap-1 py-3 text-xs font-medium transition',

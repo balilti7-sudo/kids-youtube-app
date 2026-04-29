@@ -27,12 +27,21 @@ function kidModePairUrl(origin: string, pairingCode: string) {
 }
 
 export function DashboardDevicesSection() {
-  /** כתובת האתר ל־QR — בפרודקשן כדאי להגדיר VITE_APP_URL אם הדומיין שונה מ־origin הנוכחי */
+  /** כתובת האתר ל־QR — בלוקאל תמיד נשארים על אותו origin (ללא הפניה לכתובת חיצונית). */
   const appOrigin = useMemo(() => {
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+    const isLocalOrigin = /localhost|127\.0\.0\.1/i.test(currentOrigin)
+    if (isLocalOrigin) return currentOrigin
+
     const fromEnv = import.meta.env.VITE_APP_URL as string | undefined
-    if (fromEnv && String(fromEnv).trim()) return String(fromEnv).trim()
-    if (typeof window !== 'undefined') return window.location.origin
-    return 'https://kids-youtube-app.vercel.app'
+    if (fromEnv && String(fromEnv).trim()) {
+      const normalized = String(fromEnv).trim().replace(/\/$/, '')
+      // Never force a localhost session to jump to an external host via QR link.
+      if (!/vercel\.app/i.test(normalized)) return normalized
+    }
+
+    if (currentOrigin) return currentOrigin
+    return 'http://localhost:5173'
   }, [])
 
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()

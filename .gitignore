@@ -11,3 +11,7 @@ server/.ffmpeg-extract/
 .env
 .DS_Store
 *.tsbuildinfo
+
+# Local/debug artifacts from media extraction
+server/*-player-script.js
+server/*_cookies.txt

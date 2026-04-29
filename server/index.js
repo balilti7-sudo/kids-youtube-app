@@ -6,10 +6,10 @@ import { randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { Readable } from 'node:stream'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import 'dotenv/config'
+import dotenv from 'dotenv'
 import cors from 'cors'
 import express from 'express'
 import ytdl from '@distube/ytdl-core'
@@ -17,27 +17,51 @@ import ytdl from '@distube/ytdl-core'
 const execFileAsync = promisify(execFile)
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url))
+// Repo root `.env`, then `server/.env` (latter wins) so a single file at the project root can serve Vite + API.
+const ROOT_ENV = path.join(SERVER_DIR, '..', '.env')
+const SERVER_ENV = path.join(SERVER_DIR, '.env')
+if (existsSync(ROOT_ENV)) {
+  dotenv.config({ path: ROOT_ENV })
+}
+if (existsSync(SERVER_ENV)) {
+  dotenv.config({ path: SERVER_ENV, override: true })
+}
+if (!existsSync(ROOT_ENV) && !existsSync(SERVER_ENV)) {
+  dotenv.config()
+}
 const DEFAULT_YT_DLP =
   process.platform === 'win32' ? path.join(SERVER_DIR, 'yt-dlp.exe') : path.join(SERVER_DIR, 'yt-dlp')
 
 const PORT = Number(process.env.PORT) || 8787
-/** Local Vite dev ports + optional comma-separated extra origins via CORS_ORIGIN (e.g. production web app). */
+const CORS_ENV_PARTS = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+/** When true, any browser origin is allowed (dev); `*` in CORS_ORIGIN is no longer dropped. */
+const CORS_REFLECT_ALL_ORIGINS = CORS_ENV_PARTS.includes('*')
+/** Local Vite (any port) + 127.0.0.1 + optional CORS_ORIGIN (comma-separated, no *). */
 const CORS_ALLOWED_ORIGINS = [
   ...new Set([
     'http://localhost:5175',
     'http://localhost:5174',
     'http://localhost:5173',
-    ...(process.env.CORS_ORIGIN || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s && s !== '*'),
+    'http://127.0.0.1:5175',
+    'http://127.0.0.1:5174',
+    'http://127.0.0.1:5173',
+    ...CORS_ENV_PARTS.filter((s) => s !== '*'),
   ]),
 ]
 
 const corsOptions = {
-  origin: CORS_ALLOWED_ORIGINS,
+  origin: CORS_REFLECT_ALL_ORIGINS ? true : CORS_ALLOWED_ORIGINS,
   credentials: true,
   methods: ['GET', 'HEAD', 'OPTIONS'],
+  /**
+   * Expose range/length headers so the browser's `<video>` element can do native
+   * seeking on `/api/media/:videoId` (direct mp4 case). Without these, Chrome
+   * won't see `Content-Range` on the cross-origin response and will error.
+   */
+  exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges', 'Content-Type'],
 }
 
 const STREAM_CACHE_TTL_MS = Number(process.env.STREAM_CACHE_TTL_MS) || 50 * 60 * 1000
@@ -46,6 +70,8 @@ const YT_DLP_PATH = (process.env.YT_DLP_PATH || DEFAULT_YT_DLP).trim()
 const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' || process.env.YT_DLP_ENABLE === 'true'
 /** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
+const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
+const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 
 function bundledFfmpegPath() {
   const p =
@@ -115,11 +141,111 @@ const YT_ID_RE = /^[a-zA-Z0-9_-]{11}$/
 const app = express()
 app.set('x-powered-by', false)
 app.set('trust proxy', 1)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    console.log(`[req] ${req.method} ${req.originalUrl || req.url}`)
+  }
+  next()
+})
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
+/**
+ * Allow any embedder to load media responses cross-origin. Without this, Chrome's
+ * default `Cross-Origin-Resource-Policy: same-origin` blocks the `<video>` element
+ * on the Vite dev server (5173/5174/5175) from loading `/api/media/:id`.
+ */
+app.use((_req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+  next()
+})
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'safetube-media-bridge' })
+  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookiesFile = cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookies = inspectYoutubeCookiesFile(cookiesFile)
+  res.json({
+    ok: true,
+    service: 'safetube-media-bridge',
+    auth: {
+      ytDlpEnabled: YT_DLP_ENABLE,
+      cookiesFile: cookies.filePath || null,
+      cookiesFileUsable: cookies.usable,
+      hasRequiredAuthCookies: cookies.hasRequiredAuthCookies,
+      presentRequiredCookies: cookies.presentRequiredCookies,
+      requiredCookies: [...LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES],
+      secureRequiredCookies: [...SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES],
+      cookiesReason: cookies.reason || null,
+      lastModifiedAt: cookies.lastModifiedAt,
+    },
+  })
+})
+
+/**
+ * GET /api/diagnostics/stream/:videoId
+ * Read-only diagnostics: shows which resolver path works/fails and whether auth cookies are usable.
+ */
+app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
+  const raw = req.params.videoId
+  if (!raw) return res.status(400).json({ error: 'Missing videoId' })
+  if (!YT_ID_RE.test(raw)) return res.status(400).json({ error: 'Invalid YouTube video id' })
+
+  const videoId = raw
+  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookiesFile = cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
+  const ytdlCookieCount = parseYoutubeCookieHeader(process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').length
+  const report = {
+    ok: false,
+    videoId,
+    checkedAt: new Date().toISOString(),
+    auth: {
+      ytdlCookieHeaderCount: ytdlCookieCount,
+      ytDlpCookiesFile: cookieStatus.filePath || null,
+      ytDlpCookiesUsable: cookieStatus.usable,
+      ytDlpHasRequiredAuthCookies: cookieStatus.hasRequiredAuthCookies,
+      ytDlpMissingReason: cookieStatus.reason || null,
+    },
+    resolvers: {
+      piped: { ok: false, detail: null, data: null },
+      ytdl: { ok: false, detail: null, data: null },
+      ytdlp: { ok: false, detail: null, data: null, attempts: [] },
+    },
+  }
+
+  try {
+    const p = await resolveViaPiped(videoId)
+    report.resolvers.piped.ok = Boolean(p)
+    report.resolvers.piped.data = p
+    if (!p) report.resolvers.piped.detail = 'No usable stream from any Piped instance'
+  } catch (e) {
+    report.resolvers.piped.detail = e instanceof Error ? e.message : String(e)
+  }
+
+  try {
+    const y = await resolveViaYtdl(videoId)
+    report.resolvers.ytdl.ok = true
+    report.resolvers.ytdl.data = y
+  } catch (e) {
+    report.resolvers.ytdl.detail = e instanceof Error ? e.message : String(e)
+  }
+
+  const ytDlpAttempts = []
+  try {
+    const d = await resolveViaYtDlpCli(videoId, { attempts: ytDlpAttempts })
+    report.resolvers.ytdlp.ok = true
+    report.resolvers.ytdlp.data = d
+    report.resolvers.ytdlp.attempts = ytDlpAttempts
+  } catch (e) {
+    report.resolvers.ytdlp.detail = e instanceof Error ? e.message : String(e)
+    report.resolvers.ytdlp.attempts = ytDlpAttempts
+    if (!report.resolvers.ytdlp.attempts.length) {
+      report.resolvers.ytdlp.attempts = [{ mode: 'unknown', ok: false, detail: report.resolvers.ytdlp.detail }]
+    }
+  }
+
+  report.ok =
+    report.resolvers.piped.ok || report.resolvers.ytdl.ok || report.resolvers.ytdlp.ok
+  return res.json(report)
 })
 
 function getPublicBase(req) {
@@ -159,6 +285,30 @@ app.get('/api/stream/:videoId', async (req, res) => {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     console.error('[stream] resolve failed:', message)
+    if (isBotCheckError(message)) {
+      return res.status(429).json({
+        error: 'BOT_CHECK',
+        detail: message,
+        message: 'YouTube requested bot verification. Refresh exported cookies and try again.',
+        requiresAuth: true,
+      })
+    }
+    if (isPrivateVideoError(message)) {
+      return res.status(403).json({
+        error: 'PRIVATE_VIDEO',
+        detail: message,
+        message: 'This video is private and requires an authorized YouTube account.',
+        requiresAuth: true,
+      })
+    }
+    if (isAuthRequiredError(message)) {
+      return res.status(428).json({
+        error: 'AUTH_COOKIES_INVALID',
+        detail: message,
+        message: 'YouTube auth cookies are missing/expired. Export fresh cookies.txt from a signed-in browser.',
+        requiresAuth: true,
+      })
+    }
     return res.status(502).json({ error: 'Could not resolve stream', detail: message })
   }
 })
@@ -181,6 +331,30 @@ app.get('/api/media/:videoId', async (req, res) => {
       streamCache.set(videoId, entry)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
+      if (isBotCheckError(message)) {
+        return res.status(429).json({
+          error: 'BOT_CHECK',
+          detail: message,
+          message: 'YouTube requested bot verification. Refresh exported cookies and try again.',
+          requiresAuth: true,
+        })
+      }
+      if (isPrivateVideoError(message)) {
+        return res.status(403).json({
+          error: 'PRIVATE_VIDEO',
+          detail: message,
+          message: 'This video is private and requires an authorized YouTube account.',
+          requiresAuth: true,
+        })
+      }
+      if (isAuthRequiredError(message)) {
+        return res.status(428).json({
+          error: 'AUTH_COOKIES_INVALID',
+          detail: message,
+          message: 'YouTube auth cookies are missing/expired. Export fresh cookies.txt from a signed-in browser.',
+          requiresAuth: true,
+        })
+      }
       return res.status(502).json({ error: 'Could not resolve stream', detail: message })
     }
   }
@@ -253,9 +427,29 @@ app.get('/api/segment/:token', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[media-bridge] http://127.0.0.1:${PORT}`)
+  const rawCookies = (process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()
+  const n = parseYoutubeCookieHeader(rawCookies).length
+  console.log(
+    `[media-bridge] YOUTUBE_COOKIES: ${n > 0 ? `loaded (${n} name=value pairs for ytdl.createAgent)` : 'not set (ytdl has no session cookies) — add to server/.env and restart'}`
+  )
+  console.log(
+    `[media-bridge] CORS: ${CORS_REFLECT_ALL_ORIGINS ? 'reflect any origin (CORS_ORIGIN=*)' : `allowlist (${CORS_ALLOWED_ORIGINS.length} origins)`}`
+  )
   console.log(
     `[media-bridge] Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks, yt-dlp: ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
   )
+  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookiesFile = cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookies = inspectYoutubeCookiesFile(cookiesFile)
+  if (!cookies.usable || !cookies.hasRequiredAuthCookies) {
+    console.warn(
+      `[auth] cookies not ready (${cookies.reason || 'unknown'}). If YouTube returns BOT_CHECK/PRIVATE_VIDEO, export a fresh Netscape cookies.txt from a signed-in browser.`
+    )
+  } else {
+    console.log(
+      `[auth] cookies ready (${cookies.cookieCount} entries, required auth cookies: ${cookies.presentRequiredCookies.join(', ')})`
+    )
+  }
 })
 
 // --- stream cache & tokens -------------------------------------------------
@@ -627,40 +821,201 @@ function pickYtdlFormatResult(info) {
 
 // --- yt-dlp CLI --------------------------------------------------------------
 
-async function resolveViaYtDlpCli(videoId) {
+async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
-  const args = ['--no-warnings', '--get-url', '-f', 'b/best']
+  const baseArgs = ['--no-warnings', '--get-url', '-f', 'b/best', '--geo-bypass', '--geo-bypass-country', 'US']
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const cookiesFile =
     cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
-  if (cookiesFile) {
-    args.push('--cookies', cookiesFile)
+  const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
+  const attempts = []
+  if (cookieStatus.usable && cookieStatus.hasRequiredAuthCookies) {
+    attempts.push({
+      name: 'cookies-file',
+      args: ['--cookies', cookiesFile],
+    })
+  } else if (cookieStatus.filePath) {
+    console.warn(`[ytdlp] cookies file not auth-ready (${cookieStatus.reason || 'unknown'})`)
   }
-  const ff = bundledFfmpegPath()
-  if (ff) {
-    args.push('--ffmpeg-location', ff)
-  }
-  args.push(watchUrl)
-  const { stdout } = await execFileAsync(YT_DLP_PATH, args, {
-    timeout: 120_000,
-    maxBuffer: 4 * 1024 * 1024,
-    windowsHide: true,
+  attempts.push({
+    name: 'browser-chrome',
+    args: ['--cookies-from-browser', 'chrome'],
   })
-  const lines = stdout
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  const u = lines[lines.length - 1] || lines[0]
-  if (!u || !u.startsWith('http')) {
-    throw new Error('yt-dlp did not return a url')
+  attempts.push({
+    name: 'no-cookies-clients-a',
+    args: ['--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
+  })
+  attempts.push({
+    name: 'no-cookies-clients-b',
+    args: ['--extractor-args', 'youtube:player_client=web_embedded,mweb,web_safari'],
+  })
+
+  const ff = bundledFfmpegPath()
+  const ffmpegArgs = ff ? ['--ffmpeg-location', ff] : []
+  let lastError = null
+
+  for (const attempt of attempts) {
+    const args = [...baseArgs, ...attempt.args, ...ffmpegArgs, watchUrl]
+    let stdout = ''
+    try {
+      ;({ stdout } = await execFileAsync(YT_DLP_PATH, args, {
+        timeout: 120_000,
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+      }))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      lastError = e
+      if (diagnostics?.attempts) diagnostics.attempts.push({ mode: attempt.name, ok: false, detail: msg })
+      const chromeLocked =
+        msg.includes('Could not copy Chrome cookie database') || msg.includes('failed to decrypt with DPAPI')
+      if (attempt.name === 'browser-chrome' && chromeLocked) {
+        console.warn('[ytdlp] browser cookies locked; trying non-cookie modes')
+        continue
+      }
+
+      if (
+        msg.includes('Private video. Sign in if you') ||
+        msg.includes('Sign in to confirm you') ||
+        msg.includes("confirm you're not a bot")
+      ) {
+        console.warn(`[ytdlp] ${attempt.name} auth/bot gate, trying next mode`)
+        continue
+      }
+      console.warn(`[ytdlp] ${attempt.name} failed: ${msg}`)
+      continue
+    }
+
+    const lines = stdout
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const u = lines[lines.length - 1] || lines[0]
+    if (!u || !u.startsWith('http')) {
+      lastError = new Error(`yt-dlp attempt ${attempt.name} did not return a valid URL`)
+      if (diagnostics?.attempts) {
+        diagnostics.attempts.push({
+          mode: attempt.name,
+          ok: false,
+          detail: 'yt-dlp returned no valid URL',
+        })
+      }
+      continue
+    }
+    const hls = u.includes('.m3u8') || u.includes('manifest') || u.includes('playlist') || u.includes('hls')
+    if (diagnostics?.attempts) diagnostics.attempts.push({ mode: attempt.name, ok: true, detail: 'resolved' })
+    return {
+      url: u,
+      hls,
+      mimeType: hls ? 'application/x-mpegURL' : 'video/mp4',
+      quality: hls ? 'HLS' : 'best',
+    }
   }
-  const hls = u.includes('.m3u8') || u.includes('manifest') || u.includes('playlist') || u.includes('hls')
-  return {
-    url: u,
-    hls,
-    mimeType: hls ? 'application/x-mpegURL' : 'video/mp4',
-    quality: hls ? 'HLS' : 'best',
+  throw lastError instanceof Error ? lastError : new Error('yt-dlp: all attempts failed')
+}
+
+function hasUsableCookiesFile(filePath) {
+  if (!filePath) return false
+  if (!existsSync(filePath)) return false
+  try {
+    return statSync(filePath).size > 100
+  } catch {
+    return false
   }
+}
+
+function inspectYoutubeCookiesFile(filePath) {
+  const out = {
+    filePath: filePath || '',
+    exists: false,
+    usable: false,
+    cookieCount: 0,
+    isNetscapeFormat: false,
+    hasRequiredAuthCookies: false,
+    presentRequiredCookies: [],
+    reason: '',
+    lastModifiedAt: null,
+  }
+  if (!filePath) {
+    out.reason = 'cookies file path not configured'
+    return out
+  }
+  if (!existsSync(filePath)) {
+    out.reason = 'cookies file does not exist'
+    return out
+  }
+  out.exists = true
+  try {
+    const st = statSync(filePath)
+    out.lastModifiedAt = new Date(st.mtimeMs).toISOString()
+    if (st.size <= 100) {
+      out.reason = 'cookies file is too small'
+      return out
+    }
+    const text = readFileSync(filePath, 'utf8')
+    const lines = text.split(/\r?\n/)
+    out.isNetscapeFormat = lines[0]?.trim() === '# Netscape HTTP Cookie File'
+    if (!out.isNetscapeFormat) {
+      out.reason = 'cookies file is not Netscape format'
+      return out
+    }
+    const cookieNames = new Set()
+    for (const line of lines) {
+      if (!line || line.startsWith('#')) continue
+      const parts = line.split('\t')
+      if (parts.length < 7) continue
+      out.cookieCount += 1
+      const name = (parts[5] || '').trim()
+      if (name) cookieNames.add(name)
+    }
+    const presentLegacyRequiredCookies = LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.filter((n) =>
+      cookieNames.has(n)
+    )
+    const presentSecureRequiredCookies = SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.filter((n) =>
+      cookieNames.has(n)
+    )
+    out.presentRequiredCookies = [...new Set([...presentLegacyRequiredCookies, ...presentSecureRequiredCookies])]
+    const hasLegacySet = presentLegacyRequiredCookies.length === LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.length
+    const hasSecureSet = presentSecureRequiredCookies.length === SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.length
+    out.hasRequiredAuthCookies = hasLegacySet || hasSecureSet
+    out.usable = out.cookieCount > 0
+    if (!out.usable) {
+      out.reason = 'cookies file has no cookie entries'
+      return out
+    }
+    if (!out.hasRequiredAuthCookies) {
+      out.reason = `missing required auth cookies (${LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.join(', ')}) or secure auth cookies (${SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.join(', ')})`
+      return out
+    }
+    out.reason = 'ok'
+    return out
+  } catch (e) {
+    out.reason = e instanceof Error ? e.message : String(e)
+    return out
+  }
+}
+
+function isPrivateVideoError(message) {
+  const m = String(message || '').toLowerCase()
+  return (
+    m.includes('private video') ||
+    m.includes('requires payment') ||
+    m.includes('members-only content')
+  )
+}
+
+function isBotCheckError(message) {
+  const m = String(message || '').toLowerCase()
+  return (
+    m.includes('sign in to confirm you') ||
+    m.includes("confirm you're not a bot") ||
+    m.includes('confirm you are not a bot')
+  )
+}
+
+function isAuthRequiredError(message) {
+  const m = String(message || '').toLowerCase()
+  return m.includes('youtube_auth_required') || m.includes('missing required auth cookies')
 }
 
 // --- m3u8 rewrite ------------------------------------------------------------

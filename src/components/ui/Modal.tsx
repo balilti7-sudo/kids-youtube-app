@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { Button } from './Button'
 
@@ -28,15 +29,30 @@ export function Modal({
   size?: ModalSize
   bodyClassName?: string
 }) {
+  const titleId = useId()
   if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal>
-      <button type="button" className="absolute inset-0 bg-black/40 dark:bg-black/60" aria-label="סגור" onClick={onClose} />
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[99999] pointer-events-auto flex items-end justify-center sm:items-center"
+      role="dialog"
+      aria-modal
+      aria-labelledby={titleId}
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40 dark:bg-black/60"
+        aria-label="סגור"
+        onClick={onClose}
+      />
       <div
         className={`relative z-10 w-full ${SIZE_CLASS[size]} rounded-t-2xl bg-white p-4 shadow-xl dark:bg-zinc-900 dark:ring-1 dark:ring-zinc-800 sm:rounded-2xl sm:p-6`}
       >
         <div className="mb-4 flex items-start justify-between gap-2">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-zinc-100">{title}</h2>
+          <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-zinc-100">
+            {title}
+          </h2>
           <Button variant="ghost" className="!p-2" onClick={onClose} aria-label="סגור">
             <X className="h-5 w-5" />
           </Button>
@@ -48,6 +64,7 @@ export function Modal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

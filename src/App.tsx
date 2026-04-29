@@ -74,6 +74,16 @@ function PairingCodeUrlLogger() {
 }
 
 export default function App() {
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      console.log('REAL CLICK TARGET:', e.target)
+    }
+    document.addEventListener('click', handler, true)
+    return () => {
+      document.removeEventListener('click', handler, true)
+    }
+  }, [])
+
   return (
     <ErrorBoundary>
       <BrowserRouter>

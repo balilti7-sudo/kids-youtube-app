@@ -11,6 +11,8 @@ interface ImportMetaEnv {
   readonly VITE_PARENT_MANAGEMENT_PIN?: string
   /** אופציונלי: UUID קיים ב-profiles כש-FK פעיל ואין התחברות */
   readonly VITE_DEV_DEVICE_OWNER_ID?: string
+  /** Media Bridge base URL (no trailing slash), e.g. http://localhost:8787 */
+  readonly VITE_STREAM_API_BASE?: string
 }
 
 interface ImportMeta {

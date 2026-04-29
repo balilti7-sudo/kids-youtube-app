@@ -1,5 +1,5 @@
 ---
-description: After implementing an upgrade or meaningful feature work, commit and push to GitHub.
+description: 
 alwaysApply: true
 ---
 
@@ -14,3 +14,6 @@ When you finish a coherent set of changes (feature, fix, UX upgrade, or dependen
 Skip only if the user explicitly says not to commit/push, or if there is nothing to commit.
 
 If push fails (auth/network), report the error and what was committed locally.
+
+
+Always provide SQL for Supabase when database changes are needed.
