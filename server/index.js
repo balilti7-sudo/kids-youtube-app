@@ -457,7 +457,7 @@ app.get('/api/media/:videoId', async (req, res) => {
       }
       const body = rewriteM3u8(text, entry.upstreamUrl, base, String(req.query.grant || ''))
       res.setHeader('cache-control', 'no-cache')
-      return res.type('application/vnd.apple.mpegurl').send(body)
+      return res.type('application/x-mpegURL').send(body)
     }
     return await pipeRangeResponse(req, res, entry.upstreamUrl, entry.mimeType || 'video/mp4')
   } catch (e) {
@@ -505,7 +505,7 @@ app.get('/api/segment/:token', async (req, res) => {
       const text = await r.text()
       if (text.trimStart().startsWith('#EXTM3U')) {
         res.setHeader('cache-control', 'no-cache')
-        return res.type('application/vnd.apple.mpegurl').send(rewriteM3u8(text, finalUrl, base, rec.grant || ''))
+        return res.type('application/x-mpegURL').send(rewriteM3u8(text, finalUrl, base, rec.grant || ''))
       }
       return res
         .status(502)
@@ -1233,6 +1233,9 @@ function forwardSafeHeadersToRes(r, res) {
 async function pipeFetchToRes(res, r) {
   res.status(r.status)
   forwardSafeHeadersToRes(r, res)
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders()
+  }
   if (supportsBody(r) && r.body) {
     Readable.fromWeb(r.body).pipe(res)
   } else {
