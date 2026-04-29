@@ -34,29 +34,12 @@ const DEFAULT_YT_DLP =
   process.platform === 'win32' ? path.join(SERVER_DIR, 'yt-dlp.exe') : path.join(SERVER_DIR, 'yt-dlp')
 
 const PORT = Number(process.env.PORT) || 8787
-const CORS_ENV_PARTS = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
-/** When true, any browser origin is allowed (dev); `*` in CORS_ORIGIN is no longer dropped. */
-const CORS_REFLECT_ALL_ORIGINS = CORS_ENV_PARTS.includes('*')
-/** Local Vite (any port) + 127.0.0.1 + optional CORS_ORIGIN (comma-separated, no *). */
-const CORS_ALLOWED_ORIGINS = [
-  ...new Set([
-    'http://localhost:5175',
-    'http://localhost:5174',
-    'http://localhost:5173',
-    'http://127.0.0.1:5175',
-    'http://127.0.0.1:5174',
-    'http://127.0.0.1:5173',
-    ...CORS_ENV_PARTS.filter((s) => s !== '*'),
-  ]),
-]
-
 const corsOptions = {
-  origin: CORS_REFLECT_ALL_ORIGINS ? true : CORS_ALLOWED_ORIGINS,
-  credentials: true,
-  methods: ['GET', 'HEAD', 'OPTIONS'],
+  // Open CORS for cross-origin frontend deployments (Vercel/Render/Railway).
+  origin: '*',
+  credentials: false,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: '*',
   /**
    * Expose range/length headers so the browser's `<video>` element can do native
    * seeking on `/api/media/:videoId` (direct mp4 case). Without these, Chrome
@@ -542,9 +525,7 @@ app.listen(PORT, () => {
   console.log(
     `[media-bridge] YOUTUBE_COOKIES: ${n > 0 ? `loaded (${n} name=value pairs for ytdl.createAgent)` : 'not set (ytdl has no session cookies) — add to server/.env and restart'}`
   )
-  console.log(
-    `[media-bridge] CORS: ${CORS_REFLECT_ALL_ORIGINS ? 'reflect any origin (CORS_ORIGIN=*)' : `allowlist (${CORS_ALLOWED_ORIGINS.length} origins)`}`
-  )
+  console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
   console.log(
     `[media-bridge] Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks, yt-dlp: ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
   )
