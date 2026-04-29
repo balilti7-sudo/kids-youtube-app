@@ -920,12 +920,12 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
   const baseArgs = [
     '--no-warnings',
+    '--no-write-cookies',
+    '--no-cookies-from-browser',
+    '--no-check-certificate',
     '--get-url',
     '-f',
     'b/best',
-    '--geo-bypass',
-    '--geo-bypass-country',
-    'US',
     '--user-agent',
     BROWSER_UA,
     '--add-header',
@@ -944,18 +944,6 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   } else if (cookieStatus.filePath) {
     console.warn(`[ytdlp] cookies file not auth-ready (${cookieStatus.reason || 'unknown'})`)
   }
-  attempts.push({
-    name: 'browser-chrome',
-    args: ['--cookies-from-browser', 'chrome'],
-  })
-  attempts.push({
-    name: 'browser-edge',
-    args: ['--cookies-from-browser', 'edge'],
-  })
-  attempts.push({
-    name: 'browser-firefox',
-    args: ['--cookies-from-browser', 'firefox'],
-  })
   attempts.push({
     name: 'no-cookies-clients-a',
     args: ['--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
@@ -982,18 +970,6 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
       const msg = e instanceof Error ? e.message : String(e)
       lastError = e
       if (diagnostics?.attempts) diagnostics.attempts.push({ mode: attempt.name, ok: false, detail: msg })
-      const chromeLocked =
-        msg.includes('Could not copy Chrome cookie database') || msg.includes('failed to decrypt with DPAPI')
-      if (attempt.name === 'browser-chrome' && chromeLocked) {
-        console.warn('[ytdlp] chrome cookies locked; trying other browsers')
-        continue
-      }
-      const edgeLocked =
-        msg.includes('Could not copy Edge cookie database') || msg.includes('failed to decrypt with DPAPI')
-      if (attempt.name === 'browser-edge' && edgeLocked) {
-        console.warn('[ytdlp] edge cookies locked; trying other modes')
-        continue
-      }
 
       if (
         msg.includes('Private video. Sign in if you') ||
