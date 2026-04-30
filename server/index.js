@@ -58,6 +58,8 @@ const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' |
 /** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
 const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube.com_cookies.txt'
+const YT_OAUTH_TOKEN_PATH = (process.env.YT_OAUTH_TOKEN_PATH || '/etc/secrets/yt_oauth_token.json').trim()
+const YT_OAUTH_TOKEN_DIR = path.dirname(YT_OAUTH_TOKEN_PATH)
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
@@ -933,6 +935,8 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     '--no-check-certificate',
     '--username',
     'oauth2',
+    '--cache-dir',
+    YT_OAUTH_TOKEN_DIR,
     '--get-url',
     '-f',
     'b/best',
@@ -970,6 +974,11 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const ff = bundledFfmpegPath()
   const ffmpegArgs = ff ? ['--ffmpeg-location', ff] : []
   let lastError = null
+  if (existsSync(YT_OAUTH_TOKEN_PATH)) {
+    console.log(`[ytdlp][oauth2] Token loaded from secrets path: ${YT_OAUTH_TOKEN_PATH}`)
+  } else {
+    console.log(`[ytdlp][oauth2] Token not found yet at secrets path: ${YT_OAUTH_TOKEN_PATH}`)
+  }
 
   for (const attempt of attempts) {
     const args = [...baseArgs, ...attempt.args, ...ffmpegArgs, watchUrl]
@@ -979,6 +988,10 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
         timeout: 120_000,
         maxBuffer: 4 * 1024 * 1024,
         windowsHide: true,
+        env: {
+          ...process.env,
+          YT_DLP_OAUTH2_TOKEN_FILE: YT_OAUTH_TOKEN_PATH,
+        },
       })
       stdout = result.stdout || ''
       const stderr = result.stderr || ''
@@ -1013,6 +1026,9 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
       }
       console.warn(`[ytdlp] ${attempt.name} failed: ${msg}`)
       continue
+    }
+    if (existsSync(YT_OAUTH_TOKEN_PATH)) {
+      console.log(`[ytdlp][oauth2] Token saved/loaded from secrets path: ${YT_OAUTH_TOKEN_PATH}`)
     }
 
     const lines = stdout
