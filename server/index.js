@@ -923,7 +923,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
   /** youtube:player_client selects InnerTube clients; web_embedded + mweb look less like anonymous bot traffic. */
   const primaryExtractorArgs =
-    (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web_embedded,mweb'
+    (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=ios,android;skip=web_safari'
   const baseArgs = [
     '--no-warnings',
     '--no-cookies-from-browser',
