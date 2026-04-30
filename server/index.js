@@ -57,6 +57,7 @@ const YT_DLP_PATH = (process.env.YT_DLP_PATH || DEFAULT_YT_DLP).trim()
 const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' || process.env.YT_DLP_ENABLE === 'true'
 /** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
+const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube.com_cookies.txt'
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
@@ -85,7 +86,9 @@ const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
 /** Match exported cookies/browser; override in Render via YT_DLP_USER_AGENT (Chrome UA recommended). */
-const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || BROWSER_UA
+const CHROME_COOKIES_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_COOKIES_UA
 
 const PIPED_FETCH_HEADERS = {
   accept: 'application/json, text/plain, */*',
@@ -165,7 +168,7 @@ app.use((_req, res, next) => {
 
 app.get('/health', (_req, res) => {
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile = cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
   const cookies = inspectYoutubeCookiesFile(cookiesFile)
   res.json({
     ok: true,
@@ -195,7 +198,7 @@ app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
 
   const videoId = raw
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile = cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
   const ytdlCookieCount = parseYoutubeCookieHeader(process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').length
   const report = {
@@ -536,7 +539,7 @@ app.listen(PORT, () => {
     `[media-bridge] Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks, yt-dlp: ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
   )
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile = cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
   const cookies = inspectYoutubeCookiesFile(cookiesFile)
   if (!cookies.usable || !cookies.hasRequiredAuthCookies) {
     console.warn(
@@ -923,7 +926,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
   /** youtube:player_client selects InnerTube clients; web_embedded + mweb look less like anonymous bot traffic. */
   const primaryExtractorArgs =
-    (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=ios,android;skip=web_safari'
+    (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web'
   const baseArgs = [
     '--no-warnings',
     '--no-cookies-from-browser',
@@ -937,8 +940,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     'Accept-Language:en-US,en;q=0.9',
   ]
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile =
-    cookiesFromEnv || (existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : YT_DLP_DEFAULT_COOKIES)
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
   /** One --extractor-args per attempt — yt-dlp does not use separate --player-client CLI flags like some wrappers. */
   const attempts = []
