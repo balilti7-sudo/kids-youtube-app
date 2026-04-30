@@ -928,11 +928,12 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web'
   const baseArgs = [
     '--no-warnings',
-    '--no-input',
     '--no-cookies-from-browser',
     '--no-check-certificate',
     '--username',
     'oauth2',
+    '--password',
+    '',
     '--cache-dir',
     YT_OAUTH_TOKEN_DIR,
     '--get-url',
