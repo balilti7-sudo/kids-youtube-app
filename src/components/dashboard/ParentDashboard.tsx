@@ -1,7 +1,5 @@
 import { useDeviceStore } from '../../stores/deviceStore'
 import { StatsGrid } from './StatsGrid'
-import { QuickActionBar } from './QuickActionBar'
-import { ParentPwaInstallCard } from './ParentPwaInstallCard'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 
 export function ParentDashboard() {
@@ -15,9 +13,6 @@ export function ParentDashboard() {
       </header>
 
       <StatsGrid devices={devices} />
-      <ParentPwaInstallCard />
-      <QuickActionBar />
-
       <DashboardDevicesSection />
     </div>
   )
