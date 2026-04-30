@@ -3,8 +3,7 @@
  * Streams are **proxied** through this server so the browser never requests geo/bot-protected CDNs directly.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -14,8 +13,6 @@ import cors from 'cors'
 import express from 'express'
 import ytdl from '@distube/ytdl-core'
 import { createClient } from '@supabase/supabase-js'
-
-const execFileAsync = promisify(execFile)
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url))
 // Repo root `.env`, then `server/.env` (latter wins) so a single file at the project root can serve Vite + API.
@@ -984,21 +981,10 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     const args = [...baseArgs, ...attempt.args, ...ffmpegArgs, watchUrl]
     let stdout = ''
     try {
-      const result = await execFileAsync(YT_DLP_PATH, args, {
-        timeout: 120_000,
-        maxBuffer: 4 * 1024 * 1024,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          YT_DLP_OAUTH2_TOKEN_FILE: YT_OAUTH_TOKEN_PATH,
-        },
-      })
+      const result = await runYtDlpWithRealtimeLogs(args, 120_000)
       stdout = result.stdout || ''
       const stderr = result.stderr || ''
-      if (stderr) {
-        // Helpful for oauth2 first-time auth flow diagnostics.
-        console.log('[ytdlp] stderr:', stderr)
-      }
+      if (stderr) console.log('[ytdlp] stderr:', stderr)
     } catch (e) {
       const stderr = typeof e === 'object' && e && 'stderr' in e ? String(e.stderr || '') : ''
       const stdoutFromErr = typeof e === 'object' && e && 'stdout' in e ? String(e.stdout || '') : ''
@@ -1057,6 +1043,95 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     }
   }
   throw lastError instanceof Error ? lastError : new Error('yt-dlp: all attempts failed')
+}
+
+function logYtDlpLine(kind, line) {
+  const msg = String(line || '').trim()
+  if (!msg) return
+  if (/https?:\/\/www\.google\.com\/device/i.test(msg)) {
+    console.log('********** YT-DLP OAUTH DEVICE URL **********')
+    console.log(msg)
+    console.log('*********************************************')
+    return
+  }
+  if (/enter code|code[:\s]|verification|oauth2|device/i.test(msg)) {
+    console.log('********** YT-DLP OAUTH DEVICE CODE **********')
+    console.log(msg)
+    console.log('**********************************************')
+    return
+  }
+  console.log(`[ytdlp][${kind}] ${msg}`)
+}
+
+function attachRealtimeLineLogger(stream, kind, sink) {
+  if (!stream) return () => {}
+  let pending = ''
+  const onData = (chunk) => {
+    const text = String(chunk || '')
+    if (!text) return
+    sink.push(text)
+    pending += text
+    const parts = pending.split(/\r?\n/)
+    pending = parts.pop() || ''
+    for (const line of parts) logYtDlpLine(kind, line)
+  }
+  stream.on('data', onData)
+  return () => {
+    if (pending.trim()) logYtDlpLine(kind, pending.trim())
+  }
+}
+
+function runYtDlpWithRealtimeLogs(args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const stdoutParts = []
+    const stderrParts = []
+    const child = spawn(YT_DLP_PATH, args, {
+      windowsHide: true,
+      env: {
+        ...process.env,
+        YT_DLP_OAUTH2_TOKEN_FILE: YT_OAUTH_TOKEN_PATH,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const flushStdout = attachRealtimeLineLogger(child.stdout, 'stdout', stdoutParts)
+    const flushStderr = attachRealtimeLineLogger(child.stderr, 'stderr', stderrParts)
+
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, timeoutMs)
+
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      flushStdout()
+      flushStderr()
+      reject(err)
+    })
+
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      flushStdout()
+      flushStderr()
+      const stdout = stdoutParts.join('')
+      const stderr = stderrParts.join('')
+      if (timedOut) {
+        const err = new Error(`yt-dlp timed out after ${Math.round(timeoutMs / 1000)}s`)
+        err.stdout = stdout
+        err.stderr = stderr
+        reject(err)
+        return
+      }
+      if (code !== 0) {
+        const err = new Error(`yt-dlp exited with code ${code}\n${stderr || stdout}`)
+        err.stdout = stdout
+        err.stderr = stderr
+        reject(err)
+        return
+      }
+      resolve({ stdout, stderr, code })
+    })
+  })
 }
 
 function hasUsableCookiesFile(filePath) {
