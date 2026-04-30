@@ -282,7 +282,7 @@ export function ChannelManager() {
   }
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-4 pb-4">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-4">
       <header className="flex flex-col gap-3">
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ערוצים</h1>
         {manageLocked ? (
@@ -462,7 +462,7 @@ export function ChannelManager() {
         </div>
       )}
 
-      <div className="fixed bottom-24 left-4 right-4 z-30 mx-auto flex max-w-lg shadow-lg">
+      <div className="fixed bottom-24 left-4 right-4 z-30 mx-auto flex max-w-lg shadow-lg lg:static lg:bottom-auto lg:left-auto lg:right-auto lg:mt-2 lg:max-w-none lg:shadow-none">
         <Button
           type="button"
           className="min-h-[48px] w-full gap-2 px-2 text-sm font-bold shadow-md sm:text-base"

@@ -103,7 +103,7 @@ export function DeviceLinkingScreen() {
   }
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-6 pb-4">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 pb-4">
       <header>
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">חיבור מכשיר</h1>
         <p className="text-sm text-slate-600 dark:text-zinc-400">

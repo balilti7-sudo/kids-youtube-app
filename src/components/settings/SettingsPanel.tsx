@@ -22,7 +22,7 @@ export function SettingsPanel() {
   }
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-6 pb-4">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 pb-4">
       <header>
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">הגדרות</h1>
       </header>
