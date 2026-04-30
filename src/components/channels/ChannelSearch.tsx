@@ -17,6 +17,7 @@ export function ChannelSearch({
   error,
   onAdd,
   addingId,
+  addedIds,
   deviceLabel,
   manageLocked,
 }: {
@@ -28,6 +29,7 @@ export function ChannelSearch({
   error: string | null
   onAdd: (c: YouTubeChannelResult) => void
   addingId: string | null
+  addedIds?: Set<string>
   deviceLabel?: string
   manageLocked?: boolean
 }) {
@@ -73,6 +75,7 @@ export function ChannelSearch({
             channel={c}
             onAdd={() => onAdd(c)}
             adding={addingId === c.channelId}
+            added={Boolean(addedIds?.has(c.channelId))}
             manageLocked={manageLocked}
           />
         ))}

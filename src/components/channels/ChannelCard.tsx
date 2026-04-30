@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { CheckCircle2 } from 'lucide-react'
 import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
 import { Button } from '../ui/Button'
 import { cn } from '../../lib/utils'
@@ -9,6 +10,7 @@ type Props =
       channel: YouTubeChannelResult
       onAdd: () => void
       adding?: boolean
+      added?: boolean
       manageLocked?: boolean
     }
   | {
@@ -79,8 +81,12 @@ export function ChannelCard(props: Props) {
         {subs ? <p className="text-xs text-slate-500 dark:text-zinc-500">{subs} מנויים</p> : null}
       </div>
       {props.variant === 'search' ? (
-        <Button className="shrink-0 self-center" onClick={props.onAdd} disabled={props.adding || props.manageLocked}>
-          {props.adding ? '...' : 'הוסף'}
+        <Button
+          className={cn('shrink-0 self-center', props.added ? '!bg-emerald-600 hover:!bg-emerald-700' : '')}
+          onClick={props.onAdd}
+          disabled={props.adding || props.manageLocked || props.added}
+        >
+          {props.adding ? '...' : props.added ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> נוסף</span> : 'הוסף'}
         </Button>
       ) : (
         <div className="flex shrink-0 flex-col gap-1 self-center sm:flex-row sm:items-center">

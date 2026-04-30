@@ -31,7 +31,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="bottom-nav fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95 lg:hidden"
+      className="bottom-nav fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95"
       aria-label="ניווט ראשי"
     >
       <div className="mx-auto flex max-w-lg items-stretch justify-around">

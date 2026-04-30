@@ -30,6 +30,7 @@ export function ChannelManager() {
   const { devices, loading: devLoading } = useDevices(ownerUserId)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [addedSearchChannelIds, setAddedSearchChannelIds] = useState<Set<string>>(new Set())
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [channelCategory, setChannelCategory] = useState('')
@@ -91,8 +92,8 @@ export function ChannelManager() {
     setAddingId(null)
     if (error) toast.error(error.message)
     else {
+      setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
       toast.success(`הערוץ נוסף וסונכרן למכשיר ${selectedDevice.name}`)
-      setSearchOpen(false)
     }
   }
 
@@ -409,13 +410,17 @@ export function ChannelManager() {
 
       <ChannelSearch
         open={searchOpen}
-        onClose={() => setSearchOpen(false)}
+        onClose={() => {
+          setSearchOpen(false)
+          setAddedSearchChannelIds(new Set())
+        }}
         onSearch={search}
         results={searchResults}
         loading={searchLoading}
         error={searchError}
         onAdd={handleAdd}
         addingId={addingId}
+        addedIds={addedSearchChannelIds}
         deviceLabel={selectedDevice?.name}
         manageLocked={manageLocked}
       />
