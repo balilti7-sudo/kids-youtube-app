@@ -931,6 +931,8 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     '--no-warnings',
     '--no-cookies-from-browser',
     '--no-check-certificate',
+    '--username',
+    'oauth2',
     '--get-url',
     '-f',
     'b/best',
@@ -973,12 +975,30 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     const args = [...baseArgs, ...attempt.args, ...ffmpegArgs, watchUrl]
     let stdout = ''
     try {
-      ;({ stdout } = await execFileAsync(YT_DLP_PATH, args, {
+      const result = await execFileAsync(YT_DLP_PATH, args, {
         timeout: 120_000,
         maxBuffer: 4 * 1024 * 1024,
         windowsHide: true,
-      }))
+      })
+      stdout = result.stdout || ''
+      const stderr = result.stderr || ''
+      if (stderr) {
+        // Helpful for oauth2 first-time auth flow diagnostics.
+        console.log('[ytdlp] stderr:', stderr)
+      }
     } catch (e) {
+      const stderr = typeof e === 'object' && e && 'stderr' in e ? String(e.stderr || '') : ''
+      const stdoutFromErr = typeof e === 'object' && e && 'stdout' in e ? String(e.stdout || '') : ''
+      if (stderr) {
+        console.log('[ytdlp] stderr:', stderr)
+      }
+      if (stdoutFromErr) {
+        console.log('[ytdlp] stdout:', stdoutFromErr)
+      }
+      // Surface OAuth2 device-flow hints clearly in logs.
+      if (/oauth2|device|verification|enter code|google\.com\/device/i.test(`${stderr}\n${stdoutFromErr}`)) {
+        console.log('[ytdlp][oauth2] Complete device auth from the URL/code above, then retry stream.')
+      }
       const msg = e instanceof Error ? e.message : String(e)
       lastError = e
       if (diagnostics?.attempts) diagnostics.attempts.push({ mode: attempt.name, ok: false, detail: msg })
