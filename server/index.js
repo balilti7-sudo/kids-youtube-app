@@ -928,6 +928,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web'
   const baseArgs = [
     '--no-warnings',
+    '--no-input',
     '--no-cookies-from-browser',
     '--no-check-certificate',
     '--username',
