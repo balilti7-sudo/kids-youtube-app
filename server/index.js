@@ -163,6 +163,35 @@ const BROWSER_UA = (process.env.BROWSER_USER_AGENT || '').trim() || MODERN_CHROM
 const CHROME_COOKIES_UA = MODERN_CHROME_UA
 const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_COOKIES_UA
 
+/**
+ * Optional outbound HTTPS proxy URL. When set, all YouTube-bound traffic
+ * (`@distube/ytdl-core` and the yt-dlp CLI) goes through it instead of
+ * Render's flagged egress IP. Accepts the standard `http(s)://[user:pass@]host:port`
+ * form. Falls back to common conventions `HTTPS_PROXY`/`HTTP_PROXY` so popular
+ * proxy providers' starter configs work out of the box.
+ */
+const OUTBOUND_PROXY_URL = (
+  process.env.OUTBOUND_PROXY_URL ||
+  process.env.HTTPS_PROXY ||
+  process.env.HTTP_PROXY ||
+  ''
+).trim()
+
+/** Mask `user:pass@` in a proxy URL so it's safe to log/return from /api/diagnostics. */
+function maskProxyUrl(url) {
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    if (u.username || u.password) {
+      u.username = u.username ? '***' : ''
+      u.password = u.password ? '***' : ''
+    }
+    return u.toString()
+  } catch {
+    return '***invalid-proxy-url***'
+  }
+}
+
 const PIPED_FETCH_HEADERS = {
   accept: 'application/json, text/plain, */*',
   'accept-language': 'en-US,en;q=0.9',
@@ -185,17 +214,26 @@ const UPSTREAM_MEDIA_HEADERS = {
  * Tried first (less “burned” public Piped API roots), no trailing slash.
  * Then: env PIPED_API_BASES, then the rest of DEFAULT_PIPED_BASES shuffled.
  */
-const PREFERRED_PIPED_BASES = ['https://pipedapi.lunar.icu', 'https://api.vkr.dev']
+/**
+ * Top picks observed reachable from Render's IP range (verified via
+ * /api/diagnostics 2026-05). Order matters — bridge tries these first before
+ * the wider DEFAULT pool. Re-rank if these stop working.
+ */
+const PREFERRED_PIPED_BASES = [
+  'https://pipedapi.tokhmi.xyz',
+  'https://api.piped.projectsegfau.lt',
+  'https://pipedapi.in.projectsegfau.lt',
+]
 
 const DEFAULT_PIPED_BASES = [
+  'https://pipedapi.tokhmi.xyz',
+  'https://api.piped.projectsegfau.lt',
+  'https://pipedapi.in.projectsegfau.lt',
   'https://pipedapi.lunar.icu',
   'https://api.vkr.dev',
   'https://pipedapi.kavin.rocks',
-  'https://pipedapi.in.projectsegfau.lt',
   'https://pipedapi.privacyredirect.com',
   'https://pipedapi.privacydev.net',
-  'https://pipedapi.tokhmi.xyz',
-  'https://api.piped.projectsegfau.lt',
   'https://pa.mint.lgbt',
   'https://pipedapi.adminforge.de',
   'https://pipedapi.nerdvpn.de',
@@ -203,10 +241,14 @@ const DEFAULT_PIPED_BASES = [
 ]
 const INVIDIOUS_PER_INSTANCE_TIMEOUT_MS = Number(process.env.INVIDIOUS_PER_INSTANCE_TIMEOUT_MS) || 8_000
 const INVIDIOUS_MAX_INSTANCES_PER_REQUEST = Number(process.env.INVIDIOUS_MAX_INSTANCES_PER_REQUEST) || 6
-const PREFERRED_INVIDIOUS_BASES = ['https://inv.nadeko.net', 'https://invidious.projectsegfau.lt']
+/**
+ * `inv.nadeko.net` returns 403 from Render IPs (verified 2026-05); demoted to
+ * the wider default pool so we still try it but never as the very first call.
+ */
+const PREFERRED_INVIDIOUS_BASES = ['https://invidious.projectsegfau.lt']
 const DEFAULT_INVIDIOUS_BASES = [
-  'https://inv.nadeko.net',
   'https://invidious.projectsegfau.lt',
+  'https://inv.nadeko.net',
   'https://invidious.privacyredirect.com',
   'https://invidious.slipfox.xyz',
   'https://vid.puffyan.us',
@@ -393,6 +435,10 @@ app.get('/api/diagnostics', async (_req, res) => {
       renderService: process.env.RENDER_SERVICE_NAME || null,
     },
     outbound,
+    proxy: {
+      configured: Boolean(OUTBOUND_PROXY_URL),
+      urlMasked: maskProxyUrl(OUTBOUND_PROXY_URL),
+    },
     versions: {
       ytDlp: ytDlpVer,
       ytDlpPath: YT_DLP_PATH,
@@ -791,6 +837,9 @@ app.listen(PORT, () => {
     cookieMsg = 'NONE — set YOUTUBE_COOKIES env or mount /etc/secrets/youtube_cookies.txt'
   }
   console.log(`[media-bridge] ytdl cookies source: ${cookieMsg}`)
+  console.log(
+    `[media-bridge] outbound proxy: ${OUTBOUND_PROXY_URL ? maskProxyUrl(OUTBOUND_PROXY_URL) : 'NOT SET (using Render IP directly)'}`
+  )
   console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
   console.log(
     `[media-bridge] Invidious: preferred (${PREFERRED_INVIDIOUS_BASES.length}), total (${DEFAULT_INVIDIOUS_BASES.length}); Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks; yt-dlp(last resort): ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
@@ -1015,6 +1064,11 @@ function shuffle(arr) {
 
 function isPipedBlockedOrUseless(status, contentType, data, textSnippet) {
   if (status === 403 || status === 401 || status === 429) return true
+  // Public Piped APIs return JSON; a 30x redirect on the API path almost
+  // always means the instance migrated/retired or Cloudflare is showing us a
+  // "leave us alone" page. Treat as dead so we don't burn the per-request
+  // budget chasing redirects.
+  if (status === 301 || status === 302 || status === 307 || status === 308) return true
   if (status >= 500) return true
   const ct = (contentType || '').toLowerCase()
   if (status === 200 && ct && !ct.includes('json') && (ct.includes('html') || ct.includes('text/plain'))) {
@@ -1291,14 +1345,32 @@ function getYtdlAgent() {
 
   const cookies = rawHeader.trim() ? parseYoutubeCookieHeader(rawHeader) : parseNetscapeCookiesFile(cookieFilePath)
   const source = rawHeader.trim() ? 'env-header' : cookieFilePath ? `file:${cookieFilePath}` : 'none'
-  const key = `${source}::${cookies.length}`
+  const proxyTag = OUTBOUND_PROXY_URL ? 'proxy' : 'direct'
+  const key = `${proxyTag}::${source}::${cookies.length}`
   if (cachedYtdlAgent.key === key && cachedYtdlAgent.agent) {
     return cachedYtdlAgent.agent
   }
-  const agent = cookies.length > 0 ? ytdl.createAgent(cookies) : null
+  let agent = null
+  if (cookies.length > 0 || OUTBOUND_PROXY_URL) {
+    if (OUTBOUND_PROXY_URL && typeof ytdl.createProxyAgent === 'function') {
+      // @distube/ytdl-core ≥4: dedicated factory that keeps the cookie jar AND
+      // routes the underlying socket through the proxy.
+      try {
+        agent = ytdl.createProxyAgent({ uri: OUTBOUND_PROXY_URL }, cookies.length ? cookies : undefined)
+      } catch (err) {
+        console.warn('[ytdl] createProxyAgent failed, falling back to direct:', err && err.message ? err.message : err)
+      }
+    }
+    if (!agent) {
+      agent = cookies.length > 0 ? ytdl.createAgent(cookies) : null
+    }
+  }
   cachedYtdlAgent = { key, agent }
+  const proxyMsg = OUTBOUND_PROXY_URL ? ` via proxy ${maskProxyUrl(OUTBOUND_PROXY_URL)}` : ''
   if (cookies.length > 0) {
-    console.log(`[ytdl] using cookies (count: ${cookies.length}, source: ${source})`)
+    console.log(`[ytdl] using cookies (count: ${cookies.length}, source: ${source})${proxyMsg}`)
+  } else if (OUTBOUND_PROXY_URL) {
+    console.log(`[ytdl] no cookies, requesting${proxyMsg}`)
   } else {
     console.warn('[ytdl] no cookies available — anonymous requests are likely to hit YouTube rate limits (429)')
   }
@@ -1562,6 +1634,9 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
     baseArgs.push('--cookies', writableCookiesPath)
   } else if (readonlyCookiesPath) {
     console.warn(`[ytdlp] cookies file exists but writable copy is unavailable (${readonlyCookiesPath}); continuing without --cookies`)
+  }
+  if (OUTBOUND_PROXY_URL) {
+    baseArgs.push('--proxy', OUTBOUND_PROXY_URL)
   }
   const cookiesFile = writableCookiesPath || readonlyCookiesPath
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
