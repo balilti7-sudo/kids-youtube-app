@@ -296,6 +296,144 @@ app.get('/health', (_req, res) => {
 })
 
 /**
+ * GET /api/diagnostics
+ * Global, read-only system diagnostics. Reports:
+ *  - the bridge's *outbound* public IP (so you can confirm whether YouTube/Piped/Invidious
+ *    are blocking the Render IP specifically),
+ *  - yt-dlp + ytdl-core versions, cookies file freshness/usability,
+ *  - current `auth-stale` cooldown + dead-instance cache,
+ *  - parallel reachability probes against the configured Piped + Invidious instances
+ *    (uses a known-public test video to avoid side effects).
+ *
+ * Safe to expose: never returns secret values, only counts/booleans/HTTP status.
+ */
+app.get('/api/diagnostics', async (_req, res) => {
+  const startedAt = Date.now()
+  const TEST_VIDEO_ID = 'dQw4w9WgXcQ'
+  const PROBE_TIMEOUT_MS = 6_000
+  const PROBE_HEADERS = {
+    'user-agent': BROWSER_UA,
+    accept: 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.9',
+  }
+
+  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookiesFile =
+    cookiesFromEnv ||
+    (existsSync(RENDER_YT_COOKIES_PATH)
+      ? RENDER_YT_COOKIES_PATH
+      : existsSync(YT_DLP_DEFAULT_COOKIES)
+        ? YT_DLP_DEFAULT_COOKIES
+        : '')
+  const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
+  const ytdlEnvCookieCount = parseYoutubeCookieHeader(
+    process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || ''
+  ).length
+
+  const deadSnapshot = []
+  for (const [base, exp] of deadInstances.entries()) {
+    if (exp > Date.now()) {
+      deadSnapshot.push({
+        base,
+        expiresAt: new Date(exp).toISOString(),
+        remainingSec: Math.max(0, Math.ceil((exp - Date.now()) / 1000)),
+      })
+    }
+  }
+
+  const pipedOrdered = getPipedBasesOrdered()
+  const invidiousOrdered = getInvidiousBasesOrdered()
+
+  const pipedJobs = pipedOrdered.slice(0, 8).map(async (base) => {
+    if (isInstanceDead(base)) return { base, dead: true, skipped: true }
+    const r = await probeUrl(`${base}/streams/${TEST_VIDEO_ID}`, {
+      timeoutMs: PROBE_TIMEOUT_MS,
+      headers: PROBE_HEADERS,
+    })
+    return { base, dead: false, ...r }
+  })
+  const invidiousJobs = invidiousOrdered.slice(0, 8).map(async (base) => {
+    if (isInstanceDead(base)) return { base, dead: true, skipped: true }
+    const r = await probeUrl(`${base}/api/v1/videos/${TEST_VIDEO_ID}`, {
+      timeoutMs: PROBE_TIMEOUT_MS,
+      headers: PROBE_HEADERS,
+    })
+    return { base, dead: false, ...r }
+  })
+
+  const [outbound, ytDlpVer, ytDirect, ytWatch, pipedProbes, invidiousProbes] = await Promise.all([
+    probeOutboundIp(),
+    probeYtDlpVersion(),
+    probeUrl('https://www.youtube.com/', { timeoutMs: PROBE_TIMEOUT_MS, headers: PROBE_HEADERS }),
+    probeUrl(`https://www.youtube.com/watch?v=${TEST_VIDEO_ID}`, {
+      timeoutMs: PROBE_TIMEOUT_MS,
+      headers: PROBE_HEADERS,
+    }),
+    Promise.all(pipedJobs),
+    Promise.all(invidiousJobs),
+  ])
+
+  const lastModifiedMs = cookieStatus.lastModifiedAt
+    ? new Date(cookieStatus.lastModifiedAt).getTime()
+    : null
+
+  res.json({
+    ok: true,
+    elapsedMs: Date.now() - startedAt,
+    now: new Date().toISOString(),
+    env: {
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      uptimeSec: Math.round(process.uptime()),
+      memoryRssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      port: PORT,
+      renderInstance: process.env.RENDER_INSTANCE_ID || null,
+      renderRegion: process.env.RENDER_REGION || null,
+      renderService: process.env.RENDER_SERVICE_NAME || null,
+    },
+    outbound,
+    versions: {
+      ytDlp: ytDlpVer,
+      ytDlpPath: YT_DLP_PATH,
+      ytDlpEnabled: YT_DLP_ENABLE,
+    },
+    cookies: {
+      filePath: cookieStatus.filePath || null,
+      usable: cookieStatus.usable,
+      hasRequiredAuthCookies: cookieStatus.hasRequiredAuthCookies,
+      presentRequiredCookies: cookieStatus.presentRequiredCookies,
+      missingRequiredCookies: cookieStatus.missingRequiredCookies,
+      reason: cookieStatus.reason || null,
+      lastModifiedAt: cookieStatus.lastModifiedAt,
+      ageHours:
+        lastModifiedMs != null
+          ? Math.round((Date.now() - lastModifiedMs) / 3_600_000)
+          : null,
+      ytdlEnvCookieCount,
+    },
+    auth: {
+      stale: isYtAuthStale(),
+      staleUntil: ytAuthStaleUntil ? new Date(ytAuthStaleUntil).toISOString() : null,
+      staleRemainingSec: ytAuthStaleUntil
+        ? Math.max(0, Math.ceil((ytAuthStaleUntil - Date.now()) / 1000))
+        : 0,
+    },
+    deadInstances: deadSnapshot,
+    instances: {
+      piped: { ordered: pipedOrdered, total: pipedOrdered.length },
+      invidious: { ordered: invidiousOrdered, total: invidiousOrdered.length },
+    },
+    probes: {
+      youtube: { url: 'https://www.youtube.com/', ...ytDirect },
+      youtubeWatch: { url: `https://www.youtube.com/watch?v=${TEST_VIDEO_ID}`, ...ytWatch },
+      piped: pipedProbes,
+      invidious: invidiousProbes,
+    },
+  })
+})
+
+/**
  * GET /api/diagnostics/stream/:videoId
  * Read-only diagnostics: shows which resolver path works/fails and whether auth cookies are usable.
  */
@@ -1187,6 +1325,102 @@ function withTimeout(promise, timeoutMs, label) {
         reject(err)
       }
     )
+  })
+}
+
+/**
+ * Generic, timeout-bounded HTTP probe used by /api/diagnostics. Returns a flat
+ * `{ ok, status?, ms, error? }` object — never throws, never reads the body, so
+ * we don't accidentally pull megabytes from a slow proxy.
+ */
+async function probeUrl(url, { timeoutMs = 6_000, method = 'GET', headers = {} } = {}) {
+  const startedAt = Date.now()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const r = await fetch(url, { method, headers, signal: ctrl.signal, redirect: 'manual' })
+    return {
+      ok: r.ok,
+      status: r.status,
+      ms: Date.now() - startedAt,
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      ms: Date.now() - startedAt,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Discover the bridge's outbound public IP. On Render this tells us *exactly*
+ * which IP YouTube/Piped/Invidious are seeing — invaluable when triaging
+ * "everything 403s" cases.
+ */
+async function probeOutboundIp() {
+  const startedAt = Date.now()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 5_000)
+  try {
+    const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal })
+    if (!r.ok) {
+      return { ok: false, status: r.status, ms: Date.now() - startedAt, ip: null }
+    }
+    const j = await r.json().catch(() => null)
+    return { ok: true, status: 200, ms: Date.now() - startedAt, ip: (j && j.ip) || null }
+  } catch (e) {
+    return {
+      ok: false,
+      ms: Date.now() - startedAt,
+      ip: null,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Run `yt-dlp --version` to confirm the binary is wired up and report its
+ * version (helpful when extractor errors hint at "update yt-dlp").
+ */
+function probeYtDlpVersion() {
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (payload) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({ ms: Date.now() - startedAt, ...payload })
+    }
+    let proc
+    const timer = setTimeout(() => {
+      try {
+        proc?.kill('SIGKILL')
+      } catch {}
+      finish({ ok: false, error: 'yt-dlp --version timed out after 8s' })
+    }, 8_000)
+    try {
+      proc = spawn(YT_DLP_PATH, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (err) {
+      return finish({ ok: false, error: err instanceof Error ? err.message : String(err) })
+    }
+    proc.stdout?.on('data', (b) => (stdout += String(b)))
+    proc.stderr?.on('data', (b) => (stderr += String(b)))
+    proc.on('error', (err) => finish({ ok: false, error: err.message }))
+    proc.on('exit', (code) => {
+      if (code === 0) {
+        finish({ ok: true, version: stdout.trim() })
+      } else {
+        finish({ ok: false, exitCode: code, stderr: stderr.trim() || null })
+      }
+    })
   })
 }
 
