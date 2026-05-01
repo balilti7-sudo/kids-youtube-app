@@ -56,7 +56,14 @@ const corsOptions = {
   maxAge: 600,
 }
 
-const STREAM_CACHE_TTL_MS = Number(process.env.STREAM_CACHE_TTL_MS) || 50 * 60 * 1000
+/**
+ * How long to remember a successfully-resolved upstream URL for a given
+ * videoId. Shorter is safer (CDN URLs can expire / become geo-restricted) but
+ * costs more resolves. 15 minutes is a sweet spot: long enough to absorb the
+ * typical replay/seek cycle without re-hitting Piped/ytdl, short enough that
+ * a stale upstream URL self-heals quickly.
+ */
+const STREAM_CACHE_TTL_MS = Number(process.env.STREAM_CACHE_TTL_MS) || 15 * 60 * 1000
 const SEGMENT_TOKEN_TTL_MS = Number(process.env.SEGMENT_TOKEN_TTL_MS) || 60 * 60 * 1000
 const YT_DLP_PATH = (process.env.YT_DLP_PATH || DEFAULT_YT_DLP).trim()
 const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' || process.env.YT_DLP_ENABLE === 'true'
@@ -264,6 +271,8 @@ let cachedYtdlAgent = { key: null, agent: null }
 
 /** @type {Map<string, { exp: number, upstreamUrl: string, hls: boolean, mimeType: string, quality: string | null, source: string }>} */
 const streamCache = new Map()
+/** Lightweight in-process counters surfaced via /api/diagnostics so we can verify the cache is doing real work. */
+const cacheStats = { hits: 0, misses: 0, sets: 0, expired: 0 }
 
 /** @type {Map<string, { url: string, exp: number, grant: string }>} */
 const segmentTokens = new Map()
@@ -466,6 +475,19 @@ app.get('/api/diagnostics', async (_req, res) => {
         : 0,
     },
     deadInstances: deadSnapshot,
+    cache: {
+      ttlMs: STREAM_CACHE_TTL_MS,
+      ttlMinutes: Math.round(STREAM_CACHE_TTL_MS / 60_000),
+      size: streamCache.size,
+      hits: cacheStats.hits,
+      misses: cacheStats.misses,
+      sets: cacheStats.sets,
+      expired: cacheStats.expired,
+      hitRatio:
+        cacheStats.hits + cacheStats.misses > 0
+          ? Number((cacheStats.hits / (cacheStats.hits + cacheStats.misses)).toFixed(3))
+          : null,
+    },
     instances: {
       piped: { ordered: pipedOrdered, total: pipedOrdered.length },
       invidious: { ordered: invidiousOrdered, total: invidiousOrdered.length },
@@ -623,8 +645,20 @@ app.get('/api/stream/:videoId', async (req, res) => {
   const videoId = raw
   try {
     const confirmedUser = await getConfirmedUserFromBearer(req)
-    const resolved = await resolveUpstream(videoId)
-    streamCache.set(videoId, { ...resolved, exp: Date.now() + STREAM_CACHE_TTL_MS })
+    /**
+     * Cache hit: skip the entire Piped/ytdl/yt-dlp ladder. The upstream URL
+     * already lives in `streamCache` and `/api/media/:videoId` will read it
+     * from there when the browser actually plays. Saves the per-request
+     * resolve budget — typically the most expensive thing the bridge does.
+     */
+    let resolved = getCachedOrNull(videoId)
+    if (!resolved) {
+      resolved = await resolveUpstream(videoId)
+      streamCache.set(videoId, { ...resolved, exp: Date.now() + STREAM_CACHE_TTL_MS })
+      cacheStats.sets += 1
+    } else {
+      console.log(`[cache] hit for ${videoId} (source=${resolved.source}, ttl-remaining=${Math.max(0, Math.round((resolved.exp - Date.now()) / 1000))}s)`)
+    }
 
     const base = getPublicBase(req)
     const playPath = `/api/media/${encodeURIComponent(videoId)}`
@@ -862,11 +896,17 @@ app.listen(PORT, () => {
 
 function getCachedOrNull(videoId) {
   const e = streamCache.get(videoId)
-  if (!e) return null
-  if (Date.now() > e.exp) {
-    streamCache.delete(videoId)
+  if (!e) {
+    cacheStats.misses += 1
     return null
   }
+  if (Date.now() > e.exp) {
+    streamCache.delete(videoId)
+    cacheStats.expired += 1
+    cacheStats.misses += 1
+    return null
+  }
+  cacheStats.hits += 1
   return e
 }
 

@@ -257,3 +257,75 @@ async function doFetchStreamInfo(
     if (signal) signal.removeEventListener('abort', abortForwarded)
   }
 }
+
+/**
+ * Subset of the bridge `/api/diagnostics` payload that the UI actually needs.
+ * Kept narrow so adding non-UI fields server-side doesn't ripple into a TS break.
+ */
+export interface BridgeDiagnostics {
+  ok: boolean
+  elapsedMs: number
+  now: string
+  env?: { renderRegion?: string | null; renderService?: string | null }
+  outbound: { ok: boolean; ip: string | null; ms?: number; status?: number; error?: string }
+  proxy: { configured: boolean; urlMasked: string | null }
+  versions: { ytDlp: { ok: boolean; version?: string; error?: string } }
+  cookies: {
+    usable: boolean
+    hasRequiredAuthCookies: boolean
+    presentRequiredCookies: string[]
+    missingRequiredCookies?: string[]
+    ageHours: number | null
+    reason: string | null
+    ytdlEnvCookieCount: number
+  }
+  auth: { stale: boolean; staleUntil: string | null; staleRemainingSec: number }
+  cache: {
+    ttlMs: number
+    ttlMinutes: number
+    size: number
+    hits: number
+    misses: number
+    sets: number
+    expired: number
+    hitRatio: number | null
+  }
+  probes: {
+    youtube: { ok: boolean; status?: number; ms?: number; error?: string }
+    youtubeWatch: { ok: boolean; status?: number; ms?: number; error?: string }
+    piped: Array<{ base: string; ok: boolean; status?: number; ms?: number; error?: string; dead?: boolean; skipped?: boolean }>
+    invidious: Array<{ base: string; ok: boolean; status?: number; ms?: number; error?: string; dead?: boolean; skipped?: boolean }>
+  }
+}
+
+/**
+ * Read-only health snapshot of the Media Bridge. Does not require the user's
+ * Supabase bearer token — the bridge whitelists this path so the UI can poll it
+ * before/while the user is signed in (and from the public marketing pages).
+ */
+export async function fetchBridgeDiagnostics(
+  { signal, timeoutMs = 10_000 }: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<BridgeDiagnostics> {
+  const url = buildStreamApiUrl('/api/diagnostics')
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), timeoutMs)
+  const abortForwarded = () => controller.abort(signal?.reason)
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason)
+    else signal.addEventListener('abort', abortForwarded, { once: true })
+  }
+  try {
+    const res = await fetch(url, {
+      credentials: 'omit',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      throw new StreamApiError(`Diagnostics request failed (${res.status})`, res.status)
+    }
+    return (await res.json()) as BridgeDiagnostics
+  } finally {
+    clearTimeout(timeout)
+    if (signal) signal.removeEventListener('abort', abortForwarded)
+  }
+}
