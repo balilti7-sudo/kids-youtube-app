@@ -103,6 +103,35 @@ function isInstanceDead(base) {
   }
   return true
 }
+
+/**
+ * "Cookies / YouTube auth appear stale" cooldown — set when ytdl returns 429 or yt-dlp's
+ * cookie attempt hits a sign-in/bot gate. While active, the resolver demotes the
+ * cookie-aware backends and tries Invidious/Piped first to stop wasting budget on calls
+ * that we already know YouTube will block. Any successful resolution clears it.
+ */
+const YT_AUTH_STALE_TTL_MS = Number(process.env.YT_AUTH_STALE_TTL_MS) || 5 * 60 * 1000
+let ytAuthStaleUntil = 0
+function isYtAuthStale() {
+  if (!ytAuthStaleUntil) return false
+  if (Date.now() > ytAuthStaleUntil) {
+    ytAuthStaleUntil = 0
+    return false
+  }
+  return true
+}
+function markYtAuthStaleNow(reason = 'unspecified') {
+  ytAuthStaleUntil = Date.now() + YT_AUTH_STALE_TTL_MS
+  console.warn(
+    `[ytauth] cookies/auth marked STALE for ${Math.round(YT_AUTH_STALE_TTL_MS / 1000)}s (reason=${reason}) — preferring invidious/piped during cooldown`
+  )
+}
+function clearYtAuthStale() {
+  if (ytAuthStaleUntil) {
+    console.log('[ytauth] auth recovered — clearing stale cooldown')
+  }
+  ytAuthStaleUntil = 0
+}
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
@@ -609,10 +638,21 @@ app.get('/api/segment/:token', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`[media-bridge] http://127.0.0.1:${PORT}`)
   const rawCookies = (process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()
-  const n = parseYoutubeCookieHeader(rawCookies).length
-  console.log(
-    `[media-bridge] YOUTUBE_COOKIES: ${n > 0 ? `loaded (${n} name=value pairs for ytdl.createAgent)` : 'not set (ytdl has no session cookies) — add to server/.env and restart'}`
-  )
+  const headerCount = parseYoutubeCookieHeader(rawCookies).length
+  const cookieFileEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookieFilePath =
+    cookieFileEnv ||
+    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const fileCount = headerCount > 0 ? 0 : parseNetscapeCookiesFile(cookieFilePath).length
+  let cookieMsg
+  if (headerCount > 0) {
+    cookieMsg = `env header (${headerCount} name=value pairs)`
+  } else if (fileCount > 0) {
+    cookieMsg = `cookies file ${cookieFilePath} (${fileCount} entries)`
+  } else {
+    cookieMsg = 'NONE — set YOUTUBE_COOKIES env or mount /etc/secrets/youtube_cookies.txt'
+  }
+  console.log(`[media-bridge] ytdl cookies source: ${cookieMsg}`)
   console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
   console.log(
     `[media-bridge] Invidious: preferred (${PREFERRED_INVIDIOUS_BASES.length}), total (${DEFAULT_INVIDIOUS_BASES.length}); Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks; yt-dlp(last resort): ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
@@ -697,16 +737,27 @@ async function resolveUpstream(videoId) {
   const remaining = () => Math.max(0, OVERALL_RESOLVE_BUDGET_MS - (Date.now() - startedAt))
   let lastErr
   const cookiesReady = hasUsableYoutubeAuth()
+  const authStale = isYtAuthStale()
   /**
    * Cookie-aware ordering:
-   *  - With cookies → `ytdl` (cookie-aware now) and `yt-dlp` (cookie-aware) work well
-   *    even on Render's blacklisted IPs; public proxies (Piped/Invidious) are mostly dead.
-   *  - Without cookies → public proxies are the only practical bypass for bot/IP blocks.
+   *  - Cookies present AND not in stale-cooldown → ytdl/yt-dlp first; they bypass
+   *    Render-IP blocks via the user's session.
+   *  - Cookies present BUT YouTube recently rejected them (429 or bot gate) →
+   *    demote ytdl/yt-dlp during the cooldown so we don't burn the budget on calls
+   *    we already know will fail.
+   *  - No cookies → public proxies first; cookie backends are pointless without auth.
    */
-  const resolverOrder = cookiesReady
-    ? ['ytdl', 'ytdlp', 'invidious', 'piped']
-    : ['invidious', 'piped', 'ytdl', 'ytdlp']
-  console.log(`[resolve] order=${resolverOrder.join('->')} cookies=${cookiesReady ? 'ready' : 'absent'}`)
+  let resolverOrder
+  if (!cookiesReady) {
+    resolverOrder = ['invidious', 'piped', 'ytdl', 'ytdlp']
+  } else if (authStale) {
+    resolverOrder = ['invidious', 'piped', 'ytdl', 'ytdlp']
+  } else {
+    resolverOrder = ['ytdl', 'ytdlp', 'invidious', 'piped']
+  }
+  console.log(
+    `[resolve] order=${resolverOrder.join('->')} cookies=${cookiesReady ? 'ready' : 'absent'} authStale=${authStale}`
+  )
 
   for (const stage of resolverOrder) {
     if (remaining() < 1_000) break
@@ -714,6 +765,7 @@ async function resolveUpstream(videoId) {
       if (stage === 'invidious') {
         const inv = await resolveViaInvidious(videoId, remaining())
         if (inv) {
+          clearYtAuthStale()
           return {
             upstreamUrl: inv.url,
             hls: inv.hls,
@@ -725,6 +777,7 @@ async function resolveUpstream(videoId) {
       } else if (stage === 'piped') {
         const p = await resolveViaPiped(videoId, remaining())
         if (p) {
+          clearYtAuthStale()
           return {
             upstreamUrl: p.url,
             hls: p.hls,
@@ -739,6 +792,7 @@ async function resolveUpstream(videoId) {
           continue
         }
         const y = await resolveViaYtdl(videoId, remaining())
+        clearYtAuthStale()
         return { upstreamUrl: y.url, hls: y.hls, mimeType: y.mimeType, quality: y.quality, source: 'ytdl' }
       } else if (stage === 'ytdlp') {
         if (!YT_DLP_ENABLE) continue
@@ -747,6 +801,7 @@ async function resolveUpstream(videoId) {
           continue
         }
         const d = await resolveViaYtDlpCli(videoId, null, remaining())
+        clearYtAuthStale()
         return { upstreamUrl: d.url, hls: d.hls, mimeType: d.mimeType, quality: d.quality, source: 'ytdlp' }
       }
     } catch (e) {
@@ -1177,8 +1232,13 @@ async function resolveViaYtdl(videoId, budgetMs = YTDL_GETINFO_TIMEOUT_MS * YTDL
       return pickYtdlFormatResult(info)
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e))
+      const msg = lastError.message || ''
+      if (/\b429\b|too many requests/i.test(msg)) {
+        markYtAuthStaleNow('ytdl 429 (likely IP rate-limited even with cookies)')
+        throw lastError
+      }
       if (isLikelyYtdlBotError(e)) {
-        console.warn('[ytdl] strategy failed (may retry with other clients):', lastError.message)
+        console.warn('[ytdl] strategy failed (may retry with other clients):', msg)
         continue
       }
       throw e
@@ -1251,8 +1311,14 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
     '--cache-dir',
     YT_DLP_CACHE_DIR,
     '--get-url',
+    /**
+     * `b/best` failed in production for videos that only expose adaptive (DASH) streams
+     * with no combined audio+video file, raising "Requested format is not available".
+     * The chain below tries: best progressive mp4 ≤720p → any best mp4 → any combined
+     * file (vcodec+acodec in the same stream) → finally fall back to whatever's there.
+     */
     '-f',
-    'b/best',
+    'b[ext=mp4][height<=720]/b[ext=mp4]/b[acodec!=none][vcodec!=none]/b/best',
     '--user-agent',
     YT_DLP_UA,
     '--add-header',
@@ -1339,12 +1405,26 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
         console.error(msg)
         console.error('***********************************************')
       }
-      if (
+      const looksLikeAuthGate =
         msg.includes('Private video. Sign in if you') ||
         msg.includes('Sign in to confirm you') ||
         msg.includes("confirm you're not a bot") ||
         /\b403\b/.test(msg)
-      ) {
+      if (looksLikeAuthGate) {
+        /**
+         * If we sent cookies and YouTube STILL demanded sign-in, the cookies are
+         * effectively dead (server-side session revoked or IP-tied). Burning the
+         * remaining ~50s of budget on more yt-dlp attempts blocks the resolver from
+         * reaching Invidious/Piped at all. Bail out fast so the upper resolver can
+         * fall through to the public proxy backends.
+         */
+        if (attempt.name.startsWith('cookies-')) {
+          markYtAuthStaleNow()
+          console.warn(
+            `[ytdlp] ${attempt.name} auth/bot gate WITH cookies — cookies appear stale, aborting yt-dlp early to free budget for invidious/piped`
+          )
+          throw e instanceof Error ? e : new Error(msg)
+        }
         console.warn(`[ytdlp] ${attempt.name} auth/bot gate, trying next mode`)
         continue
       }
