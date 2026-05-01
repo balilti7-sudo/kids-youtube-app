@@ -26,8 +26,12 @@ export const MEDIA_BRIDGE_BASE: string = (() => {
   const v = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
   const base = v.length > 0 ? v : DEFAULT_MEDIA_BRIDGE
   if (import.meta.env.DEV) {
-    // Confirms the bundle is pointing at the local bridge (or your .env override); restart Vite after changing .env
     console.info('[streamApi] Media Bridge base:', base)
+  } else if (v.length === 0) {
+    console.error(
+      '[streamApi] VITE_STREAM_API_BASE is missing in production build — falling back to localhost. ' +
+        'Streaming will fail. Set VITE_STREAM_API_BASE in your hosting provider environment and rebuild.'
+    )
   }
   return base
 })()
@@ -67,8 +71,23 @@ export function streamResponseToSource(data: StreamApiResponse): { src: string; 
   return { src, type: mimeToVideoJsType(data.mimeType, data.format) }
 }
 
-/** Default budget for resolving a stream via the Media Bridge (Piped / ytdl / yt-dlp). */
-const STREAM_INFO_TIMEOUT_MS = 90_000
+/**
+ * Default budget for resolving a stream via the Media Bridge (Piped / ytdl / yt-dlp).
+ * Larger than the server's own resolve budget (`OVERALL_RESOLVE_BUDGET_MS`, ~70s) so the
+ * server always wins the race and returns a structured response. The extra headroom
+ * absorbs Render free-tier cold starts (~30–60s) for the first request after idle.
+ */
+const STREAM_INFO_TIMEOUT_MS = 120_000
+
+/** Heuristic: treat these network-layer failures as "transient" and worth one auto-retry. */
+function isTransientFetchError(err: unknown): boolean {
+  if (err instanceof StreamApiError) return false
+  if (err instanceof DOMException && err.name === 'AbortError') return false
+  const msg = err instanceof Error ? err.message : String(err ?? '')
+  return /Failed to fetch|NetworkError|Load failed|ERR_CONNECTION|ERR_NETWORK|ERR_EMPTY_RESPONSE|ERR_INTERNET_DISCONNECTED|fetch failed/i.test(
+    msg
+  )
+}
 
 export class StreamApiError extends Error {
   readonly status: number | null
@@ -83,11 +102,48 @@ export class StreamApiError extends Error {
 
 /**
  * Resolves a YouTube videoId to stream metadata via the bridge.
+ *
+ * Auto-retries **once** on transient network failures (`Failed to fetch` / connection reset),
+ * which on Render free is almost always the cold-start blip — by the time we retry ~3s
+ * later the dyno is up and the second request succeeds. Aborts (user cancellation) and
+ * structured `StreamApiError`s are NOT retried.
+ *
  * `credentials: 'omit'` — the bridge does not use cookies; keeps CORS simple (no preflight credential dance).
  */
 export async function fetchStreamInfo(
   videoId: string,
   { signal, timeoutMs = STREAM_INFO_TIMEOUT_MS }: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<StreamApiResponse> {
+  try {
+    return await doFetchStreamInfo(videoId, { signal, timeoutMs })
+  } catch (err) {
+    if (signal?.aborted) throw err
+    if (!isTransientFetchError(err)) throw err
+    console.warn(
+      '[streamApi] transient network error on first attempt, retrying once (likely Render cold start):',
+      err instanceof Error ? err.message : err
+    )
+    await new Promise((r) => setTimeout(r, 3_000))
+    if (signal?.aborted) throw err
+    try {
+      return await doFetchStreamInfo(videoId, { signal, timeoutMs })
+    } catch (err2) {
+      if (signal?.aborted) throw err2
+      if (isTransientFetchError(err2)) {
+        const base = getStreamApiBaseUrl()
+        const detail = err2 instanceof Error ? err2.message : String(err2)
+        throw new StreamApiError(
+          `לא ניתן להתחבר לשרת הזרם (${base}). השרת עשוי להיות בהפעלה — נסו שוב בעוד מספר שניות. (${detail})`
+        )
+      }
+      throw err2
+    }
+  }
+}
+
+async function doFetchStreamInfo(
+  videoId: string,
+  { signal, timeoutMs }: { signal?: AbortSignal; timeoutMs: number }
 ): Promise<StreamApiResponse> {
   const base = getStreamApiBaseUrl()
   const url = buildStreamApiUrl(`/api/stream/${encodeURIComponent(videoId)}`)
@@ -125,10 +181,7 @@ export async function fetchStreamInfo(
         }
         throw reason instanceof Error ? reason : new StreamApiError('בקשת הזרם בוטלה')
       }
-      const msg = e instanceof Error ? e.message : String(e)
-      throw new StreamApiError(
-        `לא ניתן להתחבר ל־Media Bridge (${base}). ודאו ש־npm run dev:api רץ. (${msg})`
-      )
+      throw e
     }
 
     if (!res.ok) {

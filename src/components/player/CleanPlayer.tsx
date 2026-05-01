@@ -62,6 +62,24 @@ export function CleanPlayer({ videoId, title, className }: CleanPlayerProps) {
     setRetryNonce((n) => n + 1)
   }, [])
 
+  /**
+   * Best-effort warm-up: hit `/health` on mount so a sleeping Render free instance
+   * spins up *before* the user actually clicks play. We deliberately swallow errors —
+   * the real `fetchStreamInfo` call already retries once on transient failures.
+   */
+  useEffect(() => {
+    const ac = new AbortController()
+    void fetch(`${getStreamApiBaseUrl()}/health`, {
+      method: 'GET',
+      credentials: 'omit',
+      cache: 'no-store',
+      signal: ac.signal,
+    }).catch(() => {
+      /* warm-up is best-effort */
+    })
+    return () => ac.abort()
+  }, [])
+
   useEffect(() => {
     let attachRafId: number | null = null
     let cancelled = false

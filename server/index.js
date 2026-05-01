@@ -59,6 +59,21 @@ const WRITABLE_YT_COOKIES_PATH = '/tmp/youtube_cookies.txt'
 const YT_DLP_CACHE_DIR = '/tmp/yt-dlp-cache'
 const YT_OAUTH_TOKEN_PATH = (process.env.YT_OAUTH_TOKEN_PATH || '/etc/secrets/yt_oauth_token.json').trim()
 const YT_UPSTREAM_TIMEOUT_MS = 60_000
+/**
+ * Hard ceiling for the *total* time `resolveUpstream` is allowed to spend across
+ * all backends. Stays safely below the frontend's `STREAM_INFO_TIMEOUT_MS` so the
+ * client always receives a structured response (success or 502) rather than a
+ * generic abort/"Failed to fetch" after its own timer fires.
+ */
+const OVERALL_RESOLVE_BUDGET_MS = Number(process.env.OVERALL_RESOLVE_BUDGET_MS) || 70_000
+/** Per-Piped-instance fetch timeout. Public instances are unstable — fail fast. */
+const PIPED_PER_INSTANCE_TIMEOUT_MS = Number(process.env.PIPED_PER_INSTANCE_TIMEOUT_MS) || 8_000
+/** Cap how many Piped instances we try per request so dead instances can't exhaust the budget. */
+const PIPED_MAX_INSTANCES_PER_REQUEST = Number(process.env.PIPED_MAX_INSTANCES_PER_REQUEST) || 6
+/** Per-strategy timeout for `ytdl.getInfo` — there are 3 strategies. */
+const YTDL_GETINFO_TIMEOUT_MS = Number(process.env.YTDL_GETINFO_TIMEOUT_MS) || 20_000
+/** Per-attempt timeout for the yt-dlp CLI; the resolver also enforces the overall budget. */
+const YT_DLP_PER_ATTEMPT_TIMEOUT_MS = Number(process.env.YT_DLP_PER_ATTEMPT_TIMEOUT_MS) || 25_000
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
@@ -598,39 +613,49 @@ function getSegmentRec(token) {
 // --- resolution chain --------------------------------------------------------
 
 async function resolveUpstream(videoId) {
+  const startedAt = Date.now()
+  const remaining = () => Math.max(0, OVERALL_RESOLVE_BUDGET_MS - (Date.now() - startedAt))
   let lastErr
-  try {
-    const p = await resolveViaPiped(videoId)
-    if (p) {
-      return {
-        upstreamUrl: p.url,
-        hls: p.hls,
-        mimeType: p.mimeType ?? (p.hls ? 'application/x-mpegURL' : 'video/mp4'),
-        quality: p.quality,
-        source: 'piped',
-      }
-    }
-  } catch (e) {
-    lastErr = e
-    console.warn('[resolve] Piped failed:', e instanceof Error ? e.message : e)
-  }
-  try {
-    const y = await resolveViaYtdl(videoId)
-    return { upstreamUrl: y.url, hls: y.hls, mimeType: y.mimeType, quality: y.quality, source: 'ytdl' }
-  } catch (e) {
-    lastErr = e
-    console.warn('[resolve] ytdl failed:', e instanceof Error ? e.message : e)
-  }
-  if (YT_DLP_ENABLE) {
+  if (remaining() > 1_000) {
     try {
-      const d = await resolveViaYtDlpCli(videoId)
+      const p = await resolveViaPiped(videoId, remaining())
+      if (p) {
+        return {
+          upstreamUrl: p.url,
+          hls: p.hls,
+          mimeType: p.mimeType ?? (p.hls ? 'application/x-mpegURL' : 'video/mp4'),
+          quality: p.quality,
+          source: 'piped',
+        }
+      }
+    } catch (e) {
+      lastErr = e
+      console.warn('[resolve] Piped failed:', e instanceof Error ? e.message : e)
+    }
+  }
+  if (remaining() > 5_000) {
+    try {
+      const y = await resolveViaYtdl(videoId, remaining())
+      return { upstreamUrl: y.url, hls: y.hls, mimeType: y.mimeType, quality: y.quality, source: 'ytdl' }
+    } catch (e) {
+      lastErr = e
+      console.warn('[resolve] ytdl failed:', e instanceof Error ? e.message : e)
+    }
+  } else {
+    console.warn(`[resolve] skipping ytdl: only ${remaining()}ms left in budget`)
+  }
+  if (YT_DLP_ENABLE && remaining() > 5_000) {
+    try {
+      const d = await resolveViaYtDlpCli(videoId, null, remaining())
       return { upstreamUrl: d.url, hls: d.hls, mimeType: d.mimeType, quality: d.quality, source: 'ytdlp' }
     } catch (e) {
       lastErr = e
       console.warn('[resolve] yt-dlp failed:', e instanceof Error ? e.message : e)
     }
+  } else if (YT_DLP_ENABLE) {
+    console.warn(`[resolve] skipping yt-dlp: only ${remaining()}ms left in budget`)
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || 'all backends failed'))
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || 'all backends failed within budget'))
 }
 
 function normalizePipedBase(s) {
@@ -705,9 +730,16 @@ function collectPipedErrorText(data, textSnippet) {
   return parts.join(' ').toLowerCase()
 }
 
-async function resolveViaPiped(videoId) {
-  const bases = getPipedBasesOrdered()
+async function resolveViaPiped(videoId, budgetMs = PIPED_PER_INSTANCE_TIMEOUT_MS * PIPED_MAX_INSTANCES_PER_REQUEST) {
+  const startedAt = Date.now()
+  const remaining = () => Math.max(0, budgetMs - (Date.now() - startedAt))
+  const bases = getPipedBasesOrdered().slice(0, PIPED_MAX_INSTANCES_PER_REQUEST)
   for (const base of bases) {
+    const perInstanceMs = Math.min(PIPED_PER_INSTANCE_TIMEOUT_MS, remaining())
+    if (perInstanceMs < 1_000) {
+      console.warn('[piped] budget exhausted, skipping remaining instances')
+      break
+    }
     const url = `${base}/streams/${encodeURIComponent(videoId)}`
     let r
     let textBody = ''
@@ -715,7 +747,7 @@ async function resolveViaPiped(videoId) {
       r = await fetch(url, {
         method: 'GET',
         headers: PIPED_FETCH_HEADERS,
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(perInstanceMs),
         redirect: 'follow',
       })
     } catch (e) {
@@ -871,19 +903,26 @@ const YTDL_CLIENT_STRATEGIES = [
   ['IOS', 'ANDROID', 'TV', 'WEB_EMBEDDED', 'WEB'],
 ]
 
-async function resolveViaYtdl(videoId) {
+async function resolveViaYtdl(videoId, budgetMs = YTDL_GETINFO_TIMEOUT_MS * YTDL_CLIENT_STRATEGIES.length) {
   const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
   const base = buildYtdlGetInfoBaseOptions()
+  const startedAt = Date.now()
+  const remaining = () => Math.max(0, budgetMs - (Date.now() - startedAt))
   let lastError = new Error('ytdl: no attempt ran')
 
   for (const playerClients of YTDL_CLIENT_STRATEGIES) {
+    const perAttemptMs = Math.min(YTDL_GETINFO_TIMEOUT_MS, remaining())
+    if (perAttemptMs < 1_500) {
+      console.warn('[ytdl] budget exhausted, skipping remaining strategies')
+      break
+    }
     try {
       const info = await withTimeout(
         ytdl.getInfo(url, {
           ...base,
           playerClients,
         }),
-        YT_UPSTREAM_TIMEOUT_MS,
+        perAttemptMs,
         'ytdl getInfo'
       )
       return pickYtdlFormatResult(info)
@@ -944,8 +983,10 @@ function pickYtdlFormatResult(info) {
 
 // --- yt-dlp CLI --------------------------------------------------------------
 
-async function resolveViaYtDlpCli(videoId, diagnostics = null) {
+async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPSTREAM_TIMEOUT_MS) {
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
+  const ytdlpStartedAt = Date.now()
+  const ytdlpRemaining = () => Math.max(0, budgetMs - (Date.now() - ytdlpStartedAt))
   /** youtube:player_client selects InnerTube clients; web_embedded + mweb look less like anonymous bot traffic. */
   const primaryExtractorArgs =
     (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web'
@@ -1008,10 +1049,18 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   }
 
   for (const attempt of attempts) {
+    const perAttemptMs = Math.min(YT_DLP_PER_ATTEMPT_TIMEOUT_MS, ytdlpRemaining())
+    if (perAttemptMs < 2_000) {
+      console.warn(`[ytdlp] budget exhausted before attempt=${attempt.name}, skipping`)
+      if (diagnostics?.attempts) {
+        diagnostics.attempts.push({ mode: attempt.name, ok: false, detail: 'skipped: budget exhausted' })
+      }
+      break
+    }
     const args = [...baseArgs, ...attempt.args, ...ffmpegArgs, watchUrl]
     let stdout = ''
     try {
-      const result = await runYtDlpWithRealtimeLogs(args, YT_UPSTREAM_TIMEOUT_MS)
+      const result = await runYtDlpWithRealtimeLogs(args, perAttemptMs)
       stdout = result.stdout || ''
       const stderr = result.stderr || ''
       if (stderr) console.log('[ytdlp] stderr:', stderr)
