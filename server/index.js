@@ -82,6 +82,27 @@ const PIPED_MAX_INSTANCES_PER_REQUEST = Number(process.env.PIPED_MAX_INSTANCES_P
 const YTDL_GETINFO_TIMEOUT_MS = Number(process.env.YTDL_GETINFO_TIMEOUT_MS) || 20_000
 /** Per-attempt timeout for the yt-dlp CLI; the resolver also enforces the overall budget. */
 const YT_DLP_PER_ATTEMPT_TIMEOUT_MS = Number(process.env.YT_DLP_PER_ATTEMPT_TIMEOUT_MS) || 25_000
+/**
+ * Memory of which Piped/Invidious instances just blocked us — `base -> expirationTimestamp`.
+ * Render's outbound IPs are widely blacklisted by public proxies; without this cache we'd
+ * waste every request retrying the same dead instances.
+ */
+const DEAD_INSTANCE_TTL_MS = Number(process.env.DEAD_INSTANCE_TTL_MS) || 5 * 60 * 1000
+/** @type {Map<string, number>} */
+const deadInstances = new Map()
+function markInstanceDead(base, reason) {
+  deadInstances.set(base, Date.now() + DEAD_INSTANCE_TTL_MS)
+  console.warn(`[deadcache] ${base} marked dead for ${Math.round(DEAD_INSTANCE_TTL_MS / 1000)}s (${reason})`)
+}
+function isInstanceDead(base) {
+  const exp = deadInstances.get(base)
+  if (!exp) return false
+  if (Date.now() > exp) {
+    deadInstances.delete(base)
+    return false
+  }
+  return true
+}
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
@@ -655,65 +676,83 @@ function getSegmentRec(token) {
 
 // --- resolution chain --------------------------------------------------------
 
+/**
+ * Resolves an active cookies source — env header OR Netscape file. Used to dynamically
+ * pick the resolver order: when YouTube cookies are present, `ytdl/yt-dlp` are dramatically
+ * more reliable than Render-IP-blacklisted public Piped/Invidious mirrors.
+ */
+function hasUsableYoutubeAuth() {
+  if ((process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()) return true
+  const cookieFileEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookieFilePath =
+    cookieFileEnv ||
+    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  if (!cookieFilePath) return false
+  const status = inspectYoutubeCookiesFile(cookieFilePath)
+  return Boolean(status.usable && status.hasRequiredAuthCookies)
+}
+
 async function resolveUpstream(videoId) {
   const startedAt = Date.now()
   const remaining = () => Math.max(0, OVERALL_RESOLVE_BUDGET_MS - (Date.now() - startedAt))
   let lastErr
-  if (remaining() > 1_000) {
+  const cookiesReady = hasUsableYoutubeAuth()
+  /**
+   * Cookie-aware ordering:
+   *  - With cookies → `ytdl` (cookie-aware now) and `yt-dlp` (cookie-aware) work well
+   *    even on Render's blacklisted IPs; public proxies (Piped/Invidious) are mostly dead.
+   *  - Without cookies → public proxies are the only practical bypass for bot/IP blocks.
+   */
+  const resolverOrder = cookiesReady
+    ? ['ytdl', 'ytdlp', 'invidious', 'piped']
+    : ['invidious', 'piped', 'ytdl', 'ytdlp']
+  console.log(`[resolve] order=${resolverOrder.join('->')} cookies=${cookiesReady ? 'ready' : 'absent'}`)
+
+  for (const stage of resolverOrder) {
+    if (remaining() < 1_000) break
     try {
-      const inv = await resolveViaInvidious(videoId, remaining())
-      if (inv) {
-        return {
-          upstreamUrl: inv.url,
-          hls: inv.hls,
-          mimeType: inv.mimeType ?? (inv.hls ? 'application/x-mpegURL' : 'video/mp4'),
-          quality: inv.quality,
-          source: 'invidious',
+      if (stage === 'invidious') {
+        const inv = await resolveViaInvidious(videoId, remaining())
+        if (inv) {
+          return {
+            upstreamUrl: inv.url,
+            hls: inv.hls,
+            mimeType: inv.mimeType ?? (inv.hls ? 'application/x-mpegURL' : 'video/mp4'),
+            quality: inv.quality,
+            source: 'invidious',
+          }
         }
+      } else if (stage === 'piped') {
+        const p = await resolveViaPiped(videoId, remaining())
+        if (p) {
+          return {
+            upstreamUrl: p.url,
+            hls: p.hls,
+            mimeType: p.mimeType ?? (p.hls ? 'application/x-mpegURL' : 'video/mp4'),
+            quality: p.quality,
+            source: 'piped',
+          }
+        }
+      } else if (stage === 'ytdl') {
+        if (remaining() < 5_000) {
+          console.warn(`[resolve] skipping ytdl: only ${remaining()}ms left in budget`)
+          continue
+        }
+        const y = await resolveViaYtdl(videoId, remaining())
+        return { upstreamUrl: y.url, hls: y.hls, mimeType: y.mimeType, quality: y.quality, source: 'ytdl' }
+      } else if (stage === 'ytdlp') {
+        if (!YT_DLP_ENABLE) continue
+        if (remaining() < 5_000) {
+          console.warn(`[resolve] skipping yt-dlp: only ${remaining()}ms left in budget`)
+          continue
+        }
+        const d = await resolveViaYtDlpCli(videoId, null, remaining())
+        return { upstreamUrl: d.url, hls: d.hls, mimeType: d.mimeType, quality: d.quality, source: 'ytdlp' }
       }
     } catch (e) {
       lastErr = e
-      console.warn('[resolve] Invidious failed:', e instanceof Error ? e.message : e)
+      console.warn(`[resolve] ${stage} failed:`, e instanceof Error ? e.message : e)
     }
-  }
-  if (remaining() > 1_000) {
-    try {
-      const p = await resolveViaPiped(videoId, remaining())
-      if (p) {
-        return {
-          upstreamUrl: p.url,
-          hls: p.hls,
-          mimeType: p.mimeType ?? (p.hls ? 'application/x-mpegURL' : 'video/mp4'),
-          quality: p.quality,
-          source: 'piped',
-        }
-      }
-    } catch (e) {
-      lastErr = e
-      console.warn('[resolve] Piped failed:', e instanceof Error ? e.message : e)
-    }
-  }
-  if (remaining() > 5_000) {
-    try {
-      const y = await resolveViaYtdl(videoId, remaining())
-      return { upstreamUrl: y.url, hls: y.hls, mimeType: y.mimeType, quality: y.quality, source: 'ytdl' }
-    } catch (e) {
-      lastErr = e
-      console.warn('[resolve] ytdl failed:', e instanceof Error ? e.message : e)
-    }
-  } else {
-    console.warn(`[resolve] skipping ytdl: only ${remaining()}ms left in budget`)
-  }
-  if (YT_DLP_ENABLE && remaining() > 5_000) {
-    try {
-      const d = await resolveViaYtDlpCli(videoId, null, remaining())
-      return { upstreamUrl: d.url, hls: d.hls, mimeType: d.mimeType, quality: d.quality, source: 'ytdlp' }
-    } catch (e) {
-      lastErr = e
-      console.warn('[resolve] yt-dlp failed:', e instanceof Error ? e.message : e)
-    }
-  } else if (YT_DLP_ENABLE) {
-    console.warn(`[resolve] skipping yt-dlp: only ${remaining()}ms left in budget`)
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || 'all backends failed within budget'))
 }
@@ -820,7 +859,13 @@ function collectPipedErrorText(data, textSnippet) {
 async function resolveViaPiped(videoId, budgetMs = PIPED_PER_INSTANCE_TIMEOUT_MS * PIPED_MAX_INSTANCES_PER_REQUEST) {
   const startedAt = Date.now()
   const remaining = () => Math.max(0, budgetMs - (Date.now() - startedAt))
-  const bases = getPipedBasesOrdered().slice(0, PIPED_MAX_INSTANCES_PER_REQUEST)
+  const bases = getPipedBasesOrdered()
+    .filter((b) => !isInstanceDead(b))
+    .slice(0, PIPED_MAX_INSTANCES_PER_REQUEST)
+  if (!bases.length) {
+    console.warn('[piped] all known instances are in dead-cache, skipping')
+    return null
+  }
   for (const base of bases) {
     const perInstanceMs = Math.min(PIPED_PER_INSTANCE_TIMEOUT_MS, remaining())
     if (perInstanceMs < 1_000) {
@@ -838,7 +883,9 @@ async function resolveViaPiped(videoId, budgetMs = PIPED_PER_INSTANCE_TIMEOUT_MS
         redirect: 'follow',
       })
     } catch (e) {
-      console.warn(`[piped] ${base} request error:`, e instanceof Error ? e.message : e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[piped] ${base} request error:`, msg)
+      markInstanceDead(base, `network: ${msg}`)
       continue
     }
 
@@ -847,10 +894,12 @@ async function resolveViaPiped(videoId, budgetMs = PIPED_PER_INSTANCE_TIMEOUT_MS
       if (r.status === 404) continue
       if (r.status === 403 || r.status === 401 || r.status === 429) {
         console.warn(`[piped] ${base} status ${r.status}, trying next instance`)
+        markInstanceDead(base, `http ${r.status}`)
         continue
       }
       if (r.status >= 500) {
         console.warn(`[piped] ${base} status ${r.status}, trying next instance`)
+        markInstanceDead(base, `http ${r.status}`)
         continue
       }
       continue
@@ -945,7 +994,13 @@ function pickInvidiousResult(payload) {
 async function resolveViaInvidious(videoId, budgetMs = INVIDIOUS_PER_INSTANCE_TIMEOUT_MS * INVIDIOUS_MAX_INSTANCES_PER_REQUEST) {
   const startedAt = Date.now()
   const remaining = () => Math.max(0, budgetMs - (Date.now() - startedAt))
-  const bases = getInvidiousBasesOrdered().slice(0, INVIDIOUS_MAX_INSTANCES_PER_REQUEST)
+  const bases = getInvidiousBasesOrdered()
+    .filter((b) => !isInstanceDead(b))
+    .slice(0, INVIDIOUS_MAX_INSTANCES_PER_REQUEST)
+  if (!bases.length) {
+    console.warn('[invidious] all known instances are in dead-cache, skipping')
+    return null
+  }
   for (const base of bases) {
     const perInstanceMs = Math.min(INVIDIOUS_PER_INSTANCE_TIMEOUT_MS, remaining())
     if (perInstanceMs < 1_000) {
@@ -962,12 +1017,15 @@ async function resolveViaInvidious(videoId, budgetMs = INVIDIOUS_PER_INSTANCE_TI
         redirect: 'follow',
       })
     } catch (e) {
-      console.warn(`[invidious] ${base} request error:`, e instanceof Error ? e.message : e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[invidious] ${base} request error:`, msg)
+      markInstanceDead(base, `network: ${msg}`)
       continue
     }
     if (!r.ok) {
       if (r.status === 403 || r.status === 401 || r.status === 429 || r.status >= 500) {
         console.warn(`[invidious] ${base} status ${r.status}, trying next instance`)
+        markInstanceDead(base, `http ${r.status}`)
       }
       continue
     }
@@ -1002,17 +1060,54 @@ function parseYoutubeCookieHeader(raw) {
     .filter(Boolean)
 }
 
+/**
+ * Parse a Netscape/Mozilla cookies.txt file (the same format yt-dlp consumes) into the
+ * `[{name, value, domain}, ...]` shape that `@distube/ytdl-core`'s `createAgent` expects.
+ * Lets us reuse the YouTube secret already mounted at `/etc/secrets/...` so `ytdl` no longer
+ * hits anonymous-IP rate limits (HTTP 429) on Render.
+ */
+function parseNetscapeCookiesFile(filePath) {
+  if (!filePath || !existsSync(filePath)) return []
+  let text = ''
+  try {
+    text = readFileSync(filePath, 'utf8')
+  } catch {
+    return []
+  }
+  const cookies = []
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    if (line.startsWith('#') && !line.startsWith('#HttpOnly_')) continue
+    const cleaned = line.startsWith('#HttpOnly_') ? line.slice('#HttpOnly_'.length) : line
+    const parts = cleaned.split('\t')
+    if (parts.length < 7) continue
+    const [domain, , path, , , name, value] = parts
+    if (!name || value === undefined) continue
+    cookies.push({ name, value, domain: domain || '.youtube.com', path: path || '/' })
+  }
+  return cookies
+}
+
 function getYtdlAgent() {
-  const raw = process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || ''
-  const key = raw.trim() || 'default'
+  const rawHeader = process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || ''
+  const cookieFileEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const cookieFilePath =
+    cookieFileEnv ||
+    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+
+  const cookies = rawHeader.trim() ? parseYoutubeCookieHeader(rawHeader) : parseNetscapeCookiesFile(cookieFilePath)
+  const source = rawHeader.trim() ? 'env-header' : cookieFilePath ? `file:${cookieFilePath}` : 'none'
+  const key = `${source}::${cookies.length}`
   if (cachedYtdlAgent.key === key && cachedYtdlAgent.agent) {
     return cachedYtdlAgent.agent
   }
-  const cookies = parseYoutubeCookieHeader(raw)
   const agent = cookies.length > 0 ? ytdl.createAgent(cookies) : null
   cachedYtdlAgent = { key, agent }
   if (cookies.length > 0) {
-    console.log('[ytdl] using YOUTUBE_COOKIES (count:', cookies.length, ')')
+    console.log(`[ytdl] using cookies (count: ${cookies.length}, source: ${source})`)
+  } else {
+    console.warn('[ytdl] no cookies available — anonymous requests are likely to hit YouTube rate limits (429)')
   }
   return agent
 }
