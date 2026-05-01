@@ -145,12 +145,19 @@ const DEFAULT_PIPED_BASES = [
 ]
 const INVIDIOUS_PER_INSTANCE_TIMEOUT_MS = Number(process.env.INVIDIOUS_PER_INSTANCE_TIMEOUT_MS) || 8_000
 const INVIDIOUS_MAX_INSTANCES_PER_REQUEST = Number(process.env.INVIDIOUS_MAX_INSTANCES_PER_REQUEST) || 6
+const PREFERRED_INVIDIOUS_BASES = ['https://inv.nadeko.net', 'https://invidious.projectsegfau.lt']
 const DEFAULT_INVIDIOUS_BASES = [
-  'https://invidious.privacyredirect.com',
-  'https://invidious.projectsegfau.lt',
   'https://inv.nadeko.net',
+  'https://invidious.projectsegfau.lt',
+  'https://invidious.privacyredirect.com',
   'https://invidious.slipfox.xyz',
   'https://vid.puffyan.us',
+  'https://yewtu.be',
+  'https://invidious.private.coffee',
+  'https://invidious.perennialte.ch',
+  'https://invidious.jing.rocks',
+  'https://invidious.fdn.fr',
+  'https://invidious.protokolla.fi',
 ]
 
 let cachedYtdlAgent = { key: null, agent: null }
@@ -560,7 +567,7 @@ app.listen(PORT, () => {
   )
   console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
   console.log(
-    `[media-bridge] Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks, yt-dlp: ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
+    `[media-bridge] Invidious: preferred (${PREFERRED_INVIDIOUS_BASES.length}), total (${DEFAULT_INVIDIOUS_BASES.length}); Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks; yt-dlp(last resort): ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
   )
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
@@ -627,23 +634,6 @@ async function resolveUpstream(videoId) {
   let lastErr
   if (remaining() > 1_000) {
     try {
-      const p = await resolveViaPiped(videoId, remaining())
-      if (p) {
-        return {
-          upstreamUrl: p.url,
-          hls: p.hls,
-          mimeType: p.mimeType ?? (p.hls ? 'application/x-mpegURL' : 'video/mp4'),
-          quality: p.quality,
-          source: 'piped',
-        }
-      }
-    } catch (e) {
-      lastErr = e
-      console.warn('[resolve] Piped failed:', e instanceof Error ? e.message : e)
-    }
-  }
-  if (remaining() > 1_000) {
-    try {
       const inv = await resolveViaInvidious(videoId, remaining())
       if (inv) {
         return {
@@ -657,6 +647,23 @@ async function resolveUpstream(videoId) {
     } catch (e) {
       lastErr = e
       console.warn('[resolve] Invidious failed:', e instanceof Error ? e.message : e)
+    }
+  }
+  if (remaining() > 1_000) {
+    try {
+      const p = await resolveViaPiped(videoId, remaining())
+      if (p) {
+        return {
+          upstreamUrl: p.url,
+          hls: p.hls,
+          mimeType: p.mimeType ?? (p.hls ? 'application/x-mpegURL' : 'video/mp4'),
+          quality: p.quality,
+          source: 'piped',
+        }
+      }
+    } catch (e) {
+      lastErr = e
+      console.warn('[resolve] Piped failed:', e instanceof Error ? e.message : e)
     }
   }
   if (remaining() > 5_000) {
@@ -723,6 +730,11 @@ function getInvidiousBasesOrdered() {
   const seen = new Set()
   const out = []
   for (const b of fromEnv) {
+    if (seen.has(b)) continue
+    seen.add(b)
+    out.push(b)
+  }
+  for (const b of PREFERRED_INVIDIOUS_BASES) {
     if (seen.has(b)) continue
     seen.add(b)
     out.push(b)
