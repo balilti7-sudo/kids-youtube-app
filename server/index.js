@@ -5,7 +5,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
@@ -55,8 +55,9 @@ const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' |
 /** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
 const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube_cookies.txt'
+const WRITABLE_YT_COOKIES_PATH = '/tmp/youtube_cookies.txt'
+const YT_DLP_CACHE_DIR = '/tmp/yt-dlp-cache'
 const YT_OAUTH_TOKEN_PATH = (process.env.YT_OAUTH_TOKEN_PATH || '/etc/secrets/yt_oauth_token.json').trim()
-const YT_OAUTH_TOKEN_DIR = path.dirname(YT_OAUTH_TOKEN_PATH)
 const YT_UPSTREAM_TIMEOUT_MS = 10_000
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
@@ -948,14 +949,17 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   /** youtube:player_client selects InnerTube clients; web_embedded + mweb look less like anonymous bot traffic. */
   const primaryExtractorArgs =
     (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web'
+  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  const readonlyCookiesPath =
+    cookiesFromEnv ||
+    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const writableCookiesPath = ensureWritableCookies(readonlyCookiesPath)
   const baseArgs = [
     '--no-warnings',
     '--no-cookies-from-browser',
     '--no-check-certificate',
-    '--cookies',
-    RENDER_YT_COOKIES_PATH,
     '--cache-dir',
-    YT_OAUTH_TOKEN_DIR,
+    YT_DLP_CACHE_DIR,
     '--get-url',
     '-f',
     'b/best',
@@ -964,8 +968,12 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     '--add-header',
     'Accept-Language:en-US,en;q=0.9',
   ]
-  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : YT_DLP_DEFAULT_COOKIES)
+  if (writableCookiesPath) {
+    baseArgs.push('--cookies', writableCookiesPath)
+  } else if (readonlyCookiesPath) {
+    console.warn(`[ytdlp] cookies file exists but writable copy is unavailable (${readonlyCookiesPath}); continuing without --cookies`)
+  }
+  const cookiesFile = writableCookiesPath || readonlyCookiesPath
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
   /** One --extractor-args per attempt — yt-dlp does not use separate --player-client CLI flags like some wrappers. */
   const attempts = []
@@ -1164,6 +1172,26 @@ function runYtDlpWithRealtimeLogs(args, timeoutMs) {
       resolve({ stdout, stderr, code })
     })
   })
+}
+
+function ensureWritableCookies(readonlyCookiesPath) {
+  if (!readonlyCookiesPath || !existsSync(readonlyCookiesPath)) return null
+  try {
+    const srcStat = statSync(readonlyCookiesPath)
+    let needCopy = true
+    if (existsSync(WRITABLE_YT_COOKIES_PATH)) {
+      const dstStat = statSync(WRITABLE_YT_COOKIES_PATH)
+      needCopy = srcStat.mtimeMs > dstStat.mtimeMs
+    }
+    if (needCopy) {
+      copyFileSync(readonlyCookiesPath, WRITABLE_YT_COOKIES_PATH)
+      chmodSync(WRITABLE_YT_COOKIES_PATH, 0o600)
+    }
+    return WRITABLE_YT_COOKIES_PATH
+  } catch (err) {
+    console.error('[ytdlp] failed to prepare writable cookies copy:', err)
+    return null
+  }
 }
 
 function hasUsableCookiesFile(filePath) {
