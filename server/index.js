@@ -54,9 +54,10 @@ const YT_DLP_PATH = (process.env.YT_DLP_PATH || DEFAULT_YT_DLP).trim()
 const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' || process.env.YT_DLP_ENABLE === 'true'
 /** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
-const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube.com_cookies.txt'
+const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube_cookies.txt'
 const YT_OAUTH_TOKEN_PATH = (process.env.YT_OAUTH_TOKEN_PATH || '/etc/secrets/yt_oauth_token.json').trim()
 const YT_OAUTH_TOKEN_DIR = path.dirname(YT_OAUTH_TOKEN_PATH)
+const YT_UPSTREAM_TIMEOUT_MS = 10_000
 const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
@@ -80,13 +81,12 @@ function bundledFfmpegPath() {
  */
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '')
 
-const BROWSER_UA =
-  process.env.BROWSER_USER_AGENT ||
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+const MODERN_CHROME_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+const BROWSER_UA = (process.env.BROWSER_USER_AGENT || '').trim() || MODERN_CHROME_UA
 
 /** Match exported cookies/browser; override in Render via YT_DLP_USER_AGENT (Chrome UA recommended). */
-const CHROME_COOKIES_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+const CHROME_COOKIES_UA = MODERN_CHROME_UA
 const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_COOKIES_UA
 
 const PIPED_FETCH_HEADERS = {
@@ -835,6 +835,24 @@ function isLikelyYtdlBotError(err) {
   return /sign in|not a bot|bot|confirm you|challeng|unavailable|login required/i.test(m)
 }
 
+function withTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`))
+    }, timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      }
+    )
+  })
+}
+
 function buildYtdlGetInfoBaseOptions() {
   const agent = getYtdlAgent()
   const requestOptions = {
@@ -859,10 +877,14 @@ async function resolveViaYtdl(videoId) {
 
   for (const playerClients of YTDL_CLIENT_STRATEGIES) {
     try {
-      const info = await ytdl.getInfo(url, {
-        ...base,
-        playerClients,
-      })
+      const info = await withTimeout(
+        ytdl.getInfo(url, {
+          ...base,
+          playerClients,
+        }),
+        YT_UPSTREAM_TIMEOUT_MS,
+        'ytdl getInfo'
+      )
       return pickYtdlFormatResult(info)
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e))
@@ -931,7 +953,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     '--no-cookies-from-browser',
     '--no-check-certificate',
     '--cookies',
-    '/etc/secrets/youtube_cookies.txt',
+    RENDER_YT_COOKIES_PATH,
     '--cache-dir',
     YT_OAUTH_TOKEN_DIR,
     '--get-url',
@@ -981,7 +1003,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     const args = [...baseArgs, ...attempt.args, ...ffmpegArgs, watchUrl]
     let stdout = ''
     try {
-      const result = await runYtDlpWithRealtimeLogs(args, 120_000)
+      const result = await runYtDlpWithRealtimeLogs(args, YT_UPSTREAM_TIMEOUT_MS)
       stdout = result.stdout || ''
       const stderr = result.stderr || ''
       if (stderr) console.log('[ytdlp] stderr:', stderr)
@@ -1002,10 +1024,20 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
       lastError = e
       if (diagnostics?.attempts) diagnostics.attempts.push({ mode: attempt.name, ok: false, detail: msg })
 
+      const is403OrBot =
+        /\b403\b/.test(msg) ||
+        /http error 403|forbidden|confirm you're not a bot|sign in to confirm|bot/i.test(`${msg}\n${stderr}\n${stdoutFromErr}`)
+      if (is403OrBot) {
+        console.error('********** YOUTUBE 403/BOT DETECTION **********')
+        console.error(`[ytdlp] attempt=${attempt.name}`)
+        console.error(msg)
+        console.error('***********************************************')
+      }
       if (
         msg.includes('Private video. Sign in if you') ||
         msg.includes('Sign in to confirm you') ||
-        msg.includes("confirm you're not a bot")
+        msg.includes("confirm you're not a bot") ||
+        /\b403\b/.test(msg)
       ) {
         console.warn(`[ytdlp] ${attempt.name} auth/bot gate, trying next mode`)
         continue
