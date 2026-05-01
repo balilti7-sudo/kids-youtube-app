@@ -930,10 +930,8 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
     '--no-warnings',
     '--no-cookies-from-browser',
     '--no-check-certificate',
-    '--username',
-    'oauth2',
-    '--password',
-    '',
+    '--cookies',
+    '/etc/secrets/youtube_cookies.txt',
     '--cache-dir',
     YT_OAUTH_TOKEN_DIR,
     '--get-url',
@@ -952,11 +950,11 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null) {
   if (cookieStatus.usable && cookieStatus.hasRequiredAuthCookies) {
     attempts.push({
       name: 'cookies-web_embedded',
-      args: ['--cookies', cookiesFile, '--extractor-args', primaryExtractorArgs],
+      args: ['--extractor-args', primaryExtractorArgs],
     })
     attempts.push({
       name: 'cookies-fallback_tv',
-      args: ['--cookies', cookiesFile, '--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
+      args: ['--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
     })
   } else if (cookieStatus.filePath) {
     console.warn(`[ytdlp] cookies file not auth-ready (${cookieStatus.reason || 'unknown'})`)
