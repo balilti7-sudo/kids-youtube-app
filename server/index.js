@@ -39,13 +39,21 @@ const corsOptions = {
   origin: '*',
   credentials: false,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: '*',
+  /**
+   * IMPORTANT: per the Fetch spec, the wildcard `*` in `Access-Control-Allow-Headers`
+   * does **not** cover the `Authorization` header. Our frontend sends a Supabase
+   * Bearer token to `/api/stream/:videoId`, so the preflight must explicitly list
+   * `Authorization` or the browser will silently strip the header and the actual
+   * request is blocked with a CORS error before it ever reaches Express.
+   */
+  allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'Range', 'X-Requested-With'],
   /**
    * Expose range/length headers so the browser's `<video>` element can do native
    * seeking on `/api/media/:videoId` (direct mp4 case). Without these, Chrome
    * won't see `Content-Range` on the cross-origin response and will error.
    */
   exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges', 'Content-Type'],
+  maxAge: 600,
 }
 
 const STREAM_CACHE_TTL_MS = Number(process.env.STREAM_CACHE_TTL_MS) || 50 * 60 * 1000
@@ -187,6 +195,25 @@ app.use((req, res, next) => {
 })
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
+/**
+ * Belt-and-suspenders: also reflect any extra headers the browser asks for in
+ * `Access-Control-Request-Headers`. Some clients send custom headers (sentry,
+ * tracing, etc.) that we don't list explicitly above; reflecting keeps preflight
+ * green without weakening the listed defaults.
+ */
+app.use((req, res, next) => {
+  const reqHeaders = req.headers['access-control-request-headers']
+  if (reqHeaders) {
+    res.setHeader('Access-Control-Allow-Headers', reqHeaders)
+    res.setHeader('Vary', 'Origin, Access-Control-Request-Headers')
+  }
+  if (req.method === 'OPTIONS') {
+    console.log(
+      `[cors] preflight ${req.originalUrl || req.url} from origin=${req.headers.origin || 'n/a'} req-headers=${reqHeaders || 'n/a'}`
+    )
+  }
+  next()
+})
 /**
  * Allow any embedder to load media responses cross-origin. Without this, Chrome's
  * default `Cross-Origin-Resource-Policy: same-origin` blocks the `<video>` element
