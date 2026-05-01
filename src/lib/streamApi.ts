@@ -145,7 +145,6 @@ async function doFetchStreamInfo(
   videoId: string,
   { signal, timeoutMs }: { signal?: AbortSignal; timeoutMs: number }
 ): Promise<StreamApiResponse> {
-  const base = getStreamApiBaseUrl()
   const url = buildStreamApiUrl(`/api/stream/${encodeURIComponent(videoId)}`)
 
   const controller = new AbortController()
