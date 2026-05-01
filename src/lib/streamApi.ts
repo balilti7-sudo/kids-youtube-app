@@ -13,7 +13,7 @@ export type StreamApiResponse = {
   note?: string
 }
 
-const DEFAULT_MEDIA_BRIDGE = 'http://localhost:8787'
+const DEFAULT_MEDIA_BRIDGE = 'https://safetube-media-bridge.onrender.com'
 
 function parseValidHttpBaseOrNull(rawBase: string): string | null {
   const trimmed = rawBase.trim()
@@ -50,13 +50,12 @@ export const MEDIA_BRIDGE_BASE: string = (() => {
     console.info('[streamApi] Media Bridge base:', base)
   } else if (v.length === 0) {
     console.error(
-      '[streamApi] VITE_STREAM_API_BASE is missing in production build — falling back to localhost. ' +
-        'Streaming will fail. Set VITE_STREAM_API_BASE in your hosting provider environment and rebuild.'
+      '[streamApi] VITE_STREAM_API_BASE is missing in production build — falling back to Render Media Bridge URL.'
     )
   } else if (!configured) {
     console.error(
       `[streamApi] VITE_STREAM_API_BASE is invalid ("${v}"). ` +
-        'Expected absolute http(s) URL (e.g. https://your-render-service.onrender.com).'
+        `Expected absolute http(s) URL. Falling back to ${DEFAULT_MEDIA_BRIDGE}.`
     )
   }
   return base
