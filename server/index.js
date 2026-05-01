@@ -143,6 +143,15 @@ const DEFAULT_PIPED_BASES = [
   'https://pipedapi.nerdvpn.de',
   'https://api.piped.coderabbit.de',
 ]
+const INVIDIOUS_PER_INSTANCE_TIMEOUT_MS = Number(process.env.INVIDIOUS_PER_INSTANCE_TIMEOUT_MS) || 8_000
+const INVIDIOUS_MAX_INSTANCES_PER_REQUEST = Number(process.env.INVIDIOUS_MAX_INSTANCES_PER_REQUEST) || 6
+const DEFAULT_INVIDIOUS_BASES = [
+  'https://invidious.privacyredirect.com',
+  'https://invidious.projectsegfau.lt',
+  'https://inv.nadeko.net',
+  'https://invidious.slipfox.xyz',
+  'https://vid.puffyan.us',
+]
 
 let cachedYtdlAgent = { key: null, agent: null }
 
@@ -633,6 +642,23 @@ async function resolveUpstream(videoId) {
       console.warn('[resolve] Piped failed:', e instanceof Error ? e.message : e)
     }
   }
+  if (remaining() > 1_000) {
+    try {
+      const inv = await resolveViaInvidious(videoId, remaining())
+      if (inv) {
+        return {
+          upstreamUrl: inv.url,
+          hls: inv.hls,
+          mimeType: inv.mimeType ?? (inv.hls ? 'application/x-mpegURL' : 'video/mp4'),
+          quality: inv.quality,
+          source: 'invidious',
+        }
+      }
+    } catch (e) {
+      lastErr = e
+      console.warn('[resolve] Invidious failed:', e instanceof Error ? e.message : e)
+    }
+  }
   if (remaining() > 5_000) {
     try {
       const y = await resolveViaYtdl(videoId, remaining())
@@ -662,6 +688,10 @@ function normalizePipedBase(s) {
   return s.trim().replace(/\/$/, '')
 }
 
+function normalizeInvidiousBase(s) {
+  return s.trim().replace(/\/$/, '')
+}
+
 function getPipedBasesOrdered() {
   const fromEnv = (process.env.PIPED_API_BASES || '')
     .split(',')
@@ -681,6 +711,24 @@ function getPipedBasesOrdered() {
   }
   const rest = shuffle(
     DEFAULT_PIPED_BASES.filter((b) => !seen.has(b))
+  )
+  return [...out, ...rest]
+}
+
+function getInvidiousBasesOrdered() {
+  const fromEnv = (process.env.INVIDIOUS_API_BASES || '')
+    .split(',')
+    .map((s) => normalizeInvidiousBase(s))
+    .filter(Boolean)
+  const seen = new Set()
+  const out = []
+  for (const b of fromEnv) {
+    if (seen.has(b)) continue
+    seen.add(b)
+    out.push(b)
+  }
+  const rest = shuffle(
+    DEFAULT_INVIDIOUS_BASES.filter((b) => !seen.has(b))
   )
   return [...out, ...rest]
 }
@@ -825,6 +873,73 @@ async function resolveViaPiped(videoId, budgetMs = PIPED_PER_INSTANCE_TIMEOUT_MS
         quality: anyV.quality ? String(anyV.quality) : null,
       }
     }
+  }
+  return null
+}
+
+function pickInvidiousResult(payload) {
+  if (!payload || typeof payload !== 'object') return null
+  if (typeof payload.hlsUrl === 'string' && payload.hlsUrl.startsWith('http')) {
+    return { url: payload.hlsUrl, hls: true, mimeType: 'application/x-mpegURL', quality: 'HLS' }
+  }
+  const streams = []
+  if (Array.isArray(payload.adaptiveFormats)) streams.push(...payload.adaptiveFormats)
+  if (Array.isArray(payload.formatStreams)) streams.push(...payload.formatStreams)
+  const candidates = streams.filter(
+    (s) =>
+      s &&
+      typeof s.url === 'string' &&
+      s.url.startsWith('http') &&
+      (String(s.type || s.mimeType || '').includes('video') || String(s.container || '').toLowerCase() === 'mp4')
+  )
+  if (!candidates.length) return null
+  const best = [...candidates].sort((a, b) => Number(b.bitrate || 0) - Number(a.bitrate || 0))[0]
+  const type = String(best.type || best.mimeType || '').split(';')[0].trim() || 'video/mp4'
+  return {
+    url: best.url,
+    hls: false,
+    mimeType: type,
+    quality: best.qualityLabel || best.quality || null,
+  }
+}
+
+async function resolveViaInvidious(videoId, budgetMs = INVIDIOUS_PER_INSTANCE_TIMEOUT_MS * INVIDIOUS_MAX_INSTANCES_PER_REQUEST) {
+  const startedAt = Date.now()
+  const remaining = () => Math.max(0, budgetMs - (Date.now() - startedAt))
+  const bases = getInvidiousBasesOrdered().slice(0, INVIDIOUS_MAX_INSTANCES_PER_REQUEST)
+  for (const base of bases) {
+    const perInstanceMs = Math.min(INVIDIOUS_PER_INSTANCE_TIMEOUT_MS, remaining())
+    if (perInstanceMs < 1_000) {
+      console.warn('[invidious] budget exhausted, skipping remaining instances')
+      break
+    }
+    const url = `${base}/api/v1/videos/${encodeURIComponent(videoId)}`
+    let r
+    try {
+      r = await fetch(url, {
+        method: 'GET',
+        headers: PIPED_FETCH_HEADERS,
+        signal: AbortSignal.timeout(perInstanceMs),
+        redirect: 'follow',
+      })
+    } catch (e) {
+      console.warn(`[invidious] ${base} request error:`, e instanceof Error ? e.message : e)
+      continue
+    }
+    if (!r.ok) {
+      if (r.status === 403 || r.status === 401 || r.status === 429 || r.status >= 500) {
+        console.warn(`[invidious] ${base} status ${r.status}, trying next instance`)
+      }
+      continue
+    }
+    let data
+    try {
+      data = await r.json()
+    } catch {
+      continue
+    }
+    const picked = pickInvidiousResult(data)
+    if (picked) return picked
   }
   return null
 }

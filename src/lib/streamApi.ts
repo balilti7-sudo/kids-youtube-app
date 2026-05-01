@@ -15,6 +15,25 @@ export type StreamApiResponse = {
 
 const DEFAULT_MEDIA_BRIDGE = 'http://localhost:8787'
 
+function parseValidHttpBaseOrNull(rawBase: string): string | null {
+  const trimmed = rawBase.trim()
+  if (!trimmed) return null
+  const unquoted = trimmed.replace(/^['"]+|['"]+$/g, '')
+  if (!unquoted) return null
+  let candidate = unquoted
+  if (candidate.startsWith('//')) candidate = `https:${candidate}`
+  if (!/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(candidate)) {
+    candidate = `https://${candidate}`
+  }
+  try {
+    const u = new URL(candidate)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    return u.origin
+  } catch {
+    return null
+  }
+}
+
 /**
  * Local Media Bridge (no trailing slash). Defaults to port 8787; override with
  * `VITE_STREAM_API_BASE` if the server listens elsewhere (restart Vite after changing `.env`).
@@ -24,13 +43,20 @@ const DEFAULT_MEDIA_BRIDGE = 'http://localhost:8787'
  */
 export const MEDIA_BRIDGE_BASE: string = (() => {
   const v = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
-  const base = v.length > 0 ? v : DEFAULT_MEDIA_BRIDGE
+  const configured = parseValidHttpBaseOrNull(v)
+  const defaultBase = parseValidHttpBaseOrNull(DEFAULT_MEDIA_BRIDGE) || DEFAULT_MEDIA_BRIDGE
+  const base = configured || defaultBase
   if (import.meta.env.DEV) {
     console.info('[streamApi] Media Bridge base:', base)
   } else if (v.length === 0) {
     console.error(
       '[streamApi] VITE_STREAM_API_BASE is missing in production build — falling back to localhost. ' +
         'Streaming will fail. Set VITE_STREAM_API_BASE in your hosting provider environment and rebuild.'
+    )
+  } else if (!configured) {
+    console.error(
+      `[streamApi] VITE_STREAM_API_BASE is invalid ("${v}"). ` +
+        'Expected absolute http(s) URL (e.g. https://your-render-service.onrender.com).'
     )
   }
   return base
