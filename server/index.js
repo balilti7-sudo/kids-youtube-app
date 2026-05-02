@@ -1,5 +1,6 @@
 /**
- * Media Bridge — YouTube videoId → playable stream (Piped, @distube/ytdl-core, optional yt-dlp).
+ * Media Bridge — YouTube videoId → playable stream (yt-dlp primary, Piped/Invidious fallbacks,
+ * optional @distube/ytdl-core when YTDL_RESOLVE_ENABLE=1).
  * Streams are **proxied** through this server so the browser never requests geo/bot-protected CDNs directly.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
@@ -68,6 +69,13 @@ const STREAM_CACHE_TTL_MS = Number(process.env.STREAM_CACHE_TTL_MS) || 15 * 60 *
 const SEGMENT_TOKEN_TTL_MS = Number(process.env.SEGMENT_TOKEN_TTL_MS) || 60 * 60 * 1000
 const YT_DLP_PATH = (process.env.YT_DLP_PATH || DEFAULT_YT_DLP).trim()
 const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' || process.env.YT_DLP_ENABLE === 'true'
+/**
+ * `@distube/ytdl-core` is off by default: it can return ciphered streams the browser
+ * cannot decode without full n/sig handling in-app. Set `YTDL_RESOLVE_ENABLE=1` to
+ * append it as a last-resort resolver after yt-dlp + public proxies.
+ */
+const YTDL_RESOLVE_ENABLE =
+  (process.env.YTDL_RESOLVE_ENABLE || '').toLowerCase() === '1' || process.env.YTDL_RESOLVE_ENABLE === 'true'
 /** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
 const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube_cookies.txt'
@@ -594,23 +602,6 @@ app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
     },
   }
 
-  try {
-    const p = await resolveViaPiped(videoId)
-    report.resolvers.piped.ok = Boolean(p)
-    report.resolvers.piped.data = p
-    if (!p) report.resolvers.piped.detail = 'No usable stream from any Piped instance'
-  } catch (e) {
-    report.resolvers.piped.detail = e instanceof Error ? e.message : String(e)
-  }
-
-  try {
-    const y = await resolveViaYtdl(videoId)
-    report.resolvers.ytdl.ok = true
-    report.resolvers.ytdl.data = y
-  } catch (e) {
-    report.resolvers.ytdl.detail = e instanceof Error ? e.message : String(e)
-  }
-
   const ytDlpAttempts = []
   try {
     const d = await resolveViaYtDlpCli(videoId, { attempts: ytDlpAttempts })
@@ -623,6 +614,27 @@ app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
     if (!report.resolvers.ytdlp.attempts.length) {
       report.resolvers.ytdlp.attempts = [{ mode: 'unknown', ok: false, detail: report.resolvers.ytdlp.detail }]
     }
+  }
+
+  try {
+    const p = await resolveViaPiped(videoId)
+    report.resolvers.piped.ok = Boolean(p)
+    report.resolvers.piped.data = p
+    if (!p) report.resolvers.piped.detail = 'No usable stream from any Piped instance'
+  } catch (e) {
+    report.resolvers.piped.detail = e instanceof Error ? e.message : String(e)
+  }
+
+  if (YTDL_RESOLVE_ENABLE) {
+    try {
+      const y = await resolveViaYtdl(videoId)
+      report.resolvers.ytdl.ok = true
+      report.resolvers.ytdl.data = y
+    } catch (e) {
+      report.resolvers.ytdl.detail = e instanceof Error ? e.message : String(e)
+    }
+  } else {
+    report.resolvers.ytdl.detail = 'skipped (set YTDL_RESOLVE_ENABLE=1 to test ytdl-core)'
   }
 
   report.ok =
@@ -948,7 +960,7 @@ app.listen(PORT, () => {
   }
   console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
   console.log(
-    `[media-bridge] Invidious: preferred (${PREFERRED_INVIDIOUS_BASES.length}), total (${DEFAULT_INVIDIOUS_BASES.length}); Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks; yt-dlp(last resort): ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
+    `[media-bridge] Resolve: yt-dlp ${YT_DLP_ENABLE ? 'primary ' + YT_DLP_PATH : 'OFF'}; Invidious(${PREFERRED_INVIDIOUS_BASES.length} pref / ${DEFAULT_INVIDIOUS_BASES.length} total); Piped(${PREFERRED_PIPED_BASES.length} pref); ytdl-core ${YTDL_RESOLVE_ENABLE ? 'last-resort ON' : 'OFF (set YTDL_RESOLVE_ENABLE=1 to enable)'}`
   )
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
@@ -1016,9 +1028,7 @@ function getSegmentRec(token) {
 // --- resolution chain --------------------------------------------------------
 
 /**
- * Resolves an active cookies source — env header OR Netscape file. Used to dynamically
- * pick the resolver order: when YouTube cookies are present, `ytdl/yt-dlp` are dramatically
- * more reliable than Render-IP-blacklisted public Piped/Invidious mirrors.
+ * Resolves an active cookies source — env header OR Netscape file (used by yt-dlp).
  */
 function hasUsableYoutubeAuth() {
   if ((process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()) return true
@@ -1038,24 +1048,17 @@ async function resolveUpstream(videoId) {
   const cookiesReady = hasUsableYoutubeAuth()
   const authStale = isYtAuthStale()
   /**
-   * Cookie-aware ordering:
-   *  - Cookies present AND not in stale-cooldown → ytdl/yt-dlp first; they bypass
-   *    Render-IP blocks via the user's session.
-   *  - Cookies present BUT YouTube recently rejected them (429 or bot gate) →
-   *    demote ytdl/yt-dlp during the cooldown so we don't burn the budget on calls
-   *    we already know will fail.
-   *  - No cookies → public proxies first; cookie backends are pointless without auth.
+   * Resolver order (2026-05): **yt-dlp first** whenever enabled — it returns plain URLs
+   * the browser can play and matches `bridgeFetch` + `--proxy` tunneling. Invidious/Piped
+   * follow as fast fallbacks. `@distube/ytdl-core` is **last and opt-in** (`YTDL_RESOLVE_ENABLE=1`)
+   * because it may surface ciphered formats that trigger "Browser cannot decode the stream".
    */
-  let resolverOrder
-  if (!cookiesReady) {
-    resolverOrder = ['invidious', 'piped', 'ytdl', 'ytdlp']
-  } else if (authStale) {
-    resolverOrder = ['invidious', 'piped', 'ytdl', 'ytdlp']
-  } else {
-    resolverOrder = ['ytdl', 'ytdlp', 'invidious', 'piped']
-  }
+  const resolverOrder = []
+  if (YT_DLP_ENABLE) resolverOrder.push('ytdlp')
+  resolverOrder.push('invidious', 'piped')
+  if (YTDL_RESOLVE_ENABLE) resolverOrder.push('ytdl')
   console.log(
-    `[resolve] order=${resolverOrder.join('->')} cookies=${cookiesReady ? 'ready' : 'absent'} authStale=${authStale}`
+    `[resolve] order=${resolverOrder.join('->')} cookies=${cookiesReady ? 'ready' : 'absent'} authStale=${authStale} ytdlCore=${YTDL_RESOLVE_ENABLE ? 'on' : 'off'}`
   )
 
   for (const stage of resolverOrder) {
@@ -1605,7 +1608,10 @@ function probeYtDlpVersion() {
       finish({ ok: false, error: 'yt-dlp --version timed out after 15s' })
     }, 15_000)
     try {
-      proc = spawn(YT_DLP_PATH, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] })
+      proc = spawn(YT_DLP_PATH, ['--version'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: buildYtDlpSpawnEnv(),
+      })
     } catch (err) {
       return finish({ ok: false, error: err instanceof Error ? err.message : String(err) })
     }
@@ -1934,16 +1940,31 @@ function attachRealtimeLineLogger(stream, kind, sink) {
   }
 }
 
+/**
+ * Child-process env for yt-dlp. Mirrors `OUTBOUND_PROXY_URL` into `HTTP_PROXY` /
+ * `HTTPS_PROXY` / `ALL_PROXY` so Python-side requests (player JS, fragments) use
+ * the same tunnel as `--proxy` and as Node `bridgeFetch` — not only the first hop.
+ */
+function buildYtDlpSpawnEnv() {
+  const env = {
+    ...process.env,
+    YT_DLP_OAUTH2_TOKEN_FILE: YT_OAUTH_TOKEN_PATH,
+  }
+  if (OUTBOUND_PROXY_URL) {
+    env.HTTP_PROXY = OUTBOUND_PROXY_URL
+    env.HTTPS_PROXY = OUTBOUND_PROXY_URL
+    env.ALL_PROXY = OUTBOUND_PROXY_URL
+  }
+  return env
+}
+
 function runYtDlpWithRealtimeLogs(args, timeoutMs) {
   return new Promise((resolve, reject) => {
     const stdoutParts = []
     const stderrParts = []
     const child = spawn(YT_DLP_PATH, args, {
       windowsHide: true,
-      env: {
-        ...process.env,
-        YT_DLP_OAUTH2_TOKEN_FILE: YT_OAUTH_TOKEN_PATH,
-      },
+      env: buildYtDlpSpawnEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const flushStdout = attachRealtimeLineLogger(child.stdout, 'stdout', stdoutParts)
