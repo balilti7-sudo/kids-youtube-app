@@ -1516,8 +1516,8 @@ function probeYtDlpVersion() {
       try {
         proc?.kill('SIGKILL')
       } catch {}
-      finish({ ok: false, error: 'yt-dlp --version timed out after 8s' })
-    }, 8_000)
+      finish({ ok: false, error: 'yt-dlp --version timed out after 15s' })
+    }, 15_000)
     try {
       proc = spawn(YT_DLP_PATH, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] })
     } catch (err) {
