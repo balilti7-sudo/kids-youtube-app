@@ -267,8 +267,13 @@ export interface BridgeDiagnostics {
   elapsedMs: number
   now: string
   env?: { renderRegion?: string | null; renderService?: string | null }
-  outbound: { ok: boolean; ip: string | null; ms?: number; status?: number; error?: string }
-  proxy: { configured: boolean; urlMasked: string | null }
+  outbound: {
+    /** Always direct from the Render box (no OUTBOUND_PROXY on this probe). */
+    direct: { ok: boolean; ip: string | null; ms?: number; status?: number; error?: string }
+    /** When an http(s) proxy is active, this is the public IP seen through the tunnel. */
+    viaProxy: { ok: boolean; ip: string | null; ms?: number; status?: number; error?: string } | null
+  }
+  proxy: { configured: boolean; urlMasked: string | null; httpTunnelActive?: boolean }
   versions: { ytDlp: { ok: boolean; version?: string; error?: string } }
   cookies: {
     usable: boolean

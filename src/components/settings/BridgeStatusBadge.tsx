@@ -31,7 +31,7 @@ function deriveSummary(d: BridgeDiagnostics | null, error: string | null): Deriv
   const cookiesOk = d.cookies.usable && d.cookies.hasRequiredAuthCookies
   const ytDlpOk = d.versions.ytDlp.ok
 
-  if (!d.outbound.ok && !anyExtractor) {
+  if (!d.outbound.direct?.ok && !anyExtractor) {
     return {
       health: 'red',
       pipedAlive,
@@ -171,11 +171,31 @@ export function BridgeStatusBadge() {
             </div>
           ) : data ? (
             <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
-              <Field label="Outbound IP" value={data.outbound.ip ?? '—'} mono />
+              <Field label="Render IP (ישיר)" value={data.outbound.direct?.ip ?? '—'} mono />
+              <Field
+                label="Tunnel IP (proxy)"
+                value={
+                  data.outbound.viaProxy?.ip
+                    ? data.outbound.viaProxy.ip
+                    : !data.proxy.configured
+                      ? '—'
+                      : !data.proxy.httpTunnelActive
+                        ? '— (נדרש http:// או https:// ל-tunnel מלא; SOCKS רק ב-yt-dlp)'
+                        : data.outbound.viaProxy?.error
+                          ? String(data.outbound.viaProxy.error)
+                          : '—'
+                }
+                mono
+              />
               <Field
                 label="Proxy"
-                value={data.proxy.configured ? data.proxy.urlMasked ?? 'מוגדר' : 'לא מוגדר'}
+                value={
+                  data.proxy.configured
+                    ? `${data.proxy.httpTunnelActive ? 'HTTP tunnel פעיל' : 'לא HTTP'} · ${data.proxy.urlMasked ?? ''}`
+                    : 'לא מוגדר'
+                }
                 mono
+                className="sm:col-span-2"
               />
               <Field
                 label="yt-dlp"

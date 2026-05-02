@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import cors from 'cors'
 import express from 'express'
+import { ProxyAgent } from 'undici'
 import ytdl from '@distube/ytdl-core'
 import { createClient } from '@supabase/supabase-js'
 
@@ -177,12 +178,67 @@ const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_COOKIES
  * form. Falls back to common conventions `HTTPS_PROXY`/`HTTP_PROXY` so popular
  * proxy providers' starter configs work out of the box.
  */
-const OUTBOUND_PROXY_URL = (
-  process.env.OUTBOUND_PROXY_URL ||
-  process.env.HTTPS_PROXY ||
-  process.env.HTTP_PROXY ||
-  ''
-).trim()
+/**
+ * Trim + strip wrapping quotes (common when pasting into Render env UI) and
+ * validate the string is a URL. Returns empty string if unusable.
+ */
+function normalizeProxyUrlString(raw) {
+  if (!raw || typeof raw !== 'string') return ''
+  let s = raw.trim()
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim()
+  }
+  if (!s) return ''
+  try {
+    const u = new URL(s)
+    if (!u.protocol || u.protocol === ':') return ''
+    return u.toString()
+  } catch {
+    return ''
+  }
+}
+
+const RAW_OUTBOUND_PROXY_FROM_ENV =
+  process.env.OUTBOUND_PROXY_URL || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ''
+const OUTBOUND_PROXY_URL = normalizeProxyUrlString(RAW_OUTBOUND_PROXY_FROM_ENV)
+if (RAW_OUTBOUND_PROXY_FROM_ENV.trim() && !OUTBOUND_PROXY_URL) {
+  console.warn(
+    '[media-bridge] OUTBOUND_PROXY_URL / HTTPS_PROXY is set but is not a valid URL after trimming — proxy disabled'
+  )
+}
+
+/** `http:` / `https:` — undici `ProxyAgent` + Node `fetch({ dispatcher })` can use these. SOCKS is yt-dlp only. */
+function isHttpSchemeProxy(uri) {
+  if (!uri) return false
+  try {
+    return /^https?:$/i.test(new URL(uri).protocol)
+  } catch {
+    return false
+  }
+}
+
+/** Singleton undici dispatcher so every server-side fetch can share the outbound tunnel. */
+let undiciProxyDispatcher = null
+function getUndiciProxyDispatcher() {
+  if (!OUTBOUND_PROXY_URL || !isHttpSchemeProxy(OUTBOUND_PROXY_URL)) return null
+  if (!undiciProxyDispatcher) {
+    undiciProxyDispatcher = new ProxyAgent({ uri: OUTBOUND_PROXY_URL })
+  }
+  return undiciProxyDispatcher
+}
+
+/**
+ * All Media Bridge egress that must share the same public IP as yt-dlp / ytdl
+ * (especially `googlevideo` / `ytimg` segment fetches) goes through here when
+ * an HTTP(S) proxy is configured.
+ */
+function bridgeFetch(input, init = {}) {
+  const d = getUndiciProxyDispatcher()
+  if (d && init && init.dispatcher === undefined) {
+    return fetch(input, { ...init, dispatcher: d })
+  }
+  return fetch(input, init)
+}
 
 /** Mask `user:pass@` in a proxy URL so it's safe to log/return from /api/diagnostics. */
 function maskProxyUrl(url) {
@@ -412,8 +468,8 @@ app.get('/api/diagnostics', async (_req, res) => {
     return { base, dead: false, ...r }
   })
 
-  const [outbound, ytDlpVer, ytDirect, ytWatch, pipedProbes, invidiousProbes] = await Promise.all([
-    probeOutboundIp(),
+  const [outboundPair, ytDlpVer, ytDirect, ytWatch, pipedProbes, invidiousProbes] = await Promise.all([
+    probeOutboundIps(),
     probeYtDlpVersion(),
     probeUrl('https://www.youtube.com/', { timeoutMs: PROBE_TIMEOUT_MS, headers: PROBE_HEADERS }),
     probeUrl(`https://www.youtube.com/watch?v=${TEST_VIDEO_ID}`, {
@@ -443,10 +499,15 @@ app.get('/api/diagnostics', async (_req, res) => {
       renderRegion: process.env.RENDER_REGION || null,
       renderService: process.env.RENDER_SERVICE_NAME || null,
     },
-    outbound,
+    outbound: {
+      direct: outboundPair.direct,
+      /** Public IP observed when traversing OUTBOUND_PROXY (HTTP CONNECT). Often differs from Render. */
+      viaProxy: outboundPair.viaProxy,
+    },
     proxy: {
       configured: Boolean(OUTBOUND_PROXY_URL),
       urlMasked: maskProxyUrl(OUTBOUND_PROXY_URL),
+      httpTunnelActive: Boolean(getUndiciProxyDispatcher()),
     },
     versions: {
       ytDlp: ytDlpVer,
@@ -819,7 +880,7 @@ app.get('/api/segment/:token', async (req, res) => {
   const base = getPublicBase(req)
   try {
     const { init } = buildUpstreamInitFromReq(rec.url, req)
-    const r = await fetch(rec.url, init)
+    const r = await bridgeFetch(rec.url, init)
     if (!r.ok) {
       return res.status(r.status).type('text/plain').send((await r.text().catch(() => '')) || r.statusText)
     }
@@ -874,6 +935,17 @@ app.listen(PORT, () => {
   console.log(
     `[media-bridge] outbound proxy: ${OUTBOUND_PROXY_URL ? maskProxyUrl(OUTBOUND_PROXY_URL) : 'NOT SET (using Render IP directly)'}`
   )
+  if (OUTBOUND_PROXY_URL) {
+    if (isHttpSchemeProxy(OUTBOUND_PROXY_URL)) {
+      console.log(
+        `[media-bridge] HTTP CONNECT tunnel active for Node fetch (+ CDN segment proxying). Undici dispatcher ready.`
+      )
+    } else {
+      console.warn(
+        `[media-bridge] Proxy URL is ${new URL(OUTBOUND_PROXY_URL).protocol} — only yt-dlp --proxy supports this; bridgeFetch/CDN piping still egress from Render. Prefer http://… or https://… for full tunneling.`
+      )
+    }
+  }
   console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
   console.log(
     `[media-bridge] Invidious: preferred (${PREFERRED_INVIDIOUS_BASES.length}), total (${DEFAULT_INVIDIOUS_BASES.length}); Piped: preferred (${PREFERRED_PIPED_BASES.length}), +${DEFAULT_PIPED_BASES.length - PREFERRED_PIPED_BASES.length} fallbacks; yt-dlp(last resort): ${YT_DLP_ENABLE ? YT_DLP_PATH : 'disabled'}`
@@ -1163,7 +1235,7 @@ async function resolveViaPiped(videoId, budgetMs = PIPED_PER_INSTANCE_TIMEOUT_MS
     let r
     let textBody = ''
     try {
-      r = await fetch(url, {
+      r = await bridgeFetch(url, {
         method: 'GET',
         headers: PIPED_FETCH_HEADERS,
         signal: AbortSignal.timeout(perInstanceMs),
@@ -1297,7 +1369,7 @@ async function resolveViaInvidious(videoId, budgetMs = INVIDIOUS_PER_INSTANCE_TI
     const url = `${base}/api/v1/videos/${encodeURIComponent(videoId)}`
     let r
     try {
-      r = await fetch(url, {
+      r = await bridgeFetch(url, {
         method: 'GET',
         headers: PIPED_FETCH_HEADERS,
         signal: AbortSignal.timeout(perInstanceMs),
@@ -1402,6 +1474,11 @@ function getYtdlAgent() {
       }
     }
     if (!agent) {
+      if (OUTBOUND_PROXY_URL && isHttpSchemeProxy(OUTBOUND_PROXY_URL)) {
+        console.error(
+          `[ytdl] OUTBOUND_PROXY_URL is set (${maskProxyUrl(OUTBOUND_PROXY_URL)}) but proxy agent unavailable — tunneling FAILED, falling back to direct (YouTube likely still sees Render IP).`
+        )
+      }
       agent = cookies.length > 0 ? ytdl.createAgent(cookies) : null
     }
   }
@@ -1450,7 +1527,7 @@ async function probeUrl(url, { timeoutMs = 6_000, method = 'GET', headers = {} }
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const r = await fetch(url, { method, headers, signal: ctrl.signal, redirect: 'manual' })
+    const r = await bridgeFetch(url, { method, headers, signal: ctrl.signal, redirect: 'manual' })
     return {
       ok: r.ok,
       status: r.status,
@@ -1467,17 +1544,15 @@ async function probeUrl(url, { timeoutMs = 6_000, method = 'GET', headers = {} }
   }
 }
 
-/**
- * Discover the bridge's outbound public IP. On Render this tells us *exactly*
- * which IP YouTube/Piped/Invidious are seeing — invaluable when triaging
- * "everything 403s" cases.
- */
-async function probeOutboundIp() {
+async function probeIpify({ dispatcher = undefined } = {}) {
   const startedAt = Date.now()
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 5_000)
   try {
-    const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal })
+    const r = await fetch('https://api.ipify.org?format=json', {
+      signal: ctrl.signal,
+      ...(dispatcher ? { dispatcher } : {}),
+    })
     if (!r.ok) {
       return { ok: false, status: r.status, ms: Date.now() - startedAt, ip: null }
     }
@@ -1493,6 +1568,17 @@ async function probeOutboundIp() {
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * `direct`: always bypasses OUTBOUND_PROXY (true Render egress).
+ * `viaProxy`: undertunnel through undici ProxyAgent — should match yt-dlp's --proxy egress for HTTP proxies.
+ */
+async function probeOutboundIps() {
+  const direct = await probeIpify()
+  const d = getUndiciProxyDispatcher()
+  const viaProxy = d ? await probeIpify({ dispatcher: d }) : null
+  return { direct, viaProxy }
 }
 
 /**
@@ -2079,7 +2165,7 @@ function rewriteUriInTagLine(line, baseHref, publicBase, grant = '') {
 // --- fetch helpers & piping ---------------------------------------------------
 
 async function fetchText(url) {
-  const r = await fetch(url, { headers: UPSTREAM_MEDIA_HEADERS, redirect: 'follow' })
+  const r = await bridgeFetch(url, { headers: UPSTREAM_MEDIA_HEADERS, redirect: 'follow' })
   if (!r.ok) {
     const t = await r.text()
     throw new Error(`M3U8 fetch ${r.status}: ${t.slice(0, 200)}`)
@@ -2131,7 +2217,7 @@ async function pipeFetchToRes(res, r) {
 
 async function pipeRangeResponse(req, res, url, defaultMime) {
   const { init } = buildUpstreamInitFromReq(url, req)
-  const r = await fetch(url, init)
+  const r = await bridgeFetch(url, init)
   if (!r.ok) {
     return res
       .status(r.status)
