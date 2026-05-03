@@ -18,7 +18,7 @@ interface AuthState {
   setLoading: (loading: boolean) => void
   fetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>
+  signUp: (email: string, password: string) => Promise<{ error: Error | null; session: Session | null }>
   verifyEmailCode: (email: string, code: string) => Promise<{ error: Error | null }>
   signInWithMagicLink: (email: string, emailRedirectTo: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
@@ -69,7 +69,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signUp: async (email, password) => {
     const emailRedirectTo = buildSignupRedirectUrl()
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -85,11 +85,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         status: err.status,
         code: err.code,
       })
-      return { error: new Error(error.message) }
+      return { error: new Error(error.message), session: null }
     }
+    const session = data.session ?? null
     // Never keep an active session after sign-up; user must verify email first.
     await supabase.auth.signOut()
-    return { error: null }
+    return { error: null, session }
   },
 
   verifyEmailCode: async (email, code) => {

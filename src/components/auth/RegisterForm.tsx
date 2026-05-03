@@ -7,6 +7,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { Input } from '../ui/Input'
 import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
+import { requestWelcomeEmail } from '../../lib/requestWelcomeEmail'
 
 const schema = z.object({
   email: z.string().min(1, 'נא למלא אימייל').email('אימייל לא תקין'),
@@ -32,12 +33,13 @@ export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void 
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null)
-    const { error } = await signUp(values.email, values.password)
+    const { error, session } = await signUp(values.email, values.password)
     if (error) {
       console.error('[RegisterForm] signUp failed:', error.message, error)
       setSubmitError(error.message)
       return
     }
+    requestWelcomeEmail({ email: values.email, accessToken: session?.access_token ?? null })
     setSentToEmail(values.email)
     setSuccess(true)
   })

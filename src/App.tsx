@@ -17,6 +17,7 @@ import { KidModePage } from './pages/KidModePage'
 import { useAuth } from './hooks/useAuth'
 import { BYPASS_AUTH } from './config/dev'
 import { parsePairingCodeFromLocationSearch } from './lib/pairingCodeFromQr'
+import { WhatsAppFloatingButton } from './components/support/WhatsAppFloatingButton'
 
 /** Remount כשמשנים query (למשל אחרי סריקת QR) כדי ש־boot עם קוד ירוץ שוב */
 function KidModeRoute() {
@@ -89,6 +90,7 @@ export default function App() {
       <BrowserRouter>
         <PairingCodeUrlLogger />
         <Toaster richColors position="top-center" dir="rtl" theme="dark" />
+        <WhatsAppFloatingButton />
         <Routes>
           <Route path="/" element={<SmartEntryRoute />} />
           <Route path="/auth" element={<AuthPage />} />

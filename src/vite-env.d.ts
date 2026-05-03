@@ -13,6 +13,10 @@ interface ImportMetaEnv {
   readonly VITE_DEV_DEVICE_OWNER_ID?: string
   /** Media Bridge base URL (no trailing slash), e.g. http://localhost:8787 */
   readonly VITE_STREAM_API_BASE?: string
+  /** Must match `MEDIA_BRIDGE_WELCOME_KEY` on Render — allows POST /api/email/welcome without JWT after sign-up */
+  readonly VITE_MEDIA_BRIDGE_WELCOME_KEY?: string
+  /** WhatsApp support — E.164 digits only, e.g. 972501234567 */
+  readonly VITE_WHATSAPP_PHONE_E164?: string
 }
 
 interface ImportMeta {

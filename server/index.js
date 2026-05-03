@@ -15,6 +15,7 @@ import express from 'express'
 import { ProxyAgent } from 'undici'
 import ytdl from '@distube/ytdl-core'
 import { createClient } from '@supabase/supabase-js'
+import { registerWelcomeEmailRoute } from './email/welcomeRoute.js'
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url))
 // Repo root `.env`, then `server/.env` (latter wins) so a single file at the project root can serve Vite + API.
@@ -48,7 +49,14 @@ const corsOptions = {
    * `Authorization` or the browser will silently strip the header and the actual
    * request is blocked with a CORS error before it ever reaches Express.
    */
-  allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'Range', 'X-Requested-With'],
+  allowedHeaders: [
+    'Authorization',
+    'Content-Type',
+    'Accept',
+    'Range',
+    'X-Requested-With',
+    'X-Media-Bridge-Welcome-Key',
+  ],
   /**
    * Expose range/length headers so the browser's `<video>` element can do native
    * seeking on `/api/media/:videoId` (direct mp4 case). Without these, Chrome
@@ -349,6 +357,9 @@ const supabaseAuthClient =
       })
     : null
 
+/** Shared secret so the SPA can call `POST /api/email/welcome` right after sign-up (no JWT when email-confirm is on). Set the same value as `VITE_MEDIA_BRIDGE_WELCOME_KEY` on Vercel. */
+const MEDIA_BRIDGE_WELCOME_KEY = (process.env.MEDIA_BRIDGE_WELCOME_KEY || '').trim()
+
 const app = express()
 app.set('x-powered-by', false)
 app.set('trust proxy', 1)
@@ -389,6 +400,9 @@ app.use((_req, res, next) => {
   next()
 })
 
+app.use(express.json({ limit: '48kb' }))
+registerWelcomeEmailRoute(app, { supabaseAuthClient, welcomeKey: MEDIA_BRIDGE_WELCOME_KEY })
+
 app.get('/health', (_req, res) => {
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
@@ -396,6 +410,10 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'safetube-media-bridge',
+    email: {
+      resendConfigured: Boolean((process.env.RESEND_API_KEY || '').trim()),
+      welcomeRouteSecretConfigured: Boolean(MEDIA_BRIDGE_WELCOME_KEY),
+    },
     auth: {
       ytDlpEnabled: YT_DLP_ENABLE,
       cookiesFile: cookies.filePath || null,
@@ -961,6 +979,9 @@ app.listen(PORT, () => {
   console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
   console.log(
     `[media-bridge] Resolve: yt-dlp ${YT_DLP_ENABLE ? 'primary ' + YT_DLP_PATH : 'OFF'}; Invidious(${PREFERRED_INVIDIOUS_BASES.length} pref / ${DEFAULT_INVIDIOUS_BASES.length} total); Piped(${PREFERRED_PIPED_BASES.length} pref); ytdl-core ${YTDL_RESOLVE_ENABLE ? 'last-resort ON' : 'OFF (set YTDL_RESOLVE_ENABLE=1 to enable)'}`
+  )
+  console.log(
+    `[media-bridge] Email: Resend ${(process.env.RESEND_API_KEY || '').trim() ? 'ON' : 'OFF (set RESEND_API_KEY)'}; welcome route secret ${MEDIA_BRIDGE_WELCOME_KEY ? 'ON' : 'OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)'}`
   )
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
