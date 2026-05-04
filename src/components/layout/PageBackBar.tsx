@@ -6,18 +6,20 @@ type Props = {
   /** קישור משני כשאין היסטוריית דפדפן (למשל נכנסו ישירות לכתובת) */
   fallback?: string
   className?: string
+  /** ללא margin תחתון — לשילוב בשורת כותרת עם כפתורים */
+  flush?: boolean
 }
 
 /**
  * RTL: “חזרה” עם חץ ימינה.
  */
-export function PageBackBar({ fallback = '/dashboard', className }: Props) {
+export function PageBackBar({ fallback = '/dashboard', className, flush }: Props) {
   const navigate = useNavigate()
 
   const fallbackLabel = fallback === '/dashboard' ? 'דף הבית' : fallback === '/auth' ? 'התחברות' : 'מסך ראשי'
 
   return (
-    <div className={cn('mb-3 flex flex-wrap items-center gap-3 sm:mb-4', className)}>
+    <div className={cn('flex flex-wrap items-center gap-3', !flush && 'mb-3 sm:mb-4', className)}>
       <button
         type="button"
         onClick={() => navigate(-1)}

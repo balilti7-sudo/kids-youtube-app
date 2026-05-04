@@ -4,8 +4,7 @@ import type { Profile } from '../types'
 import { supabase } from '../lib/supabase'
 import { clearChildAccessToken, getSavedChildAccessToken } from '../lib/childDevice'
 import { clearAppMode, setAppModeKid, setAppModeParent } from '../lib/appMode'
-import { clearParentalManagementGate } from '../lib/parentalManagementGateStorage'
-import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
+import { clearParentPinSessions } from '../lib/lockParentApp'
 
 interface AuthState {
   user: User | null
@@ -125,7 +124,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
-    clearParentalManagementGate()
+    clearParentPinSessions()
     await supabase.auth.signOut()
     set({ user: null, session: null, profile: null, profileLoading: false })
     if (getSavedChildAccessToken()) {
@@ -137,12 +136,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOutClearEverything: async () => {
     clearChildAccessToken()
-    clearParentalManagementGate()
-    try {
-      window.sessionStorage.removeItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY)
-    } catch {
-      /* ignore */
-    }
+    clearParentPinSessions()
     await supabase.auth.signOut()
     set({ user: null, session: null, profile: null, profileLoading: false })
   },
