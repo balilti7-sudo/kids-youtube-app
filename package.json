@@ -13,6 +13,7 @@
     "@hookform/resolvers": "^3.9.1",
     "@supabase/supabase-js": "^2.47.10",
     "@videojs/http-streaming": "^3.17.4",
+    "framer-motion": "^12.38.0",
     "hls.js": "^1.6.16",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.468.0",

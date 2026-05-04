@@ -13,7 +13,9 @@ import { RemoveChannelModal } from './RemoveChannelModal'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
-import { Modal } from '../ui/Modal'
+import { ParentalPinModal } from '../parental/ParentalPinModal'
+import { verifyLoggedInUserParentPin } from '../../lib/verifyParentProfilePin'
+import type { ParentPinVerifyResult } from '../../lib/verifyParentProfilePin'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
 import { getExpectedChannelActionPin, pinsMatch } from '../../lib/parentPin'
@@ -42,8 +44,6 @@ export function ChannelManager() {
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
   const [pinModalOpen, setPinModalOpen] = useState(false)
-  const [pinInput, setPinInput] = useState('')
-  const [pinError, setPinError] = useState<string | null>(null)
   const [previewChannel, setPreviewChannel] = useState<WhitelistedChannel | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -123,10 +123,23 @@ export function ChannelManager() {
 
   const beginPinGate = (action: PendingPinAction) => {
     pendingPinActionRef.current = action
-    setPinInput('')
-    setPinError(null)
     setPinModalOpen(true)
   }
+
+  const verifyChannelParentPin = useCallback(
+    async (pin: string): Promise<ParentPinVerifyResult> => {
+      if (user?.id) {
+        return verifyLoggedInUserParentPin(user.id, pin)
+      }
+      const expected = getExpectedChannelActionPin(profile, localParent)
+      const trimmed = pin.replace(/\D/g, '').trim()
+      if (!pinsMatch(trimmed, expected)) {
+        return { ok: false, errorMessage: 'קוד שגוי' }
+      }
+      return { ok: true }
+    },
+    [user?.id, profile, localParent]
+  )
 
   const runAfterVerifiedPin = (trimmedPin: string) => {
     if (localParent.isActive) {
@@ -135,8 +148,6 @@ export function ChannelManager() {
     const pending = pendingPinActionRef.current
     pendingPinActionRef.current = null
     setPinModalOpen(false)
-    setPinInput('')
-    setPinError(null)
 
     if (!pending) return
     if (pending.kind === 'openSearch') {
@@ -148,16 +159,6 @@ export function ChannelManager() {
       return
     }
     setRemoveTarget(pending.channel)
-  }
-
-  const submitChannelActionPin = () => {
-    const expected = getExpectedChannelActionPin(profile, localParent)
-    const trimmed = pinInput.replace(/\s+/g, '').trim()
-    if (!pinsMatch(trimmed, expected)) {
-      setPinError('קוד שגוי')
-      return
-    }
-    runAfterVerifiedPin(trimmed)
   }
 
   const requestOpenChannelSearch = () => {
@@ -409,50 +410,17 @@ export function ChannelManager() {
         loading={removeLoading}
       />
 
-      <Modal
+      <ParentalPinModal
         open={pinModalOpen}
         onClose={() => {
           setPinModalOpen(false)
-          setPinInput('')
-          setPinError(null)
           pendingPinActionRef.current = null
         }}
+        verifyPin={verifyChannelParentPin}
+        onVerified={(pin) => runAfterVerifiedPin(pin.replace(/\D/g, '').trim())}
         title="אימות הורה"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setPinModalOpen(false)
-                setPinInput('')
-                setPinError(null)
-                pendingPinActionRef.current = null
-              }}
-            >
-              ביטול
-            </Button>
-            <Button onClick={submitChannelActionPin}>המשך</Button>
-          </>
-        }
-      >
-        <p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-          הזינו את קוד ההורה מהפרופיל (ברירת מחדל 0000 אם לא שיניתם). רק אחרי קוד נכון תתבצע הפעולה שביקשתם.
-        </p>
-        <Input
-          type="password"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          placeholder="קוד הורה"
-          value={pinInput}
-          onChange={(e) => {
-            setPinInput(e.target.value.replace(/\D/g, '').slice(0, 16))
-            if (pinError) setPinError(null)
-          }}
-          autoFocus
-          onKeyDown={(e) => e.key === 'Enter' && submitChannelActionPin()}
-        />
-        {pinError ? <p className="mt-2 text-sm text-danger-600">{pinError}</p> : null}
-      </Modal>
+        description="הזינו את קוד ההורה (4 ספרות). הקוד נבדק מול הפרופיל שלכם. רק אחרי אימות מוצלח תתבצע הפעולה (חיפוש / הוספת ערוץ / בקשת הסרה)."
+      />
     </div>
   )
 }
