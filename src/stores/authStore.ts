@@ -18,7 +18,11 @@ interface AuthState {
   setLoading: (loading: boolean) => void
   fetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
-  signUp: (email: string, password: string) => Promise<{ error: Error | null; session: Session | null }>
+  signUp: (
+    email: string,
+    password: string,
+    opts: { parentPin: string }
+  ) => Promise<{ error: Error | null; session: Session | null }>
   verifyEmailCode: (email: string, code: string) => Promise<{ error: Error | null }>
   signInWithMagicLink: (email: string, emailRedirectTo: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
@@ -67,13 +71,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return { error: error ? new Error(error.message) : null }
   },
 
-  signUp: async (email, password) => {
+  signUp: async (email, password, opts) => {
+    const parent_pin = opts.parentPin.replace(/\D/g, '').trim().slice(0, 4)
+    if (parent_pin.length !== 4) {
+      return { error: new Error('קוד הורה חייב להיות 4 ספרות'), session: null }
+    }
     const emailRedirectTo = buildSignupRedirectUrl()
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo,
+        data: {
+          parent_pin,
+        },
       },
     })
     if (error) {
