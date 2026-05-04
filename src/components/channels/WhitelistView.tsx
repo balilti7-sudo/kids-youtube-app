@@ -7,12 +7,10 @@ export function WhitelistView({
   channels,
   onRemoveRequest,
   onPreviewRequest,
-  manageLocked,
 }: {
   channels: WhitelistedChannel[]
   onRemoveRequest: (c: WhitelistedChannel) => void
   onPreviewRequest: (c: WhitelistedChannel) => void
-  manageLocked?: boolean
 }) {
   if (channels.length === 0) {
     return (
@@ -34,7 +32,6 @@ export function WhitelistView({
           channel={c}
           onRemove={() => onRemoveRequest(c)}
           onOpenChannel={() => onPreviewRequest(c)}
-          manageLocked={manageLocked}
         />
       ))}
     </div>

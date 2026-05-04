@@ -1,3 +1,5 @@
+import type { Profile } from '../types'
+
 /**
  * אותה לוגיקה בכל האפליקציה — PIN להגדרות הורה (ערוצים) ולניתוק במסך הילד.
  * מחרוזות ריקות (כולל אחרי trim) לא נחשבות — אז חוזרים ל־1234.
@@ -17,4 +19,24 @@ export function pinsMatch(input: string, expected: string): boolean {
   const a = input.replace(/\s+/g, '').trim()
   const b = expected.replace(/\s+/g, '').trim()
   return a === b
+}
+
+const normPin = (s: string | null | undefined) => (typeof s === 'string' ? s.replace(/\s+/g, '').trim() : '')
+
+/**
+ * קוד לאימות הוספת/מחיקת ערוץ: קודם `profiles.parent_pin`, אחרת PIN של ניהול מקומי במכשיר הילד, ואז משתני סביבה (פיתוח / תאימות).
+ */
+export function getExpectedChannelActionPin(
+  profile: Profile | null | undefined,
+  localParent: { isActive: boolean; pin?: string | null }
+): string {
+  const fromProfile = normPin(profile?.parent_pin)
+  if (fromProfile.length > 0) return fromProfile
+
+  if (localParent.isActive) {
+    const lp = normPin(localParent.pin)
+    if (lp.length > 0) return lp
+  }
+
+  return getResolvedParentPin()
 }

@@ -11,14 +11,12 @@ type Props =
       onAdd: () => void
       adding?: boolean
       added?: boolean
-      manageLocked?: boolean
     }
   | {
       variant: 'whitelist'
       channel: WhitelistedChannel
       onRemove: () => void
       onOpenChannel: () => void
-      manageLocked?: boolean
     }
 
 export function ChannelCard(props: Props) {
@@ -84,7 +82,7 @@ export function ChannelCard(props: Props) {
         <Button
           className={cn('shrink-0 self-center', props.added ? '!bg-emerald-600 hover:!bg-emerald-700' : '')}
           onClick={props.onAdd}
-          disabled={props.adding || props.manageLocked || props.added}
+          disabled={props.adding || props.added}
         >
           {props.adding ? '...' : props.added ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> נוסף</span> : 'הוסף'}
         </Button>
@@ -93,11 +91,9 @@ export function ChannelCard(props: Props) {
           <Button type="button" variant="secondary" className="!px-3 !py-2 text-xs whitespace-nowrap" onClick={props.onOpenChannel}>
             כנס לערוץ
           </Button>
-          {!props.manageLocked ? (
-            <Button variant="danger" className="!px-3 !py-2 text-xs whitespace-nowrap" onClick={props.onRemove}>
-              הסר
-            </Button>
-          ) : null}
+          <Button variant="danger" className="!px-3 !py-2 text-xs whitespace-nowrap" onClick={props.onRemove}>
+            הסר
+          </Button>
         </div>
       )}
     </div>

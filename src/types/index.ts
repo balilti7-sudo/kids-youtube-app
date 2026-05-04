@@ -3,6 +3,8 @@ export interface Profile {
   email: string
   full_name: string | null
   avatar_url: string | null
+  /** Parent PIN for sensitive actions (e.g. channel list); DB default often 0000 */
+  parent_pin?: string | null
   onboarding_done: boolean
   created_at: string
   updated_at: string

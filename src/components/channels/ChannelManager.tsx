@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { KeyRound, Lock, Plus, RefreshCcw } from 'lucide-react'
+import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
 import { useChannels } from '../../hooks/useChannels'
-import type { WhitelistedChannel } from '../../types'
+import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
 import { getChildCachedChannelVideos } from '../../lib/childDevice'
 import { supabase } from '../../lib/supabase'
 import { WhitelistView } from './WhitelistView'
@@ -16,13 +16,18 @@ import { Input } from '../ui/Input'
 import { Modal } from '../ui/Modal'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
-import { getResolvedParentPin, pinsMatch } from '../../lib/parentPin'
+import { getExpectedChannelActionPin, pinsMatch } from '../../lib/parentPin'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 
 type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
 
+type PendingPinAction =
+  | { kind: 'openSearch' }
+  | { kind: 'add'; channel: YouTubeChannelResult }
+  | { kind: 'remove'; channel: WhitelistedChannel }
+
 export function ChannelManager() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
   const localParent = useLocalParentManagement()
   const localParentPinForRpcRef = useRef<string | null>(null)
@@ -36,7 +41,6 @@ export function ChannelManager() {
   const [channelCategory, setChannelCategory] = useState('')
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
-  const [manageLocked, setManageLocked] = useState(false)
   const [pinModalOpen, setPinModalOpen] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
@@ -46,10 +50,8 @@ export function ChannelManager() {
   const [previewVideos, setPreviewVideos] = useState<PreviewRow[]>([])
   const [activePreviewVideoId, setActivePreviewVideoId] = useState<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
-  const managementPin = getResolvedParentPin()
 
-  /** אחרי אימות PIN באמצעות לחיצה על חיפוש — להריץ פעולה שנחסמה כשהמסך היה נעול */
-  const pendingAfterUnlockRef = useRef<'openChannelSearch' | null>(null)
+  const pendingPinActionRef = useRef<PendingPinAction | null>(null)
 
   const {
     whitelist,
@@ -74,7 +76,6 @@ export function ChannelManager() {
   useEffect(() => {
     if (localParent.isActive) {
       localParentPinForRpcRef.current = localParent.pin ?? ''
-      setManageLocked(false)
     }
   }, [localParent.isActive, localParent.pin])
 
@@ -82,7 +83,7 @@ export function ChannelManager() {
     loadWhitelist()
   }, [deviceId, loadWhitelist])
 
-  const handleAdd = async (c: import('../../types').YouTubeChannelResult) => {
+  const handleAdd = async (c: YouTubeChannelResult) => {
     if (!selectedDevice) {
       toast.error('לא נבחר מכשיר להוספה')
       return
@@ -120,43 +121,55 @@ export function ChannelManager() {
     toast.success('סרטוני הערוץ עודכנו במטמון')
   }
 
-  const runPendingAfterUnlock = () => {
-    const p = pendingAfterUnlockRef.current
-    pendingAfterUnlockRef.current = null
-    if (p === 'openChannelSearch') setSearchOpen(true)
+  const beginPinGate = (action: PendingPinAction) => {
+    pendingPinActionRef.current = action
+    setPinInput('')
+    setPinError(null)
+    setPinModalOpen(true)
   }
 
-  const handleUnlockManagement = () => {
-    if (!managementPin) {
-      localParentPinForRpcRef.current = getResolvedParentPin()
-      setManageLocked(false)
-      setPinModalOpen(false)
-      setPinInput('')
-      setPinError(null)
-      toast.success('מסך ההוספה נפתח (ללא PIN מוגדר)')
-      runPendingAfterUnlock()
-      return
+  const runAfterVerifiedPin = (trimmedPin: string) => {
+    if (localParent.isActive) {
+      localParentPinForRpcRef.current = trimmedPin
     }
-    if (!pinsMatch(pinInput, managementPin)) {
-      setPinError('PIN שגוי')
-      return
-    }
-    localParentPinForRpcRef.current = pinInput.replace(/\s+/g, '').trim()
-    setManageLocked(false)
+    const pending = pendingPinActionRef.current
+    pendingPinActionRef.current = null
     setPinModalOpen(false)
     setPinInput('')
     setPinError(null)
-    toast.success('מסך ההוספה נפתח — אפשר להוסיף ערוצים')
-    runPendingAfterUnlock()
+
+    if (!pending) return
+    if (pending.kind === 'openSearch') {
+      setSearchOpen(true)
+      return
+    }
+    if (pending.kind === 'add') {
+      void handleAdd(pending.channel)
+      return
+    }
+    setRemoveTarget(pending.channel)
+  }
+
+  const submitChannelActionPin = () => {
+    const expected = getExpectedChannelActionPin(profile, localParent)
+    const trimmed = pinInput.replace(/\s+/g, '').trim()
+    if (!pinsMatch(trimmed, expected)) {
+      setPinError('קוד שגוי')
+      return
+    }
+    runAfterVerifiedPin(trimmed)
   }
 
   const requestOpenChannelSearch = () => {
-    if (manageLocked) {
-      pendingAfterUnlockRef.current = 'openChannelSearch'
-      setPinModalOpen(true)
-      return
-    }
-    setSearchOpen(true)
+    beginPinGate({ kind: 'openSearch' })
+  }
+
+  const requestAddChannel = (c: YouTubeChannelResult) => {
+    beginPinGate({ kind: 'add', channel: c })
+  }
+
+  const requestRemoveChannel = (c: WhitelistedChannel) => {
+    beginPinGate({ kind: 'remove', channel: c })
   }
 
   useEffect(() => {
@@ -242,44 +255,9 @@ export function ChannelManager() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-4">
       <header className="flex flex-col gap-3">
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ערוצים</h1>
-        {manageLocked ? (
-          <div
-            className="rounded-2xl border-2 border-amber-500/85 bg-gradient-to-br from-amber-50 to-orange-50 p-4 shadow-sm dark:border-amber-500/55 dark:from-amber-950/50 dark:to-zinc-900/80"
-            role="region"
-            aria-label="אימות הורה נדרש"
-          >
-            <p className="text-base font-extrabold leading-snug text-amber-950 dark:text-amber-100">
-              לפני שמוסיפים תוכן — צעד הכרחי להורה
-            </p>
-            <p className="mt-2 text-sm leading-relaxed text-amber-950/90 dark:text-amber-100/90">
-              מסך ההוספה נעול כדי שהילד לא ישנה את הרשימות. כדי להשלים את החיבור והתוכן למכשיר של הילד, יש לאמת שאתם ההורה באמצעות הקוד (PIN).
-            </p>
-            <Button
-              type="button"
-              className="mt-4 w-full gap-2 py-3.5 text-base font-bold shadow-md ring-2 ring-brand-500/30"
-              onClick={() => setPinModalOpen(true)}
-            >
-              <KeyRound className="h-5 w-5 shrink-0" aria-hidden />
-              הזינו PIN והמשיכו להוספת ערוצים
-            </Button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-400/50 bg-emerald-50/90 px-3 py-2.5 dark:border-emerald-700/50 dark:bg-emerald-950/35">
-            <p className="min-w-0 text-sm font-semibold text-emerald-900 dark:text-emerald-100">
-              ניהול פתוח — אפשר להוסיף או להסיר תוכן
-            </p>
-            <Button
-              type="button"
-              variant="secondary"
-              className="shrink-0 !px-3 !py-2 text-xs font-semibold"
-              disabled
-              title="הדשבורד לא דורש PIN (ה-PIN נשמר אחרי הזנה במסך הילד)."
-            >
-              <Lock className="h-4 w-4" />
-              נעל את מסך ההוספה
-            </Button>
-          </div>
-        )}
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
+          פתיחת חיפוש ערוץ, הוספת ערוץ או הסרת ערוץ דורשים הזנת קוד ההורה מהחשבון.
+        </p>
         {selectedDevice ? (
           <p className="text-xs text-slate-500 dark:text-zinc-400">
             המכשיר הפעיל כעת: <span className="font-semibold text-slate-700 dark:text-zinc-200">{selectedDevice.name}</span>
@@ -320,9 +298,8 @@ export function ChannelManager() {
         <div className="flex flex-col gap-4">
           <WhitelistView
             channels={whitelist}
-            onRemoveRequest={setRemoveTarget}
+            onRemoveRequest={requestRemoveChannel}
             onPreviewRequest={(c) => setPreviewChannel(c)}
-            manageLocked={manageLocked}
           />
           {previewChannel ? (
             <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
@@ -418,11 +395,10 @@ export function ChannelManager() {
         results={searchResults}
         loading={searchLoading}
         error={searchError}
-        onAdd={handleAdd}
+        onAdd={requestAddChannel}
         addingId={addingId}
         addedIds={addedSearchChannelIds}
         deviceLabel={selectedDevice?.name}
-        manageLocked={manageLocked}
       />
 
       <RemoveChannelModal
@@ -439,34 +415,41 @@ export function ChannelManager() {
           setPinModalOpen(false)
           setPinInput('')
           setPinError(null)
-          pendingAfterUnlockRef.current = null
+          pendingPinActionRef.current = null
         }}
         title="אימות הורה"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setPinModalOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPinModalOpen(false)
+                setPinInput('')
+                setPinError(null)
+                pendingPinActionRef.current = null
+              }}
+            >
               ביטול
             </Button>
-            <Button onClick={handleUnlockManagement}>המשך</Button>
+            <Button onClick={submitChannelActionPin}>המשך</Button>
           </>
         }
       >
         <p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-          הזינו את קוד ההורה (4 ספרות). כך מוודאים שרק אתם מוסיפים או מסירים תוכן עבור המכשיר של הילד.
-        </p>
-          <p className="mb-3 rounded-lg border border-brand-200/80 bg-brand-50/90 px-3 py-2 text-xs leading-relaxed text-brand-900 dark:border-brand-800/60 dark:bg-brand-950/40 dark:text-brand-100/95">
-          פתחתם מלחיצה על &quot;חיפוש ערוץ&quot;? אחרי קוד נכון — הפעולה תמשיך אוטומטית.
+          הזינו את קוד ההורה מהפרופיל (ברירת מחדל 0000 אם לא שיניתם). רק אחרי קוד נכון תתבצע הפעולה שביקשתם.
         </p>
         <Input
           type="password"
-          placeholder="4 ספרות"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="קוד הורה"
           value={pinInput}
           onChange={(e) => {
-            setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))
+            setPinInput(e.target.value.replace(/\D/g, '').slice(0, 16))
             if (pinError) setPinError(null)
           }}
           autoFocus
-          onKeyDown={(e) => e.key === 'Enter' && handleUnlockManagement()}
+          onKeyDown={(e) => e.key === 'Enter' && submitChannelActionPin()}
         />
         {pinError ? <p className="mt-2 text-sm text-danger-600">{pinError}</p> : null}
       </Modal>

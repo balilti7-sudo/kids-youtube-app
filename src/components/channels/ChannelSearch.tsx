@@ -19,7 +19,6 @@ export function ChannelSearch({
   addingId,
   addedIds,
   deviceLabel,
-  manageLocked,
 }: {
   open: boolean
   onClose: () => void
@@ -31,7 +30,6 @@ export function ChannelSearch({
   addingId: string | null
   addedIds?: Set<string>
   deviceLabel?: string
-  manageLocked?: boolean
 }) {
   const [q, setQ] = useState('')
 
@@ -76,7 +74,6 @@ export function ChannelSearch({
             onAdd={() => onAdd(c)}
             adding={addingId === c.channelId}
             added={Boolean(addedIds?.has(c.channelId))}
-            manageLocked={manageLocked}
           />
         ))}
       </div>
