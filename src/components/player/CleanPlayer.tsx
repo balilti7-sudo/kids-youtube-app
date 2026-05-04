@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import Hls from 'hls.js'
 import { cn } from '../../lib/utils'
+import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
 import {
   fetchStreamInfo,
   getMediaBridgeMediaUrl,
@@ -8,6 +9,8 @@ import {
   StreamApiError,
   type StreamApiResponse,
 } from '../../lib/streamApi'
+
+const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
 
 type CleanPlayerProps = {
   videoId: string
@@ -45,11 +48,38 @@ function mediaErrorMessage(err: MediaError | null): string {
   }
 }
 
-/**
- * Native `<video>` through the Media Bridge (`VITE_STREAM_API_BASE` or localhost:8787).
- * HLS (m3u8) is common from Piped / ytdl — desktop Chrome/Firefox/Edge need hls.js; Safari uses native HLS.
- */
-export function CleanPlayer({ videoId, title, className }: CleanPlayerProps) {
+function CleanPlayerYoutubeIframe({ videoId, title, className }: CleanPlayerProps) {
+  const safeId = sanitizeYoutubeVideoId(videoId)
+  const origin = typeof window !== 'undefined' ? window.location.origin : undefined
+  const src = safeId ? buildYoutubePrivacyEmbedUrl(safeId, { origin }) : ''
+
+  return (
+    <div className={cn('relative h-full w-full min-h-0 overflow-hidden bg-black', className)} dir="ltr">
+      {!safeId || !src ? (
+        <div
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/90 px-4 text-center text-sm text-amber-100"
+          role="alert"
+          dir="rtl"
+        >
+          <p>מזהה סרטון YouTube לא תקין.</p>
+        </div>
+      ) : (
+        <iframe
+          title={title}
+          src={src}
+          className="h-full w-full border-0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          loading="lazy"
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      )}
+      <span className="sr-only">{title}</span>
+    </div>
+  )
+}
+
+function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
@@ -279,6 +309,7 @@ export function CleanPlayer({ videoId, title, className }: CleanPlayerProps) {
         ref={videoRef}
         className="h-full w-full"
         controls
+        controlsList="nodownload"
         playsInline
         preload="auto"
         aria-describedby={phase.kind === 'error' ? errId : undefined}
@@ -296,4 +327,18 @@ export function CleanPlayer({ videoId, title, className }: CleanPlayerProps) {
       <span className="sr-only">{title}</span>
     </div>
   )
+}
+
+/**
+ * Default: native `<video>` through the Media Bridge — **not** a YouTube iframe, so there is no
+ * YouTube logo / “Watch on YouTube” in the player chrome (stream is proxied).
+ *
+ * Optional: set `VITE_YOUTUBE_IFRAME_PLAYER=true` to use `youtube-nocookie.com/embed` with
+ * `modestbranding=1`, `rel=0`, and related params (see `buildYoutubePrivacyEmbedUrl`).
+ */
+export function CleanPlayer(props: CleanPlayerProps) {
+  if (YOUTUBE_IFRAME_PLAYER) {
+    return <CleanPlayerYoutubeIframe {...props} />
+  }
+  return <CleanPlayerMediaBridge {...props} />
 }
