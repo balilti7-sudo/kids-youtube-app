@@ -14,11 +14,9 @@ import { CleanPlayer } from '../player/CleanPlayer'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
-import { verifyLoggedInUserParentPin } from '../../lib/verifyParentProfilePin'
-import type { ParentPinVerifyResult } from '../../lib/verifyParentProfilePin'
+import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
-import { getExpectedChannelActionPin, pinsMatch } from '../../lib/parentPin'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 
 type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
@@ -127,17 +125,11 @@ export function ChannelManager() {
   }
 
   const verifyChannelParentPin = useCallback(
-    async (pin: string): Promise<ParentPinVerifyResult> => {
-      if (user?.id) {
-        return verifyLoggedInUserParentPin(user.id, pin)
-      }
-      const expected = getExpectedChannelActionPin(profile, localParent)
-      const trimmed = pin.replace(/\D/g, '').trim()
-      if (!pinsMatch(trimmed, expected)) {
-        return { ok: false, errorMessage: 'קוד שגוי' }
-      }
-      return { ok: true }
-    },
+    (pin: string) =>
+      verifyParentManagementPin(
+        { userId: user?.id, profile, localParent: { isActive: localParent.isActive, pin: localParent.pin } },
+        pin
+      ),
     [user?.id, profile, localParent]
   )
 
