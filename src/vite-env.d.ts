@@ -15,7 +15,7 @@ interface ImportMetaEnv {
   readonly VITE_STREAM_API_BASE?: string
   /** Must match `MEDIA_BRIDGE_WELCOME_KEY` on Render — allows POST /api/email/welcome without JWT after sign-up */
   readonly VITE_MEDIA_BRIDGE_WELCOME_KEY?: string
-  /** WhatsApp support — E.164 digits only, e.g. 972501234567 */
+  /** WhatsApp support — E.164 digits only, e.g. 972552577999 */
   readonly VITE_WHATSAPP_PHONE_E164?: string
 }
 
