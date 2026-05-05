@@ -17,7 +17,10 @@ export async function verifyLoggedInUserParentPin(userId: string, pin: string): 
   }
 
   const stored = data?.parent_pin != null ? String(data.parent_pin).replace(/\s+/g, '').trim() : ''
-  const expected = stored.length > 0 ? stored : '0000'
+  if (stored.length < 4 || stored === '0000') {
+    return { ok: false, errorMessage: 'יש להגדיר קוד הורה לפני ביצוע הפעולה' }
+  }
+  const expected = stored
 
   if (!pinsMatch(trimmed, expected)) {
     return { ok: false, errorMessage: 'קוד שגוי' }
