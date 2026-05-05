@@ -40,3 +40,8 @@ export function getExpectedChannelActionPin(
 
   return getResolvedParentPin()
 }
+
+/** true כשהמשתמש חייב להגדיר PIN (null/empty/קצר מ-4) לפני כניסה לניהול. */
+export function isProfileParentPinMissing(profile: Profile | null | undefined): boolean {
+  return normPin(profile?.parent_pin).length < 4
+}

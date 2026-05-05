@@ -14,8 +14,10 @@ import { SubscriptionPage } from './pages/SubscriptionPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { KidModePage } from './pages/KidModePage'
+import { SetParentPinPage } from './pages/SetParentPinPage'
 import { useAuth } from './hooks/useAuth'
 import { BYPASS_AUTH } from './config/dev'
+import { isProfileParentPinMissing } from './lib/parentPin'
 import { parsePairingCodeFromLocationSearch } from './lib/pairingCodeFromQr'
 import { WhatsAppFloatingButton } from './components/support/WhatsAppFloatingButton'
 
@@ -50,6 +52,7 @@ function SmartEntryRoute() {
   if (!isAuthenticated && hasKidToken) return <Navigate to="/kid" replace />
   if (!isAuthenticated) return <Navigate to="/auth" replace />
   if (profile && !profile.onboarding_done) return <Navigate to="/onboarding" replace />
+  if (isProfileParentPinMissing(profile)) return <Navigate to="/set-parent-pin" replace />
   return <Navigate to="/dashboard" replace />
 }
 
@@ -101,6 +104,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <OnboardingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/set-parent-pin"
+            element={
+              <ProtectedRoute>
+                <SetParentPinPage />
               </ProtectedRoute>
             }
           />

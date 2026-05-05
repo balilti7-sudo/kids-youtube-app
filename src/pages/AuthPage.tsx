@@ -2,6 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { AuthScreen } from '../components/auth/AuthScreen'
 import { BYPASS_AUTH } from '../config/dev'
 import { useAuth } from '../hooks/useAuth'
+import { isProfileParentPinMissing } from '../lib/parentPin'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { parsePairingCodeFromLocationSearch } from '../lib/pairingCodeFromQr'
 
@@ -29,6 +30,9 @@ export function AuthPage() {
   }
 
   if (isAuthenticated && profile?.onboarding_done) {
+    if (isProfileParentPinMissing(profile)) {
+      return <Navigate to="/set-parent-pin" replace />
+    }
     return <Navigate to={safeNext} replace />
   }
 
