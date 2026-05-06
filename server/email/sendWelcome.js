@@ -20,18 +20,28 @@ export async function sendWelcomeEmail({ to, displayName }) {
 <head><meta charset="utf-8" /></head>
 <body style="font-family: system-ui, sans-serif; line-height: 1.6; color: #1e293b;">
   <p>${greeting}</p>
-  <p>ברוך הבא ל־<strong>SafeTube</strong> — ניהול צפייה בטוחה ב־YouTube לילדים.</p>
-  <p>אם אימייל האימות עדיין לא הגיע, בדקו גם בתיקיית הספאם.</p>
+  <p>איזה כיף שהצטרפתם למשפחת <strong>SafeTube</strong>.</p>
+  <p>מהיום, אתם יכולים להיות רגועים כשהילדים צופים ביוטיוב.</p>
+  <p>המערכת שלנו מסננת עבורכם את התכנים ומוודאת שהם רואים רק מה שמתאים להם.</p>
+  <p>אנחנו כאן לכל שאלה, צוות SafeTube.</p>
   <p style="margin-top: 2rem; font-size: 0.9rem; color: #64748b;">בברכה,<br />צוות SafeTube</p>
 </body>
 </html>`.trim()
 
-  const text = `${greeting}\n\nברוך הבא ל-SafeTube.\nאם אימייל האימות לא הגיע, בדקו גם בספאם.\n\nבברכה,\nצוות SafeTube`
+  const text = `${greeting}
+
+איזה כיף שהצטרפתם למשפחת SafeTube.
+מהיום, אתם יכולים להיות רגועים כשהילדים צופים ביוטיוב.
+המערכת שלנו מסננת עבורכם את התכנים ומוודאת שהם רואים רק מה שמתאים להם.
+אנחנו כאן לכל שאלה, צוות SafeTube.
+
+בברכה,
+צוות SafeTube`
 
   const payload = {
     from,
     to: [to],
-    subject: 'ברוך הבא ל-SafeTube',
+    subject: 'ברוכים הבאים ל-SafeTube 🛡️ הילדים שלכם בידיים בטוחות',
     html,
     text,
   }

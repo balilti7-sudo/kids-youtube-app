@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { isProfileParentPinMissing } from '../lib/parentPin'
+import { requestPinEmail } from '../lib/requestPinEmail'
 
 const pinSchema = z
   .string()
@@ -57,6 +58,12 @@ export function SetParentPinPage() {
       setError(updateError.message || 'שמירת קוד הורה נכשלה')
       return
     }
+
+    requestPinEmail({
+      email: profile?.email || user.email || '',
+      pin: parsed.data,
+      accessToken: null,
+    })
 
     await refreshProfile()
     setSaving(false)
