@@ -105,22 +105,55 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   verifyEmailCode: async (email, code) => {
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token: code,
-      type: 'signup',
-    })
-    return { error: error ? new Error(error.message) : null }
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: 'signup',
+      })
+      if (error) {
+        const err = error as Error & { status?: number; code?: string }
+        console.error('[Supabase auth.verifyOtp] details:', {
+          message: err.message,
+          name: err.name,
+          status: err.status,
+          code: err.code,
+        })
+      }
+      return { error: error ? new Error(error.message) : null }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[Supabase auth.verifyOtp] runtime failure:', msg)
+      return { error: new Error(msg) }
+    }
   },
 
   signInWithMagicLink: async (email, emailRedirectTo) => {
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo,
-      },
-    })
-    return { error: error ? new Error(error.message) : null }
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo,
+        },
+      })
+      if (error) {
+        const err = error as Error & { status?: number; code?: string }
+        console.error('[Supabase auth.signInWithOtp] details:', {
+          message: err.message,
+          name: err.name,
+          status: err.status,
+          code: err.code,
+          email,
+        })
+      } else {
+        console.info('[Supabase auth.signInWithOtp] OTP/magic-link email requested:', { email })
+      }
+      return { error: error ? new Error(error.message) : null }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[Supabase auth.signInWithOtp] runtime failure:', msg)
+      return { error: new Error(msg) }
+    }
   },
 
   signOut: async () => {

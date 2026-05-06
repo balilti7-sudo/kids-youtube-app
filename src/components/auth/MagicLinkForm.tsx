@@ -32,8 +32,10 @@ export function MagicLinkForm() {
     try {
       const safeNext = getSafeNextFromUrl(location.search)
       const emailRedirectTo = `${window.location.origin}/auth?next=${encodeURIComponent(safeNext)}`
+      console.info('[MagicLinkForm] user clicked send code/link', { email: trimmed, redirectTo: emailRedirectTo })
       const { error } = await signInWithMagicLink(trimmed, emailRedirectTo)
       if (error) {
+        console.error('[MagicLinkForm] send code/link failed:', error.message)
         setSubmitError(error.message)
         return
       }
