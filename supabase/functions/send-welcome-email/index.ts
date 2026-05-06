@@ -9,7 +9,7 @@ type WelcomePayload = {
 }
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')?.trim() || ''
-const RESEND_FROM = Deno.env.get('RESEND_FROM')?.trim() || 'SafeTube <onboarding@resend.dev>'
+const RESEND_FROM = Deno.env.get('RESEND_FROM')?.trim() || 'SafeTube <support@safetube.co.il>'
 const RESEND_REPLY_TO = Deno.env.get('RESEND_REPLY_TO')?.trim() || ''
 const WEBHOOK_SECRET = Deno.env.get('WELCOME_EMAIL_WEBHOOK_SECRET')?.trim() || ''
 
