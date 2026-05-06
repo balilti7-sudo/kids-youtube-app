@@ -9,7 +9,7 @@ type WelcomePayload = {
 }
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')?.trim() || ''
-const RESEND_FROM = Deno.env.get('RESEND_FROM')?.trim() || 'SafeTube <no-reply@safetube.app>'
+const RESEND_FROM = Deno.env.get('RESEND_FROM')?.trim() || 'SafeTube <onboarding@resend.dev>'
 const RESEND_REPLY_TO = Deno.env.get('RESEND_REPLY_TO')?.trim() || ''
 const WEBHOOK_SECRET = Deno.env.get('WELCOME_EMAIL_WEBHOOK_SECRET')?.trim() || ''
 
@@ -32,22 +32,28 @@ function normalizePin(raw: string | null | undefined): string {
 
 function buildHtml(name: string, pin: string) {
   const greeting = name ? `שלום ${name},` : 'שלום,'
-  const pinBlock =
-    pin && pin !== '0000'
-      ? `
+  const pinBlock = pin
+    ? `
   <div style="margin:16px 0;padding:12px 14px;border:1px solid #fdba74;border-radius:10px;background:#fff7ed;color:#7c2d12;">
     <p style="margin:0 0 6px 0;font-size:14px;">תזכורת:</p>
     <p style="margin:0;font-size:16px;font-weight:700;">Your Parent PIN is: ${pin}</p>
   </div>`
-      : ''
+    : `
+  <div style="margin:16px 0;padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;color:#334155;">
+    <p style="margin:0;font-size:14px;">טרם הוגדר קוד הורה. ניתן להגדירו במסך Set Parent PIN באפליקציה.</p>
+  </div>`
 
   return `
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head><meta charset="utf-8" /></head>
-<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.65;color:#1e293b;background:#f8fafc;padding:24px;">
-  <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;padding:24px;">
-    <h1 style="margin:0 0 12px 0;font-size:22px;color:#0f172a;">ברוכים הבאים ל-SafeTube</h1>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.65;color:#1e293b;background:#f1f5f9;padding:24px;">
+  <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #dbeafe;border-radius:16px;padding:0;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+    <div style="background:linear-gradient(135deg,#0ea5e9,#2563eb);padding:16px 20px;color:#ffffff;">
+      <p style="margin:0;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;opacity:.95;">SafeTube</p>
+      <h1 style="margin:6px 0 0 0;font-size:22px;line-height:1.3;">ברוכים הבאים ל-SafeTube</h1>
+    </div>
+    <div style="padding:22px 22px 24px 22px;">
     <p style="margin:0 0 12px 0;">${greeting}</p>
     <p style="margin:0 0 12px 0;">
       החשבון שלכם נוצר בהצלחה. עכשיו אפשר להגדיר חוויית צפייה בטוחה לילדים עם שליטה מלאה של ההורה.
@@ -57,6 +63,7 @@ function buildHtml(name: string, pin: string) {
       אם לא אתם יצרתם את החשבון, אנא פנו לתמיכה בהקדם.
     </p>
     <p style="margin:20px 0 0 0;color:#64748b;font-size:13px;">בברכה,<br/>צוות SafeTube</p>
+    </div>
   </div>
 </body>
 </html>`.trim()
@@ -64,7 +71,7 @@ function buildHtml(name: string, pin: string) {
 
 function buildText(name: string, pin: string) {
   const greeting = name ? `שלום ${name},` : 'שלום,'
-  const pinLine = pin && pin !== '0000' ? `\nYour Parent PIN is: ${pin}\n` : '\n'
+  const pinLine = pin ? `\nYour Parent PIN is: ${pin}\n` : '\nטרם הוגדר קוד הורה. ניתן להגדיר אותו במסך Set Parent PIN.\n'
   return `${greeting}
 
 ברוכים הבאים ל-SafeTube.
