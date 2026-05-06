@@ -4,8 +4,6 @@ import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useSubscription } from '../../hooks/useSubscription'
 import { useDeviceStore } from '../../stores/deviceStore'
-import { QRCodeDisplay } from './QRCodeDisplay'
-import { DeviceList } from './DeviceList'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { toast } from 'sonner'
@@ -22,10 +20,8 @@ export function DeviceLinkingScreen() {
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
   const addDevice = useDeviceStore((s) => s.addDevice)
-  const removeDevice = useDeviceStore((s) => s.removeDevice)
 
   const [name, setName] = useState('מכשיר חדש')
-  const [code, setCode] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   const max = subscription?.max_devices ?? 3
@@ -74,10 +70,7 @@ export function DeviceLinkingScreen() {
       }
 
       if (data) {
-        setCode(pairing)
-        toast.success('המכשיר נשמר ב-Supabase', {
-          description: `קוד החיבור: ${pairing}`,
-        })
+        toast.success('המכשיר נשמר', { description: 'ניתן לנהל מכשירים מדף ההגדרות או הדשבורד.' })
         await refetch()
       }
     } catch (e) {
@@ -91,23 +84,15 @@ export function DeviceLinkingScreen() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    const { error: err } = await removeDevice(id)
-    if (err) {
-      console.error('Connection Error:', err)
-      toast.error('מחיקת המכשיר נכשלה', { description: err.message, duration: 10_000 })
-      return
-    }
-    toast.success('המכשיר הוסר')
-    await refetch()
-  }
-
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 pb-4">
+    <div className="mx-auto flex w-full max-w-lg flex-col gap-6 pb-4">
       <header>
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">חיבור מכשיר</h1>
-        <p className="text-sm text-slate-600 dark:text-zinc-400">
-          מכשירים: {devices.length} / {max}
+        <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+          הוסיפו מכשיר ילדים חדש. הצימוד והקוד מנוהלים במסך הילד ובהגדרות — כאן רק יוצרים את רשומת המכשיר.
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          מכשירים פעילים: {devices.length} / {max}
         </p>
       </header>
 
@@ -141,19 +126,8 @@ export function DeviceLinkingScreen() {
           {creating ? (
             <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" />
           ) : null}
-          {creating ? 'שומר ב-Supabase…' : 'צור קוד חיבור ושמור מכשיר'}
+          {creating ? 'שומר…' : 'הוסף מכשיר'}
         </Button>
-      </div>
-
-      {code ? <QRCodeDisplay code={code} /> : null}
-
-      <div>
-        <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-zinc-200">מכשירים מקושרים</h2>
-        {loading ? (
-          <LoadingSpinner className="mx-auto border-brand-500 border-t-transparent" />
-        ) : (
-          <DeviceList devices={devices} onDelete={(id) => void handleDelete(id)} />
-        )}
       </div>
     </div>
   )

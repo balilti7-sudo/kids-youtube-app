@@ -3,25 +3,27 @@ import { useEffect, useState } from 'react'
 import { cn } from '../../lib/utils'
 
 type Props = {
-  /** Default `lg` = 320px wide; height follows aspect ratio. */
+  /** Default `lg` = 350px wide; height follows aspect ratio. */
   size?: 'sm' | 'md' | 'lg'
   className?: string
-  /** 2.5s easeOut entrance (scale + opacity). */
+  /** Slow fade + scale entrance (Auth, Onboarding, Splash). */
   entranceAnimation?: boolean
   /**
-   * After the entrance, a subtle 10s opacity loop (1 ↔ 0.7). Use on Auth + splash only.
-   * The wordmark is part of `logo.png`; the effect applies to the full image so the “SafeTube” area breathes visually.
+   * After the entrance, a subtle 10s opacity loop (Auth + splash only).
+   * Timing aligns with the 4s entrance when this is enabled.
    */
   withLivingPulse?: boolean
 }
 
 const sizeWidths = {
   sm: 'w-[200px] max-w-[min(100%,200px)]',
-  md: 'w-[260px] max-w-[min(100%,260px)]',
-  lg: 'w-[320px] max-w-[min(100%,320px)]',
+  md: 'w-[280px] max-w-[min(100%,280px)]',
+  lg: 'w-[350px] max-w-[min(100%,350px)]',
 } as const
 
-/** Official `public/logo.png`; containers stay transparent (no fill behind the asset). */
+const ENTRANCE_DURATION_S = 4
+
+/** Official `public/logo.png` only — no border, no container background. */
 export function SafeTubeLogo({
   size = 'lg',
   className,
@@ -33,18 +35,22 @@ export function SafeTubeLogo({
 
   const widthClass = sizeWidths[size]
 
-  const imgClassName = cn('block h-auto object-contain bg-transparent', widthClass)
+  const imgClassName = cn(
+    'block h-auto max-w-full border-0 object-contain bg-transparent shadow-none outline-none ring-0',
+    widthClass
+  )
 
   const runPulse = withLivingPulse && entranceAnimation && !prefersReduced
 
   useEffect(() => {
     if (!runPulse) return
-    const id = window.setTimeout(() => setPhase('pulse'), 2500)
+    const ms = ENTRANCE_DURATION_S * 1000
+    const id = window.setTimeout(() => setPhase('pulse'), ms)
     return () => window.clearTimeout(id)
   }, [runPulse])
 
   const staticLogo = (
-    <div className={cn('mx-auto w-fit bg-transparent', className)}>
+    <div className={cn('mx-auto w-fit border-0 bg-transparent p-0 shadow-none', className)}>
       <img src="/logo.png" alt="SafeTube" className={imgClassName} decoding="async" />
     </div>
   )
@@ -56,13 +62,13 @@ export function SafeTubeLogo({
   const showPulseLoop = runPulse && phase === 'pulse'
 
   return (
-    <div className={cn('mx-auto w-fit bg-transparent', className)}>
+    <div className={cn('mx-auto w-fit border-0 bg-transparent p-0 shadow-none', className)}>
       <motion.img
         src="/logo.png"
         alt="SafeTube"
         className={imgClassName}
         decoding="async"
-        initial={{ scale: 0.8, opacity: 0 }}
+        initial={{ scale: 0.7, opacity: 0 }}
         animate={
           showPulseLoop
             ? { scale: 1, opacity: [1, 0.7, 1] }
@@ -71,7 +77,7 @@ export function SafeTubeLogo({
         transition={
           showPulseLoop
             ? { duration: 10, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }
-            : { duration: 2.5, ease: 'easeOut' }
+            : { duration: ENTRANCE_DURATION_S, ease: [0.22, 1, 0.36, 1] }
         }
       />
     </div>
