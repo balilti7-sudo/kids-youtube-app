@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -35,7 +36,7 @@ export function SafeTubeLogo({
 
   const widthClass = sizeWidths[size]
 
-  /** Kills gray/white matte fringes on mobile; `style` helps WebKit/Safari. */
+  /** Kills faint matte “box” on mobile when PNG sits on pure black; Tailwind + inline for Safari. */
   const imgClassName = cn(
     'block h-auto max-w-full border-0 object-contain bg-transparent shadow-none outline-none ring-0',
     '[mix-blend-mode:plus-lighter]',
@@ -43,7 +44,15 @@ export function SafeTubeLogo({
     widthClass
   )
 
-  const imgStyle = { mixBlendMode: 'plus-lighter' as const }
+  const imgBlendStyle = useMemo((): CSSProperties => {
+    const s: CSSProperties & Record<string, string> = {
+      mixBlendMode: 'plus-lighter',
+      WebkitMixBlendMode: 'plus-lighter',
+    }
+    return s
+  }, [])
+
+  const logoWrapClass = 'mx-auto w-fit border-0 bg-transparent p-0 shadow-none ring-0 outline-none'
 
   const runPulse = withLivingPulse && entranceAnimation && !prefersReduced
 
@@ -55,8 +64,8 @@ export function SafeTubeLogo({
   }, [runPulse])
 
   const staticLogo = (
-    <div className={cn('mx-auto w-fit border-0 bg-transparent p-0 shadow-none', className)}>
-      <img src="/logo.png" alt="SafeTube" className={imgClassName} style={imgStyle} decoding="async" />
+    <div className={cn(logoWrapClass, className)}>
+      <img src="/logo.png" alt="SafeTube" className={imgClassName} style={imgBlendStyle} decoding="async" />
     </div>
   )
 
@@ -67,12 +76,12 @@ export function SafeTubeLogo({
   const showPulseLoop = runPulse && phase === 'pulse'
 
   return (
-    <div className={cn('mx-auto w-fit border-0 bg-transparent p-0 shadow-none', className)}>
+    <div className={cn(logoWrapClass, className)}>
       <motion.img
         src="/logo.png"
         alt="SafeTube"
         className={imgClassName}
-        style={imgStyle}
+        style={imgBlendStyle}
         decoding="async"
         initial={{ scale: 0.7, opacity: 0 }}
         animate={
@@ -83,7 +92,10 @@ export function SafeTubeLogo({
         transition={
           showPulseLoop
             ? { duration: 10, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }
-            : { duration: ENTRANCE_DURATION_S, ease: 'easeOut' }
+            : {
+                duration: ENTRANCE_DURATION_S,
+                ease: [0.22, 0.99, 0.36, 1],
+              }
         }
       />
     </div>

@@ -4,7 +4,7 @@ import { SafeTubeLogo } from './SafeTubeLogo'
 export function SplashScreen() {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-black px-6">
-      <SafeTubeLogo entranceAnimation withLivingPulse />
+      <SafeTubeLogo size="lg" entranceAnimation withLivingPulse />
     </div>
   )
 }
