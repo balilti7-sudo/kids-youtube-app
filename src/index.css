@@ -9,7 +9,7 @@
     @apply antialiased;
   }
   body {
-    @apply min-h-dvh bg-[#e8eef6] text-slate-900 font-sans dark:bg-zinc-950 dark:text-zinc-100;
+    @apply min-h-dvh bg-[#fff5f5] text-slate-900 font-sans dark:bg-zinc-950 dark:text-zinc-100;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }

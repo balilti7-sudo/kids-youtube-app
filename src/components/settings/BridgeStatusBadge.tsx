@@ -80,7 +80,7 @@ function deriveSummary(d: BridgeDiagnostics | null, error: string | null): Deriv
 
 const dotClass: Record<Health, string> = {
   loading: 'bg-slate-300 animate-pulse dark:bg-zinc-700',
-  green: 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]',
+  green: 'bg-brand-600 shadow-[0_0_0_3px_rgba(255,0,0,0.22)]',
   yellow: 'bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.18)]',
   red: 'bg-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.18)]',
   unreachable: 'bg-zinc-500 shadow-[0_0_0_3px_rgba(113,113,122,0.18)]',

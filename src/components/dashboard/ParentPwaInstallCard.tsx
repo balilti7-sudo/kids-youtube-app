@@ -10,10 +10,10 @@ export function ParentPwaInstallCard() {
   if (isInstalled) {
     return (
       <section
-        className="rounded-2xl border border-emerald-800/40 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-100/95"
+        className="rounded-2xl border border-brand-800/50 bg-brand-950/40 px-4 py-3 text-sm text-brand-100/95"
         aria-live="polite"
       >
-        <p className="font-medium text-emerald-50">האפליקציה פועלת במצב מותקן (מסך מלא).</p>
+        <p className="font-medium text-white">האפליקציה פועלת במצב מותקן (מסך מלא).</p>
       </section>
     )
   }

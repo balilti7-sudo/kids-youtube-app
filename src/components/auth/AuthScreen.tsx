@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { PageBackBar } from '../layout/PageBackBar'
+import { SafeTubeLogo } from '../branding/SafeTubeLogo'
 import { GoogleAuthButton } from './GoogleAuthButton'
 import { LoginForm } from './LoginForm'
 import { RegisterForm } from './RegisterForm'
@@ -13,13 +14,13 @@ export function AuthScreen() {
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-12 pt-10">
       <PageBackBar fallback="/dashboard" className="mb-0 justify-center sm:justify-start" />
       <div className="text-center">
-        <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">SafeTube</h1>
-        <p className="mt-1 text-sm text-slate-700 dark:text-zinc-400">הורים בשליטה — YouTube בטוח יותר לילדים</p>
+        <SafeTubeLogo className="mx-auto h-14 w-auto max-w-[min(100%,320px)]" />
+        <p className="mt-3 text-sm text-slate-700 dark:text-zinc-400">הורים בשליטה — YouTube בטוח יותר לילדים</p>
       </div>
 
       <div className="app-floating-surface p-6">
         {emailVerified ? (
-          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/30 dark:text-emerald-100">
+          <div className="mb-4 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-900 dark:border-brand-800/60 dark:bg-brand-950/40 dark:text-brand-100">
             האימייל אומת בהצלחה. אפשר להתחבר.
           </div>
         ) : null}
@@ -29,7 +30,7 @@ export function AuthScreen() {
             onClick={() => setMode('login')}
             className={`px-3 py-2 text-sm font-semibold transition ${
               mode === 'login'
-                ? 'bg-slate-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                ? 'bg-brand-600 text-white dark:bg-brand-600 dark:text-white'
                 : 'bg-transparent text-slate-600 dark:text-zinc-300'
             }`}
           >
@@ -40,7 +41,7 @@ export function AuthScreen() {
             onClick={() => setMode('register')}
             className={`px-3 py-2 text-sm font-semibold transition ${
               mode === 'register'
-                ? 'bg-slate-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                ? 'bg-brand-600 text-white dark:bg-brand-600 dark:text-white'
                 : 'bg-transparent text-slate-600 dark:text-zinc-300'
             }`}
           >

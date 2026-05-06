@@ -47,7 +47,7 @@ export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void 
   if (success) {
     return (
       <div className="space-y-3 text-center">
-        <p className="text-sm text-emerald-700 dark:text-emerald-400">
+        <p className="text-sm text-brand-700 dark:text-brand-400">
           שלחנו לך מייל אימות{sentToEmail ? ` ל־${sentToEmail}` : ''}. אנא אשר אותו כדי להתחבר.
         </p>
         <Button type="button" className="w-full" onClick={onSwitchToLogin}>

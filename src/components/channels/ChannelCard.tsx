@@ -80,7 +80,7 @@ export function ChannelCard(props: Props) {
       </div>
       {props.variant === 'search' ? (
         <Button
-          className={cn('shrink-0 self-center', props.added ? '!bg-emerald-600 hover:!bg-emerald-700' : '')}
+          className={cn('shrink-0 self-center', props.added ? '!bg-brand-700 hover:!bg-brand-800' : '')}
           onClick={props.onAdd}
           disabled={props.adding || props.added}
         >

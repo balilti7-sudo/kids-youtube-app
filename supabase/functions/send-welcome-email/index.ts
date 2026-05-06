@@ -13,6 +13,14 @@ const RESEND_FROM = Deno.env.get('RESEND_FROM')?.trim() || 'SafeTube <support@sa
 const RESEND_REPLY_TO = Deno.env.get('RESEND_REPLY_TO')?.trim() || ''
 const WEBHOOK_SECRET = Deno.env.get('WELCOME_EMAIL_WEBHOOK_SECRET')?.trim() || ''
 
+function logoAbsoluteUrl(): string {
+  const explicit = Deno.env.get('EMAIL_LOGO_URL')?.trim()
+  if (explicit) return explicit
+  const site = (Deno.env.get('PUBLIC_SITE_URL') ?? '').trim().replace(/\/+$/, '')
+  if (site) return `${site}/logo.png`
+  return 'https://safetube.co.il/logo.png'
+}
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-welcome-email-secret',
@@ -31,6 +39,7 @@ function normalizePin(raw: string | null | undefined): string {
 }
 
 function buildHtml(name: string, pin: string) {
+  const logoSrc = logoAbsoluteUrl()
   const greeting = name ? `שלום ${name},` : 'שלום,'
   const pinBlock = pin
     ? `
@@ -47,11 +56,11 @@ function buildHtml(name: string, pin: string) {
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head><meta charset="utf-8" /></head>
-<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.65;color:#1e293b;background:#f1f5f9;padding:24px;">
-  <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #dbeafe;border-radius:16px;padding:0;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,0.08);">
-    <div style="background:linear-gradient(135deg,#0ea5e9,#2563eb);padding:16px 20px;color:#ffffff;">
-      <p style="margin:0;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;opacity:.95;">SafeTube</p>
-      <h1 style="margin:6px 0 0 0;font-size:22px;line-height:1.3;">ברוכים הבאים ל-SafeTube</h1>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.65;color:#1e293b;background:#fff5f5;padding:24px;">
+  <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #fecdd3;border-radius:16px;padding:0;overflow:hidden;box-shadow:0 12px 32px rgba(127,0,0,0.08);">
+    <div style="background:linear-gradient(135deg,#FF0000,#b30000);padding:18px 20px;color:#ffffff;text-align:center;">
+      <img src="${logoSrc}" alt="SafeTube" width="260" height="80" style="max-width:85%;width:260px;height:auto;display:block;margin:0 auto 12px;border:0;">
+      <h1 style="margin:0;font-size:22px;line-height:1.3;">ברוכים הבאים ל-SafeTube</h1>
     </div>
     <div style="padding:22px 22px 24px 22px;">
     <p style="margin:0 0 12px 0;">${greeting}</p>

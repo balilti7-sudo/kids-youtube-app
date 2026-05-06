@@ -12,3 +12,12 @@ export function getResendReplyTo() {
   const v = (process.env.RESEND_REPLY_TO || '').trim()
   return v || undefined
 }
+
+/** Absolute URL to `logo.png` for HTML emails (`PUBLIC_SITE_URL` + `/logo.png`, or `EMAIL_LOGO_URL`). */
+export function getPublicLogoUrl() {
+  const explicit = (process.env.EMAIL_LOGO_URL || '').trim()
+  if (explicit) return explicit
+  const site = (process.env.PUBLIC_SITE_URL || process.env.APP_SITE_URL || '').trim().replace(/\/+$/, '')
+  if (site) return `${site}/logo.png`
+  return 'https://safetube.co.il/logo.png'
+}

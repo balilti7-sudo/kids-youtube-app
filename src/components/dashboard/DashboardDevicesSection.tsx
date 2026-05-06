@@ -175,7 +175,7 @@ export function DashboardDevicesSection() {
                 <span
                   className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                     d.is_online
-                      ? 'bg-emerald-950/80 text-emerald-300 ring-1 ring-emerald-800/80'
+                      ? 'bg-brand-950/80 text-brand-200 ring-1 ring-brand-800/80'
                       : 'bg-zinc-800 text-zinc-400 ring-1 ring-zinc-700'
                   }`}
                 >

@@ -54,7 +54,7 @@ export function MagicLinkForm() {
       </div>
 
       {sent ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/30 dark:text-emerald-100">
+        <div className="rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-900 dark:border-brand-800/60 dark:bg-brand-950/40 dark:text-brand-100">
           בדקו את המייל שלכם. שלחנו קישור חד־פעמי לכניסה.
         </div>
       ) : (
