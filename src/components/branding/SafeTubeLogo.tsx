@@ -1,58 +1,79 @@
 import { motion, useReducedMotion } from 'framer-motion'
+import { useEffect, useState } from 'react'
 import { cn } from '../../lib/utils'
 
 type Props = {
-  /** Visual height cap; width follows intrinsic aspect ratio. */
+  /** Default `lg` = 320px wide; height follows aspect ratio. */
   size?: 'sm' | 'md' | 'lg'
   className?: string
-  /**
-   * Spring entrance (Auth + Onboarding). Respected when `prefers-reduced-motion` is off.
-   */
+  /** 2.5s easeOut entrance (scale + opacity). */
   entranceAnimation?: boolean
+  /**
+   * After the entrance, a subtle 10s opacity loop (1 ↔ 0.7). Use on Auth + splash only.
+   * The wordmark is part of `logo.png`; the effect applies to the full image so the “SafeTube” area breathes visually.
+   */
+  withLivingPulse?: boolean
 }
 
-const sizeClass = {
-  sm: 'h-11 w-auto max-w-[min(100%,260px)]',
-  md: 'h-12 w-auto max-w-[min(100%,280px)]',
-  lg: 'h-14 w-auto max-w-[min(100%,280px)]',
+const sizeWidths = {
+  sm: 'w-[200px] max-w-[min(100%,200px)]',
+  md: 'w-[260px] max-w-[min(100%,260px)]',
+  lg: 'w-[320px] max-w-[min(100%,320px)]',
 } as const
 
-const springEntrance = {
-  type: 'spring' as const,
-  stiffness: 200,
-  damping: 15,
-}
-
-/** Official `public/logo.png` wordmark only (no SVG). Renders with alpha. */
-export function SafeTubeLogo({ size = 'lg', className, entranceAnimation = false }: Props) {
+/** Official `public/logo.png`; containers stay transparent (no fill behind the asset). */
+export function SafeTubeLogo({
+  size = 'lg',
+  className,
+  entranceAnimation = false,
+  withLivingPulse = false,
+}: Props) {
   const prefersReduced = useReducedMotion()
-  const img = (
-    <img
-      src="/logo.png"
-      alt="SafeTube"
-      className={cn('block object-contain bg-transparent', sizeClass[size])}
-      decoding="async"
-    />
+  const [phase, setPhase] = useState<'enter' | 'pulse'>('enter')
+
+  const widthClass = sizeWidths[size]
+
+  const imgClassName = cn('block h-auto object-contain bg-transparent', widthClass)
+
+  const runPulse = withLivingPulse && entranceAnimation && !prefersReduced
+
+  useEffect(() => {
+    if (!runPulse) return
+    const id = window.setTimeout(() => setPhase('pulse'), 2500)
+    return () => window.clearTimeout(id)
+  }, [runPulse])
+
+  const staticLogo = (
+    <div className={cn('mx-auto w-fit bg-transparent', className)}>
+      <img src="/logo.png" alt="SafeTube" className={imgClassName} decoding="async" />
+    </div>
   )
 
-  const animate = entranceAnimation && !prefersReduced
-
-  if (!animate) {
-    return <div className={cn('mx-auto w-fit', className)}>{img}</div>
+  if (!entranceAnimation || prefersReduced) {
+    return staticLogo
   }
 
+  const showPulseLoop = runPulse && phase === 'pulse'
+
   return (
-    <motion.div
-      className={cn('mx-auto w-fit', className)}
-      initial={{ scale: 0.5, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{
-        ...springEntrance,
-        // Target ~0.8s settle time alongside spring physics (per product spec)
-        duration: 0.8,
-      }}
-    >
-      {img}
-    </motion.div>
+    <div className={cn('mx-auto w-fit bg-transparent', className)}>
+      <motion.img
+        src="/logo.png"
+        alt="SafeTube"
+        className={imgClassName}
+        decoding="async"
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={
+          showPulseLoop
+            ? { scale: 1, opacity: [1, 0.7, 1] }
+            : { scale: 1, opacity: 1 }
+        }
+        transition={
+          showPulseLoop
+            ? { duration: 10, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }
+            : { duration: 2.5, ease: 'easeOut' }
+        }
+      />
+    </div>
   )
 }

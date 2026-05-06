@@ -3,7 +3,7 @@ import { AuthScreen } from '../components/auth/AuthScreen'
 import { BYPASS_AUTH } from '../config/dev'
 import { useAuth } from '../hooks/useAuth'
 import { isProfileParentPinMissing } from '../lib/parentPin'
-import { LoadingSpinner } from '../components/ui/LoadingSpinner'
+import { SplashScreen } from '../components/branding/SplashScreen'
 import { parsePairingCodeFromLocationSearch } from '../lib/pairingCodeFromQr'
 
 export function AuthPage() {
@@ -22,11 +22,7 @@ export function AuthPage() {
   }
 
   if (loading || (isAuthenticated && profileLoading)) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center">
-        <LoadingSpinner className="h-10 w-10" />
-      </div>
-    )
+    return <SplashScreen />
   }
 
   if (isAuthenticated && profile?.onboarding_done) {

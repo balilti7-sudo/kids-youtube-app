@@ -4,7 +4,7 @@ import { Toaster } from 'sonner'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
-import { LoadingSpinner } from './components/ui/LoadingSpinner'
+import { SplashScreen } from './components/branding/SplashScreen'
 import { AuthPage } from './pages/AuthPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -41,11 +41,7 @@ function SmartEntryRoute() {
   if (BYPASS_AUTH) return <Navigate to="/dashboard" replace />
 
   if (loading || (isAuthenticated && profileLoading)) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center">
-        <LoadingSpinner className="h-10 w-10" />
-      </div>
-    )
+    return <SplashScreen />
   }
 
   // מצב ילד בראש רק כשאין סשן הורה: על מכשיר הילד ההורה מתחבר כאן ומגדיר — לא ננעל מחוץ ללוח בגלל טוקן הילד ב־localStorage.
