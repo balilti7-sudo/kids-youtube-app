@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Plus, Smartphone, Trash2 } from 'lucide-react'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -70,9 +69,7 @@ export function DashboardDevicesSection() {
         return
       }
       if (data) {
-        toast.success('המכשיר נוסף', {
-          description: 'על מסך הילד: הזינו את קוד הצימוד כדי להתחבר.',
-        })
+        toast.success('המכשיר נוסף', { description: 'המכשיר זמין בהגדרות ובמסך הילד.' })
         await refetch()
         setModalOpen(false)
         setDeviceName('')
@@ -110,9 +107,9 @@ export function DashboardDevicesSection() {
         </div>
 
         <div className="rounded-2xl border border-zinc-700/90 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80">
-          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">חיבור לילד</p>
+          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">מכשירי ילדים</p>
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
-            יוצרים מכשיר, ואז על <strong className="font-semibold text-zinc-300">מסך הילד</strong> מזינים את קוד הצימוד.
+            מוסיפים מכשיר כאן; צימוד והרשאות נעשים ממסך הילד בהתאם להגדרות המערכת.
           </p>
           <div className="flex flex-col gap-2">
             <Button
@@ -150,9 +147,7 @@ export function DashboardDevicesSection() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-8 text-center">
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
           <p className="text-sm font-medium text-zinc-300">אין מכשירים עדיין</p>
-          <p className="max-w-xs text-xs text-zinc-500">
-            צרו מכשיר כאן, ואז על <strong className="font-semibold text-zinc-400">מסך הילד</strong> הזינו את קוד הצימוד.
-          </p>
+          <p className="max-w-xs text-xs text-zinc-500">צרו מכשיר חדש והמשיכו בהגדרת מסך הילד.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -163,13 +158,6 @@ export function DashboardDevicesSection() {
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-zinc-100">{d.name}</p>
-                <p className="text-xs text-zinc-500">
-                  {d.pairing_code ? (
-                    <span dir="ltr">קוד: {d.pairing_code}</span>
-                  ) : (
-                    'ללא קוד חיבור'
-                  )}
-                </p>
               </div>
               <div className="flex items-center gap-2">
                 <span
@@ -196,15 +184,6 @@ export function DashboardDevicesSection() {
           ))}
         </ul>
       )}
-
-      <p className="mt-4 text-center">
-        <Link
-          to="/devices"
-          className="text-sm font-medium text-brand-400 underline-offset-2 hover:text-brand-300 hover:underline"
-        >
-          קוד חיבור וניהול מתקדם
-        </Link>
-      </p>
 
       <Modal
         open={modalOpen}

@@ -9,7 +9,6 @@ import { AuthPage } from './pages/AuthPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ChannelsPage } from './pages/ChannelsPage'
-import { DeviceLinkPage } from './pages/DeviceLinkPage'
 import { SubscriptionPage } from './pages/SubscriptionPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -122,7 +121,7 @@ export default function App() {
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/devices" element={<DeviceLinkPage />} />
+            <Route path="/devices" element={<Navigate to="/dashboard" replace />} />
             <Route path="/subscription" element={<SubscriptionPage />} />
           </Route>
           <Route path="*" element={<CatchAllRedirect />} />

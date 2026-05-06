@@ -35,10 +35,15 @@ export function SafeTubeLogo({
 
   const widthClass = sizeWidths[size]
 
+  /** Kills gray/white matte fringes on mobile; `style` helps WebKit/Safari. */
   const imgClassName = cn(
     'block h-auto max-w-full border-0 object-contain bg-transparent shadow-none outline-none ring-0',
+    '[mix-blend-mode:plus-lighter]',
+    'transform-gpu backface-hidden will-change-[opacity,transform]',
     widthClass
   )
+
+  const imgStyle = { mixBlendMode: 'plus-lighter' as const }
 
   const runPulse = withLivingPulse && entranceAnimation && !prefersReduced
 
@@ -51,7 +56,7 @@ export function SafeTubeLogo({
 
   const staticLogo = (
     <div className={cn('mx-auto w-fit border-0 bg-transparent p-0 shadow-none', className)}>
-      <img src="/logo.png" alt="SafeTube" className={imgClassName} decoding="async" />
+      <img src="/logo.png" alt="SafeTube" className={imgClassName} style={imgStyle} decoding="async" />
     </div>
   )
 
@@ -67,6 +72,7 @@ export function SafeTubeLogo({
         src="/logo.png"
         alt="SafeTube"
         className={imgClassName}
+        style={imgStyle}
         decoding="async"
         initial={{ scale: 0.7, opacity: 0 }}
         animate={
@@ -77,7 +83,7 @@ export function SafeTubeLogo({
         transition={
           showPulseLoop
             ? { duration: 10, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }
-            : { duration: ENTRANCE_DURATION_S, ease: [0.22, 1, 0.36, 1] }
+            : { duration: ENTRANCE_DURATION_S, ease: 'easeOut' }
         }
       />
     </div>

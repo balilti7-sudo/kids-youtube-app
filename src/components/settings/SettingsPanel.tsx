@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { CreditCard, Link2, Info, LogOut, UserCircle } from 'lucide-react'
+import { CreditCard, Info, LogOut, UserCircle } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useSubscription } from '../../hooks/useSubscription'
 import { supabase } from '../../lib/supabase'
@@ -10,7 +10,6 @@ import { toast } from 'sonner'
 const items = [
   { to: '/profile', label: 'חשבון והתחברות', icon: UserCircle },
   { to: '/subscription', label: 'ניהול מנוי', icon: CreditCard },
-  { to: '/devices', label: 'חיבור מכשיר', icon: Link2 },
   { to: '#', label: 'אודות', icon: Info },
 ]
 
