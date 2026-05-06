@@ -5,7 +5,7 @@
 export function getResendFrom() {
   const raw = (process.env.RESEND_FROM || '').trim()
   if (raw) return raw
-  return 'onboarding@resend.dev'
+  return 'SafeTube <support@safetube.co.il>'
 }
 
 export function getResendReplyTo() {
