@@ -74,7 +74,7 @@ export function SetParentPinPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center px-4 py-8">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <SafeTubeLogo className="mb-4 h-11 w-auto max-w-[min(100%,260px)]" />
+        <SafeTubeLogo size="sm" className="mb-4" />
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-100">הגדרת קוד הורה</h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
           לפני כניסה לדשבורד, צריך להגדיר קוד הורה חד-פעמי. קוד זה נדרש לניהול הערוצים וההגדרות.
