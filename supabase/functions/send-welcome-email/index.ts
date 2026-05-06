@@ -13,6 +13,7 @@ const RESEND_FROM = Deno.env.get('RESEND_FROM')?.trim() || 'SafeTube <support@sa
 const RESEND_REPLY_TO = Deno.env.get('RESEND_REPLY_TO')?.trim() || ''
 const WEBHOOK_SECRET = Deno.env.get('WELCOME_EMAIL_WEBHOOK_SECRET')?.trim() || ''
 
+/** Same asset as the web app's `public/logo.png` (emails need an absolute URL). */
 function logoAbsoluteUrl(): string {
   const explicit = Deno.env.get('EMAIL_LOGO_URL')?.trim()
   if (explicit) return explicit

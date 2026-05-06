@@ -13,7 +13,11 @@ export function getResendReplyTo() {
   return v || undefined
 }
 
-/** Absolute URL to `logo.png` for HTML emails (`PUBLIC_SITE_URL` + `/logo.png`, or `EMAIL_LOGO_URL`). */
+/**
+ * Absolute URL to the deployed `public/logo.png` for HTML emails.
+ * Priority: `EMAIL_LOGO_URL` (full URL to the PNG) → `PUBLIC_SITE_URL` + `/logo.png` → production fallback.
+ * Local dev: most clients cannot load localhost; use a tunnel URL or point `EMAIL_LOGO_URL` at your live site.
+ */
 export function getPublicLogoUrl() {
   const explicit = (process.env.EMAIL_LOGO_URL || '').trim()
   if (explicit) return explicit
