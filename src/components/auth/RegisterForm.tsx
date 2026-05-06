@@ -12,10 +12,6 @@ import { requestWelcomeEmail } from '../../lib/requestWelcomeEmail'
 const schema = z.object({
   email: z.string().min(1, 'נא למלא אימייל').email('אימייל לא תקין'),
   password: z.string().min(6, 'לפחות 6 תווים'),
-  parentPin: z
-    .string()
-    .length(4, 'נא להזין 4 ספרות')
-    .regex(/^\d{4}$/, 'רק ספרות'),
 })
 
 type Form = z.infer<typeof schema> & { fullName?: string }
@@ -26,19 +22,18 @@ export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void 
   const [success, setSuccess] = useState(false)
   const [sentToEmail, setSentToEmail] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
-  const [showParentPin, setShowParentPin] = useState(false)
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { fullName: '', parentPin: '' },
+    defaultValues: { fullName: '' },
   })
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null)
-    const { error, session } = await signUp(values.email, values.password, { parentPin: values.parentPin })
+    const { error, session } = await signUp(values.email, values.password)
     if (error) {
       console.error('[RegisterForm] signUp failed:', error.message, error)
       setSubmitError(error.message)
@@ -95,38 +90,6 @@ export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void 
           </button>
         </div>
         {errors.password ? <p className="mt-1 text-xs text-red-600">{errors.password.message}</p> : null}
-      </div>
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-          קוד הורה (Parent PIN) <span className="text-slate-500 dark:text-zinc-500">— 4 ספרות</span>
-        </label>
-        <div className="relative">
-          <Input
-            dir="ltr"
-            type={showParentPin ? 'text' : 'password'}
-            inputMode="numeric"
-            autoComplete="new-password"
-            maxLength={4}
-            placeholder="••••"
-            className="pr-11 tracking-widest"
-            {...register('parentPin', {
-              setValueAs: (v: unknown) =>
-                typeof v === 'string' ? v.replace(/\D/g, '').slice(0, 4) : '',
-            })}
-          />
-          <button
-            type="button"
-            onClick={() => setShowParentPin((v) => !v)}
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-zinc-500 hover:text-zinc-300"
-            aria-label={showParentPin ? 'הסתר קוד הורה' : 'הצג קוד הורה'}
-          >
-            {showParentPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        {errors.parentPin ? <p className="mt-1 text-xs text-red-600">{errors.parentPin.message}</p> : null}
-        <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">
-          הקוד משמש לאימות לפני שינויים רגישים (למשל ערוצים). נשמר בפרופיל ומופיע במטא־דאטה לחשבון לאימייל האישור ב-Supabase.
-        </p>
       </div>
       {submitError ? <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p> : null}
       <Button type="submit" disabled={isSubmitting} className="w-full">
