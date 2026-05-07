@@ -11,20 +11,20 @@ export function AuthScreen() {
   const emailVerified = new URLSearchParams(location.search).get('emailVerified') === '1'
   const [mode, setMode] = useState<'login' | 'register'>('login')
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-12 pt-10">
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-3 px-4 pb-8 pt-4 sm:gap-4 sm:pb-10 sm:pt-6">
       <PageBackBar fallback="/dashboard" className="mb-0 justify-center sm:justify-start" />
-      <section className="text-center sm:rounded-2xl -mx-4 bg-black px-4 py-10 sm:mx-0" aria-label="מיתוג SafeTube">
+      <section className="text-center sm:rounded-2xl -mx-4 bg-black px-3 py-5 sm:mx-0 sm:px-4 sm:py-6" aria-label="מיתוג SafeTube">
         <SafeTubeLogo size="lg" entranceAnimation />
-        <p className="mt-4 text-sm text-zinc-300">הורים בשליטה — YouTube בטוח יותר לילדים</p>
+        <p className="mt-2 text-sm text-zinc-300 sm:mt-3">הורים בשליטה — YouTube בטוח יותר לילדים</p>
       </section>
 
-      <div className="app-floating-surface p-6">
+      <div className="app-floating-surface p-4 sm:p-5">
         {emailVerified ? (
-          <div className="mb-4 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-900 dark:border-brand-800/60 dark:bg-brand-950/40 dark:text-brand-100">
+          <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-900 dark:border-brand-800/60 dark:bg-brand-950/40 dark:text-brand-100">
             האימייל אומת בהצלחה. אפשר להתחבר.
           </div>
         ) : null}
-        <div className="mb-4 grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-700">
+        <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-700">
           <button
             type="button"
             onClick={() => setMode('login')}
@@ -55,7 +55,7 @@ export function AuthScreen() {
           <RegisterForm onSwitchToLogin={() => setMode('login')} />
         )}
 
-        <div className="relative my-6">
+        <div className="relative my-4 sm:my-5">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-slate-200 dark:border-zinc-700" />
           </div>

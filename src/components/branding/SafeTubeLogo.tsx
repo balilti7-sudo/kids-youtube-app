@@ -1,8 +1,8 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import { cn } from '../../lib/utils'
 
-/** נתיב עם query לשבירת cache במובייל (אפשר גם `public/logo-final.png` אם תעביר קובץ). */
-export const SAFETUBE_LOGO_SRC = '/logo.png?v=2'
+/** Cache-bust when replacing `public/logo.png`. */
+export const SAFETUBE_LOGO_SRC = '/logo.png?v=3'
 
 type Props = {
   size?: 'sm' | 'md' | 'lg'
@@ -10,17 +10,18 @@ type Props = {
   entranceAnimation?: boolean
 }
 
+/** `lg` = 280px רוחב (יחס ~850×250); בלי mix-blend — רק `<img>`. */
 const sizeWidths = {
   sm: 'w-[200px] max-w-[min(100%,200px)]',
-  md: 'w-[280px] max-w-[min(100%,280px)]',
-  lg: 'w-[350px] max-w-[min(100%,350px)]',
+  md: 'w-[240px] max-w-[min(100%,240px)]',
+  lg: 'w-[280px] max-w-[min(100%,280px)]',
 } as const
 
 const ENTRANCE_DURATION_S = 4
 
 /**
- * לוגו PNG שקוף בלבד — בלי mix-blend, בלי filter, בלי רקע על ה-img.
- * להצגה על רקע שחור: עטוף את הרכיב ב-`bg-black` (כמו ב-AuthScreen).
+ * לוגו מ-`public/logo.png` — רינדור ישיר, ללא mix-blend / filters / רקע על ה-img.
+ * רקע שחור: עוטפים ב-`bg-black` בדף (למשל Auth).
  */
 export function SafeTubeLogo({ size = 'lg', className, entranceAnimation = false }: Props) {
   const prefersReduced = useReducedMotion()

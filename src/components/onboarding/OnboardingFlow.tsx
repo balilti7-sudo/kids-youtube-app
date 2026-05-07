@@ -22,10 +22,10 @@ export function OnboardingFlow() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-lg flex-col gap-6 px-4 pb-10 pt-10">
+    <div className="mx-auto flex min-h-dvh max-w-lg flex-col gap-4 px-4 pb-8 pt-6 sm:pb-10 sm:pt-8">
       <PageBackBar fallback="/dashboard" />
-      <div className="app-floating-surface flex flex-1 flex-col justify-center p-6">
-        <SafeTubeLogo size="lg" className="mb-4" entranceAnimation />
+      <div className="app-floating-surface flex flex-1 flex-col justify-center p-5 sm:p-6">
+        <SafeTubeLogo size="lg" className="mb-3" entranceAnimation />
         <h2 className="text-xl font-bold text-slate-900 dark:text-zinc-50">ברוכים הבאים</h2>
         <p className="mt-3 text-slate-700 dark:text-zinc-400">
           ניהול בטוח ונוח של תכני YouTube לילדים — ממקום אחד.

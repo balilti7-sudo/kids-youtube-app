@@ -1,19 +1,16 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import { SAFETUBE_LOGO_SRC } from './SafeTubeLogo'
 
-/** מסך פתיחה: רקע שחור מלא, לוגו PNG שקוף, ללא blend / overlay / filters. */
+/** מסך פתיחה: רקע שחור מלא, לוגו רוחב 280px, אנימציה 4 שניות. */
 export function SplashScreen() {
   const reduceMotion = useReducedMotion()
+
+  const imgClass = 'h-auto w-[280px] max-w-[min(100%,280px)] object-contain'
 
   if (reduceMotion) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
-        <img
-          src={SAFETUBE_LOGO_SRC}
-          alt="SafeTube"
-          className="h-auto w-[350px] max-w-[min(100%,350px)] object-contain"
-          decoding="async"
-        />
+        <img src={SAFETUBE_LOGO_SRC} alt="SafeTube" className={imgClass} decoding="async" />
       </div>
     )
   }
@@ -23,7 +20,7 @@ export function SplashScreen() {
       <motion.img
         src={SAFETUBE_LOGO_SRC}
         alt="SafeTube"
-        className="h-auto w-[350px] max-w-[min(100%,350px)] object-contain"
+        className={imgClass}
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 4, ease: 'easeOut' }}
