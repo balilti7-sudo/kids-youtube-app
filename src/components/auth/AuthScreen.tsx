@@ -14,7 +14,7 @@ export function AuthScreen() {
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-12 pt-10">
       <PageBackBar fallback="/dashboard" className="mb-0 justify-center sm:justify-start" />
       <section className="text-center sm:rounded-2xl -mx-4 bg-black px-4 py-10 sm:mx-0" aria-label="מיתוג SafeTube">
-        <SafeTubeLogo size="lg" entranceAnimation withLivingPulse />
+        <SafeTubeLogo size="lg" entranceAnimation />
         <p className="mt-4 text-sm text-zinc-300">הורים בשליטה — YouTube בטוח יותר לילדים</p>
       </section>
 

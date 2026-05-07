@@ -10,6 +10,7 @@ import { ParentalManagementGate } from '../parental/ParentalManagementGate'
 import { BottomNav } from './BottomNav'
 import { LockAppButton } from './LockAppButton'
 import { PageBackBar } from './PageBackBar'
+import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
 
 export function AppLayout() {
@@ -41,11 +42,14 @@ export function AppLayout() {
       {showGate ? <ParentalManagementGate onUnlocked={handleManagementUnlocked} /> : null}
       {!showGate ? (
         <>
-          <main className="safe-pb-nav flex flex-1 justify-center px-3 pt-6 sm:px-4 sm:pt-8">
-            <div className="app-floating-surface mx-auto w-full max-w-5xl p-5 sm:p-6 lg:p-7">
-              <header className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-zinc-700/40 pb-4 dark:border-zinc-600/30">
-                <div className="min-w-0 flex-1">
-                  <PageBackBar flush />
+          <main className="safe-pb-nav flex flex-1 justify-center px-2 pt-3 sm:px-3 sm:pt-4">
+            <div className="app-floating-surface mx-auto w-full max-w-5xl p-3 sm:p-3.5 lg:p-4">
+              <header className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-zinc-700/40 pb-2 dark:border-zinc-600/30">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <SafeTubeBrandMark />
+                  <div className="min-w-0 flex-1">
+                    <PageBackBar flush />
+                  </div>
                 </div>
                 <LockAppButton />
               </header>

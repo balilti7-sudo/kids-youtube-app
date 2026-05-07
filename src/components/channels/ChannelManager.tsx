@@ -245,8 +245,8 @@ export function ChannelManager() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-4">
-      <header className="flex flex-col gap-3">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 pb-3">
+      <header className="flex flex-col gap-1.5">
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ערוצים</h1>
         <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
           פתיחת חיפוש ערוץ, הוספת ערוץ או הסרת ערוץ דורשים הזנת קוד ההורה מהחשבון.
@@ -288,7 +288,7 @@ export function ChannelManager() {
       ) : devices.length === 0 ? (
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
           <WhitelistView
             channels={whitelist}
             onRemoveRequest={requestRemoveChannel}

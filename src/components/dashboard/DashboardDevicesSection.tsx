@@ -98,7 +98,7 @@ export function DashboardDevicesSection() {
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
       aria-labelledby="devices-section-title"
     >
-      <div className="mb-4 flex flex-col gap-3">
+      <div className="mb-2 flex flex-col gap-1.5">
         <div>
           <h2 id="devices-section-title" className="text-lg font-bold text-zinc-50">
             מכשירים
@@ -111,7 +111,7 @@ export function DashboardDevicesSection() {
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
             מוסיפים מכשיר כאן; צימוד והרשאות נעשים ממסך הילד בהתאם להגדרות המערכת.
           </p>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
             <Button
               type="button"
               className="w-full justify-center py-3 text-[15px] font-bold shadow-md shadow-black/20"
@@ -137,20 +137,20 @@ export function DashboardDevicesSection() {
       ) : null}
 
       {loading ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
           <Skeleton className="h-16 w-full rounded-xl" />
           <Skeleton className="h-16 w-full rounded-xl" />
         </div>
       ) : error ? (
         <ErrorState message={error} onRetry={() => void refetch()} />
       ) : devices.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-8 text-center">
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-5 text-center">
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
           <p className="text-sm font-medium text-zinc-300">אין מכשירים עדיין</p>
           <p className="max-w-xs text-xs text-zinc-500">צרו מכשיר חדש והמשיכו בהגדרת מסך הילד.</p>
         </div>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-1">
           {devices.map((d) => (
             <li
               key={d.id}

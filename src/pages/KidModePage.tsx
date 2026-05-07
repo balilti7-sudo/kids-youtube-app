@@ -26,6 +26,7 @@ import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { CleanPlayer } from '../components/player/CleanPlayer'
+import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import type { Html5Qrcode } from 'html5-qrcode'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
@@ -681,12 +682,15 @@ export function KidModePage() {
   return (
     <div className="min-h-dvh bg-[#f3f3f3] text-slate-900 dark:bg-[#0f0f0f] dark:text-zinc-100">
       <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/90 pb-[env(safe-area-inset-top)] shadow-sm backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90">
-        <div className="mx-auto flex max-w-[1920px] items-center justify-between gap-2 px-3 py-2.5 sm:px-4">
-          <div className="min-w-0 text-right">
-            <p className="truncate text-sm font-bold text-slate-900 dark:text-zinc-50">
-              {kidSurface === 'watch' ? device.device_name : 'אזור הורים'}
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-zinc-500">{KID_APP_DISPLAY_NAME}</p>
+        <div className="mx-auto flex max-w-[1920px] items-center justify-between gap-2 px-2 py-2 sm:px-3 sm:py-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <SafeTubeBrandMark to="/kid" size="compact" />
+            <div className="min-w-0 flex-1 text-right">
+              <p className="truncate text-sm font-bold text-slate-900 dark:text-zinc-50">
+                {kidSurface === 'watch' ? device.device_name : 'אזור הורים'}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-zinc-500">{KID_APP_DISPLAY_NAME}</p>
+            </div>
           </div>
           <div
             className="flex shrink-0 items-center gap-0.5 rounded-full border border-slate-200/90 bg-slate-100/50 p-0.5 dark:border-zinc-700 dark:bg-zinc-900/80"
@@ -730,7 +734,7 @@ export function KidModePage() {
       ) : null}
 
       {kidSurface === 'parent' ? (
-        <main className="mx-auto w-full max-w-lg px-3 py-4 sm:px-4">
+        <main className="mx-auto w-full max-w-lg px-2 py-3 sm:px-3">
           <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
             <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">ניהול הורה במכשיר הזה</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
@@ -862,9 +866,9 @@ export function KidModePage() {
               </aside>
 
               <div className="min-w-0 flex-1 bg-[#f3f3f3] dark:bg-[#0f0f0f] lg:pt-0">
-                <div className="border-b border-black/[0.06] bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-950/90 lg:hidden">
-                  <p className="mb-1.5 px-1 text-[11px] font-bold text-slate-500">ערוץ</p>
-                  <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 pt-0.5">
+                <div className="border-b border-black/[0.06] bg-white px-1.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/90 lg:hidden">
+                  <p className="mb-1 px-0.5 text-[11px] font-bold text-slate-500">ערוץ</p>
+                  <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5">
                     {channels.map((channel) => {
                       const yt = channel.youtube_channel_id
                       const selected = yt === (activeChannelId ?? '')
@@ -902,7 +906,7 @@ export function KidModePage() {
                   </div>
                 </div>
 
-                <div className="mx-auto max-w-[1600px] gap-0 px-2 pb-6 pt-2 sm:px-4 lg:flex lg:min-h-0 lg:gap-4 lg:px-4 lg:pt-3">
+                <div className="mx-auto max-w-[1600px] gap-0 px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:flex lg:min-h-0 lg:gap-2 lg:px-3 lg:pt-2">
                   <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
                     {channelLoading ? (
                       <div className="flex aspect-video max-w-5xl items-center justify-center gap-3 rounded-xl bg-black/90 text-zinc-200">
@@ -945,9 +949,9 @@ export function KidModePage() {
                         value={videoSearch}
                         onChange={(e) => setVideoSearch(e.target.value)}
                         placeholder="חיפוש ברשימה"
-                        className="mb-3 border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        className="mb-2 border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                       />
-                      <ul className="flex flex-col gap-1">
+                      <ul className="no-scrollbar flex gap-2 max-lg:flex-row max-lg:overflow-x-auto max-lg:pb-1 lg:flex-col lg:gap-1 lg:overflow-visible">
                         {import.meta.env.DEV
                           ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/pages/KidModePage.tsx' }), null)
                           : null}
@@ -967,20 +971,20 @@ export function KidModePage() {
                                 })
                               }
                               return (
-                                <li key={video.videoId}>
+                                <li key={video.videoId} className="max-lg:w-[118px] max-lg:shrink-0 lg:w-full">
                                   <button
                                     type="button"
                                     onClick={() => {
                                       console.log('VIDEO CLICKED FROM KID PAGE', video)
                                       setActiveVideoId(video.videoId)
                                     }}
-                                    className={`group pointer-events-auto flex w-full gap-2 rounded-lg p-1.5 text-right transition ${
+                                    className={`group pointer-events-auto flex w-full gap-2 rounded-lg p-1.5 text-right transition max-lg:flex max-lg:flex-col max-lg:items-stretch max-lg:gap-1 max-lg:p-1 lg:flex-row ${
                                       isCurrent
                                         ? 'bg-white shadow-sm ring-1 ring-brand-500/40 dark:bg-zinc-900'
                                         : 'hover:bg-white/80 dark:hover:bg-zinc-900/60'
                                     }`}
                                   >
-                                    <div className="pointer-events-none relative aspect-video w-32 shrink-0 overflow-hidden rounded-md bg-slate-200 dark:bg-zinc-800 min-[400px]:w-[168px]">
+                                    <div className="pointer-events-none relative aspect-video w-full shrink-0 overflow-hidden rounded-md bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[70px] lg:w-32 lg:max-h-none lg:min-w-[128px] min-[400px]:lg:w-[168px]">
                                       {video.thumbnail ? (
                                         <img
                                           src={video.thumbnail}
@@ -999,7 +1003,7 @@ export function KidModePage() {
                                         </span>
                                       ) : null}
                                     </div>
-                                    <p className="line-clamp-2 flex-1 py-0.5 text-start text-xs font-medium leading-snug text-slate-800 dark:text-zinc-200">
+                                    <p className="line-clamp-2 flex-1 py-0.5 text-start text-[10px] font-medium leading-snug text-slate-800 max-lg:text-center lg:text-xs dark:text-zinc-200">
                                       {video.title}
                                     </p>
                                   </button>
