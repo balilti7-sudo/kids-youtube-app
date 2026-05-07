@@ -13,17 +13,23 @@ const RESEND_FROM = Deno.env.get('RESEND_FROM')?.trim() || 'SafeTube <support@sa
 const RESEND_REPLY_TO = Deno.env.get('RESEND_REPLY_TO')?.trim() || ''
 const WEBHOOK_SECRET = Deno.env.get('WELCOME_EMAIL_WEBHOOK_SECRET')?.trim() || ''
 
+/** Production logo for HTML `<img src>` (same asset as `public/logo.png` on the live site). */
+const DEFAULT_EMAIL_LOGO_URL = 'https://safetube.co.il/logo.png'
+
 /**
- * Same file as Vite `public/logo.png` (deployed at origin `/logo.png`).
- * Set secret `PUBLIC_SITE_URL=https://your-domain.com` so `<img src>` resolves to `your-domain.com/logo.png`.
- * Or override with `EMAIL_LOGO_URL` pointing at the full PNG URL.
+ * Logo URL for emails (set via Supabase Dashboard → Edge Functions → Secrets):
+ * - `RESEND_API_KEY` — required to send mail via Resend API
+ * - `PUBLIC_SITE_URL` — optional, e.g. `https://safetube.co.il` (no trailing slash); logo becomes `${PUBLIC_SITE_URL}/logo.png`
+ * - `EMAIL_LOGO_URL` — optional full URL override for the logo image
+ *
+ * There is no `deno.json` env mapping; secrets are injected at runtime by Supabase.
  */
 function logoAbsoluteUrl(): string {
   const explicit = Deno.env.get('EMAIL_LOGO_URL')?.trim()
   if (explicit) return explicit
   const site = (Deno.env.get('PUBLIC_SITE_URL') ?? '').trim().replace(/\/+$/, '')
   if (site) return `${site}/logo.png`
-  return 'https://safetube.co.il/logo.png'
+  return DEFAULT_EMAIL_LOGO_URL
 }
 
 const CORS_HEADERS = {
