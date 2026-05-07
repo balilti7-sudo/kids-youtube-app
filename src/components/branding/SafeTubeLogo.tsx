@@ -1,6 +1,5 @@
 import { motion, useReducedMotion } from 'framer-motion'
-import { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -24,7 +23,7 @@ const sizeWidths = {
 
 const ENTRANCE_DURATION_S = 4
 
-/** Official `public/logo.png` only — no border, no container background. */
+/** Official `public/logo.png`. Image sits on a solid black plate to avoid transparent-PNG fringe on mobile. */
 export function SafeTubeLogo({
   size = 'lg',
   className,
@@ -36,23 +35,16 @@ export function SafeTubeLogo({
 
   const widthClass = sizeWidths[size]
 
-  /** Kills faint matte “box” on mobile when PNG sits on pure black; Tailwind + inline for Safari. */
   const imgClassName = cn(
-    'block h-auto max-w-full border-0 object-contain bg-transparent shadow-none outline-none ring-0',
-    '[mix-blend-mode:plus-lighter]',
-    'transform-gpu backface-hidden will-change-[opacity,transform]',
+    'mx-auto block h-auto max-w-full border-0 bg-transparent object-contain shadow-none outline-none ring-0',
     widthClass
   )
 
-  const imgBlendStyle = useMemo((): CSSProperties => {
-    const s: CSSProperties & Record<string, string> = {
-      mixBlendMode: 'plus-lighter',
-      WebkitMixBlendMode: 'plus-lighter',
-    }
-    return s
-  }, [])
+  /** Solid black behind the asset only — outer shell stays neutral for layout. */
+  const blackPlateClass =
+    'flex w-fit max-w-full justify-center overflow-hidden bg-black p-0 shadow-none ring-0 outline-none'
 
-  const logoWrapClass = 'mx-auto w-fit border-0 bg-transparent p-0 shadow-none ring-0 outline-none'
+  const outerClass = cn('mx-auto w-fit border-0 bg-transparent p-0 shadow-none ring-0 outline-none', className)
 
   const runPulse = withLivingPulse && entranceAnimation && !prefersReduced
 
@@ -64,8 +56,10 @@ export function SafeTubeLogo({
   }, [runPulse])
 
   const staticLogo = (
-    <div className={cn(logoWrapClass, className)}>
-      <img src="/logo.png" alt="SafeTube" className={imgClassName} style={imgBlendStyle} decoding="async" />
+    <div className={outerClass}>
+      <div className={blackPlateClass}>
+        <img src="/logo.png" alt="SafeTube" className={imgClassName} decoding="async" />
+      </div>
     </div>
   )
 
@@ -76,13 +70,9 @@ export function SafeTubeLogo({
   const showPulseLoop = runPulse && phase === 'pulse'
 
   return (
-    <div className={cn(logoWrapClass, className)}>
-      <motion.img
-        src="/logo.png"
-        alt="SafeTube"
-        className={imgClassName}
-        style={imgBlendStyle}
-        decoding="async"
+    <div className={outerClass}>
+      <motion.div
+        className={blackPlateClass}
         initial={{ scale: 0.7, opacity: 0 }}
         animate={
           showPulseLoop
@@ -97,7 +87,9 @@ export function SafeTubeLogo({
                 ease: [0.22, 0.99, 0.36, 1],
               }
         }
-      />
+      >
+        <img src="/logo.png" alt="SafeTube" className={imgClassName} decoding="async" />
+      </motion.div>
     </div>
   )
 }
