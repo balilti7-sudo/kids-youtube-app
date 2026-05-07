@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { sendWelcomeEmail } from './sendWelcome.js'
 import { sendPinEmail } from './sendPin.js'
+import { sendPairingReminderEmail } from './sendPairingReminder.js'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -8,15 +9,26 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const rateByIp = new Map()
 /** @type {Map<string, number>} normalized email -> expiresAt */
 const dedupeWelcome = new Map()
+/** @type {Map<string, number>} normalized email -> expiresAt — pairing reminder (stricter) */
+const dedupePairingReminder = new Map()
 
 const WELCOME_RATE_WINDOW_MS = 60 * 60 * 1000
 const WELCOME_RATE_MAX = 20
 const WELCOME_DEDUPE_MS = 24 * 60 * 60 * 1000
 
+/** @type {Map<string, { count: number; windowStart: number }>} */
+const pairingRateByIp = new Map()
+const PAIRING_REMINDER_RATE_WINDOW_MS = 60 * 60 * 1000
+const PAIRING_REMINDER_RATE_MAX = 12
+const PAIRING_REMINDER_DEDUPE_MS = 15 * 60 * 1000
+
 function pruneDedupe() {
   const now = Date.now()
   for (const [k, exp] of dedupeWelcome) {
     if (now > exp) dedupeWelcome.delete(k)
+  }
+  for (const [k, exp] of dedupePairingReminder) {
+    if (now > exp) dedupePairingReminder.delete(k)
   }
 }
 
@@ -30,6 +42,18 @@ function rateLimitOk(ip) {
   rec.count += 1
   rateByIp.set(key, rec)
   return rec.count <= WELCOME_RATE_MAX
+}
+
+function rateLimitPairingReminderOk(ip) {
+  const now = Date.now()
+  const key = ip || 'unknown'
+  let rec = pairingRateByIp.get(key)
+  if (!rec || now - rec.windowStart > PAIRING_REMINDER_RATE_WINDOW_MS) {
+    rec = { count: 0, windowStart: now }
+  }
+  rec.count += 1
+  pairingRateByIp.set(key, rec)
+  return rec.count <= PAIRING_REMINDER_RATE_MAX
 }
 
 function getClientIp(req) {
@@ -53,9 +77,13 @@ function normalizeEmail(raw) {
 
 /**
  * @param {import('express').Application} app
- * @param {{ supabaseAuthClient: import('@supabase/supabase-js').SupabaseClient | null; welcomeKey: string }} ctx
+ * @param {{
+ *   supabaseAuthClient: import('@supabase/supabase-js').SupabaseClient | null
+ *   supabaseServiceClient: import('@supabase/supabase-js').SupabaseClient | null
+ *   welcomeKey: string
+ * }} ctx
  */
-export function registerWelcomeEmailRoute(app, { supabaseAuthClient, welcomeKey }) {
+export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseServiceClient, welcomeKey }) {
   app.post('/api/email/welcome', async (req, res) => {
     const apiKey = (process.env.RESEND_API_KEY || '').trim()
     if (!apiKey) {
@@ -103,6 +131,99 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, welcomeKey 
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('[email/welcome]', msg)
+      return res.status(502).json({ ok: false, error: msg })
+    }
+  })
+
+  app.post('/api/email/pairing-reminder', async (req, res) => {
+    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    if (!apiKey) {
+      return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
+    }
+    if (!supabaseServiceClient) {
+      return res.status(503).json({ ok: false, error: 'Pairing reminder not configured (missing service role)' })
+    }
+
+    const email = normalizeEmail(req.body?.email)
+    if (!email || !EMAIL_RE.test(email)) {
+      return res.status(400).json({ ok: false, error: 'Invalid email' })
+    }
+
+    const ip = getClientIp(req)
+    if (!rateLimitPairingReminderOk(ip)) {
+      return res.status(429).json({ ok: false, error: 'Too many requests' })
+    }
+
+    const headerKey = String(req.get('x-media-bridge-welcome-key') || '').trim()
+    const bearer = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim()
+
+    let authorized = false
+    if (welcomeKey && headerKey && safeEqualKey(headerKey, welcomeKey)) {
+      authorized = true
+    }
+    if (!authorized && bearer && supabaseAuthClient) {
+      const { data, error } = await supabaseAuthClient.auth.getUser(bearer)
+      if (!error && data.user?.email && normalizeEmail(data.user.email) === email) {
+        authorized = true
+      }
+    }
+
+    if (!authorized) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' })
+    }
+
+    pruneDedupe()
+    const now = Date.now()
+    if (dedupePairingReminder.has(email) && dedupePairingReminder.get(email) > now) {
+      return res.status(200).json({ ok: true, skipped: true, reason: 'already_sent_recently' })
+    }
+
+    try {
+      const { data: profile, error: profileError } = await supabaseServiceClient
+        .from('profiles')
+        .select('id, full_name')
+        .ilike('email', email)
+        .maybeSingle()
+
+      if (profileError) {
+        const msg = profileError.message || String(profileError)
+        console.error('[email/pairing-reminder] profile', msg)
+        return res.status(502).json({ ok: false, error: msg })
+      }
+      if (!profile?.id) {
+        dedupePairingReminder.set(email, now + PAIRING_REMINDER_DEDUPE_MS)
+        return res.status(200).json({ ok: true, sent: false })
+      }
+
+      const { data: devices, error: devError } = await supabaseServiceClient
+        .from('devices')
+        .select('name, pairing_code')
+        .eq('user_id', profile.id)
+        .not('pairing_code', 'is', null)
+
+      if (devError) {
+        const msg = devError.message || String(devError)
+        console.error('[email/pairing-reminder] devices query', msg)
+        return res.status(502).json({ ok: false, error: msg })
+      }
+
+      const rows = (devices ?? [])
+        .map((d) => ({
+          name: String(d.name || 'מכשיר').trim() || 'מכשיר',
+          pairing_code: String(d.pairing_code || '').replace(/\s+/g, '').trim(),
+        }))
+        .filter((d) => /^\d{6}$/.test(d.pairing_code))
+
+      await sendPairingReminderEmail({
+        to: email,
+        displayName: profile.full_name,
+        rows,
+      })
+      dedupePairingReminder.set(email, now + PAIRING_REMINDER_DEDUPE_MS)
+      return res.status(200).json({ ok: true, sent: true, deviceCount: rows.length })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[email/pairing-reminder]', msg)
       return res.status(502).json({ ok: false, error: msg })
     }
   })

@@ -15,7 +15,7 @@ interface ImportMetaEnv {
   readonly VITE_STREAM_API_BASE?: string
   /** When `"true"`, CleanPlayer uses youtube-nocookie iframe with modestbranding=1&rel=0 instead of Media Bridge */
   readonly VITE_YOUTUBE_IFRAME_PLAYER?: string
-  /** Must match `MEDIA_BRIDGE_WELCOME_KEY` on Render — allows POST /api/email/welcome without JWT after sign-up */
+  /** Must match `MEDIA_BRIDGE_WELCOME_KEY` on Render — allows POST /api/email/welcome and POST /api/email/pairing-reminder without JWT from the kid device */
   readonly VITE_MEDIA_BRIDGE_WELCOME_KEY?: string
   /** WhatsApp support — E.164 digits only, e.g. 972552577999 */
   readonly VITE_WHATSAPP_PHONE_E164?: string

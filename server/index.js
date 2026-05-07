@@ -160,6 +160,8 @@ const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPIS
 const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
 const SUPABASE_ANON_KEY = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim()
+/** Service role — Media Bridge only; never expose to the browser. Used for pairing-code reminder emails. */
+const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
 const REQUIRE_CONFIRMED_EMAIL_FOR_STREAM =
   (process.env.REQUIRE_CONFIRMED_EMAIL_FOR_STREAM || '1').toLowerCase() !== '0'
 const STREAM_GRANT_TTL_MS = Number(process.env.STREAM_GRANT_TTL_MS) || 15 * 60 * 1000
@@ -357,6 +359,13 @@ const supabaseAuthClient =
       })
     : null
 
+const supabaseServiceClient =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null
+
 /** Shared secret so the SPA can call `POST /api/email/welcome` right after sign-up (no JWT when email-confirm is on). Set the same value as `VITE_MEDIA_BRIDGE_WELCOME_KEY` on Vercel. */
 const MEDIA_BRIDGE_WELCOME_KEY = (process.env.MEDIA_BRIDGE_WELCOME_KEY || '').trim()
 
@@ -401,7 +410,11 @@ app.use((_req, res, next) => {
 })
 
 app.use(express.json({ limit: '48kb' }))
-registerWelcomeEmailRoute(app, { supabaseAuthClient, welcomeKey: MEDIA_BRIDGE_WELCOME_KEY })
+registerWelcomeEmailRoute(app, {
+  supabaseAuthClient,
+  supabaseServiceClient,
+  welcomeKey: MEDIA_BRIDGE_WELCOME_KEY,
+})
 
 app.get('/health', (_req, res) => {
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
@@ -413,6 +426,7 @@ app.get('/health', (_req, res) => {
     email: {
       resendConfigured: Boolean((process.env.RESEND_API_KEY || '').trim()),
       welcomeRouteSecretConfigured: Boolean(MEDIA_BRIDGE_WELCOME_KEY),
+      pairingReminderConfigured: Boolean(supabaseServiceClient),
     },
     auth: {
       ytDlpEnabled: YT_DLP_ENABLE,

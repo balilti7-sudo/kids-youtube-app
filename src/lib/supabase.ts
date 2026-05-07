@@ -24,6 +24,8 @@ export const supabase = createClient(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
+      /** Email confirmation / magic-link redirects can carry tokens in the URL — pick up session without an extra login step. */
+      detectSessionInUrl: true,
     },
   }
 )

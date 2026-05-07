@@ -21,6 +21,7 @@ import {
 } from '../lib/childDevice'
 import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
+import { requestPairingReminderEmail } from '../lib/requestPairingReminderEmail'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
@@ -83,6 +84,10 @@ export function KidModePage() {
   const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
   const [parentBootstrapBusy, setParentBootstrapBusy] = useState(false)
   const [showManualPairing, setShowManualPairing] = useState(false)
+  const [forgotPairingOpen, setForgotPairingOpen] = useState(false)
+  const [forgotParentEmail, setForgotParentEmail] = useState('')
+  const [forgotBusy, setForgotBusy] = useState(false)
+  const [forgotInfo, setForgotInfo] = useState<string | null>(null)
   const [qrScanOpen, setQrScanOpen] = useState(false)
   const [scanCameraError, setScanCameraError] = useState<string | null>(null)
   const qrScannerRef = useRef<Html5Qrcode | null>(null)
@@ -324,6 +329,44 @@ export function KidModePage() {
   )
 
   const handlePair = () => void pairByCodeInitial(pairingCode)
+
+  const sendForgotPairingReminder = () => {
+    void (async () => {
+      const trimmed = forgotParentEmail.trim()
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        setForgotInfo(null)
+        setError('נא להזין אימייל הורה תקין')
+        return
+      }
+      setForgotBusy(true)
+      setForgotInfo(null)
+      setError(null)
+      try {
+        const result = await requestPairingReminderEmail(trimmed)
+        if (!result.ok) {
+          setError(result.error)
+          return
+        }
+        if (result.ok && 'skipped' in result && result.skipped) {
+          setForgotInfo('כבר נשלח לאחרונה — המתינו כמה דקות לפני בקשה נוספת.')
+          return
+        }
+        if (result.ok && 'sent' in result && result.sent) {
+          if (result.deviceCount === 0) {
+            setForgotInfo('נשלח מייל. אם אין כרגע קוד צימוד פעיל, צרו מכשיר חדש בלוח ההורה.')
+          } else {
+            setForgotInfo(`נשלח מייל עם ${result.deviceCount} קוד/י צימוד פעיל/ים. בדקו את תיבת הדואר.`)
+          }
+          return
+        }
+        if (result.ok && 'sent' in result && !result.sent) {
+          setForgotInfo('אם האימייל רשום אצלנו, בדקו את המייל. אחרת ודאו שהכתובת נכונה.')
+        }
+      } finally {
+        setForgotBusy(false)
+      }
+    })()
+  }
 
   const pairByCodeInitialRef = useRef(pairByCodeInitial)
   pairByCodeInitialRef.current = pairByCodeInitial
@@ -622,6 +665,9 @@ export function KidModePage() {
               className="mt-3 w-full"
               onClick={() => {
                 setShowManualPairing(true)
+                setForgotPairingOpen(false)
+                setForgotParentEmail('')
+                setForgotInfo(null)
                 setError(null)
               }}
             >
@@ -649,6 +695,52 @@ export function KidModePage() {
               onKeyDown={(e) => e.key === 'Enter' && void handlePair()}
               autoFocus
             />
+            <div className="mt-2 flex justify-center">
+              <button
+                type="button"
+                className="text-xs font-normal text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline dark:text-zinc-500 dark:hover:text-zinc-400"
+                onClick={() => {
+                  setForgotPairingOpen((o) => !o)
+                  setForgotInfo(null)
+                  setError(null)
+                }}
+              >
+                שכחתי קוד?
+              </button>
+            </div>
+            {forgotPairingOpen ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
+                <p className="mb-2 text-xs text-slate-600 dark:text-zinc-400">
+                  הזינו את אימייל ההורה הרשום — נשלח מייל עם קודי צימוד פעילים (אם קיימים).
+                </p>
+                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-zinc-400">אימייל ההורה</label>
+                <Input
+                  dir="ltr"
+                  type="email"
+                  autoComplete="email"
+                  value={forgotParentEmail}
+                  onChange={(e) => setForgotParentEmail(e.target.value)}
+                  placeholder="parent@example.com"
+                  className="text-sm"
+                  onKeyDown={(e) => e.key === 'Enter' && sendForgotPairingReminder()}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-3 w-full"
+                  disabled={forgotBusy}
+                  onClick={sendForgotPairingReminder}
+                >
+                  {forgotBusy ? <LoadingSpinner className="h-5 w-5 border-2 border-slate-600 border-t-transparent" /> : null}
+                  {forgotBusy ? 'שולח…' : 'שלחו לי את הקודים במייל'}
+                </Button>
+              </div>
+            ) : null}
+            {forgotInfo ? (
+              <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400" role="status">
+                {forgotInfo}
+              </p>
+            ) : null}
             {error ? <p className="mt-2 text-sm text-danger-600">{error}</p> : null}
             <Button className="mt-4 w-full" disabled={submitting} onClick={() => void handlePair()}>
               {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
@@ -660,6 +752,9 @@ export function KidModePage() {
               onClick={() => {
                 setShowManualPairing(false)
                 setPairingCode('')
+                setForgotPairingOpen(false)
+                setForgotParentEmail('')
+                setForgotInfo(null)
                 setError(null)
               }}
             >
