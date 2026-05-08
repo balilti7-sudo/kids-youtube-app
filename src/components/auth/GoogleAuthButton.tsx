@@ -5,20 +5,6 @@ import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
-/** כתובת callback מוחלטת — תומך ב-subpath דרך Vite BASE_URL ובשינוי עם env. */
-function buildOAuthRedirectTo(): string {
-  const fromEnv = import.meta.env.VITE_AUTH_OAUTH_REDIRECT_TO?.trim()
-  if (fromEnv) return fromEnv
-
-  const origin = window.location.origin
-  const rawBase = (import.meta.env.BASE_URL || '/').replace(/^\.\//, '/')
-  const pathname = new URL(rawBase, `${origin}/`).pathname.replace(/\/+$/, '')
-  const authPrefix = pathname && pathname !== '/' ? pathname : ''
-  const path = `${authPrefix}/auth`.replace(/\/{2,}/g, '/')
-  const next = encodeURIComponent('/dashboard')
-  return `${origin}${path.startsWith('/') ? path : `/${path}`}?next=${next}`
-}
-
 export function GoogleAuthButton() {
   const [loading, setLoading] = useState(false)
 
@@ -29,7 +15,7 @@ export function GoogleAuthButton() {
     }
 
     setLoading(true)
-    const redirectTo = buildOAuthRedirectTo()
+    const redirectTo = `${window.location.origin}/auth/callback`
 
     try {
       setAppModeParent()

@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -61,37 +60,16 @@ function CatchAllRedirect() {
   return <Navigate to="/" replace />
 }
 
-/** לוג דיבוג לפי דרישה — אחרי שינויי ניתוב */
-function PairingCodeUrlLogger() {
-  const location = useLocation()
-  useEffect(() => {
-    const code = parsePairingCodeFromLocationSearch(location.search, location.hash)
-    // eslint-disable-next-line no-console -- דיבוג זמני לפי דרישת מוצר
-    console.log('Detected code in URL: ' + (code ?? '(none)'))
-  }, [location.pathname, location.search, location.hash])
-  return null
-}
-
 export default function App() {
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      console.log('REAL CLICK TARGET:', e.target)
-    }
-    document.addEventListener('click', handler, true)
-    return () => {
-      document.removeEventListener('click', handler, true)
-    }
-  }, [])
-
   return (
     <ErrorBoundary>
       <BrowserRouter>
-        <PairingCodeUrlLogger />
         <Toaster richColors position="top-center" dir="rtl" theme="dark" />
         <WhatsAppFloatingButton />
         <Routes>
           <Route path="/" element={<SmartEntryRoute />} />
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/auth/callback" element={<AuthPage />} />
           {/** /kid = KidModePage — approved videos play via `CleanPlayer` (no alternate embed on this route). */}
           <Route path="/kid" element={<KidModeRoute />} />
           <Route
