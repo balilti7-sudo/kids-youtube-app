@@ -32,6 +32,25 @@ function buildSignupRedirectUrl() {
   return `${window.location.origin}/auth?emailVerified=1`
 }
 
+async function ensureProfileRowForUser(user: User): Promise<Profile | null> {
+  const payload = {
+    id: user.id,
+    email: user.email ?? '',
+    full_name: (user.user_metadata?.full_name as string | undefined) ?? null,
+    avatar_url: (user.user_metadata?.avatar_url as string | undefined) ?? null,
+  }
+  const { data, error } = await supabase.from('profiles').upsert(payload).select('*').maybeSingle()
+  if (error) {
+    console.error('[ensureProfileRowForUser] upsert failed', { message: error.message, code: error.code, userId: user.id })
+    return null
+  }
+  if (!data) {
+    console.warn('[ensureProfileRowForUser] upsert returned no data', { userId: user.id })
+    return null
+  }
+  return data as Profile
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   session: null,
@@ -52,8 +71,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     set({ profileLoading: true })
     const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
-    if (error || !data) {
+    if (error) {
+      console.warn('[fetchProfile] profiles select failed', { message: error.message, code: error.code })
       set({ profile: null, profileLoading: false })
+      return
+    }
+    if (!data) {
+      console.warn('[fetchProfile] no profile row; attempting on-the-fly upsert', user.id)
+      const created = await ensureProfileRowForUser(user)
+      set({ profile: created, profileLoading: false })
       return
     }
     set({ profile: data as Profile, profileLoading: false })
