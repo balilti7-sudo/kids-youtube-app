@@ -86,9 +86,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signIn: async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (!error) {
       setAppModeParent()
+      // No global onAuthStateChange listener anymore — sync the store ourselves.
+      if (data.session) {
+        set({ session: data.session, user: data.session.user, loading: false })
+        void get().fetchProfile()
+      }
     }
     return { error: error ? new Error(error.message) : null }
   },
@@ -121,7 +126,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   verifyEmailCode: async (email, code) => {
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: code,
         type: 'signup',
@@ -134,6 +139,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           status: err.status,
           code: err.code,
         })
+      } else if (data.session) {
+        // No global onAuthStateChange listener anymore — sync the store ourselves.
+        set({ session: data.session, user: data.session.user, loading: false })
+        void get().fetchProfile()
       }
       return { error: error ? new Error(error.message) : null }
     } catch (e) {

@@ -102,25 +102,8 @@ export function useAuth() {
         setLoading(false)
       })
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, s) => {
-      console.info('[auth] onAuthStateChange', { event, hasSession: Boolean(s) })
-      setSession(s)
-      setLoading(false)
-      if (s?.user) {
-        resetAuthFailureCounter()
-        resetSessionProfileStuckCounter()
-        void useAuthStore.getState().fetchProfile()
-      } else if (event === 'SIGNED_OUT') {
-        resetSessionProfileStuckCounter()
-        useAuthStore.setState({ profile: null, profileLoading: false })
-      }
-    })
-
     return () => {
       mounted = false
-      subscription.unsubscribe()
     }
   }, [setSession, setLoading])
 
