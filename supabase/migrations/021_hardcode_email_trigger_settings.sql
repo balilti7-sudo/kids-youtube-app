@@ -1,0 +1,111 @@
+-- Re-create email triggers with hardcoded SUPABASE_URL and anon key,
+-- because ALTER DATABASE SET is not permitted on managed Supabase projects.
+-- Anon key is public (used by every browser client), so this is safe.
+
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+
+-- ============================================================
+-- 016 replacement: profiles INSERT → send-welcome-email
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.enqueue_send_welcome_email()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_supabase_url constant text := 'https://ioylyyqlluenkkltguhf.supabase.co';
+  v_anon_key constant text := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlveWx5eXFsbHVlbmtrbHRndWhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMDM1NDEsImV4cCI6MjA5MTY3OTU0MX0.4yisWFVx7wiln2ZszL7crBry0hazyXSEnzchcXiBaes';
+  v_secret constant text := '';
+BEGIN
+  IF NEW.email IS NULL OR length(trim(NEW.email)) = 0 THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    PERFORM net.http_post(
+      url := v_supabase_url || '/functions/v1/send-welcome-email',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || v_anon_key,
+        'x-welcome-email-secret', v_secret
+      ),
+      body := jsonb_build_object(
+        'profile_id', NEW.id,
+        'email', NEW.email,
+        'full_name', NEW.full_name,
+        'parent_pin', NEW.parent_pin
+      )
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[enqueue_send_welcome_email] http_post failed: %', SQLERRM;
+  END;
+  RETURN NEW;
+END;
+$$;
+
+-- ============================================================
+-- 017 replacement: profiles UPDATE OF parent_pin → send-welcome-email
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.enqueue_send_welcome_email_on_pin_set()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_supabase_url constant text := 'https://ioylyyqlluenkkltguhf.supabase.co';
+  v_anon_key constant text := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlveWx5eXFsbHVlbmtrbHRndWhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMDM1NDEsImV4cCI6MjA5MTY3OTU0MX0.4yisWFVx7wiln2ZszL7crBry0hazyXSEnzchcXiBaes';
+  v_secret constant text := '';
+  v_new_pin text;
+BEGIN
+  IF NEW.email IS NULL OR length(trim(NEW.email)) = 0 THEN
+    RETURN NEW;
+  END IF;
+  v_new_pin := trim(COALESCE(NEW.parent_pin, ''));
+  IF v_new_pin = '' OR v_new_pin = '0000' THEN
+    RETURN NEW;
+  END IF;
+  IF trim(COALESCE(OLD.parent_pin, '')) <> '' AND trim(COALESCE(OLD.parent_pin, '')) <> '0000' THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    PERFORM net.http_post(
+      url := v_supabase_url || '/functions/v1/send-welcome-email',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || v_anon_key,
+        'x-welcome-email-secret', v_secret
+      ),
+      body := jsonb_build_object(
+        'profile_id', NEW.id,
+        'email', NEW.email,
+        'full_name', NEW.full_name,
+        'parent_pin', NEW.parent_pin
+      )
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[enqueue_send_welcome_email_on_pin_set] http_post failed: %', SQLERRM;
+  END;
+  RETURN NEW;
+END;
+$$;
+
+-- Recreate triggers (idempotent)
+DROP TRIGGER IF EXISTS profiles_send_welcome_email ON public.profiles;
+CREATE TRIGGER profiles_send_welcome_email
+  AFTER INSERT ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.enqueue_send_welcome_email();
+
+DROP TRIGGER IF EXISTS profiles_send_welcome_email_on_pin_set ON public.profiles;
+CREATE TRIGGER profiles_send_welcome_email_on_pin_set
+  AFTER UPDATE OF parent_pin ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.enqueue_send_welcome_email_on_pin_set();
+
+-- ============================================================
+-- Disable 018 to prevent duplicate emails
+-- ============================================================
+DROP TRIGGER IF EXISTS auth_users_send_welcome_email ON auth.users;
