@@ -15,27 +15,13 @@ export function GoogleAuthButton() {
     }
 
     setLoading(true)
-    const redirectTo = `${window.location.origin}/auth/callback`
-    console.log('[Google OAuth] origin/redirect debug', {
-      origin: window.location.origin,
-      redirectTo,
-      href: window.location.href,
-    })
-
     try {
       setAppModeParent()
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo,
-          skipBrowserRedirect: true,
+          redirectTo: `${window.location.origin}/auth/callback`,
         },
-      })
-      console.log('[Google OAuth] signInWithOAuth response', {
-        hasUrl: Boolean(data?.url),
-        url: data?.url ?? null,
-        errorMessage: error?.message ?? null,
-        errorCode: (error as { code?: string } | null)?.code ?? null,
       })
 
       if (error) {
@@ -44,15 +30,6 @@ export function GoogleAuthButton() {
         setLoading(false)
         return
       }
-
-      const url = data.url
-      if (!url) {
-        toast.error('לא התקבלה כתובת התחברות. ודאו ש-Google מופעל ב-Supabase (Authentication → Providers).')
-        setLoading(false)
-        return
-      }
-
-      window.location.assign(url)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('[Google OAuth]', e)

@@ -5,6 +5,7 @@ import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
 import { SplashScreen } from './components/branding/SplashScreen'
 import { AuthPage } from './pages/AuthPage'
+import AuthCallback from './pages/AuthCallback'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ChannelsPage } from './pages/ChannelsPage'
@@ -74,7 +75,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<SmartEntryRoute />} />
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/auth/callback" element={<AuthPage />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           {/** /kid = KidModePage — approved videos play via `CleanPlayer` (no alternate embed on this route). */}
           <Route path="/kid" element={<KidModeRoute />} />
           <Route
