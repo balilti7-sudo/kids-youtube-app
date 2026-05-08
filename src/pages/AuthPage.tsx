@@ -23,14 +23,14 @@ export function AuthPage() {
     return <Navigate to="/dashboard" replace />
   }
 
-  if (loading || (isAuthenticated && profileLoading)) {
+  if (loading) {
     return <SplashScreen />
   }
 
-  // OAuth may complete before profile row is readable/ready; keep authenticated users out of the login form.
-  if (isAuthenticated && !profile) {
+  // Session-first redirect: never keep authenticated users on the login screen.
+  if (isAuthenticated && (profileLoading || !profile)) {
     setSkipParentalManagementGateOnce()
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to={safeNext} replace />
   }
 
   if (isAuthenticated && profile?.onboarding_done) {

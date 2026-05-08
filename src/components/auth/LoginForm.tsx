@@ -15,6 +15,50 @@ const schema = z.object({
 
 type Form = z.infer<typeof schema>
 
+const LOGIN_FAILURE_COUNT_KEY = 'safetube_login_failure_count'
+const LOGIN_FAILURE_CLEAR_THRESHOLD = 3
+
+function clearPossiblyCorruptedSupabaseAuthToken() {
+  try {
+    const keysToDelete: string[] = []
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const k = window.localStorage.key(i)
+      if (!k) continue
+      if (k.includes('supabase.auth.token') || /^sb-.*-auth-token$/.test(k)) {
+        keysToDelete.push(k)
+      }
+    }
+    keysToDelete.forEach((k) => window.localStorage.removeItem(k))
+    if (keysToDelete.length > 0) {
+      console.warn('[auth] cleared local Supabase token keys after repeated login failure', keysToDelete)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function registerLoginFailure() {
+  try {
+    const current = Number(window.sessionStorage.getItem(LOGIN_FAILURE_COUNT_KEY) || '0')
+    const next = Number.isFinite(current) ? current + 1 : 1
+    window.sessionStorage.setItem(LOGIN_FAILURE_COUNT_KEY, String(next))
+    if (next >= LOGIN_FAILURE_CLEAR_THRESHOLD) {
+      clearPossiblyCorruptedSupabaseAuthToken()
+      window.sessionStorage.removeItem(LOGIN_FAILURE_COUNT_KEY)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearLoginFailureCounter() {
+  try {
+    window.sessionStorage.removeItem(LOGIN_FAILURE_COUNT_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 export function LoginForm({ onSwitchToRegister }: { onSwitchToRegister: () => void }) {
   const signIn = useAuthStore((s) => s.signIn)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -28,7 +72,12 @@ export function LoginForm({ onSwitchToRegister }: { onSwitchToRegister: () => vo
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null)
     const { error } = await signIn(values.email, values.password)
-    if (error) setSubmitError(error.message)
+    if (error) {
+      registerLoginFailure()
+      setSubmitError(error.message)
+      return
+    }
+    clearLoginFailureCounter()
   })
 
   return (

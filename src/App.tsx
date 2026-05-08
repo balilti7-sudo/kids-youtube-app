@@ -38,8 +38,13 @@ function SmartEntryRoute() {
 
   if (BYPASS_AUTH) return <Navigate to="/dashboard" replace />
 
-  if (loading || (isAuthenticated && profileLoading)) {
+  if (loading) {
     return <SplashScreen />
+  }
+
+  // Force session-first navigation: if auth session exists, allow dashboard entry even while profile is still resolving.
+  if (isAuthenticated && profileLoading) {
+    return <Navigate to="/dashboard" replace />
   }
 
   // מצב ילד בראש רק כשאין סשן הורה: על מכשיר הילד ההורה מתחבר כאן ומגדיר — לא ננעל מחוץ ללוח בגלל טוקן הילד ב־localStorage.
