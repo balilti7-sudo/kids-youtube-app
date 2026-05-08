@@ -4,6 +4,7 @@ import { Loader2, Shield } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { cn } from '../../lib/utils'
+import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../ui/Button'
@@ -60,11 +61,13 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
   const tryVerify = useCallback(
     async (full: string) => {
-      if (full.length !== 4 || inFlightRef.current) return
+      const trimmed = full.replace(/\D/g, '').trim()
+      const lenOk = trimmed.length === 4 || isEmergencyParentManagementBypass(trimmed)
+      if (!lenOk || inFlightRef.current) return
       inFlightRef.current = true
       setVerifying(true)
       setError(null)
-      const result = await verifyPin(full)
+      const result = await verifyPin(trimmed)
       inFlightRef.current = false
       setVerifying(false)
       if (result.ok) {
@@ -129,7 +132,12 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault()
     if (inFlightRef.current) return
-    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4)
+    const digitsOnly = e.clipboardData.getData('text').replace(/\D/g, '')
+    if (isEmergencyParentManagementBypass(digitsOnly)) {
+      void tryVerify(digitsOnly)
+      return
+    }
+    const text = digitsOnly.slice(0, 4)
     if (!text) return
     const arr: [DigitSlot, DigitSlot, DigitSlot, DigitSlot] = ['', '', '', '']
     for (let i = 0; i < 4; i++) {

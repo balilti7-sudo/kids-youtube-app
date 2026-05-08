@@ -9,6 +9,7 @@ import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { isProfileParentPinMissing } from '../lib/parentPin'
 import { requestPinEmail } from '../lib/requestPinEmail'
+import { setSkipParentalManagementGateOnce } from '../lib/parentalGateSkipOnce'
 
 const pinSchema = z
   .string()
@@ -68,6 +69,7 @@ export function SetParentPinPage() {
 
     await refreshProfile()
     setSaving(false)
+    setSkipParentalManagementGateOnce()
     navigate('/dashboard', { replace: true })
   }
 

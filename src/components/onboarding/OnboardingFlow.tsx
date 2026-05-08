@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
+import { useAuthStore } from '../../stores/authStore'
 import { isProfileParentPinMissing } from '../../lib/parentPin'
 import { PageBackBar } from '../layout/PageBackBar'
 import { SafeTubeLogo } from '../branding/SafeTubeLogo'
 import { Button } from '../ui/Button'
+import { setSkipParentalManagementGateOnce } from '../../lib/parentalGateSkipOnce'
 
 export function OnboardingFlow() {
-  const { user, profile, refreshProfile } = useAuth()
+  const { user, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
 
@@ -18,7 +20,9 @@ export function OnboardingFlow() {
     await supabase.from('profiles').update({ onboarding_done: true }).eq('id', user.id)
     await refreshProfile()
     setSaving(false)
-    navigate(isProfileParentPinMissing(profile) ? '/set-parent-pin' : '/dashboard', { replace: true })
+    setSkipParentalManagementGateOnce()
+    const p = useAuthStore.getState().profile
+    navigate(isProfileParentPinMissing(p) ? '/set-parent-pin' : '/dashboard', { replace: true })
   }
 
   return (

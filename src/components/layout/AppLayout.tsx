@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { BYPASS_AUTH } from '../../config/dev'
 import { LOCK_MANAGEMENT_APP_EVENT } from '../../lib/lockParentApp'
+import { consumeSkipParentalManagementGateOnce } from '../../lib/parentalGateSkipOnce'
 import {
   isParentalManagementGateUnlocked,
   setParentalManagementGateUnlocked,
@@ -17,6 +18,12 @@ export function AppLayout() {
   const [managementUnlocked, setManagementUnlocked] = useState(
     () => BYPASS_AUTH || isParentalManagementGateUnlocked()
   )
+
+  useLayoutEffect(() => {
+    if (consumeSkipParentalManagementGateOnce()) {
+      setManagementUnlocked(true)
+    }
+  }, [])
 
   useEffect(() => {
     if (BYPASS_AUTH) setManagementUnlocked(true)

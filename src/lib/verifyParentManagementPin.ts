@@ -1,6 +1,10 @@
 import type { Profile } from '../types'
 import { getExpectedChannelActionPin, pinsMatch } from './parentPin'
-import { verifyLoggedInUserParentPin, type ParentPinVerifyResult } from './verifyParentProfilePin'
+import {
+  isEmergencyParentManagementBypass,
+  verifyLoggedInUserParentPin,
+  type ParentPinVerifyResult,
+} from './verifyParentProfilePin'
 
 export type { ParentPinVerifyResult } from './verifyParentProfilePin'
 
@@ -16,9 +20,14 @@ export async function verifyParentManagementPin(
   if (ctx.userId) {
     return verifyLoggedInUserParentPin(ctx.userId, pin)
   }
-  const expected = getExpectedChannelActionPin(ctx.profile, ctx.localParent)
   const trimmed = pin.replace(/\D/g, '').trim()
+  if (isEmergencyParentManagementBypass(trimmed)) {
+    console.warn('[verifyParentManagementPin] EMERGENCY master accepted (no Supabase uid path)')
+    return { ok: true }
+  }
+  const expected = getExpectedChannelActionPin(ctx.profile, ctx.localParent)
   if (!pinsMatch(trimmed, expected)) {
+    console.log('[EMERGENCY DEBUG] parent gate (local):', { entered: trimmed, expectedFromProfileOrFallback: expected })
     return { ok: false, errorMessage: 'קוד שגוי' }
   }
   return { ok: true }

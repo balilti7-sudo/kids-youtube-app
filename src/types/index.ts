@@ -5,6 +5,8 @@ export interface Profile {
   avatar_url: string | null
   /** Parent PIN for sensitive actions (e.g. channel list); DB default often 0000 */
   parent_pin?: string | null
+  /** Optional parity field; gate may fall back here if `parent_pin` is unset (see migration 020). */
+  access_code?: string | null
   onboarding_done: boolean
   created_at: string
   updated_at: string
