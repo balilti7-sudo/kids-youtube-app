@@ -27,6 +27,12 @@ export function AuthPage() {
     return <SplashScreen />
   }
 
+  // OAuth may complete before profile row is readable/ready; keep authenticated users out of the login form.
+  if (isAuthenticated && !profile) {
+    setSkipParentalManagementGateOnce()
+    return <Navigate to="/dashboard" replace />
+  }
+
   if (isAuthenticated && profile?.onboarding_done) {
     if (isProfileParentPinMissing(profile)) {
       setSkipParentalManagementGateOnce()

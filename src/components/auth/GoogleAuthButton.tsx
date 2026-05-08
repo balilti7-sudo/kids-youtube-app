@@ -16,6 +16,11 @@ export function GoogleAuthButton() {
 
     setLoading(true)
     const redirectTo = `${window.location.origin}/auth/callback`
+    console.log('[Google OAuth] origin/redirect debug', {
+      origin: window.location.origin,
+      redirectTo,
+      href: window.location.href,
+    })
 
     try {
       setAppModeParent()
@@ -25,6 +30,12 @@ export function GoogleAuthButton() {
           redirectTo,
           skipBrowserRedirect: true,
         },
+      })
+      console.log('[Google OAuth] signInWithOAuth response', {
+        hasUrl: Boolean(data?.url),
+        url: data?.url ?? null,
+        errorMessage: error?.message ?? null,
+        errorCode: (error as { code?: string } | null)?.code ?? null,
       })
 
       if (error) {

@@ -20,7 +20,10 @@ function parseValidHttpBaseOrNull(rawBase: string): string | null {
   if (!trimmed) return null
   const unquoted = trimmed.replace(/^['"]+|['"]+$/g, '')
   if (!unquoted) return null
-  let candidate = unquoted
+  // Emergency hardening: some deployments accidentally inject brackets in env values, e.g. "[https://host]".
+  const sanitized = unquoted.replace(/[\[\]]/g, '').trim()
+  if (!sanitized) return null
+  let candidate = sanitized
   if (candidate.startsWith('//')) candidate = `https:${candidate}`
   if (!/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(candidate)) {
     candidate = `https://${candidate}`
@@ -43,6 +46,7 @@ function parseValidHttpBaseOrNull(rawBase: string): string | null {
  */
 export const MEDIA_BRIDGE_BASE: string = (() => {
   const v = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
+  const normalizedForParse = v.replace(/[\[\]]/g, '').trim()
   const configured = parseValidHttpBaseOrNull(v)
   const defaultBase = parseValidHttpBaseOrNull(DEFAULT_MEDIA_BRIDGE) || DEFAULT_MEDIA_BRIDGE
   const base = configured || defaultBase
@@ -54,7 +58,7 @@ export const MEDIA_BRIDGE_BASE: string = (() => {
     )
   } else if (!configured) {
     console.error(
-      `[streamApi] VITE_STREAM_API_BASE is invalid ("${v}"). ` +
+      `[streamApi] VITE_STREAM_API_BASE is invalid ("${v}", sanitized="${normalizedForParse}"). ` +
         `Expected absolute http(s) URL. Falling back to ${DEFAULT_MEDIA_BRIDGE}.`
     )
   }
