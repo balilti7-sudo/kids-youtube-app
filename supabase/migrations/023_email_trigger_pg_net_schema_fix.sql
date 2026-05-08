@@ -8,7 +8,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_supabase_url constant text := 'https://ioylyyqlluenkkltguhf.supabase.co';
-  v_anon_key constant text := 'YOUR_ANON_KEY_HERE';
+  v_anon_key constant text := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlveWx5eXFsbHVlbmtrbHRndWhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMDM1NDEsImV4cCI6MjA5MTY3OTU0MX0.4yisWFVx7wiln2ZszL7crBry0hazyXSEnzchcXiBaes';
   v_secret constant text := '';
 BEGIN
   IF NEW.email IS NULL OR length(trim(NEW.email)) = 0 THEN
@@ -46,7 +46,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_supabase_url constant text := 'https://ioylyyqlluenkkltguhf.supabase.co';
-  v_anon_key constant text := 'YOUR_ANON_KEY_HERE';
+  v_anon_key constant text := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlveWx5eXFsbHVlbmtrbHRndWhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMDM1NDEsImV4cCI6MjA5MTY3OTU0MX0.4yisWFVx7wiln2ZszL7crBry0hazyXSEnzchcXiBaes';
   v_secret constant text := '';
   v_new_pin text;
 BEGIN
