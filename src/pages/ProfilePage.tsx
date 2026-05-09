@@ -6,6 +6,12 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 
 const MIN_PASSWORD_LEN = 8
+const PARENT_PIN_MIN = 4
+const PARENT_PIN_MAX = 6
+
+function isValidParentPinInput(digits: string) {
+  return /^\d+$/.test(digits) && digits.length >= PARENT_PIN_MIN && digits.length <= PARENT_PIN_MAX
+}
 
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
@@ -18,6 +24,8 @@ export function ProfilePage() {
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [passwordSaving, setPasswordSaving] = useState(false)
+  const [parentPin, setParentPin] = useState('')
+  const [parentPinSaving, setParentPinSaving] = useState(false)
 
   useEffect(() => {
     setEmail(user?.email ?? '')
@@ -67,6 +75,24 @@ export function ProfilePage() {
     }
   }
 
+  const handleParentPinUpdate = async () => {
+    const digits = parentPin.replace(/\D/g, '')
+    if (!isValidParentPinInput(digits)) {
+      toast.error('הקוד חייב להכיל בין 4 ל-6 ספרות')
+      return
+    }
+    setParentPinSaving(true)
+    try {
+      await new Promise((r) => window.setTimeout(r, 350))
+      toast.info('שמירת הקוד בשרת תתווסף בקרוב — כרגע זהו ממשק בלבד.')
+      setParentPin('')
+    } finally {
+      setParentPinSaving(false)
+    }
+  }
+
+  const parentPinHintInvalid = parentPin.length > 0 && !isValidParentPinInput(parentPin.replace(/\D/g, ''))
+
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 pb-4">
       <header>
@@ -115,6 +141,42 @@ export function ProfilePage() {
         />
         <Button className="mt-3 w-full" disabled={passwordSaving} onClick={() => void handlePasswordUpdate()}>
           {passwordSaving ? 'מעדכן…' : 'עדכן סיסמה'}
+        </Button>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-zinc-100">שינוי קוד PIN לנעילת הורים</h2>
+        <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">
+          הקוד משמש לגישה לאזור הניהול ולפעולות רגישות. מומלץ לא לשתף אותו עם הילדים. שמירה בשרת תתווסף
+          בקרוב.
+        </p>
+        <Input
+          type="password"
+          dir="ltr"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={PARENT_PIN_MAX}
+          className="mt-3 tracking-widest"
+          value={parentPin}
+          onChange={(e) => setParentPin(e.target.value.replace(/\D/g, '').slice(0, PARENT_PIN_MAX))}
+          placeholder="••••"
+          aria-invalid={parentPinHintInvalid}
+        />
+        <p
+          className={
+            parentPinHintInvalid
+              ? 'mt-2 text-xs text-red-600 dark:text-red-400'
+              : 'mt-2 text-xs text-slate-500 dark:text-zinc-500'
+          }
+        >
+          הקוד חייב להכיל בין 4 ל-6 ספרות
+        </p>
+        <Button
+          className="mt-3 w-full"
+          disabled={parentPinSaving || !isValidParentPinInput(parentPin.replace(/\D/g, ''))}
+          onClick={() => void handleParentPinUpdate()}
+        >
+          {parentPinSaving ? 'מעדכן…' : 'עדכן קוד PIN'}
         </Button>
       </section>
     </div>
