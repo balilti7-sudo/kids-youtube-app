@@ -7,14 +7,16 @@ import { SafeTubeLogo } from '../components/branding/SafeTubeLogo'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
-import { isProfileParentPinMissing } from '../lib/parentPin'
+import { isProfileParentPinMissing, PARENT_PIN_DIGIT_MAX, PARENT_PIN_DIGIT_MIN } from '../lib/parentPin'
 import { requestPinEmail } from '../lib/requestPinEmail'
 import { setSkipParentalManagementGateOnce } from '../lib/parentalGateSkipOnce'
 
 const pinSchema = z
   .string()
-  .length(4, 'נא להזין 4 ספרות')
-  .regex(/^\d{4}$/, 'הקוד חייב להכיל ספרות בלבד')
+  .regex(/^\d+$/, 'הקוד חייב להכיל ספרות בלבד')
+  .refine((s) => s.length >= PARENT_PIN_DIGIT_MIN && s.length <= PARENT_PIN_DIGIT_MAX, {
+    message: `הקוד חייב להכיל בין ${PARENT_PIN_DIGIT_MIN} ל-${PARENT_PIN_DIGIT_MAX} ספרות`,
+  })
 
 export function SetParentPinPage() {
   const { user, profile, loading, profileLoading, refreshProfile } = useAuth()
@@ -84,19 +86,22 @@ export function SetParentPinPage() {
 
         <form className="mt-5 space-y-3" onSubmit={onSubmit} noValidate>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-zinc-300">Parent PIN</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-zinc-300">קוד הורה</label>
             <Input
               dir="ltr"
               type="password"
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={4}
+              maxLength={PARENT_PIN_DIGIT_MAX}
               value={pin}
-              onChange={(ev) => setPin(ev.target.value.replace(/\D/g, '').slice(0, 4))}
+              onChange={(ev) => setPin(ev.target.value.replace(/\D/g, '').slice(0, PARENT_PIN_DIGIT_MAX))}
               placeholder="••••"
               className="tracking-widest"
               autoFocus
             />
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-zinc-500">
+              {PARENT_PIN_DIGIT_MIN}–{PARENT_PIN_DIGIT_MAX} ספרות בלבד.
+            </p>
           </div>
 
           {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}

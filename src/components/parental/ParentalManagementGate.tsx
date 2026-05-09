@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, Shield } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
+import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/parentPin'
 import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
@@ -10,6 +11,11 @@ import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../ui/Button'
 
 type DigitSlot = '' | string
+type SixDigit = [DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot]
+
+const EMPTY_SIX: SixDigit = ['', '', '', '', '', '']
+
+const SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const
 
 /**
  * שכבת מסך מלאה — חובה להזין את קוד ההורה לפני גישה לאזור הניהול (דשבורד, ערוצים וכו׳).
@@ -19,22 +25,17 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
   const localParent = useLocalParentManagement()
   const signOut = useAuthStore((s) => s.signOut)
 
-  const [digits, setDigits] = useState<[DigitSlot, DigitSlot, DigitSlot, DigitSlot]>(['', '', '', ''])
+  const [digits, setDigits] = useState<SixDigit>(EMPTY_SIX)
   const [error, setError] = useState<string | null>(null)
   const [verifying, setVerifying] = useState(false)
   const digitsRef = useRef(digits)
   digitsRef.current = digits
   const inFlightRef = useRef(false)
 
-  const refs = [
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-  ] as const
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null, null, null])
 
   const resetDigits = useCallback(() => {
-    setDigits(['', '', '', ''])
+    setDigits(EMPTY_SIX)
     setError(null)
     setVerifying(false)
     inFlightRef.current = false
@@ -42,7 +43,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
   useEffect(() => {
     resetDigits()
-    const t = window.setTimeout(() => refs[0].current?.focus(), 150)
+    const t = window.setTimeout(() => inputRefs.current[0]?.focus(), 150)
     return () => window.clearTimeout(t)
   }, [resetDigits])
 
@@ -62,7 +63,8 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
   const tryVerify = useCallback(
     async (full: string) => {
       const trimmed = full.replace(/\D/g, '').trim()
-      const lenOk = trimmed.length === 4 || isEmergencyParentManagementBypass(trimmed)
+      const lenOk =
+        isValidParentPinDigits(trimmed) || isEmergencyParentManagementBypass(trimmed)
       if (!lenOk || inFlightRef.current) return
       inFlightRef.current = true
       setVerifying(true)
@@ -75,8 +77,8 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
         return
       }
       setError(result.errorMessage)
-      setDigits(['', '', '', ''])
-      window.requestAnimationFrame(() => refs[0].current?.focus())
+      setDigits(EMPTY_SIX)
+      window.requestAnimationFrame(() => inputRefs.current[0]?.focus())
     },
     [onUnlocked, verifyPin]
   )
@@ -86,20 +88,11 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
     const ch = raw.replace(/\D/g, '').slice(-1) as DigitSlot
 
     setDigits((prev) => {
-      const next: [DigitSlot, DigitSlot, DigitSlot, DigitSlot] = [...prev] as [
-        DigitSlot,
-        DigitSlot,
-        DigitSlot,
-        DigitSlot,
-      ]
+      const next = [...prev] as SixDigit
       next[index] = ch
-      const pin = next.join('')
       queueMicrotask(() => {
-        if (ch && index < 3) {
-          refs[index + 1].current?.focus()
-        }
-        if (pin.length === 4) {
-          void tryVerify(pin)
+        if (ch && index < 5) {
+          inputRefs.current[index + 1]?.focus()
         }
       })
       return next
@@ -112,20 +105,20 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
       e.preventDefault()
       if (index > 0) {
         setDigits((prev) => {
-          const next = [...prev] as [DigitSlot, DigitSlot, DigitSlot, DigitSlot]
+          const next = [...prev] as SixDigit
           next[index - 1] = ''
           return next
         })
-        refs[index - 1].current?.focus()
+        inputRefs.current[index - 1]?.focus()
       }
     }
     if (e.key === 'ArrowLeft' && index > 0) {
       e.preventDefault()
-      refs[index - 1].current?.focus()
+      inputRefs.current[index - 1]?.focus()
     }
-    if (e.key === 'ArrowRight' && index < 3) {
+    if (e.key === 'ArrowRight' && index < 5) {
       e.preventDefault()
-      refs[index + 1].current?.focus()
+      inputRefs.current[index + 1]?.focus()
     }
   }
 
@@ -137,21 +130,22 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
       void tryVerify(digitsOnly)
       return
     }
-    const text = digitsOnly.slice(0, 4)
+    const text = digitsOnly.slice(0, 6)
     if (!text) return
-    const arr: [DigitSlot, DigitSlot, DigitSlot, DigitSlot] = ['', '', '', '']
-    for (let i = 0; i < 4; i++) {
+    const arr: SixDigit = ['', '', '', '', '', '']
+    for (let i = 0; i < 6; i++) {
       arr[i] = (text[i] ?? '') as DigitSlot
     }
     setError(null)
     setDigits(arr)
-    const pin = arr.join('')
     queueMicrotask(() => {
-      const focusIdx = Math.min(text.length, 3)
-      refs[focusIdx].current?.focus()
-      if (pin.length === 4) void tryVerify(pin)
+      const focusIdx = Math.min(text.length, 5)
+      inputRefs.current[focusIdx]?.focus()
     })
   }
+
+  const pinContiguous = contiguousDigitsFromPinSlots(digits)
+  const canSubmitPin = isValidParentPinDigits(pinContiguous) || isEmergencyParentManagementBypass(pinContiguous)
 
   return (
     <AnimatePresence>
@@ -193,14 +187,16 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
           <div className="space-y-5 px-5 py-6">
             <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-              כדי לגשת לדף הבית, לערוצים ולהגדרות — הזינו את קוד ההורה (4 ספרות) מהפרופיל. כשאתם מחוברים, הקוד נבדק מול מסד הנתונים (שדה parent_pin).
+              כדי לגשת לדף הבית, לערוצים ולהגדרות — הזינו את קוד ההורה (4–6 ספרות) מהפרופיל. כשאתם מחוברים, הקוד נבדק מול מסד הנתונים (שדה parent_pin).
             </p>
 
-            <div dir="ltr" className="flex justify-center gap-3" onPaste={handlePaste}>
-              {([0, 1, 2, 3] as const).map((i) => (
+            <div dir="ltr" className="flex flex-wrap justify-center gap-2" onPaste={handlePaste}>
+              {SLOT_INDEXES.map((i) => (
                 <input
                   key={i}
-                  ref={refs[i]}
+                  ref={(el) => {
+                    inputRefs.current[i] = el
+                  }}
                   type="password"
                   inputMode="numeric"
                   autoComplete="one-time-code"
@@ -210,16 +206,25 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
                   onChange={(e) => handleChange(i, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(i, e)}
                   className={cn(
-                    'h-14 w-12 rounded-xl border-2 bg-white/90 text-center text-xl font-semibold tracking-widest text-slate-900 shadow-inner',
+                    'h-12 w-10 rounded-xl border-2 bg-white/90 text-center text-lg font-semibold tracking-widest text-slate-900 shadow-inner sm:h-14 sm:w-11',
                     'outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30',
                     'disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-950/80 dark:text-zinc-100',
                     error ? 'border-red-400 dark:border-red-500/70' : 'border-slate-200 dark:border-zinc-600'
                   )}
                   aria-invalid={Boolean(error)}
-                  aria-label={`ספרה ${i + 1} מתוך 4`}
+                  aria-label={`ספרה ${i + 1} מתוך 6`}
                 />
               ))}
             </div>
+
+            <Button
+              type="button"
+              className="w-full"
+              disabled={verifying || !canSubmitPin}
+              onClick={() => void tryVerify(pinContiguous)}
+            >
+              אישור
+            </Button>
 
             {verifying ? (
               <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-zinc-400">

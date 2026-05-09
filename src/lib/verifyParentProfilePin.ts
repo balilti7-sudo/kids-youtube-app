@@ -36,8 +36,8 @@ export async function verifyLoggedInUserParentPin(userId: string, pin: string): 
     return { ok: true }
   }
 
-  if (trimmed.length !== 4) {
-    return { ok: false, errorMessage: 'נא להזין 4 ספרות' }
+  if (trimmed.length < 4 || trimmed.length > 6) {
+    return { ok: false, errorMessage: 'נא להזין בין 4 ל-6 ספרות' }
   }
 
   /** `*` — כדי שלא תיפול בקשה אם העמודה `access_code` עדיין לא נוספה ב-Supabase. */
@@ -55,23 +55,12 @@ export async function verifyLoggedInUserParentPin(userId: string, pin: string): 
     access_code: acRaw,
   })
 
-  console.log('[EMERGENCY DEBUG] parent gate:', {
-    entered: trimmed,
-    expectedFromProfiles: stored,
-    profiles_parent_pin_raw: ppRaw,
-    profiles_access_code_raw: acRaw,
-  })
-
   if (stored.length < 4 || stored === '0000') {
     return { ok: false, errorMessage: 'יש להגדיר קוד הורה לפני ביצוע הפעולה' }
   }
   const expected = stored
 
   if (!pinsMatch(trimmed, expected)) {
-    console.warn('[verifyLoggedInUserParentPin] mismatch', {
-      entered: trimmed,
-      expectedEffective: expected,
-    })
     return { ok: false, errorMessage: 'קוד שגוי' }
   }
 

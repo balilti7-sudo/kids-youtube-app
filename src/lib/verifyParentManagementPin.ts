@@ -27,7 +27,6 @@ export async function verifyParentManagementPin(
   }
   const expected = getExpectedChannelActionPin(ctx.profile, ctx.localParent)
   if (!pinsMatch(trimmed, expected)) {
-    console.log('[EMERGENCY DEBUG] parent gate (local):', { entered: trimmed, expectedFromProfileOrFallback: expected })
     return { ok: false, errorMessage: 'קוד שגוי' }
   }
   return { ok: true }

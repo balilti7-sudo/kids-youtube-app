@@ -1,17 +1,12 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { isValidParentPinDigits, PARENT_PIN_DIGIT_MAX } from '../lib/parentPin'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 
 const MIN_PASSWORD_LEN = 8
-const PARENT_PIN_MIN = 4
-const PARENT_PIN_MAX = 6
-
-function isValidParentPinInput(digits: string) {
-  return /^\d+$/.test(digits) && digits.length >= PARENT_PIN_MIN && digits.length <= PARENT_PIN_MAX
-}
 
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
@@ -77,21 +72,31 @@ export function ProfilePage() {
 
   const handleParentPinUpdate = async () => {
     const digits = parentPin.replace(/\D/g, '')
-    if (!isValidParentPinInput(digits)) {
+    if (!isValidParentPinDigits(digits)) {
       toast.error('הקוד חייב להכיל בין 4 ל-6 ספרות')
+      return
+    }
+    if (!user?.id) {
+      toast.error('יש להתחבר מחדש')
       return
     }
     setParentPinSaving(true)
     try {
-      await new Promise((r) => window.setTimeout(r, 350))
-      toast.info('שמירת הקוד בשרת תתווסף בקרוב — כרגע זהו ממשק בלבד.')
+      const { error } = await supabase.from('profiles').update({ parent_pin: digits }).eq('id', user.id)
+      if (error) {
+        toast.error(error.message)
+        return
+      }
+      toast.success('קוד PIN לנעילת הורים עודכן')
       setParentPin('')
+      await refreshProfile()
     } finally {
       setParentPinSaving(false)
     }
   }
 
-  const parentPinHintInvalid = parentPin.length > 0 && !isValidParentPinInput(parentPin.replace(/\D/g, ''))
+  const parentPinHintInvalid =
+    parentPin.length > 0 && !isValidParentPinDigits(parentPin.replace(/\D/g, ''))
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 pb-4">
@@ -147,18 +152,17 @@ export function ProfilePage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-sm font-bold text-slate-900 dark:text-zinc-100">שינוי קוד PIN לנעילת הורים</h2>
         <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">
-          הקוד משמש לגישה לאזור הניהול ולפעולות רגישות. מומלץ לא לשתף אותו עם הילדים. שמירה בשרת תתווסף
-          בקרוב.
+          הקוד משמש לגישה לאזור הניהול ולפעולות רגישות. מומלץ לא לשתף אותו עם הילדים.
         </p>
         <Input
           type="password"
           dir="ltr"
           inputMode="numeric"
           autoComplete="one-time-code"
-          maxLength={PARENT_PIN_MAX}
+          maxLength={PARENT_PIN_DIGIT_MAX}
           className="mt-3 tracking-widest"
           value={parentPin}
-          onChange={(e) => setParentPin(e.target.value.replace(/\D/g, '').slice(0, PARENT_PIN_MAX))}
+          onChange={(e) => setParentPin(e.target.value.replace(/\D/g, '').slice(0, PARENT_PIN_DIGIT_MAX))}
           placeholder="••••"
           aria-invalid={parentPinHintInvalid}
         />
@@ -173,7 +177,7 @@ export function ProfilePage() {
         </p>
         <Button
           className="mt-3 w-full"
-          disabled={parentPinSaving || !isValidParentPinInput(parentPin.replace(/\D/g, ''))}
+          disabled={parentPinSaving || !isValidParentPinDigits(parentPin.replace(/\D/g, ''))}
           onClick={() => void handleParentPinUpdate()}
         >
           {parentPinSaving ? 'מעדכן…' : 'עדכן קוד PIN'}

@@ -14,6 +14,25 @@ export function getResolvedParentPin(): string {
   return '1234'
 }
 
+/** קוד הורה במסד ובטפסים: 4–6 ספרות. */
+export const PARENT_PIN_DIGIT_MIN = 4
+export const PARENT_PIN_DIGIT_MAX = 6
+
+export function isValidParentPinDigits(raw: string): boolean {
+  const d = raw.replace(/\D/g, '')
+  return /^\d+$/.test(d) && d.length >= PARENT_PIN_DIGIT_MIN && d.length <= PARENT_PIN_DIGIT_MAX
+}
+
+/** PIN רציף משדות ספרה בודדות (עוצרים במקום הריק הראשון). */
+export function contiguousDigitsFromPinSlots(slots: readonly ('' | string)[]): string {
+  let s = ''
+  for (const x of slots) {
+    if (x === '' || x == null) break
+    s += x
+  }
+  return s
+}
+
 /** השוואת PIN אחרי ניקוי רווחים מיותרים (מקלדות במובייל) */
 export function pinsMatch(input: string, expected: string): boolean {
   const a = input.replace(/\s+/g, '').trim()
