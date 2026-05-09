@@ -195,7 +195,6 @@ export function useChannels(
 
   const addToWhitelist = useCallback(
     async (yt: import('../types').YouTubeChannelResult, category?: string | null) => {
-      if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       if (localAccessToken) {
         const pin = getLocalParentPin?.() ?? ''
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
@@ -207,6 +206,7 @@ export function useChannels(
         }
         return { error: null }
       }
+      if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       const res = await addChannelToDevice({ deviceId, userId, yt, category })
       if (res.error) return res
       await fetchWhitelistForDevice(deviceId)
@@ -231,7 +231,6 @@ export function useChannels(
 
   const addChannelByUrlOrId = useCallback(
     async (input: string, category?: string | null) => {
-      if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       const { data, error } = await resolveYouTubeChannelFromInput(input)
       if (error || !data) return { error: error ?? new Error('לא נמצא ערוץ מהקישור') }
       if (localAccessToken) {
@@ -245,6 +244,7 @@ export function useChannels(
         }
         return { error: null }
       }
+      if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       const res = await addChannelToDevice({ deviceId, userId, yt: data, category })
       if (res.error) return res
       await fetchWhitelistForDevice(deviceId)

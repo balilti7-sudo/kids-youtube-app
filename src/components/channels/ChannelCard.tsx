@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2 } from 'lucide-react'
 import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
 import { Button } from '../ui/Button'
+import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { cn } from '../../lib/utils'
 
 type Props =
@@ -80,11 +81,27 @@ export function ChannelCard(props: Props) {
       </div>
       {props.variant === 'search' ? (
         <Button
-          className={cn('shrink-0 self-center', props.added ? '!bg-brand-700 hover:!bg-brand-800' : '')}
-          onClick={props.onAdd}
+          className={cn('min-h-[44px] min-w-[5.5rem] shrink-0 self-center', props.added ? '!bg-brand-700 hover:!bg-brand-800' : '')}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            props.onAdd()
+          }}
           disabled={props.adding || props.added}
+          aria-busy={props.adding}
         >
-          {props.adding ? '...' : props.added ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> נוסף</span> : 'הוסף'}
+          {props.adding ? (
+            <span className="inline-flex items-center gap-2">
+              <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" aria-hidden />
+              מוסיף…
+            </span>
+          ) : props.added ? (
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="h-4 w-4" /> נוסף
+            </span>
+          ) : (
+            'הוסף'
+          )}
         </Button>
       ) : (
         <div className="flex shrink-0 flex-col gap-1 self-center sm:flex-row sm:items-center">

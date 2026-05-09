@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -17,6 +18,7 @@ import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
+import { Modal } from '../ui/Modal'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 
 type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
@@ -27,6 +29,7 @@ type PendingPinAction =
   | { kind: 'remove'; channel: WhitelistedChannel }
 
 export function ChannelManager() {
+  const navigate = useNavigate()
   const { user, profile } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
   const localParent = useLocalParentManagement()
@@ -42,6 +45,7 @@ export function ChannelManager() {
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
   const [pinModalOpen, setPinModalOpen] = useState(false)
+  const [addSuccessModalOpen, setAddSuccessModalOpen] = useState(false)
   const [previewChannel, setPreviewChannel] = useState<WhitelistedChannel | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -82,17 +86,25 @@ export function ChannelManager() {
   }, [deviceId, loadWhitelist])
 
   const handleAdd = async (c: YouTubeChannelResult) => {
-    if (!selectedDevice) {
+    if (!localParent.isActive && !selectedDevice) {
       toast.error('לא נבחר מכשיר להוספה')
       return
     }
     setAddingId(c.channelId)
-    const { error } = await addToWhitelist(c, channelCategory.trim() || null)
-    setAddingId(null)
-    if (error) toast.error(error.message)
-    else {
+    try {
+      const { error } = await addToWhitelist(c, channelCategory.trim() || null)
+      if (error) {
+        console.error('[ChannelManager] addToWhitelist failed', error.message, c.channelId)
+        toast.error(error.message)
+        return
+      }
       setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
-      toast.success(`הערוץ נוסף וסונכרן למכשיר ${selectedDevice.name}`)
+      setAddSuccessModalOpen(true)
+    } catch (e) {
+      console.error('[ChannelManager] handleAdd unexpected error', e)
+      toast.error(e instanceof Error ? e.message : 'שגיאה בהוספת ערוץ')
+    } finally {
+      setAddingId(null)
     }
   }
 
@@ -413,6 +425,41 @@ export function ChannelManager() {
         title="אימות הורה"
         description="הזינו את קוד ההורה (4–6 ספרות). הקוד נבדק מול הפרופיל שלכם. רק אחרי אימות מוצלח תתבצע הפעולה (חיפוש / הוספת ערוץ / בקשת הסרה)."
       />
+
+      <Modal
+        open={addSuccessModalOpen}
+        onClose={() => setAddSuccessModalOpen(false)}
+        title="הערוץ נוסף בהצלחה! 🎉"
+        bodyClassName="max-h-[70vh] overflow-y-auto text-right"
+        footer={
+          <div dir="rtl" className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-start">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full sm:w-auto"
+              onClick={() => setAddSuccessModalOpen(false)}
+            >
+              הוספת ערוץ נוסף
+            </Button>
+            <Button
+              type="button"
+              className="w-full sm:w-auto"
+              onClick={() => {
+                setAddSuccessModalOpen(false)
+                setSearchOpen(false)
+                setAddedSearchChannelIds(new Set())
+                navigate('/channels')
+              }}
+            >
+              מעבר לערוצים שלי
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-300">
+          האם תרצה להוסיף ערוצים נוספים או לעבור לרשימת הערוצים שלך?
+        </p>
+      </Modal>
     </div>
   )
 }
