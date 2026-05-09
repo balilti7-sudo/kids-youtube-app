@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -19,6 +20,7 @@ import { BYPASS_AUTH } from './config/dev'
 import { isProfileParentPinMissing } from './lib/parentPin'
 import { parsePairingCodeFromLocationSearch } from './lib/pairingCodeFromQr'
 import { WhatsAppFloatingButton } from './components/support/WhatsAppFloatingButton'
+import { preWarmMediaBridge } from './lib/streamApi'
 
 /** Remount כשמשנים query (למשל אחרי סריקת QR) כדי ש־boot עם קוד ירוץ שוב */
 function KidModeRoute() {
@@ -67,6 +69,10 @@ function CatchAllRedirect() {
 }
 
 export default function App() {
+  useEffect(() => {
+    preWarmMediaBridge()
+  }, [])
+
   return (
     <ErrorBoundary>
       <BrowserRouter>

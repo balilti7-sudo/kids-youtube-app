@@ -86,28 +86,12 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
   const hlsJsActiveRef = useRef(false)
   const [phase, setPhase] = useState<PlayerPhase>({ kind: 'resolving' })
   const [retryNonce, setRetryNonce] = useState(0)
+  const [bridgeWaking, setBridgeWaking] = useState(false)
   const errId = useId()
 
   const handleRetry = useCallback(() => {
+    setBridgeWaking(false)
     setRetryNonce((n) => n + 1)
-  }, [])
-
-  /**
-   * Best-effort warm-up: hit `/health` on mount so a sleeping Render free instance
-   * spins up *before* the user actually clicks play. We deliberately swallow errors —
-   * the real `fetchStreamInfo` call already retries once on transient failures.
-   */
-  useEffect(() => {
-    const ac = new AbortController()
-    void fetch(`${getStreamApiBaseUrl()}/health`, {
-      method: 'GET',
-      credentials: 'omit',
-      cache: 'no-store',
-      signal: ac.signal,
-    }).catch(() => {
-      /* warm-up is best-effort */
-    })
-    return () => ac.abort()
   }, [])
 
   useEffect(() => {
@@ -130,6 +114,7 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
     }
 
     setPhase({ kind: 'resolving' })
+    setBridgeWaking(false)
     hlsJsActiveRef.current = false
     ac = new AbortController()
     const signal = ac.signal
@@ -145,7 +130,14 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
         if (import.meta.env.DEV) {
           console.info(`[CleanPlayer] fetching stream metadata → ${getStreamApiBaseUrl()}/api/stream/… (${videoId})`)
         }
-        const info = await fetchStreamInfo(videoId, { signal })
+        const info = await fetchStreamInfo(videoId, {
+          signal,
+          onTransientRetry: () => {
+            if (cancelled || signal.aborted) return
+            setBridgeWaking(true)
+          },
+        })
+        setBridgeWaking(false)
         if (cancelled || signal.aborted) return
 
         console.info(
@@ -238,6 +230,7 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
 
         tryAttach()
       } catch (e) {
+        setBridgeWaking(false)
         if (cancelled || signal.aborted) return
         console.error('[CleanPlayer] resolve failed', e)
         if (e instanceof StreamApiError) {
@@ -287,7 +280,7 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
           {phase.kind === 'resolving' ? (
             <>
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />
-              <p>מכין את הוידאו…</p>
+              <p>{bridgeWaking ? 'השרת מתעורר... מיד מתחילים' : 'מכין את הוידאו…'}</p>
             </>
           ) : phase.kind === 'error' ? (
             <>

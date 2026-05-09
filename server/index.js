@@ -416,7 +416,13 @@ registerWelcomeEmailRoute(app, {
   welcomeKey: MEDIA_BRIDGE_WELCOME_KEY,
 })
 
+/** Cold-start / load-balancer ping: minimal work, 200 OK (Render health checks, SPA pre-warm). */
 app.get('/health', (_req, res) => {
+  res.status(200).setHeader('Cache-Control', 'no-store').type('application/json').send('{"ok":true}')
+})
+
+/** Optional: cookie + email config snapshot (heavier — use for debugging, not for frequent pings). */
+app.get('/health/verbose', (_req, res) => {
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
   const cookies = inspectYoutubeCookiesFile(cookiesFile)

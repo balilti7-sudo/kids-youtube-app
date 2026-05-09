@@ -69,6 +69,43 @@ export function getStreamApiBaseUrl(): string {
   return MEDIA_BRIDGE_BASE.replace(/\/$/, '')
 }
 
+/**
+ * Fire-and-forget GET `/health` so a sleeping Render dyno starts waking before stream playback.
+ * Does not block; errors are ignored.
+ */
+export function preWarmMediaBridge(): void {
+  if (typeof fetch === 'undefined') return
+  const base = getStreamApiBaseUrl()
+  void fetch(`${base}/health`, {
+    method: 'GET',
+    credentials: 'omit',
+    cache: 'no-store',
+    mode: 'cors',
+  }).catch(() => {
+    /* best-effort */
+  })
+}
+
+async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms)
+    if (!signal) return
+    if (signal.aborted) {
+      clearTimeout(t)
+      reject(signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t)
+        reject(signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
+      },
+      { once: true }
+    )
+  })
+}
+
 function buildStreamApiUrl(pathname: string): string {
   const base = getStreamApiBaseUrl()
   const normalizedBase = base.endsWith('/') ? base : `${base}/`
@@ -108,7 +145,18 @@ export function streamResponseToSource(data: StreamApiResponse): { src: string; 
  */
 const STREAM_INFO_TIMEOUT_MS = 120_000
 
-/** Heuristic: treat these network-layer failures as "transient" and worth one auto-retry. */
+/** Delays before 2nd, 3rd, and 4th stream resolution attempts after `Failed to fetch` (Render cold start). */
+const STREAM_TRANSIENT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const
+const STREAM_RESOLVE_MAX_ATTEMPTS = 1 + STREAM_TRANSIENT_RETRY_DELAYS_MS.length
+
+export type FetchStreamTransientRetryInfo = {
+  /** Upcoming attempt number (2 = first retry after initial failure). */
+  nextAttempt: number
+  totalAttempts: number
+  delayBeforeNextMs: number
+}
+
+/** Heuristic: treat these network-layer failures as transient (multi-attempt backoff in `fetchStreamInfo`). */
 function isTransientFetchError(err: unknown): boolean {
   if (err instanceof StreamApiError) return false
   if (err instanceof DOMException && err.name === 'AbortError') return false
@@ -132,42 +180,63 @@ export class StreamApiError extends Error {
 /**
  * Resolves a YouTube videoId to stream metadata via the bridge.
  *
- * Auto-retries **once** on transient network failures (`Failed to fetch` / connection reset),
- * which on Render free is almost always the cold-start blip — by the time we retry ~3s
- * later the dyno is up and the second request succeeds. Aborts (user cancellation) and
- * structured `StreamApiError`s are NOT retried.
+ * On transient network failures (`Failed to fetch`, etc.), retries with **2s → 5s → 10s** backoff
+ * (4 attempts total) — typical for Render free-tier cold starts. Aborts and `StreamApiError` are not retried.
  *
  * `credentials: 'omit'` — the bridge does not use cookies; keeps CORS simple (no preflight credential dance).
  */
 export async function fetchStreamInfo(
   videoId: string,
-  { signal, timeoutMs = STREAM_INFO_TIMEOUT_MS }: { signal?: AbortSignal; timeoutMs?: number } = {}
+  {
+    signal,
+    timeoutMs = STREAM_INFO_TIMEOUT_MS,
+    onTransientRetry,
+  }: {
+    signal?: AbortSignal
+    timeoutMs?: number
+    /** Called before each backoff wait (not called before the first attempt). */
+    onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
+  } = {}
 ): Promise<StreamApiResponse> {
-  try {
-    return await doFetchStreamInfo(videoId, { signal, timeoutMs })
-  } catch (err) {
-    if (signal?.aborted) throw err
-    if (!isTransientFetchError(err)) throw err
-    console.warn(
-      '[streamApi] transient network error on first attempt, retrying once (likely Render cold start):',
-      err instanceof Error ? err.message : err
-    )
-    await new Promise((r) => setTimeout(r, 3_000))
-    if (signal?.aborted) throw err
+  let lastErr: unknown
+  for (let i = 0; i < STREAM_RESOLVE_MAX_ATTEMPTS; i++) {
+    if (i > 0) {
+      const delayBeforeNextMs = STREAM_TRANSIENT_RETRY_DELAYS_MS[i - 1]
+      onTransientRetry?.({
+        nextAttempt: i + 1,
+        totalAttempts: STREAM_RESOLVE_MAX_ATTEMPTS,
+        delayBeforeNextMs,
+      })
+      await sleepWithAbort(delayBeforeNextMs, signal)
+      if (signal?.aborted) {
+        const r = signal.reason
+        throw r instanceof Error ? r : new DOMException('Aborted', 'AbortError')
+      }
+    }
     try {
       return await doFetchStreamInfo(videoId, { signal, timeoutMs })
-    } catch (err2) {
-      if (signal?.aborted) throw err2
-      if (isTransientFetchError(err2)) {
-        const base = getStreamApiBaseUrl()
-        const detail = err2 instanceof Error ? err2.message : String(err2)
-        throw new StreamApiError(
-          `לא ניתן להתחבר לשרת הזרם (${base}). השרת עשוי להיות בהפעלה — נסו שוב בעוד מספר שניות. (${detail})`
-        )
-      }
-      throw err2
+    } catch (err) {
+      if (signal?.aborted) throw err
+      if (!isTransientFetchError(err)) throw err
+      lastErr = err
+      const isLast = i === STREAM_RESOLVE_MAX_ATTEMPTS - 1
+      if (isLast) break
+      console.warn(
+        '[streamApi] transient network error, scheduling retry (Render cold start?):',
+        err instanceof Error ? err.message : err
+      )
     }
   }
+
+  if (lastErr instanceof StreamApiError) throw lastErr
+  if (isTransientFetchError(lastErr)) {
+    const base = getStreamApiBaseUrl()
+    const detail = lastErr instanceof Error ? lastErr.message : String(lastErr)
+    throw new StreamApiError(
+      `לא ניתן להתחבר לשרת הזרם (${base}). השרת עשוי להיות בהפעלה — נסו שוב בעוד מספר שניות. (${detail})`
+    )
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
 }
 
 async function doFetchStreamInfo(
