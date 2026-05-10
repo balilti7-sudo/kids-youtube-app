@@ -13,7 +13,10 @@ export type StreamApiResponse = {
   note?: string
 }
 
-const DEFAULT_MEDIA_BRIDGE = 'https://safetube-media-bridge.onrender.com'
+/** Production Media Bridge on Render (origin only — no path). */
+export const CANONICAL_MEDIA_BRIDGE_ORIGIN = 'https://safetube-media-bridge.onrender.com'
+
+const DEFAULT_MEDIA_BRIDGE = CANONICAL_MEDIA_BRIDGE_ORIGIN
 
 function parseValidHttpBaseOrNull(rawBase: string): string | null {
   const trimmed = rawBase.trim()
@@ -31,10 +34,56 @@ function parseValidHttpBaseOrNull(rawBase: string): string | null {
   try {
     const u = new URL(candidate)
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    // Always use origin only so path/query in env cannot produce broken hosts like `…onrender.comapi`.
     return u.origin
   } catch {
     return null
   }
+}
+
+/** Reject hostnames that would cause ERR_NAME_NOT_RESOLVED (e.g. `*.onrender.comstream`). */
+function isPlausibleBridgeHostname(hostname: string): boolean {
+  if (!hostname) return false
+  const h = hostname.toLowerCase()
+  if (h === 'localhost' || h === '127.0.0.1') return true
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  if (h.includes('onrender.com')) {
+    return h.endsWith('.onrender.com') && h.length > '.onrender.com'.length
+  }
+  return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(hostname)
+}
+
+function coerceMediaBridgeOrigin(raw: string | null): string {
+  const fallback = parseValidHttpBaseOrNull(DEFAULT_MEDIA_BRIDGE) || DEFAULT_MEDIA_BRIDGE
+  if (!raw) return fallback
+  let origin: string
+  try {
+    origin = new URL(raw).origin
+  } catch {
+    return fallback
+  }
+  let host = ''
+  try {
+    host = new URL(origin).hostname
+  } catch {
+    return fallback
+  }
+  if (!isPlausibleBridgeHostname(host)) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        `[streamApi] VITE_STREAM_API_BASE hostname looks invalid ("${host}") — using ${fallback}. ` +
+          `Expected origin like ${CANONICAL_MEDIA_BRIDGE_ORIGIN}.`
+      )
+    } else {
+      console.error(
+        `[streamApi] Invalid Media Bridge hostname "${host}" — using ${CANONICAL_MEDIA_BRIDGE_ORIGIN}.`
+      )
+    }
+    return fallback
+  }
+  return origin
 }
 
 /**
@@ -47,19 +96,19 @@ function parseValidHttpBaseOrNull(rawBase: string): string | null {
 export const MEDIA_BRIDGE_BASE: string = (() => {
   const v = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
   const normalizedForParse = v.replace(/[\[\]]/g, '').trim()
-  const configured = parseValidHttpBaseOrNull(v)
-  const defaultBase = parseValidHttpBaseOrNull(DEFAULT_MEDIA_BRIDGE) || DEFAULT_MEDIA_BRIDGE
-  const base = configured || defaultBase
+  const configuredOrigin = parseValidHttpBaseOrNull(v)
+  const defaultOrigin = parseValidHttpBaseOrNull(DEFAULT_MEDIA_BRIDGE) || DEFAULT_MEDIA_BRIDGE
+  const base = coerceMediaBridgeOrigin(configuredOrigin || defaultOrigin)
   if (import.meta.env.DEV) {
     console.info('[streamApi] Media Bridge base:', base)
   } else if (v.length === 0) {
     console.error(
       '[streamApi] VITE_STREAM_API_BASE is missing in production build — falling back to Render Media Bridge URL.'
     )
-  } else if (!configured) {
+  } else if (!configuredOrigin) {
     console.error(
       `[streamApi] VITE_STREAM_API_BASE is invalid ("${v}", sanitized="${normalizedForParse}"). ` +
-        `Expected absolute http(s) URL. Falling back to ${DEFAULT_MEDIA_BRIDGE}.`
+        `Expected absolute http(s) origin (e.g. ${CANONICAL_MEDIA_BRIDGE_ORIGIN}). Falling back.`
     )
   }
   return base
@@ -106,10 +155,14 @@ async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * Build `https://host/api/stream/:id` etc. via explicit join (avoids `new URL(relative, base)`
+ * edge cases when base accidentally contained path fragments).
+ */
 function buildStreamApiUrl(pathname: string): string {
-  const base = getStreamApiBaseUrl()
-  const normalizedBase = base.endsWith('/') ? base : `${base}/`
-  return new URL(pathname.replace(/^\//, ''), normalizedBase).toString()
+  const base = getStreamApiBaseUrl().replace(/\/+$/, '')
+  const path = pathname.startsWith('/') ? pathname : `/${pathname}`
+  return `${base}${path}`
 }
 
 /** `GET /api/media/:videoId` on the same origin as the bridge — use for `<video src>`. */
