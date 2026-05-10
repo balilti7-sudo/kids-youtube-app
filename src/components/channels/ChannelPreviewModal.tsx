@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { getChildCachedChannelVideos } from '../../lib/childDevice'
@@ -104,6 +104,18 @@ export function ChannelPreviewModal({
 
   const active = videos.find((v) => v.videoId === activeVideoId) ?? null
 
+  const goPrevPreviewTrack = useCallback(() => {
+    if (!activeVideoId) return
+    const idx = videos.findIndex((v) => v.videoId === activeVideoId)
+    if (idx > 0) setActiveVideoId(videos[idx - 1].videoId)
+  }, [videos, activeVideoId])
+
+  const goNextPreviewTrack = useCallback(() => {
+    if (!activeVideoId) return
+    const idx = videos.findIndex((v) => v.videoId === activeVideoId)
+    if (idx >= 0 && idx < videos.length - 1) setActiveVideoId(videos[idx + 1].videoId)
+  }, [videos, activeVideoId])
+
   const sidebarVideos = useMemo(() => {
     const q = query.trim().toLowerCase()
     const base = active ? videos.filter((v) => v.videoId !== active.videoId) : videos
@@ -188,6 +200,10 @@ export function ChannelPreviewModal({
                       key={active.videoId}
                       videoId={active.videoId}
                       title={active.title}
+                      channelTitle={channel?.channel_name}
+                      posterUrl={active.thumbnail}
+                      onPreviousTrack={goPrevPreviewTrack}
+                      onNextTrack={goNextPreviewTrack}
                       className="h-full w-full"
                     />
                   </div>

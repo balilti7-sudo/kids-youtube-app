@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { PictureInPicture2 } from 'lucide-react'
 import Hls from 'hls.js'
 import { cn } from '../../lib/utils'
 import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
@@ -12,10 +13,36 @@ import {
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
 
-type CleanPlayerProps = {
+export type CleanPlayerProps = {
   videoId: string
   title: string
   className?: string
+  /** Shown as lock-screen / notification “artist” (e.g. channel name). */
+  channelTitle?: string
+  /** Poster / artwork; falls back to YouTube thumbnail URLs for `videoId`. */
+  posterUrl?: string | null
+  /** Lock screen / headset “next” — omit to hide the control where supported. */
+  onNextTrack?: () => void
+  /** Lock screen / headset “previous”. */
+  onPreviousTrack?: () => void
+}
+
+function buildYoutubeArtwork(videoId: string): MediaImage[] {
+  const id = sanitizeYoutubeVideoId(videoId)
+  if (!id) return []
+  return [
+    { src: `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`, sizes: '1280x720', type: 'image/jpeg' },
+    { src: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpeg' },
+    { src: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' },
+  ]
+}
+
+function pickArtwork(videoId: string, posterUrl: string | null | undefined): MediaImage[] {
+  const fromPoster = (posterUrl || '').trim()
+  if (fromPoster) {
+    return [{ src: fromPoster, type: 'image/jpeg' }, ...buildYoutubeArtwork(videoId)]
+  }
+  return buildYoutubeArtwork(videoId)
 }
 
 type PlayerPhase =
@@ -48,10 +75,38 @@ function mediaErrorMessage(err: MediaError | null): string {
   }
 }
 
-function CleanPlayerYoutubeIframe({ videoId, title, className }: CleanPlayerProps) {
+function CleanPlayerYoutubeIframe({
+  videoId,
+  title,
+  className,
+  channelTitle,
+  posterUrl,
+}: CleanPlayerProps) {
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
   const src = safeId ? buildYoutubePrivacyEmbedUrl(safeId, { origin }) : ''
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+    const artwork = pickArtwork(videoId, posterUrl)
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || 'SafeTube',
+        artist: (channelTitle || '').trim() || 'SafeTube',
+        album: 'SafeTube',
+        artwork: artwork.length ? artwork : buildYoutubeArtwork(videoId),
+      })
+    } catch {
+      /* ignore */
+    }
+    return () => {
+      try {
+        navigator.mediaSession.metadata = null
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [videoId, title, channelTitle, posterUrl])
 
   return (
     <div className={cn('relative h-full w-full min-h-0 overflow-hidden bg-black', className)} dir="ltr">
@@ -79,14 +134,25 @@ function CleanPlayerYoutubeIframe({ videoId, title, className }: CleanPlayerProp
   )
 }
 
-function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps) {
+function CleanPlayerMediaBridge({
+  videoId,
+  title,
+  className,
+  channelTitle,
+  posterUrl,
+  onNextTrack,
+  onPreviousTrack,
+}: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
+  const wasPlayingBeforeHiddenRef = useRef(false)
   const [phase, setPhase] = useState<PlayerPhase>({ kind: 'resolving' })
   const [retryNonce, setRetryNonce] = useState(0)
   const [bridgeWaking, setBridgeWaking] = useState(false)
+  const [pipActive, setPipActive] = useState(false)
+  const [pipSupported, setPipSupported] = useState(false)
   const errId = useId()
 
   const handleRetry = useCallback(() => {
@@ -257,6 +323,186 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
     }
   }, [videoId, retryNonce])
 
+  const safePosterVideoId = sanitizeYoutubeVideoId(videoId)
+  const videoPoster =
+    (posterUrl || '').trim() ||
+    (safePosterVideoId ? `https://i.ytimg.com/vi/${safePosterVideoId}/hqdefault.jpg` : undefined)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    setPipSupported(
+      Boolean(
+        document.pictureInPictureEnabled &&
+          typeof HTMLVideoElement !== 'undefined' &&
+          'requestPictureInPicture' in HTMLVideoElement.prototype
+      )
+    )
+  }, [])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+    const artwork = pickArtwork(videoId, posterUrl)
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || 'SafeTube',
+        artist: (channelTitle || '').trim() || 'SafeTube',
+        album: 'SafeTube Kids',
+        artwork: artwork.length ? artwork : buildYoutubeArtwork(videoId),
+      })
+    } catch {
+      /* ignore */
+    }
+    return () => {
+      try {
+        navigator.mediaSession.metadata = null
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [phase.kind, videoId, title, channelTitle, posterUrl])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el || typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+    const ms = navigator.mediaSession
+
+    const syncPlayback = () => {
+      try {
+        ms.playbackState = el.paused ? 'paused' : 'playing'
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const onPlay = () => syncPlayback()
+    const onPause = () => syncPlayback()
+
+    try {
+      ms.setActionHandler('play', () => {
+        void el.play()
+      })
+      ms.setActionHandler('pause', () => {
+        el.pause()
+      })
+      ms.setActionHandler('previoustrack', onPreviousTrack ?? null)
+      ms.setActionHandler('nexttrack', onNextTrack ?? null)
+    } catch {
+      /* older WebKit */
+    }
+
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
+    syncPlayback()
+
+    return () => {
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
+      try {
+        ms.setActionHandler('play', null)
+        ms.setActionHandler('pause', null)
+        ms.setActionHandler('previoustrack', null)
+        ms.setActionHandler('nexttrack', null)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [phase.kind, videoId, onNextTrack, onPreviousTrack])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el || !('mediaSession' in navigator)) return
+
+    let raf = 0
+    const push = () => {
+      if (!el.duration || !Number.isFinite(el.duration) || el.duration <= 0) return
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: el.duration,
+          playbackRate: el.playbackRate || 1,
+          position: Math.min(Math.max(0, el.currentTime), el.duration),
+        })
+      } catch {
+        /* e.g. iOS */
+      }
+    }
+    const onTime = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(push)
+    }
+
+    el.addEventListener('timeupdate', onTime)
+    el.addEventListener('loadedmetadata', onTime)
+    el.addEventListener('seeked', onTime)
+    el.addEventListener('ratechange', onTime)
+    onTime()
+
+    return () => {
+      cancelAnimationFrame(raf)
+      el.removeEventListener('timeupdate', onTime)
+      el.removeEventListener('loadedmetadata', onTime)
+      el.removeEventListener('seeked', onTime)
+      el.removeEventListener('ratechange', onTime)
+      try {
+        navigator.mediaSession.setPositionState(undefined)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [phase.kind, videoId])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el) return
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        wasPlayingBeforeHiddenRef.current = !el.paused
+        return
+      }
+      if (document.visibilityState === 'visible' && wasPlayingBeforeHiddenRef.current) {
+        void el.play().catch(() => {})
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [phase.kind, videoId])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el) return
+    const onEnter = () => setPipActive(true)
+    const onLeave = () => setPipActive(false)
+    el.addEventListener('enterpictureinpicture', onEnter)
+    el.addEventListener('leavepictureinpicture', onLeave)
+    setPipActive(document.pictureInPictureElement === el)
+    return () => {
+      el.removeEventListener('enterpictureinpicture', onEnter)
+      el.removeEventListener('leavepictureinpicture', onLeave)
+    }
+  }, [phase.kind, videoId])
+
+  const handlePipToggle = useCallback(async () => {
+    const el = videoRef.current
+    if (!el || !pipSupported) return
+    try {
+      if (document.pictureInPictureElement === el) {
+        await document.exitPictureInPicture()
+      } else {
+        await el.requestPictureInPicture()
+      }
+    } catch (e) {
+      console.warn('[CleanPlayer] Picture-in-Picture', e)
+    }
+  }, [pipSupported])
+
   const showOverlay = phase.kind !== 'playing'
 
   return (
@@ -298,6 +544,20 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
           ) : null}
         </div>
       ) : null}
+      {phase.kind === 'playing' && pipSupported ? (
+        <button
+          type="button"
+          onClick={() => void handlePipToggle()}
+          className={cn(
+            'absolute end-2 top-2 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-black/55 text-white shadow-md backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
+            pipActive && 'ring-2 ring-brand-400'
+          )}
+          title={pipActive ? 'יציאה ממצב תמונה-בתוך-תמונה' : 'תמונה בתוך תמונה'}
+          aria-label={pipActive ? 'יציאה ממצב תמונה בתוך תמונה' : 'הפעלת תמונה בתוך תמונה'}
+        >
+          <PictureInPicture2 className="h-5 w-5" aria-hidden />
+        </button>
+      ) : null}
       <video
         ref={videoRef}
         className="h-full w-full"
@@ -305,6 +565,7 @@ function CleanPlayerMediaBridge({ videoId, title, className }: CleanPlayerProps)
         controlsList="nodownload"
         playsInline
         preload="auto"
+        poster={videoPoster}
         aria-describedby={phase.kind === 'error' ? errId : undefined}
         onError={(e) => {
           if (hlsJsActiveRef.current) return

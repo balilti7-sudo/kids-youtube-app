@@ -116,6 +116,25 @@ export function KidModePage() {
     [filteredVideos, activeVideoId]
   )
 
+  const activeChannel = useMemo(
+    () => channels.find((c) => c.youtube_channel_id === (activeChannelId ?? '')) ?? null,
+    [channels, activeChannelId]
+  )
+
+  const handlePlayerNextTrack = useCallback(() => {
+    const list = filteredVideos
+    const idx = list.findIndex((v) => v.videoId === activeVideoId)
+    if (idx < 0 || idx >= list.length - 1) return
+    setActiveVideoId(list[idx + 1].videoId)
+  }, [filteredVideos, activeVideoId])
+
+  const handlePlayerPreviousTrack = useCallback(() => {
+    const list = filteredVideos
+    const idx = list.findIndex((v) => v.videoId === activeVideoId)
+    if (idx <= 0) return
+    setActiveVideoId(list[idx - 1].videoId)
+  }, [filteredVideos, activeVideoId])
+
   const loadChannelVideos = useCallback(async (youtubeChannelId: string) => {
     const rid = ++channelVideosRequestRef.current
     // לא לעשות trim ל-youtube_channel_id לפני RPC:
@@ -1079,6 +1098,10 @@ export function KidModePage() {
                                 key={activeVideo.videoId}
                                 videoId={activeVideo.videoId}
                                 title={activeVideo.title}
+                                channelTitle={activeChannel?.channel_name}
+                                posterUrl={activeVideo.thumbnail}
+                                onNextTrack={handlePlayerNextTrack}
+                                onPreviousTrack={handlePlayerPreviousTrack}
                                 className="h-full w-full"
                               />
                             </div>

@@ -251,6 +251,19 @@ export function ChannelManager() {
   }, [previewChannel, localParent.isActive, localParent.localAccessToken, user])
 
   const activePreviewVideo = previewVideos.find((v) => v.videoId === activePreviewVideoId) ?? null
+
+  const goPrevManagerPreview = useCallback(() => {
+    if (!activePreviewVideoId) return
+    const idx = previewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx > 0) setActivePreviewVideoId(previewVideos[idx - 1].videoId)
+  }, [previewVideos, activePreviewVideoId])
+
+  const goNextManagerPreview = useCallback(() => {
+    if (!activePreviewVideoId) return
+    const idx = previewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx >= 0 && idx < previewVideos.length - 1) setActivePreviewVideoId(previewVideos[idx + 1].videoId)
+  }, [previewVideos, activePreviewVideoId])
+
   const handlePickPreviewVideo = (video: PreviewRow) => {
     console.log('VIDEO CLICKED', video)
     setActivePreviewVideoId(video.videoId)
@@ -332,6 +345,10 @@ export function ChannelManager() {
                         key={activePreviewVideo.videoId}
                         videoId={activePreviewVideo.videoId}
                         title={activePreviewVideo.title}
+                        channelTitle={previewChannel.channel_name}
+                        posterUrl={activePreviewVideo.thumbnail}
+                        onPreviousTrack={goPrevManagerPreview}
+                        onNextTrack={goNextManagerPreview}
                         className="h-full w-full"
                       />
                     </div>
