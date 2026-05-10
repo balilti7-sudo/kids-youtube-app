@@ -4,7 +4,7 @@
  */
 import { createWriteStream, mkdirSync, readdirSync, copyFileSync, rmSync, chmodSync } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -47,12 +47,22 @@ async function main() {
     console.log('Downloading yt-dlp.exe …')
     await downloadFile(`${ytDlpRelease}/yt-dlp.exe`, dest)
     console.log('Wrote', dest)
+    console.log('Running yt-dlp -U (self-update) …')
+    const up = spawnSync(dest, ['-U'], { stdio: 'inherit', env: process.env })
+    if (up.status !== 0 && up.status != null) {
+      console.warn(`[download-tools] yt-dlp -U exited ${up.status} — continuing`)
+    }
   } else {
     const dest = path.join(SERVER_ROOT, 'yt-dlp')
     console.log('Downloading yt-dlp …')
     await downloadFile(`${ytDlpRelease}/yt-dlp`, dest)
     chmodSync(dest, 0o755)
     console.log('Wrote', dest)
+    console.log('Running yt-dlp -U (self-update to latest release) …')
+    const up = spawnSync(dest, ['-U'], { stdio: 'inherit', env: process.env })
+    if (up.status !== 0 && up.status != null) {
+      console.warn(`[download-tools] yt-dlp -U exited ${up.status} — continuing with downloaded binary`)
+    }
   }
 
   if (process.platform !== 'win32') {

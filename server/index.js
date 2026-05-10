@@ -186,6 +186,20 @@ const CHROME_COOKIES_UA = MODERN_CHROME_UA
 const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_COOKIES_UA
 
 /**
+ * Optional YouTube PO token for yt-dlp (`CLIENT.CONTEXT+TOKEN`, see yt-dlp wiki PO-Token-Guide).
+ * Merged into `--extractor-args` when set. Prefer fresh browser cookies on Render when possible.
+ */
+const YOUTUBE_PO_TOKEN = (process.env.YOUTUBE_PO_TOKEN || '').trim()
+
+function applyPoTokenToYoutubeExtractorArgs(extractorArgsString) {
+  const s = String(extractorArgsString || '').trim()
+  if (!YOUTUBE_PO_TOKEN || !s.startsWith('youtube:')) return s
+  const inner = s.slice('youtube:'.length).trim()
+  if (/(?:^|;)po_token=/.test(inner)) return s
+  return inner.length ? `youtube:${inner};po_token=${YOUTUBE_PO_TOKEN}` : `youtube:po_token=${YOUTUBE_PO_TOKEN}`
+}
+
+/**
  * Optional outbound HTTPS proxy URL. When set, all YouTube-bound traffic
  * (`@distube/ytdl-core` and the yt-dlp CLI) goes through it instead of
  * Render's flagged egress IP. Accepts the standard `http(s)://[user:pass@]host:port`
@@ -212,10 +226,24 @@ function normalizeProxyUrlString(raw) {
   }
 }
 
-const RAW_OUTBOUND_PROXY_FROM_ENV =
-  process.env.OUTBOUND_PROXY_URL || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ''
+function envFlagTruthy(v) {
+  return /^(1|true|yes|on)$/i.test(String(v ?? '').trim())
+}
+
+/** Set OUTBOUND_PROXY_DISABLE=1 (or MEDIA_BRIDGE_DISABLE_OUTBOUND_PROXY=1) to force direct egress (no HTTP proxy) for testing. */
+const OUTBOUND_PROXY_DISABLED =
+  envFlagTruthy(process.env.OUTBOUND_PROXY_DISABLE) ||
+  envFlagTruthy(process.env.MEDIA_BRIDGE_DISABLE_OUTBOUND_PROXY)
+
+const RAW_OUTBOUND_PROXY_FROM_ENV = OUTBOUND_PROXY_DISABLED
+  ? ''
+  : (process.env.OUTBOUND_PROXY_URL || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || '')
 const OUTBOUND_PROXY_URL = normalizeProxyUrlString(RAW_OUTBOUND_PROXY_FROM_ENV)
-if (RAW_OUTBOUND_PROXY_FROM_ENV.trim() && !OUTBOUND_PROXY_URL) {
+if (OUTBOUND_PROXY_DISABLED) {
+  console.warn(
+    '[media-bridge] Outbound proxy DISABLED by env — using raw server egress (OUTBOUND_PROXY_DISABLE / MEDIA_BRIDGE_DISABLE_OUTBOUND_PROXY).'
+  )
+} else if (RAW_OUTBOUND_PROXY_FROM_ENV.trim() && !OUTBOUND_PROXY_URL) {
   console.warn(
     '[media-bridge] OUTBOUND_PROXY_URL / HTTPS_PROXY is set but is not a valid URL after trimming — proxy disabled'
   )
@@ -547,9 +575,11 @@ app.get('/api/diagnostics', async (_req, res) => {
       viaProxy: outboundPair.viaProxy,
     },
     proxy: {
+      disabledByEnv: OUTBOUND_PROXY_DISABLED,
       configured: Boolean(OUTBOUND_PROXY_URL),
       urlMasked: maskProxyUrl(OUTBOUND_PROXY_URL),
       httpTunnelActive: Boolean(getUndiciProxyDispatcher()),
+      poTokenConfigured: Boolean((process.env.YOUTUBE_PO_TOKEN || '').trim()),
     },
     versions: {
       ytDlp: ytDlpVer,
@@ -1002,8 +1032,17 @@ app.listen(PORT, () => {
   }
   console.log(`[media-bridge] ytdl cookies source: ${cookieMsg}`)
   console.log(
-    `[media-bridge] outbound proxy: ${OUTBOUND_PROXY_URL ? maskProxyUrl(OUTBOUND_PROXY_URL) : 'NOT SET (using Render IP directly)'}`
+    `[media-bridge] outbound proxy: ${
+      OUTBOUND_PROXY_DISABLED
+        ? 'DISABLED by env (direct egress)'
+        : OUTBOUND_PROXY_URL
+          ? maskProxyUrl(OUTBOUND_PROXY_URL)
+          : 'NOT SET (using Render IP directly)'
+    }`
   )
+  if (YOUTUBE_PO_TOKEN) {
+    console.log('[media-bridge] YOUTUBE_PO_TOKEN is set — yt-dlp extractor-args will include po_token')
+  }
   if (OUTBOUND_PROXY_URL) {
     if (isHttpSchemeProxy(OUTBOUND_PROXY_URL)) {
       console.log(
@@ -1795,8 +1834,12 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
   const ytdlpStartedAt = Date.now()
   const ytdlpRemaining = () => Math.max(0, budgetMs - (Date.now() - ytdlpStartedAt))
   /** youtube:player_client selects InnerTube clients; web_embedded + mweb look less like anonymous bot traffic. */
-  const primaryExtractorArgs =
-    (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim() || 'youtube:player_client=web'
+  const rawPrimaryExtractor = (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim()
+  const primaryExtractorArgs = rawPrimaryExtractor
+    ? rawPrimaryExtractor.startsWith('youtube:')
+      ? rawPrimaryExtractor
+      : `youtube:${rawPrimaryExtractor}`
+    : 'youtube:player_client=web'
   const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
   const readonlyCookiesPath =
     cookiesFromEnv ||
@@ -1837,22 +1880,28 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
   if (cookieStatus.usable && cookieStatus.hasRequiredAuthCookies) {
     attempts.push({
       name: 'cookies-web_embedded',
-      args: ['--extractor-args', primaryExtractorArgs],
+      args: ['--extractor-args', applyPoTokenToYoutubeExtractorArgs(primaryExtractorArgs)],
     })
     attempts.push({
       name: 'cookies-fallback_tv',
-      args: ['--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
+      args: [
+        '--extractor-args',
+        applyPoTokenToYoutubeExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
+      ],
     })
   } else if (cookieStatus.filePath) {
     console.warn(`[ytdlp] cookies file not auth-ready (${cookieStatus.reason || 'unknown'})`)
   }
   attempts.push({
     name: 'no-cookies-web_embedded',
-    args: ['--extractor-args', primaryExtractorArgs],
+    args: ['--extractor-args', applyPoTokenToYoutubeExtractorArgs(primaryExtractorArgs)],
   })
   attempts.push({
     name: 'no-cookies-fallback_tv',
-    args: ['--extractor-args', 'youtube:player_client=tv_embedded,android,ios'],
+    args: [
+      '--extractor-args',
+      applyPoTokenToYoutubeExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
+    ],
   })
 
   const ff = bundledFfmpegPath()
