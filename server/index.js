@@ -19,6 +19,12 @@ import { createClient } from '@supabase/supabase-js'
 import { registerWelcomeEmailRoute } from './email/welcomeRoute.js'
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url))
+// If the parent process already set PORT / HOST (Render, systemd, `PORT=3001 node index.js`),
+// keep them — do not let `.env` override deployment or shell intent.
+const inheritedPortFromShell = process.env.PORT
+const inheritedMediaBridgeHostFromShell = process.env.MEDIA_BRIDGE_HOST
+const inheritedHostFromShell = process.env.HOST
+
 // Repo root `.env`, then `server/.env` (latter wins) so a single file at the project root can serve Vite + API.
 const ROOT_ENV = path.join(SERVER_DIR, '..', '.env')
 const SERVER_ENV = path.join(SERVER_DIR, '.env')
@@ -31,20 +37,90 @@ if (existsSync(SERVER_ENV)) {
 if (!existsSync(ROOT_ENV) && !existsSync(SERVER_ENV)) {
   dotenv.config()
 }
+
+if (inheritedPortFromShell !== undefined && String(inheritedPortFromShell).trim() !== '') {
+  process.env.PORT = inheritedPortFromShell
+}
+if (inheritedMediaBridgeHostFromShell !== undefined && String(inheritedMediaBridgeHostFromShell).trim() !== '') {
+  process.env.MEDIA_BRIDGE_HOST = inheritedMediaBridgeHostFromShell
+}
+if (inheritedHostFromShell !== undefined && String(inheritedHostFromShell).trim() !== '') {
+  process.env.HOST = inheritedHostFromShell
+}
 const LOCAL_DEFAULT_YT_DLP =
   process.platform === 'win32' ? path.join(SERVER_DIR, 'yt-dlp.exe') : path.join(SERVER_DIR, 'yt-dlp')
 // On hosted Linux (Render/Railway), local binary may not exist on first deploy.
 // Fallback to PATH-installed yt-dlp so the bridge can still resolve streams.
 const DEFAULT_YT_DLP = existsSync(LOCAL_DEFAULT_YT_DLP) ? LOCAL_DEFAULT_YT_DLP : 'yt-dlp'
 
-const PORT = Number(process.env.PORT) || 8787
+const RAW_PORT = Number.parseInt(String(process.env.PORT || ''), 10)
+/** Default 3001 for local / home servers; Render and others set `PORT` in the environment. */
+const PORT = Number.isFinite(RAW_PORT) && RAW_PORT > 0 ? RAW_PORT : 3001
+
+/** Bind address: `0.0.0.0` listens on all interfaces (reachable via LAN / public IP). */
+const HOST = (process.env.MEDIA_BRIDGE_HOST || process.env.HOST || '0.0.0.0').trim() || '0.0.0.0'
+
+function isTruthyEnvFlag(v) {
+  return /^(1|true|yes|on)$/i.test(String(v ?? '').trim())
+}
+
 /**
- * CORS: reflect request `Origin` so browsers can read JSON error bodies cross-origin
- * (wildcard + credentialed requests is invalid; we use credentials: false).
- * POST/PUT/PATCH/DELETE kept for `/api/stream`, email routes, etc. — not only GET.
+ * CORS allow-any (reflects browser Origin). Dev convenience; avoid in production on a public IP.
+ * `CORS_ORIGIN=*` in `.env` also enables this for backward compatibility with older configs.
+ */
+const MEDIA_BRIDGE_CORS_ALLOW_ANY =
+  isTruthyEnvFlag(process.env.MEDIA_BRIDGE_CORS_ALLOW_ANY) || String(process.env.CORS_ORIGIN || '').trim() === '*'
+
+function buildDefaultCorsOrigins(port) {
+  return [
+    'https://www.safetube.co.il',
+    'https://safetube.co.il',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+  ]
+}
+
+function parseMediaBridgeCorsAllowlist(port) {
+  const raw = (process.env.MEDIA_BRIDGE_CORS_ORIGINS || '').trim()
+  if (raw) {
+    return raw.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean)
+  }
+  return buildDefaultCorsOrigins(port)
+}
+
+const MEDIA_BRIDGE_CORS_ORIGIN_LIST = parseMediaBridgeCorsAllowlist(PORT)
+const ALLOWED_CORS_ORIGIN_SET = new Set(MEDIA_BRIDGE_CORS_ORIGIN_LIST)
+
+function corsDynamicOrigin(origin, cb) {
+  if (MEDIA_BRIDGE_CORS_ALLOW_ANY) {
+    cb(null, true)
+    return
+  }
+  if (!origin) {
+    cb(null, true)
+    return
+  }
+  if (ALLOWED_CORS_ORIGIN_SET.has(origin)) {
+    cb(null, true)
+    return
+  }
+  console.warn(`[cors] rejected Origin not in allowlist: ${origin}`)
+  cb(null, false)
+}
+
+/**
+ * CORS: allowlisted production origins (Vercel) + local dev; or allow-any when
+ * `MEDIA_BRIDGE_CORS_ALLOW_ANY=1` / `CORS_ORIGIN=*`.
+ * POST/PUT/PATCH/DELETE kept for `/api/stream`, email routes, etc.
  */
 const corsOptions = {
-  origin: true,
+  origin: corsDynamicOrigin,
   credentials: false,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
@@ -564,7 +640,10 @@ app.get('/api/diagnostics', async (_req, res) => {
       arch: process.arch,
       uptimeSec: Math.round(process.uptime()),
       memoryRssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      host: HOST,
       port: PORT,
+      corsAllowAny: MEDIA_BRIDGE_CORS_ALLOW_ANY,
+      corsAllowedOriginsCount: MEDIA_BRIDGE_CORS_ALLOW_ANY ? null : ALLOWED_CORS_ORIGIN_SET.size,
       renderInstance: process.env.RENDER_INSTANCE_ID || null,
       renderRegion: process.env.RENDER_REGION || null,
       renderService: process.env.RENDER_SERVICE_NAME || null,
@@ -708,7 +787,7 @@ app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
 
 function getPublicBase(req) {
   if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL
-  const host = req.get('x-forwarded-host') || req.get('host') || '127.0.0.1:8787'
+  const host = req.get('x-forwarded-host') || req.get('host') || `127.0.0.1:${PORT}`
   const proto = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim()
   return `${proto}://${host}`
 }
@@ -1013,8 +1092,9 @@ app.use((err, req, res, next) => {
   })
 })
 
-app.listen(PORT, () => {
-  console.log(`[media-bridge] http://127.0.0.1:${PORT}`)
+app.listen(PORT, HOST, () => {
+  console.log(`[media-bridge] listening on http://${HOST}:${PORT} (all interfaces — use your LAN/public IP from other machines)`)
+  console.log(`[media-bridge] local URL: http://127.0.0.1:${PORT}`)
   const rawCookies = (process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()
   const headerCount = parseYoutubeCookieHeader(rawCookies).length
   const cookieFileEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
@@ -1054,7 +1134,15 @@ app.listen(PORT, () => {
       )
     }
   }
-  console.log('[media-bridge] CORS: open (origin=*, methods/headers=all)')
+  if (MEDIA_BRIDGE_CORS_ALLOW_ANY) {
+    console.warn(
+      '[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP'
+    )
+  } else {
+    console.log(
+      `[media-bridge] CORS: allowlist (${ALLOWED_CORS_ORIGIN_SET.size} origins) — set MEDIA_BRIDGE_CORS_ORIGINS to add more (comma-separated)`
+    )
+  }
   console.log(
     `[media-bridge] Resolve: yt-dlp ${YT_DLP_ENABLE ? 'primary ' + YT_DLP_PATH : 'OFF'}; Invidious(${PREFERRED_INVIDIOUS_BASES.length} pref / ${DEFAULT_INVIDIOUS_BASES.length} total); Piped(${PREFERRED_PIPED_BASES.length} pref); ytdl-core ${YTDL_RESOLVE_ENABLE ? 'last-resort ON' : 'OFF (set YTDL_RESOLVE_ENABLE=1 to enable)'}`
   )

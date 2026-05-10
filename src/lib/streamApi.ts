@@ -87,7 +87,7 @@ function coerceMediaBridgeOrigin(raw: string | null): string {
 }
 
 /**
- * Local Media Bridge (no trailing slash). Defaults to port 8787; override with
+ * Local Media Bridge (no trailing slash). Server default port is 3001; override with
  * `VITE_STREAM_API_BASE` if the server listens elsewhere (restart Vite after changing `.env`).
  *
  * We intentionally do **not** read `VITE_API_BASE_URL` here — that name is easy to repurpose for
