@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, Play, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
+import { Camera, Play, Search, ShieldAlert, Smartphone, Unplug, Users, X } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -105,15 +105,16 @@ export function KidModePage() {
     }
   })
 
-  const activeVideo = useMemo(
-    () => channelVideos.find((v) => v.videoId === activeVideoId) ?? channelVideos[0] ?? null,
-    [channelVideos, activeVideoId]
-  )
   const filteredVideos = useMemo(() => {
     const q = videoSearch.trim().toLowerCase()
     if (!q) return channelVideos
     return channelVideos.filter((v) => v.title.toLowerCase().includes(q))
   }, [channelVideos, videoSearch])
+
+  const activeVideo = useMemo(
+    () => filteredVideos.find((v) => v.videoId === activeVideoId) ?? null,
+    [filteredVideos, activeVideoId]
+  )
 
   const loadChannelVideos = useCallback(async (youtubeChannelId: string) => {
     const rid = ++channelVideosRequestRef.current
@@ -289,10 +290,14 @@ export function KidModePage() {
       setActiveVideoId(null)
       return
     }
+    if (filteredVideos.length === 0) {
+      setActiveVideoId(null)
+      return
+    }
     setActiveVideoId((prev) =>
-      prev && channelVideos.some((v) => v.videoId === prev) ? prev : channelVideos[0].videoId
+      prev && filteredVideos.some((v) => v.videoId === prev) ? prev : filteredVideos[0].videoId
     )
-  }, [channelVideos])
+  }, [channelVideos, filteredVideos])
 
   useEffect(() => {
     if (!accessToken) return
@@ -1001,12 +1006,69 @@ export function KidModePage() {
                   </div>
                 </div>
 
-                <div className="mx-auto max-w-[1600px] gap-0 px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:flex lg:min-h-0 lg:gap-2 lg:px-3 lg:pt-2">
+                <div className="mx-auto max-w-[1600px] gap-0 px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:flex lg:min-h-0 lg:flex-col lg:gap-3 lg:px-3 lg:pt-2">
+                  <section
+                    className="w-full rounded-2xl border-2 border-slate-200/90 bg-white px-3 py-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/95 sm:px-4 sm:py-4"
+                    aria-label="חיפוש סרטונים בערוץ"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center gap-2 sm:gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-100 dark:bg-brand-950/80">
+                        <Search className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold leading-tight text-slate-900 dark:text-zinc-50 sm:text-xl">
+                          חיפוש בערוץ
+                        </h3>
+                        <p className="text-sm font-medium text-slate-600 dark:text-zinc-400">
+                          מצאו מהר את הסרטון שאתם רוצים
+                        </p>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <label htmlFor="kid-channel-video-search" className="sr-only">
+                        חיפוש לפי שם סרטון בערוץ הנבחר
+                      </label>
+                      <Search
+                        className="pointer-events-none absolute end-3 top-1/2 z-[1] h-7 w-7 -translate-y-1/2 text-slate-400 dark:text-zinc-500"
+                        aria-hidden
+                      />
+                      <Input
+                        id="kid-channel-video-search"
+                        value={videoSearch}
+                        onChange={(e) => setVideoSearch(e.target.value)}
+                        placeholder="הקלידו כאן את שם הסרטון…"
+                        autoComplete="off"
+                        dir="rtl"
+                        className={`min-h-[52px] rounded-2xl border-2 border-slate-200 bg-slate-50/80 text-lg font-medium text-slate-900 shadow-inner placeholder:text-slate-400 focus:bg-white dark:border-zinc-600 dark:bg-zinc-950/80 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:bg-zinc-900 ${
+                          videoSearch.trim() ? 'ps-12 pe-14' : 'pe-14 ps-4'
+                        }`}
+                      />
+                      {videoSearch.trim() ? (
+                        <button
+                          type="button"
+                          className="absolute start-3 top-1/2 z-[1] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl bg-slate-200/90 text-slate-700 transition hover:bg-slate-300/90 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
+                          onClick={() => setVideoSearch('')}
+                          aria-label="מחק את החיפוש"
+                        >
+                          <X className="h-6 w-6" strokeWidth={2.5} aria-hidden />
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-slate-600 dark:text-zinc-400" aria-live="polite">
+                      {channelVideos.length === 0
+                        ? 'אין עדיין סרטונים ברשימה'
+                        : filteredVideos.length === channelVideos.length
+                          ? `${channelVideos.length} סרטונים בערוץ`
+                          : `מוצגים ${filteredVideos.length} מתוך ${channelVideos.length} סרטונים`}
+                    </p>
+                  </section>
+
+                  <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row lg:gap-2">
                   <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
                     {channelLoading ? (
                       <div className="flex aspect-video max-w-5xl items-center justify-center gap-3 rounded-xl bg-black/90 text-zinc-200">
                         <LoadingSpinner className="h-9 w-9 shrink-0 border-2 border-red-500 border-t-transparent" />
-                        <span className="text-sm font-medium">טוען…</span>
+                        <span className="text-base font-semibold">טוען…</span>
                       </div>
                     ) : activeVideo ? (
                       <>
@@ -1026,60 +1088,61 @@ export function KidModePage() {
                           <h2 className="text-base font-bold leading-snug text-slate-900 dark:text-zinc-50 sm:text-lg">
                             {activeVideo.title}
                           </h2>
-                          <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
+                          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
                         </div>
                       </>
+                    ) : channelVideos.length > 0 && videoSearch.trim() ? (
+                      <div className="flex min-h-[min(50vh,320px)] flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-brand-200 bg-gradient-to-b from-white to-slate-50/90 px-5 py-10 text-center dark:border-brand-900/50 dark:from-zinc-900/80 dark:to-zinc-950/90">
+                        <Search
+                          className="h-16 w-16 text-brand-500 dark:text-brand-400"
+                          strokeWidth={2}
+                          aria-hidden
+                        />
+                        <p className="max-w-sm text-xl font-bold leading-tight text-slate-800 dark:text-zinc-100">
+                          לא מצאנו סרטון עם המילים האלה
+                        </p>
+                        <p className="max-w-md text-base leading-relaxed text-slate-600 dark:text-zinc-400">
+                          נסו שם אחר, או מחקו את החיפוש כדי לראות את כל הסרטונים בערוץ.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="min-h-[48px] min-w-[160px] rounded-2xl text-base font-semibold"
+                          onClick={() => setVideoSearch('')}
+                        >
+                          מחק חיפוש
+                        </Button>
+                      </div>
                     ) : (
-                      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-sm text-slate-600 dark:border-zinc-700 dark:bg-zinc-900/30 dark:text-zinc-400">
-                        <Unplug className="h-10 w-10 text-slate-400" />
-                        <p>בחרו ערוץ כדי לטעון סרטונים.</p>
+                      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center dark:border-zinc-700 dark:bg-zinc-900/30">
+                        <Unplug className="h-14 w-14 text-slate-400" strokeWidth={1.75} aria-hidden />
+                        <p className="text-base font-medium text-slate-700 dark:text-zinc-300">בחרו ערוץ כדי לטעון סרטונים.</p>
                       </div>
                     )}
                   </div>
 
                   <aside className="mt-3 min-w-0 border-t border-black/[0.06] pt-3 dark:border-zinc-800 lg:mt-0 lg:w-[min(100%,400px)] lg:shrink-0 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-4 dark:lg:border-zinc-800">
                     <div className="lg:sticky lg:top-[52px] lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:pb-8 lg:pe-1">
-                      <p className="mb-1.5 text-xs font-bold text-slate-700 dark:text-zinc-300">סרטונים בערוץ</p>
-                      <Input
-                        value={videoSearch}
-                        onChange={(e) => setVideoSearch(e.target.value)}
-                        placeholder="חיפוש ברשימה"
-                        className="mb-2 border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                      />
-                      <ul className="no-scrollbar flex gap-2 max-lg:flex-row max-lg:overflow-x-auto max-lg:pb-1 lg:flex-col lg:gap-1 lg:overflow-visible">
-                        {import.meta.env.DEV
-                          ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/pages/KidModePage.tsx' }), null)
-                          : null}
+                      <div className="mb-2 flex items-center gap-2">
+                        <Play className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" fill="currentColor" aria-hidden />
+                        <p className="text-sm font-bold text-slate-800 dark:text-zinc-200">הסרטונים של הערוץ</p>
+                      </div>
+                      <ul className="no-scrollbar flex gap-2 max-lg:flex-row max-lg:overflow-x-auto max-lg:pb-1 lg:flex-col lg:gap-1.5 lg:overflow-visible">
                         {filteredVideos.length > 0
                           ? filteredVideos.map((video) => {
                               const isCurrent = video.videoId === activeVideo?.videoId
-                              if (import.meta.env.DEV) {
-                                // eslint-disable-next-line no-console -- explicit click target tracing requested
-                                console.log('REAL CLICK TARGET RENDERED', {
-                                  file: 'src/pages/KidModePage.tsx',
-                                  component: 'KidModePage.VideoListButton',
-                                  props: {
-                                    videoId: video.videoId,
-                                    title: video.title,
-                                    isCurrent,
-                                  },
-                                })
-                              }
                               return (
-                                <li key={video.videoId} className="max-lg:w-[118px] max-lg:shrink-0 lg:w-full">
+                                <li key={video.videoId} className="max-lg:w-[124px] max-lg:shrink-0 lg:w-full">
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      console.log('VIDEO CLICKED FROM KID PAGE', video)
-                                      setActiveVideoId(video.videoId)
-                                    }}
-                                    className={`group pointer-events-auto flex w-full gap-2 rounded-lg p-1.5 text-right transition max-lg:flex max-lg:flex-col max-lg:items-stretch max-lg:gap-1 max-lg:p-1 lg:flex-row ${
+                                    onClick={() => setActiveVideoId(video.videoId)}
+                                    className={`group pointer-events-auto flex w-full gap-2 rounded-xl p-2 text-right transition max-lg:flex max-lg:flex-col max-lg:items-stretch max-lg:gap-1.5 max-lg:p-1.5 lg:flex-row ${
                                       isCurrent
-                                        ? 'bg-white shadow-sm ring-1 ring-brand-500/40 dark:bg-zinc-900'
-                                        : 'hover:bg-white/80 dark:hover:bg-zinc-900/60'
+                                        ? 'bg-white shadow-md ring-2 ring-brand-500/50 dark:bg-zinc-900'
+                                        : 'hover:bg-white/90 dark:hover:bg-zinc-900/70'
                                     }`}
                                   >
-                                    <div className="pointer-events-none relative aspect-video w-full shrink-0 overflow-hidden rounded-md bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[70px] lg:w-32 lg:max-h-none lg:min-w-[128px] min-[400px]:lg:w-[168px]">
+                                    <div className="pointer-events-none relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[76px] lg:w-32 lg:max-h-none lg:min-w-[128px] min-[400px]:lg:w-[168px]">
                                       {video.thumbnail ? (
                                         <img
                                           src={video.thumbnail}
@@ -1088,17 +1151,17 @@ export function KidModePage() {
                                           className="pointer-events-none h-full w-full object-cover transition group-hover:opacity-95"
                                         />
                                       ) : (
-                                        <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-500">
+                                        <div className="flex h-full w-full items-center justify-center text-xs font-medium text-slate-500">
                                           וידאו
                                         </div>
                                       )}
                                       {isCurrent ? (
-                                        <span className="absolute bottom-1 right-1 rounded bg-red-600 px-1 py-0.5 text-[9px] font-bold text-white">
-                                          מנגן
+                                        <span className="absolute bottom-1.5 end-1.5 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                                          מנגן עכשיו
                                         </span>
                                       ) : null}
                                     </div>
-                                    <p className="line-clamp-2 flex-1 py-0.5 text-start text-[10px] font-medium leading-snug text-slate-800 max-lg:text-center lg:text-xs dark:text-zinc-200">
+                                    <p className="line-clamp-2 flex-1 py-1 text-start text-xs font-semibold leading-snug text-slate-800 max-lg:text-center sm:text-sm dark:text-zinc-200">
                                       {video.title}
                                     </p>
                                   </button>
@@ -1108,10 +1171,10 @@ export function KidModePage() {
                           : null}
                       </ul>
                       {!channelLoading && filteredVideos.length === 0 ? (
-                        <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300/80 bg-white/30 px-3 py-6 text-center text-xs text-slate-600 dark:border-zinc-700 dark:text-zinc-500">
-                          <p>
+                        <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300/90 bg-white/40 px-3 py-6 text-center dark:border-zinc-600 dark:bg-zinc-900/40">
+                          <p className="text-sm font-semibold leading-snug text-slate-700 dark:text-zinc-300">
                             {videoSearch.trim()
-                              ? 'אין תוצאות — נסו מילה אחרת.'
+                              ? 'אין סרטונים שמתאימים לחיפוש.'
                               : channelVideos.length === 0
                                 ? 'אין עדיין סרטונים במטמון. בקשו מההורה לרענן ערוץ בלשונית הורים.'
                                 : 'אין סרטונים.'}
@@ -1120,6 +1183,7 @@ export function KidModePage() {
                       ) : null}
                     </div>
                   </aside>
+                  </div>
                 </div>
               </div>
             </>

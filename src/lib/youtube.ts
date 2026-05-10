@@ -658,6 +658,81 @@ async function fetchChannelUploadsPlaylistId(channelId: string, key: string): Pr
   return uploads || null
 }
 
+type SearchListVideoResponse = {
+  items?: Array<{
+    id?: { kind?: string; videoId?: string }
+    snippet?: {
+      title?: string
+      channelTitle?: string
+      thumbnails?: { medium?: { url?: string }; default?: { url?: string } }
+    }
+  }>
+  nextPageToken?: string
+  error?: { message?: string; errors?: { message?: string }[] }
+}
+
+/** מגבלת דפים ל־search.list (מניעת לולאה + חיסכון במכסה; כל קריאה ~100 יחידות מכסה). */
+const CHANNEL_SEARCH_PAGE_GUARD = 10
+
+/**
+ * חיפוש סרטונים בתוך ערוץ בלבד דרך YouTube Data API (`search.list` עם channelId + q + type=video).
+ * לא משמש כברירת מחדל לרענון מלא — רק כשמועברת מחרוזת חיפוש.
+ */
+async function fetchChannelVideosViaSearchQuery(
+  channelId: string,
+  query: string,
+  key: string
+): Promise<ChannelVideoItem[]> {
+  const q = query.trim()
+  if (!q) return []
+
+  const out: ChannelVideoItem[] = []
+  const seen = new Set<string>()
+  let pageToken: string | undefined
+  let pages = 0
+
+  for (;;) {
+    pages += 1
+    if (pages > CHANNEL_SEARCH_PAGE_GUARD) {
+      break
+    }
+
+    const url = new URL(`${YT_API}/search`)
+    url.searchParams.set('part', 'snippet')
+    url.searchParams.set('channelId', channelId.trim())
+    url.searchParams.set('q', q)
+    url.searchParams.set('type', 'video')
+    url.searchParams.set('maxResults', '50')
+    url.searchParams.set('key', key)
+    if (pageToken) url.searchParams.set('pageToken', pageToken)
+
+    const res = await fetch(url.toString())
+    const json = (await res.json()) as SearchListVideoResponse
+    if (!res.ok) {
+      const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
+      throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
+    }
+
+    for (const item of json.items ?? []) {
+      const vid = item.id?.videoId?.trim()
+      if (!vid || seen.has(vid)) continue
+      seen.add(vid)
+      out.push({
+        videoId: vid,
+        title: item.snippet?.title ?? 'ללא כותרת',
+        thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
+        channelTitle: item.snippet?.channelTitle ?? '',
+      })
+    }
+
+    const next = json.nextPageToken
+    if (!next || (json.items?.length ?? 0) === 0) break
+    pageToken = next
+  }
+
+  return out
+}
+
 /** כל פריטי פלייליסט ההעלאות (דפדוף עד אין `nextPageToken`). */
 async function fetchUploadsPlaylistVideos(uploadsPlaylistId: string, key: string): Promise<ChannelVideoItem[]> {
   const out: ChannelVideoItem[] = []
@@ -703,7 +778,10 @@ async function fetchUploadsPlaylistVideos(uploadsPlaylistId: string, key: string
   return out
 }
 
-export async function getLatestVideosForChannel(channelId: string): Promise<{
+export async function getLatestVideosForChannel(
+  channelId: string,
+  options?: { /** חיפוש מוגבל לערוץ זה בלבד (`search.list` עם channelId + q) */ searchQuery?: string }
+): Promise<{
   data: ChannelVideoItem[] | null
   error: Error | null
 }> {
@@ -719,7 +797,14 @@ export async function getLatestVideosForChannel(channelId: string): Promise<{
     }
   }
 
+  const searchQuery = options?.searchQuery?.trim() ?? ''
+
   try {
+    if (searchQuery) {
+      const results = await fetchChannelVideosViaSearchQuery(id, searchQuery, key)
+      return { data: results, error: null }
+    }
+
     const uploadsPlaylistId = await fetchChannelUploadsPlaylistId(id, key)
     if (!uploadsPlaylistId) {
       return { data: [], error: new Error('לא נמצאה רשימת העלאות לערוץ (ייתכן שהערוץ לא זמין ב־API).') }
@@ -732,7 +817,8 @@ export async function getLatestVideosForChannel(channelId: string): Promise<{
       e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה')
 
     // Fallback: when API quota is exhausted, read the public channel RSS feed (~15 אחרונים).
-    if (isQuotaErrorMessage(normalized.message)) {
+    // לא מנסים RSS כשביקשנו חיפוש ספציפי — ה־feed אינו תומך ב־q.
+    if (!searchQuery && isQuotaErrorMessage(normalized.message)) {
       const fallback = await fetchChannelVideosFromRss(id)
       if (!fallback.error) return { data: fallback.data, error: null }
     }
