@@ -13,6 +13,7 @@ import dotenv from 'dotenv'
 import cors from 'cors'
 import express from 'express'
 import { ProxyAgent } from 'undici'
+/** Maintained fork of ytdl-core (signature fixes). Pin to latest in server/package.json. */
 import ytdl from '@distube/ytdl-core'
 import { createClient } from '@supabase/supabase-js'
 import { registerWelcomeEmailRoute } from './email/welcomeRoute.js'
@@ -37,34 +38,29 @@ const LOCAL_DEFAULT_YT_DLP =
 const DEFAULT_YT_DLP = existsSync(LOCAL_DEFAULT_YT_DLP) ? LOCAL_DEFAULT_YT_DLP : 'yt-dlp'
 
 const PORT = Number(process.env.PORT) || 8787
+/**
+ * CORS: reflect request `Origin` so browsers can read JSON error bodies cross-origin
+ * (wildcard + credentialed requests is invalid; we use credentials: false).
+ * POST/PUT/PATCH/DELETE kept for `/api/stream`, email routes, etc. — not only GET.
+ */
 const corsOptions = {
-  // Open CORS for cross-origin frontend deployments (Vercel/Render/Railway).
-  origin: '*',
+  origin: true,
   credentials: false,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  /**
-   * IMPORTANT: per the Fetch spec, the wildcard `*` in `Access-Control-Allow-Headers`
-   * does **not** cover the `Authorization` header. Our frontend sends a Supabase
-   * Bearer token to `/api/stream/:videoId`, so the preflight must explicitly list
-   * `Authorization` or the browser will silently strip the header and the actual
-   * request is blocked with a CORS error before it ever reaches Express.
-   */
   allowedHeaders: [
-    'Authorization',
-    'Content-Type',
-    'Accept',
     'Range',
+    'Content-Type',
+    'Authorization',
+    'Accept',
     'X-Requested-With',
     'X-Media-Bridge-Welcome-Key',
   ],
-  /**
-   * Expose range/length headers so the browser's `<video>` element can do native
-   * seeking on `/api/media/:videoId` (direct mp4 case). Without these, Chrome
-   * won't see `Content-Range` on the cross-origin response and will error.
-   */
   exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges', 'Content-Type'],
   maxAge: 600,
+  optionsSuccessStatus: 204,
 }
+
+const corsMiddleware = cors(corsOptions)
 
 /**
  * How long to remember a successfully-resolved upstream URL for a given
@@ -378,8 +374,8 @@ app.use((req, res, next) => {
   }
   next()
 })
-app.use(cors(corsOptions))
-app.options('*', cors(corsOptions))
+app.use(corsMiddleware)
+app.options('*', corsMiddleware)
 /**
  * Belt-and-suspenders: also reflect any extra headers the browser asks for in
  * `Access-Control-Request-Headers`. Some clients send custom headers (sentry,
@@ -962,6 +958,29 @@ app.get('/api/segment/:token', async (req, res) => {
       return res.status(502).type('text/plain').send(e instanceof Error ? e.message : 'Proxy error')
     }
   }
+})
+
+/** 404 — run through CORS so cross-origin fetches see JSON instead of opaque “Failed to fetch”. */
+app.use((req, res) => {
+  corsMiddleware(req, res, () => {
+    res.status(404).json({ error: 'NOT_FOUND', message: 'Not found', path: req.originalUrl || req.url })
+  })
+})
+
+/** Unhandled errors (e.g. async throws without try/catch) — still attach CORS headers. */
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    next(err)
+    return
+  }
+  corsMiddleware(req, res, () => {
+    console.error('[media-bridge] unhandled error:', err)
+    const status = Number(err.statusCode || err.status || 500)
+    res.status(Number.isFinite(status) ? status : 500).json({
+      error: err.code || 'INTERNAL_ERROR',
+      message: err instanceof Error ? err.message : 'Internal Server Error',
+    })
+  })
 })
 
 app.listen(PORT, () => {
@@ -2267,6 +2286,15 @@ function forwardSafeHeadersToRes(r, res) {
 async function pipeFetchToRes(res, r) {
   res.status(r.status)
   forwardSafeHeadersToRes(r, res)
+  const hasAcceptRanges = Boolean(res.getHeader('Accept-Ranges') || res.getHeader('accept-ranges'))
+  if (
+    !hasAcceptRanges &&
+    supportsBody(r) &&
+    r.status >= 200 &&
+    r.status < 300
+  ) {
+    res.setHeader('Accept-Ranges', 'bytes')
+  }
   if (typeof res.flushHeaders === 'function') {
     res.flushHeaders()
   }
