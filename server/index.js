@@ -139,6 +139,28 @@ const corsOptions = {
 const corsMiddleware = cors(corsOptions)
 
 /**
+ * Proxied `/api/media` and `/api/segment` pipe CDN headers through — upstream may send its own
+ * `Access-Control-Allow-Origin`, which breaks cross-origin playback from https://www.safetube.co.il.
+ * Set bridge policy explicitly before forwarding (and strip upstream ACAO in `forwardSafeHeadersToRes`).
+ */
+function applyMediaCorsHeaders(req, res) {
+  const origin = (req.get('origin') || '').trim()
+  if (MEDIA_BRIDGE_CORS_ALLOW_ANY) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*')
+  } else if (origin && ALLOWED_CORS_ORIGIN_SET.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+  } else {
+    return
+  }
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Type')
+  const vary = res.getHeader('Vary')
+  const v = vary == null ? '' : Array.isArray(vary) ? vary.join(', ') : String(vary)
+  if (!v || !/\bOrigin\b/i.test(v)) {
+    res.setHeader('Vary', v ? `${v}, Origin` : 'Origin')
+  }
+}
+
+/**
  * How long to remember a successfully-resolved upstream URL for a given
  * videoId. Shorter is safer (CDN URLs can expire / become geo-restricted) but
  * costs more resolves. 15 minutes is a sweet spot: long enough to absorb the
@@ -158,26 +180,40 @@ const YTDL_RESOLVE_ENABLE =
   (process.env.YTDL_RESOLVE_ENABLE || '').toLowerCase() === '1' || process.env.YTDL_RESOLVE_ENABLE === 'true'
 /** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
 const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
+/** Drop Netscape `cookies.txt` here for yt-dlp `--cookies` (same format as browser export). */
+const YT_DLP_COOKIES_TXT = path.join(SERVER_DIR, 'cookies.txt')
 const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube_cookies.txt'
 const WRITABLE_YT_COOKIES_PATH = '/tmp/youtube_cookies.txt'
+
+/**
+ * Netscape cookies.txt for yt-dlp + auth checks.
+ * Order: `YOUTUBE_COOKIES_FILE` → `./cookies.txt` → Render secret → `youtube.com_cookies.txt`.
+ */
+function resolveReadonlyNetscapeCookiesPath() {
+  const fromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
+  if (fromEnv) return fromEnv
+  if (existsSync(YT_DLP_COOKIES_TXT)) return YT_DLP_COOKIES_TXT
+  if (existsSync(RENDER_YT_COOKIES_PATH)) return RENDER_YT_COOKIES_PATH
+  if (existsSync(YT_DLP_DEFAULT_COOKIES)) return YT_DLP_DEFAULT_COOKIES
+  return ''
+}
 const YT_DLP_CACHE_DIR = '/tmp/yt-dlp-cache'
 const YT_OAUTH_TOKEN_PATH = (process.env.YT_OAUTH_TOKEN_PATH || '/etc/secrets/yt_oauth_token.json').trim()
 const YT_UPSTREAM_TIMEOUT_MS = 60_000
 /**
  * Hard ceiling for the *total* time `resolveUpstream` is allowed to spend across
- * all backends. Stays safely below the frontend's `STREAM_INFO_TIMEOUT_MS` so the
- * client always receives a structured response (success or 502) rather than a
- * generic abort/"Failed to fetch" after its own timer fires.
+ * all backends. Stays below the frontend's `STREAM_INFO_TIMEOUT_MS` (120s) so the
+ * client receives JSON errors instead of a generic fetch abort.
  */
-const OVERALL_RESOLVE_BUDGET_MS = Number(process.env.OVERALL_RESOLVE_BUDGET_MS) || 70_000
+const OVERALL_RESOLVE_BUDGET_MS = Number(process.env.OVERALL_RESOLVE_BUDGET_MS) || 120_000
 /** Per-Piped-instance fetch timeout. Public instances are unstable — fail fast. */
 const PIPED_PER_INSTANCE_TIMEOUT_MS = Number(process.env.PIPED_PER_INSTANCE_TIMEOUT_MS) || 8_000
 /** Cap how many Piped instances we try per request so dead instances can't exhaust the budget. */
 const PIPED_MAX_INSTANCES_PER_REQUEST = Number(process.env.PIPED_MAX_INSTANCES_PER_REQUEST) || 6
 /** Per-strategy timeout for `ytdl.getInfo` — there are 3 strategies. */
 const YTDL_GETINFO_TIMEOUT_MS = Number(process.env.YTDL_GETINFO_TIMEOUT_MS) || 20_000
-/** Per-attempt timeout for the yt-dlp CLI; the resolver also enforces the overall budget. */
-const YT_DLP_PER_ATTEMPT_TIMEOUT_MS = Number(process.env.YT_DLP_PER_ATTEMPT_TIMEOUT_MS) || 25_000
+/** Per-attempt timeout for the yt-dlp CLI (spawn kill); also see `--socket-timeout` in baseArgs. */
+const YT_DLP_PER_ATTEMPT_TIMEOUT_MS = Number(process.env.YT_DLP_PER_ATTEMPT_TIMEOUT_MS) || 30_000
 /**
  * Memory of which Piped/Invidious instances just blocked us — `base -> expirationTimestamp`.
  * Render's outbound IPs are widely blacklisted by public proxies; without this cache we'd
@@ -523,8 +559,7 @@ app.get('/health', (_req, res) => {
 
 /** Optional: cookie + email config snapshot (heavier — use for debugging, not for frequent pings). */
 app.get('/health/verbose', (_req, res) => {
-  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
   const cookies = inspectYoutubeCookiesFile(cookiesFile)
   res.json({
     ok: true,
@@ -570,14 +605,7 @@ app.get('/api/diagnostics', async (_req, res) => {
     'accept-language': 'en-US,en;q=0.9',
   }
 
-  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile =
-    cookiesFromEnv ||
-    (existsSync(RENDER_YT_COOKIES_PATH)
-      ? RENDER_YT_COOKIES_PATH
-      : existsSync(YT_DLP_DEFAULT_COOKIES)
-        ? YT_DLP_DEFAULT_COOKIES
-        : '')
+  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
   const ytdlEnvCookieCount = parseYoutubeCookieHeader(
     process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || ''
@@ -723,8 +751,7 @@ app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
   if (!YT_ID_RE.test(raw)) return res.status(400).json({ error: 'Invalid YouTube video id' })
 
   const videoId = raw
-  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
   const ytdlCookieCount = parseYoutubeCookieHeader(process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').length
   const report = {
@@ -1001,9 +1028,11 @@ app.get('/api/media/:videoId', async (req, res) => {
     if (entry.hls) {
       const text = await fetchText(entry.upstreamUrl)
       if (!/^\s*#EXTM3U/i.test(text) && !text.trim().startsWith('#EXTM3U')) {
+        applyMediaCorsHeaders(req, res)
         return res.status(502).type('text/plain').send('Expected m3u8 from upstream HLS url')
       }
       const body = rewriteM3u8(text, entry.upstreamUrl, base, String(req.query.grant || ''))
+      applyMediaCorsHeaders(req, res)
       res.setHeader('cache-control', 'no-cache')
       return res.type('application/x-mpegURL').send(body)
     }
@@ -1011,6 +1040,7 @@ app.get('/api/media/:videoId', async (req, res) => {
   } catch (e) {
     console.error('[media]', e)
     if (!res.headersSent) {
+      applyMediaCorsHeaders(req, res)
       return res.status(502).type('text/plain').send(e instanceof Error ? e.message : 'Proxy error')
     }
   }
@@ -1052,6 +1082,7 @@ app.get('/api/segment/:token', async (req, res) => {
     if (typeLooksM3u8 || pathLooksM3u8) {
       const text = await r.text()
       if (text.trimStart().startsWith('#EXTM3U')) {
+        applyMediaCorsHeaders(req, res)
         res.setHeader('cache-control', 'no-cache')
         return res.type('application/x-mpegURL').send(rewriteM3u8(text, finalUrl, base, rec.grant || ''))
       }
@@ -1060,7 +1091,7 @@ app.get('/api/segment/:token', async (req, res) => {
         .type('text/plain')
         .send('Invalid HLS manifest from upstream (expected #EXTM3U)')
     }
-    return await pipeFetchToRes(res, r)
+    return await pipeFetchToRes(req, res, r)
   } catch (e) {
     console.error('[segment]', e)
     if (!res.headersSent) {
@@ -1097,10 +1128,7 @@ app.listen(PORT, HOST, () => {
   console.log(`[media-bridge] local URL: http://127.0.0.1:${PORT}`)
   const rawCookies = (process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()
   const headerCount = parseYoutubeCookieHeader(rawCookies).length
-  const cookieFileEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookieFilePath =
-    cookieFileEnv ||
-    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookieFilePath = resolveReadonlyNetscapeCookiesPath()
   const fileCount = headerCount > 0 ? 0 : parseNetscapeCookiesFile(cookieFilePath).length
   let cookieMsg
   if (headerCount > 0) {
@@ -1108,7 +1136,7 @@ app.listen(PORT, HOST, () => {
   } else if (fileCount > 0) {
     cookieMsg = `cookies file ${cookieFilePath} (${fileCount} entries)`
   } else {
-    cookieMsg = 'NONE — set YOUTUBE_COOKIES env or mount /etc/secrets/youtube_cookies.txt'
+    cookieMsg = 'NONE — add server/cookies.txt (Netscape), set YOUTUBE_COOKIES_FILE, or use YOUTUBE_COOKIES env'
   }
   console.log(`[media-bridge] ytdl cookies source: ${cookieMsg}`)
   console.log(
@@ -1149,8 +1177,7 @@ app.listen(PORT, HOST, () => {
   console.log(
     `[media-bridge] Email: Resend ${(process.env.RESEND_API_KEY || '').trim() ? 'ON' : 'OFF (set RESEND_API_KEY)'}; welcome route secret ${MEDIA_BRIDGE_WELCOME_KEY ? 'ON' : 'OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)'}`
   )
-  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookiesFile = cookiesFromEnv || (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
   const cookies = inspectYoutubeCookiesFile(cookiesFile)
   if (!cookies.usable || !cookies.hasRequiredAuthCookies) {
     console.warn(
@@ -1219,10 +1246,7 @@ function getSegmentRec(token) {
  */
 function hasUsableYoutubeAuth() {
   if ((process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()) return true
-  const cookieFileEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookieFilePath =
-    cookieFileEnv ||
-    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookieFilePath = resolveReadonlyNetscapeCookiesPath()
   if (!cookieFilePath) return false
   const status = inspectYoutubeCookiesFile(cookieFilePath)
   return Boolean(status.usable && status.hasRequiredAuthCookies)
@@ -1640,10 +1664,7 @@ function parseNetscapeCookiesFile(filePath) {
 
 function getYtdlAgent() {
   const rawHeader = process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || ''
-  const cookieFileEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const cookieFilePath =
-    cookieFileEnv ||
-    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const cookieFilePath = resolveReadonlyNetscapeCookiesPath()
 
   const cookies = rawHeader.trim() ? parseYoutubeCookieHeader(rawHeader) : parseNetscapeCookiesFile(cookieFilePath)
   const source = rawHeader.trim() ? 'env-header' : cookieFilePath ? `file:${cookieFilePath}` : 'none'
@@ -1928,15 +1949,14 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
       ? rawPrimaryExtractor
       : `youtube:${rawPrimaryExtractor}`
     : 'youtube:player_client=web'
-  const cookiesFromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  const readonlyCookiesPath =
-    cookiesFromEnv ||
-    (existsSync(RENDER_YT_COOKIES_PATH) ? RENDER_YT_COOKIES_PATH : existsSync(YT_DLP_DEFAULT_COOKIES) ? YT_DLP_DEFAULT_COOKIES : '')
+  const readonlyCookiesPath = resolveReadonlyNetscapeCookiesPath()
   const writableCookiesPath = ensureWritableCookies(readonlyCookiesPath)
   const baseArgs = [
     '--no-warnings',
     '--no-cookies-from-browser',
     '--no-check-certificate',
+    '--socket-timeout',
+    String(Math.max(5, Math.round(YT_DLP_PER_ATTEMPT_TIMEOUT_MS / 1000))),
     '--cache-dir',
     YT_DLP_CACHE_DIR,
     '--get-url',
@@ -2416,11 +2436,13 @@ function forwardSafeHeadersToRes(r, res) {
   r.headers.forEach((v, k) => {
     const key = k.toLowerCase()
     if (['connection', 'keep-alive', 'transfer-encoding', 'trailer', 'te'].includes(key)) return
+    if (key.startsWith('access-control-')) return
     res.setHeader(k, v)
   })
 }
 
-async function pipeFetchToRes(res, r) {
+async function pipeFetchToRes(req, res, r) {
+  applyMediaCorsHeaders(req, res)
   res.status(r.status)
   forwardSafeHeadersToRes(r, res)
   const hasAcceptRanges = Boolean(res.getHeader('Accept-Ranges') || res.getHeader('accept-ranges'))
@@ -2446,6 +2468,7 @@ async function pipeRangeResponse(req, res, url, defaultMime) {
   const { init } = buildUpstreamInitFromReq(url, req)
   const r = await bridgeFetch(url, init)
   if (!r.ok) {
+    applyMediaCorsHeaders(req, res)
     return res
       .status(r.status)
       .type('text/plain')
@@ -2454,5 +2477,5 @@ async function pipeRangeResponse(req, res, url, defaultMime) {
   if (!r.headers.get('content-type') && defaultMime) {
     res.setHeader('content-type', defaultMime)
   }
-  return pipeFetchToRes(res, r)
+  return pipeFetchToRes(req, res, r)
 }

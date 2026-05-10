@@ -17,3 +17,4 @@ supabase/.temp/
 # Local/debug artifacts from media extraction
 server/*-player-script.js
 server/*_cookies.txt
+server/cookies.txt
