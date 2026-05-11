@@ -30,82 +30,59 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-## One-time install
+## One-time install (turn-key)
 
-Substitute three placeholders throughout the steps below:
+`install.sh` auto-detects:
 
-- `<APP_DIR>` — absolute path to the kids-youtube-app clone (e.g. `/home/elad/kids-youtube-app`)
-- `<RUN_USER>` — the Linux user that owns `<APP_DIR>` and will run node
-- `<COOKIES_PATH>` — absolute path to the Netscape `cookies.txt` exported from your signed-in browser
+- `APP_DIR`  — canonical path to your `kids-youtube-app` clone
+- `RUN_USER` — owner of that directory (so the bridge runs as your SSH user, not root)
+- `NODE_BIN` — the `node` binary visible to `RUN_USER` (handles nvm / non-standard paths)
 
 ```bash
-# 0. Pull the latest code (if you haven't already)
-cd <APP_DIR>
+# 0. Pull the latest code on the Germany server
+cd ~/kids-youtube-app                  # or wherever you cloned it
 git pull
 
-# 1. Strip Windows line endings from the files in this folder (only needed if
-#    git checked them out with CRLF — happens when core.autocrlf=true on Linux).
-cd <APP_DIR>/deploy/germany-server
-sed -i 's/\r$//' refresh-pot.sh safetube-bridge.service \
-  safetube-pot-refresh.service safetube-pot-refresh.timer safetube-bridge.env.example
+# 1. Strip Windows CRLF line endings (only matters if your git on Linux has
+#    core.autocrlf=true — harmless otherwise)
+sed -i 's/\r$//' \
+  deploy/germany-server/install.sh \
+  deploy/germany-server/refresh-pot.sh \
+  deploy/germany-server/*.service \
+  deploy/germany-server/*.timer
 
-# 2. Install the bridge dependencies once
-cd <APP_DIR>/server
-npm install --omit=dev
-
-# 3. Install the PO-token generator dependency (used by the refresh script)
-cd <APP_DIR>/deploy/germany-server
-npm install
+# 2. Run the installer (does npm install, systemd unit substitution,
+#    /etc/safetube-bridge.env template copy, and daemon-reload)
+sudo bash deploy/germany-server/install.sh
 ```
 
-## Install the systemd units
+When `install.sh` finishes it prints the next-step commands; the canonical
+sequence is reproduced below.
+
+## Fill in the env file
 
 ```bash
-cd <APP_DIR>/deploy/germany-server
-
-# 4. Bridge service — fill in <RUN_USER> and <APP_DIR>, then copy.
-sudo sed -e 's|RUN_USER|<RUN_USER>|g' -e 's|APP_DIR|<APP_DIR>|g' \
-  safetube-bridge.service > /tmp/safetube-bridge.service
-sudo mv /tmp/safetube-bridge.service /etc/systemd/system/safetube-bridge.service
-
-# 5. Refresh service + timer — no placeholders, copy as-is.
-sudo cp safetube-pot-refresh.service /etc/systemd/system/
-sudo cp safetube-pot-refresh.timer   /etc/systemd/system/
-
-# 6. Refresh script — fill in <APP_DIR>, install to /usr/local/bin.
-sudo sed -e 's|APP_DIR|<APP_DIR>|g' refresh-pot.sh > /tmp/refresh-yt-pot.sh
-sudo mv /tmp/refresh-yt-pot.sh /usr/local/bin/refresh-yt-pot.sh
-sudo chmod +x /usr/local/bin/refresh-yt-pot.sh
-
-# 7. Env file — copy the template, then edit and fill in FIXME values.
-sudo cp safetube-bridge.env.example /etc/safetube-bridge.env
-sudo chmod 600 /etc/safetube-bridge.env
-sudo chown root:root /etc/safetube-bridge.env
 sudo nano /etc/safetube-bridge.env
-#   PUBLIC_BASE_URL=<your Cloudflare Tunnel URL>
-#   YOUTUBE_COOKIES_FILE=<COOKIES_PATH>
-#   SUPABASE_URL=<your supabase URL>
-#   SUPABASE_ANON_KEY=<your anon key>
-#   MEDIA_BRIDGE_GRANT_SECRET=<openssl rand -hex 32>
-#   Leave YOUTUBE_PO_TOKEN= and YOUTUBE_VISITOR_DATA= empty — the timer fills them.
 ```
 
-## First boot
+Set every line that says `FIXME`:
+
+- `PUBLIC_BASE_URL`             — your Cloudflare Tunnel URL, no trailing slash
+- `YOUTUBE_COOKIES_FILE`        — absolute path to your Netscape cookies.txt
+- `SUPABASE_URL`                — `https://YOUR_PROJECT_REF.supabase.co`
+- `SUPABASE_ANON_KEY`           — Supabase anon key
+- `MEDIA_BRIDGE_GRANT_SECRET`   — `openssl rand -hex 32`
+- `MEDIA_BRIDGE_CORS_ORIGINS`   — production frontend origin(s), comma-separated
+
+Leave `YOUTUBE_PO_TOKEN=` and `YOUTUBE_VISITOR_DATA=` **empty** — the rotation
+timer populates them on first run.
+
+## Go live
 
 ```bash
-# 8. Reload systemd's view of unit files
-sudo systemctl daemon-reload
-
-# 9. Start the bridge (will run WITHOUT tokens initially — that's fine for 30 seconds)
-sudo systemctl enable --now safetube-bridge
-
-# 10. Generate the first token pair NOW (don't wait 5 min for the boot timer)
-sudo systemctl start safetube-pot-refresh
-sudo journalctl -u safetube-pot-refresh -n 20 --no-pager
-#   Expect: "[refresh-pot] rotated tokens and restarted safetube-bridge.service"
-
-# 11. Enable the rotation timer (every 4h)
-sudo systemctl enable --now safetube-pot-refresh.timer
+sudo systemctl enable --now safetube-bridge          # bridge starts, runs without tokens
+sudo systemctl start  safetube-pot-refresh           # fire the first rotation NOW
+sudo systemctl enable --now safetube-pot-refresh.timer   # 4-hour rotation cycle
 ```
 
 ## Verify
