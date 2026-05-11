@@ -8,14 +8,32 @@ import { Input } from '../components/ui/Input'
 
 const MIN_PASSWORD_LEN = 8
 
+const WRONG_CURRENT_PASSWORD_HE = 'הסיסמה הנוכחית שגויה'
+
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
+}
+
+/** Supabase GoTrue: wrong email/password on sign-in (e.g. AuthApiError "Invalid credentials"). */
+function isInvalidLoginCredentials(error: { message?: string; status?: number; code?: string }): boolean {
+  const msg = (error.message ?? '').toLowerCase()
+  if (error.code === 'invalid_credentials') return true
+  if (
+    error.status === 400 &&
+    (msg.includes('invalid login') ||
+      msg.includes('invalid credential') ||
+      msg.includes('invalid email or password'))
+  ) {
+    return true
+  }
+  return false
 }
 
 export function ProfilePage() {
   const { user, refreshProfile } = useAuth()
   const [email, setEmail] = useState('')
   const [emailSaving, setEmailSaving] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [passwordSaving, setPasswordSaving] = useState(false)
@@ -47,22 +65,40 @@ export function ProfilePage() {
   }
 
   const handlePasswordUpdate = async () => {
+    if (!currentPassword) {
+      toast.error('נא להזין את הסיסמה הנוכחית')
+      return
+    }
     if (password.length < MIN_PASSWORD_LEN) {
-      toast.error(`הסיסמה חייבת להכיל לפחות ${MIN_PASSWORD_LEN} תווים`)
+      toast.error(`הסיסמה החדשה חייבת להכיל לפחות ${MIN_PASSWORD_LEN} תווים`)
       return
     }
     if (password !== passwordConfirm) {
-      toast.error('הסיסמאות אינן תואמות')
+      toast.error('הסיסמאות החדשות אינן תואמות')
+      return
+    }
+    const email = user?.email?.trim()
+    if (!email) {
+      toast.error('לא נמצאה כתובת אימייל לחשבון. לא ניתן לאמת סיסמה.')
       return
     }
     setPasswordSaving(true)
     try {
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      })
+      if (verifyError) {
+        toast.error(isInvalidLoginCredentials(verifyError) ? WRONG_CURRENT_PASSWORD_HE : verifyError.message)
+        return
+      }
       const { error } = await supabase.auth.updateUser({ password })
       if (error) {
         toast.error(error.message)
         return
       }
       toast.success('הסיסמה עודכנה')
+      setCurrentPassword('')
       setPassword('')
       setPasswordConfirm('')
     } finally {
@@ -125,23 +161,46 @@ export function ProfilePage() {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-sm font-bold text-slate-900 dark:text-zinc-100">שינוי סיסמה</h2>
-        <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">לפחות {MIN_PASSWORD_LEN} תווים.</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">
+          יש להזין את הסיסמה הנוכחית לאימות מול השרת. הסיסמה החדשה: לפחות {MIN_PASSWORD_LEN} תווים.
+        </p>
+        <label htmlFor="profile-current-password" className="mt-3 block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+          סיסמה נוכחית <span className="text-red-600 dark:text-red-400">*</span>
+        </label>
         <Input
+          id="profile-current-password"
           type="password"
           dir="ltr"
-          className="mt-3"
+          className="mt-1"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          placeholder="הסיסמה בשימוש כיום"
+          autoComplete="current-password"
+        />
+        <label htmlFor="profile-new-password" className="mt-3 block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+          סיסמה חדשה
+        </label>
+        <Input
+          id="profile-new-password"
+          type="password"
+          dir="ltr"
+          className="mt-1"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="סיסמה חדשה"
+          placeholder={`לפחות ${MIN_PASSWORD_LEN} תווים`}
           autoComplete="new-password"
         />
+        <label htmlFor="profile-new-password-confirm" className="mt-3 block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+          אימות סיסמה חדשה
+        </label>
         <Input
+          id="profile-new-password-confirm"
           type="password"
           dir="ltr"
-          className="mt-2"
+          className="mt-1"
           value={passwordConfirm}
           onChange={(e) => setPasswordConfirm(e.target.value)}
-          placeholder="אימות סיסמה"
+          placeholder="הזינו שוב את הסיסמה החדשה"
           autoComplete="new-password"
         />
         <Button className="mt-3 w-full" disabled={passwordSaving} onClick={() => void handlePasswordUpdate()}>
