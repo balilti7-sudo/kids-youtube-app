@@ -300,15 +300,40 @@ const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_COOKIES
 /**
  * Optional YouTube PO token for yt-dlp (`CLIENT.CONTEXT+TOKEN`, see yt-dlp wiki PO-Token-Guide).
  * Merged into `--extractor-args` when set. Prefer fresh browser cookies on Render when possible.
+ *
+ * Examples:
+ *   web.gvs+TOKEN1                                  (single-client form)
+ *   web.gvs+TOKEN1,web.player+TOKEN2,mweb.gvs+TOK3  (multi-client comma-joined)
  */
 const YOUTUBE_PO_TOKEN = (process.env.YOUTUBE_PO_TOKEN || '').trim()
 
-function applyPoTokenToYoutubeExtractorArgs(extractorArgsString) {
+/**
+ * Optional YouTube `visitor_data` (a.k.a. visitorData / __Secure-YEC). Must come from the SAME
+ * browser session that minted the PO token, otherwise YouTube rejects the pair as inconsistent.
+ * Merged into yt-dlp `--extractor-args` alongside `po_token` when set.
+ */
+const YOUTUBE_VISITOR_DATA = (process.env.YOUTUBE_VISITOR_DATA || '').trim()
+
+/** Merge a `key=value` pair into a yt-dlp `youtube:...` extractor-args inner string (idempotent). */
+function mergeYoutubeExtractorParam(inner, key, value) {
+  if (!value) return inner
+  const re = new RegExp(`(?:^|;)\\s*${key}=`)
+  if (re.test(inner)) return inner
+  return inner.length ? `${inner};${key}=${value}` : `${key}=${value}`
+}
+
+/**
+ * Augment a `youtube:player_client=...` extractor-args string with `po_token` and `visitor_data`
+ * from env (when set). Idempotent — re-running on an already-augmented string is a no-op.
+ */
+function applyYoutubeAuthExtractorArgs(extractorArgsString) {
   const s = String(extractorArgsString || '').trim()
-  if (!YOUTUBE_PO_TOKEN || !s.startsWith('youtube:')) return s
-  const inner = s.slice('youtube:'.length).trim()
-  if (/(?:^|;)po_token=/.test(inner)) return s
-  return inner.length ? `youtube:${inner};po_token=${YOUTUBE_PO_TOKEN}` : `youtube:po_token=${YOUTUBE_PO_TOKEN}`
+  if (!s.startsWith('youtube:')) return s
+  if (!YOUTUBE_PO_TOKEN && !YOUTUBE_VISITOR_DATA) return s
+  let inner = s.slice('youtube:'.length).trim()
+  inner = mergeYoutubeExtractorParam(inner, 'po_token', YOUTUBE_PO_TOKEN)
+  inner = mergeYoutubeExtractorParam(inner, 'visitor_data', YOUTUBE_VISITOR_DATA)
+  return inner.length ? `youtube:${inner}` : 'youtube:'
 }
 
 /**
@@ -1148,8 +1173,21 @@ app.listen(PORT, HOST, () => {
           : 'NOT SET (using Render IP directly)'
     }`
   )
-  if (YOUTUBE_PO_TOKEN) {
-    console.log('[media-bridge] YOUTUBE_PO_TOKEN is set — yt-dlp extractor-args will include po_token')
+  if (YOUTUBE_PO_TOKEN || YOUTUBE_VISITOR_DATA) {
+    const parts = []
+    if (YOUTUBE_PO_TOKEN) parts.push('po_token')
+    if (YOUTUBE_VISITOR_DATA) parts.push('visitor_data')
+    console.log(`[media-bridge] yt-dlp extractor-args will include: ${parts.join(', ')}`)
+    if (YOUTUBE_PO_TOKEN && !YOUTUBE_VISITOR_DATA) {
+      console.warn(
+        '[media-bridge] YOUTUBE_PO_TOKEN is set without YOUTUBE_VISITOR_DATA — YouTube usually rejects PO tokens not paired with the visitor_data that minted them.'
+      )
+    }
+    if (YOUTUBE_VISITOR_DATA && !YOUTUBE_PO_TOKEN) {
+      console.warn(
+        '[media-bridge] YOUTUBE_VISITOR_DATA is set without YOUTUBE_PO_TOKEN — visitor_data alone does not bypass bot checks; set both together.'
+      )
+    }
   }
   if (OUTBOUND_PROXY_URL) {
     if (isHttpSchemeProxy(OUTBOUND_PROXY_URL)) {
@@ -1986,13 +2024,13 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
   if (cookieStatus.usable && cookieStatus.hasRequiredAuthCookies) {
     attempts.push({
       name: 'cookies-web_embedded',
-      args: ['--extractor-args', applyPoTokenToYoutubeExtractorArgs(primaryExtractorArgs)],
+      args: ['--extractor-args', applyYoutubeAuthExtractorArgs(primaryExtractorArgs)],
     })
     attempts.push({
       name: 'cookies-fallback_tv',
       args: [
         '--extractor-args',
-        applyPoTokenToYoutubeExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
+        applyYoutubeAuthExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
       ],
     })
   } else if (cookieStatus.filePath) {
@@ -2000,13 +2038,13 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
   }
   attempts.push({
     name: 'no-cookies-web_embedded',
-    args: ['--extractor-args', applyPoTokenToYoutubeExtractorArgs(primaryExtractorArgs)],
+    args: ['--extractor-args', applyYoutubeAuthExtractorArgs(primaryExtractorArgs)],
   })
   attempts.push({
     name: 'no-cookies-fallback_tv',
     args: [
       '--extractor-args',
-      applyPoTokenToYoutubeExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
+      applyYoutubeAuthExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
     ],
   })
 
