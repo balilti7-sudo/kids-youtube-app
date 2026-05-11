@@ -124,7 +124,17 @@ try {
 
 # ---- npm install (generator) ------------------------------------------------
 Write-Step "installing PO-token generator dependencies..."
-Copy-Item -Path (Join-Path $ScriptDir 'package.json') -Destination (Join-Path $GeneratorDir 'package.json') -Force
+Copy-Item -Path (Join-Path $ScriptDir 'package.json')           -Destination (Join-Path $GeneratorDir 'package.json')           -Force
+Copy-Item -Path (Join-Path $ScriptDir 'generate-po-token.mjs')  -Destination (Join-Path $GeneratorDir 'generate-po-token.mjs')  -Force
+Write-Sub "copied generate-po-token.mjs -> $GeneratorDir"
+
+# Wipe any stale node_modules / lockfile from the previous (broken)
+# youtube-po-token-generator install before npm install runs fresh.
+$staleNm   = Join-Path $GeneratorDir 'node_modules'
+$staleLock = Join-Path $GeneratorDir 'package-lock.json'
+if (Test-Path $staleNm)   { Remove-Item $staleNm   -Recurse -Force -ErrorAction SilentlyContinue }
+if (Test-Path $staleLock) { Remove-Item $staleLock -Force          -ErrorAction SilentlyContinue }
+
 Push-Location $GeneratorDir
 try {
     & npm.cmd install --no-audit --no-fund --no-progress

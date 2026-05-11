@@ -57,19 +57,30 @@ Set-Location $GeneratorDir
 
 # ---- install generator deps on first run (idempotent) ----------------------
 if (-not (Test-Path 'node_modules')) {
-    Write-Status "installing youtube-po-token-generator..."
+    Write-Status "installing generator deps (bgutils-js + jsdom)..."
     & npm.cmd install --silent --no-audit --no-fund --no-progress
     if ($LASTEXITCODE -ne 0) { Throw-Err "npm install failed (exit $LASTEXITCODE)" }
 }
 
 # ---- generate a fresh pair --------------------------------------------------
+# We use our own generate-po-token.mjs (bgutils-js + minimal empty jsdom).
+# The npm-published `youtube-po-token-generator` package was used previously
+# but it loads the full youtube.com embed page in jsdom and OOMs (>8 GB heap)
+# on modern YouTube. Our generator runs in ~250 ms with <200 MB RAM.
 Write-Status "generating PO token + visitor_data pair..."
-$cliExe = Join-Path $GeneratorDir 'node_modules\.bin\youtube-po-token-generator.cmd'
-if (-not (Test-Path $cliExe)) { Throw-Err "generator CLI not found at $cliExe -- try `npm install` in $GeneratorDir" }
+$generatorScript = Join-Path $GeneratorDir 'generate-po-token.mjs'
+if (-not (Test-Path $generatorScript)) { Throw-Err "generator script not found at $generatorScript -- copy from deploy/windows-server/" }
 
-# Capture stdout (JSON). Stderr goes to the task's transcript file.
-$json = & $cliExe 2>$null
-if (-not $json) { Throw-Err "generator returned empty output (network? rate-limit? try again in 60s)" }
+# stdout -> JSON line (parseable); stderr -> [generate-po-token] timing logs.
+# We capture only stdout for parsing and tee stderr to the transcript so failures
+# leave breadcrumbs.
+$stdoutLines = & node.exe $generatorScript 2>&1 | Where-Object { $_ -is [string] }
+$json = ($stdoutLines | Where-Object { $_ -match '^\s*\{.*"poToken"' } | Select-Object -Last 1)
+if (-not $json) {
+    Write-Status "--- generator output (for debugging) ---"
+    $stdoutLines | ForEach-Object { Write-Host "  $_" }
+    Throw-Err "generator returned no JSON line (network? rate-limit? try again in 60s)"
+}
 
 try {
     $parsed = $json | ConvertFrom-Json

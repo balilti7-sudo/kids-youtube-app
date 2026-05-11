@@ -1,13 +1,14 @@
 {
   "name": "safetube-pot-generator",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Thin wrapper around youtube-po-token-generator. Invoked every 4h by the SafeTube-PO-Token-Refresh scheduled task on the Windows media-bridge server.",
+  "description": "PO token + visitor_data generator for the SafeTube media bridge. Custom generator built on bgutils-js + minimal jsdom (the published youtube-po-token-generator package OOM'd at 8 GB heap on modern YouTube embed pages). Invoked every 4 h by the SafeTube-PO-Token-Refresh scheduled task on the Windows media-bridge server.",
   "type": "module",
   "scripts": {
-    "generate": "youtube-po-token-generator"
+    "generate": "node generate-po-token.mjs"
   },
   "dependencies": {
-    "youtube-po-token-generator": "^0.6.0"
+    "bgutils-js": "^3.2.0",
+    "jsdom": "^26.0.0"
   }
 }
