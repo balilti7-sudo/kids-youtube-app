@@ -45,10 +45,15 @@ function parseValidHttpBaseOrNull(rawBase: string): string | null {
 function isPlausibleBridgeHostname(hostname: string): boolean {
   if (!hostname) return false
   const h = hostname.toLowerCase()
-  if (h === 'localhost' || h === '127.0.0.1') return true
-  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true
-  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true
-  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  if (h === 'localhost') return true
+  // Accept any valid IPv4 literal (loopback, RFC1918, or a public IP for a self-hosted bridge).
+  const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (ipv4) {
+    return ipv4.slice(1).every((octet) => {
+      const n = Number(octet)
+      return Number.isInteger(n) && n >= 0 && n <= 255
+    })
+  }
   if (h.includes('onrender.com')) {
     return h.endsWith('.onrender.com') && h.length > '.onrender.com'.length
   }
