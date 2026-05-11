@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Turn-key installer for the SafeTube Media Bridge on Windows Server.
 
@@ -14,7 +14,7 @@
     the SafeTubeBridge Windows service via nssm, and creates the SafeTube-PO-Token-Refresh
     scheduled task firing every 4 hours.
 
-    Does NOT start the service — the env file at C:\ProgramData\SafeTube\bridge.env
+    Does NOT start the service -- the env file at C:\ProgramData\SafeTube\bridge.env
     needs FIXME values filled in first.
 #>
 
@@ -37,7 +37,7 @@ $AppDir    = $AppDir.Path.TrimEnd('\')
 $ServerDir = Join-Path $AppDir 'server'
 
 if (-not (Test-Path (Join-Path $ServerDir 'index.js'))) {
-    Throw-Err "did not find $ServerDir\index.js — is this the right repo?"
+    Throw-Err "did not find $ServerDir\index.js -- is this the right repo?"
 }
 
 $InstallDir   = Join-Path $env:ProgramFiles 'SafeTube'
@@ -90,7 +90,7 @@ if (-not $nssmCmd) {
         Write-Sub "nssm not on PATH, installing via winget..."
         & winget install --id NSSM.NSSM --silent --accept-source-agreements --accept-package-agreements
         if ($LASTEXITCODE -ne 0) {
-            Write-Sub "winget install returned $LASTEXITCODE — will check PATH anyway."
+            Write-Sub "winget install returned $LASTEXITCODE -- will check PATH anyway."
         }
         # Refresh PATH from machine + user scopes.
         $env:PATH = ([Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
@@ -135,8 +135,8 @@ try {
 Write-Step "copying scripts to $InstallDir..."
 Copy-Item -Path (Join-Path $ScriptDir 'start-bridge.ps1')  -Destination $BridgeScript  -Force
 Copy-Item -Path (Join-Path $ScriptDir 'refresh-pot.ps1')   -Destination $RefreshScript -Force
-Write-Sub "copied start-bridge.ps1 → $BridgeScript"
-Write-Sub "copied refresh-pot.ps1  → $RefreshScript"
+Write-Sub "copied start-bridge.ps1 -> $BridgeScript"
+Write-Sub "copied refresh-pot.ps1  -> $RefreshScript"
 
 # ---- env file ---------------------------------------------------------------
 $envCreated = $false
@@ -145,7 +145,7 @@ if (-not (Test-Path $EnvFile)) {
     Copy-Item -Path (Join-Path $ScriptDir 'safetube-bridge.env.example') -Destination $EnvFile -Force
     $envCreated = $true
 } else {
-    Write-Step "env file already exists at $EnvFile — leaving as-is."
+    Write-Step "env file already exists at $EnvFile -- leaving as-is."
 }
 
 # Restrict the env file to administrators (it'll hold secrets).
@@ -252,7 +252,7 @@ if ($envCreated) {
     Write-Host "  - MEDIA_BRIDGE_GRANT_SECRET    (generate any 64-char random string)"
     Write-Host "  - MEDIA_BRIDGE_CORS_ORIGINS    (your Vercel domain(s))"
     Write-Host ""
-    Write-Host "Leave YOUTUBE_PO_TOKEN= and YOUTUBE_VISITOR_DATA= empty — the task fills them."
+    Write-Host "Leave YOUTUBE_PO_TOKEN= and YOUTUBE_VISITOR_DATA= empty -- the task fills them."
     Write-Host ""
 }
 

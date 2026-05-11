@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Removes everything install.ps1 created (service, task, scripts) — but keeps
+    Removes everything install.ps1 created (service, task, scripts) -- but keeps
     C:\ProgramData\SafeTube\bridge.env and the log directory unless -Purge is passed.
 
 .PARAMETER Purge

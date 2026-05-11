@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Generates a fresh YouTube PO token + visitor_data pair, atomically updates the
     bridge env file, and restarts the SafeTubeBridge service.
@@ -9,7 +9,7 @@
     replaced atomically (write to a tmp file in the same directory, then rename),
     so a crash mid-write cannot corrupt the file.
 
-    Failures are non-fatal — the bridge keeps using the previous (still-valid
+    Failures are non-fatal -- the bridge keeps using the previous (still-valid
     for ~6h) tokens until the next scheduled retry.
 
 .PARAMETER EnvFile
@@ -50,7 +50,7 @@ if (Test-Path $nodeDir) {
     $env:PATH = "$nodeDir;$env:PATH"
 }
 if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
-    Throw-Err "node.exe not on PATH for this task — install Node 18+ or update task env"
+    Throw-Err "node.exe not on PATH for this task -- install Node 18+ or update task env"
 }
 
 Set-Location $GeneratorDir
@@ -65,7 +65,7 @@ if (-not (Test-Path 'node_modules')) {
 # ---- generate a fresh pair --------------------------------------------------
 Write-Status "generating PO token + visitor_data pair..."
 $cliExe = Join-Path $GeneratorDir 'node_modules\.bin\youtube-po-token-generator.cmd'
-if (-not (Test-Path $cliExe)) { Throw-Err "generator CLI not found at $cliExe — try `npm install` in $GeneratorDir" }
+if (-not (Test-Path $cliExe)) { Throw-Err "generator CLI not found at $cliExe -- try `npm install` in $GeneratorDir" }
 
 # Capture stdout (JSON). Stderr goes to the task's transcript file.
 $json = & $cliExe 2>$null
@@ -98,7 +98,7 @@ $newLines  = @($filtered) + @(
 )
 
 # Set-Content with -NoNewline=false (default) writes a trailing newline. UTF8 (no BOM in PS 7,
-# WITH BOM in PS 5.1 — both are acceptable to the bridge's env loader since the regex tolerates
+# WITH BOM in PS 5.1 -- both are acceptable to the bridge's env loader since the regex tolerates
 # leading whitespace and the BOM is on the first byte only, not on each line).
 Set-Content -Path $tmpFile -Value $newLines -Encoding UTF8
 Move-Item -Path $tmpFile -Destination $EnvFile -Force
@@ -106,7 +106,7 @@ Write-Status "env file rewritten ($EnvFile)"
 
 # ---- restart bridge ---------------------------------------------------------
 $svc = Get-Service -Name $BridgeServiceName -ErrorAction SilentlyContinue
-if (-not $svc) { Throw-Err "service $BridgeServiceName not found — was install.ps1 run?" }
+if (-not $svc) { Throw-Err "service $BridgeServiceName not found -- was install.ps1 run?" }
 
 Write-Status "restarting service $BridgeServiceName..."
 Restart-Service -Name $BridgeServiceName -Force

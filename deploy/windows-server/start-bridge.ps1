@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Service entry point for SafeTubeBridge — loads the env file and runs `node index.js`.
+    Service entry point for SafeTubeBridge -- loads the env file and runs `node index.js`.
 
 .DESCRIPTION
     Registered by install.ps1 as the command line for the SafeTubeBridge Windows service
@@ -74,12 +74,12 @@ if (Test-Path $EnvFile) {
     }
     Write-Status "loaded $loaded env vars"
 } else {
-    Write-Status "WARNING: env file not found at $EnvFile — bridge will start with empty env"
+    Write-Status "WARNING: env file not found at $EnvFile -- bridge will start with empty env"
 }
 
 # ---- exec node --------------------------------------------------------------
 $IndexJs = Join-Path $AppDir 'index.js'
-if (-not (Test-Path $IndexJs)) { throw "$IndexJs not found — wrong -AppDir?" }
+if (-not (Test-Path $IndexJs)) { throw "$IndexJs not found -- wrong -AppDir?" }
 
 Set-Location $AppDir
 Write-Status "exec: `"$NodeExe`" `"$IndexJs`" (cwd=$AppDir)"
