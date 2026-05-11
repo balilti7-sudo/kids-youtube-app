@@ -1,0 +1,13 @@
+{
+  "name": "safetube-pot-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Thin wrapper around youtube-po-token-generator. Invoked every 4h by safetube-pot-refresh.timer on the Germany media-bridge server.",
+  "type": "module",
+  "scripts": {
+    "generate": "youtube-po-token-generator"
+  },
+  "dependencies": {
+    "youtube-po-token-generator": "^0.6.0"
+  }
+}

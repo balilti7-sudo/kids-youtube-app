@@ -1,0 +1,27 @@
+# /etc/systemd/system/safetube-pot-refresh.service
+#
+# Oneshot service that regenerates a fresh PO token + visitor_data pair,
+# atomically rewrites the YOUTUBE_PO_TOKEN / YOUTUBE_VISITOR_DATA lines in
+# /etc/safetube-bridge.env, then restarts safetube-bridge so the new tokens
+# take effect. Triggered every 4 hours by safetube-pot-refresh.timer.
+
+[Unit]
+Description=Refresh YouTube PO token + visitor_data for SafeTube Media Bridge
+After=network-online.target
+Wants=network-online.target
+# Don't try to refresh tokens for a bridge that isn't installed/running.
+Requisite=safetube-bridge.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/refresh-yt-pot.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=safetube-pot-refresh
+
+# Treat transient YouTube outages as success — the bridge keeps using the
+# previous pair (still valid for ~6h) until the next scheduled retry.
+SuccessExitStatus=0 1
+
+# Refresh should never take longer than a few seconds; kill if it hangs.
+TimeoutStartSec=120

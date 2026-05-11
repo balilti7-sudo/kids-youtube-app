@@ -1,0 +1,20 @@
+# /etc/systemd/system/safetube-pot-refresh.timer
+#
+# Schedule for PO-token rotation:
+#   - 5 minutes after boot (so a freshly-rebooted server gets fresh tokens fast)
+#   - then every 4 hours after the last successful run
+# Persistent=true: if the box was off when a rotation was due, fire ASAP on boot.
+
+[Unit]
+Description=Refresh YouTube PO token every 4 hours
+Requires=safetube-pot-refresh.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=4h
+Persistent=true
+Unit=safetube-pot-refresh.service
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target
