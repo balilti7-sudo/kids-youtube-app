@@ -107,6 +107,7 @@ export default function App() {
               </ProtectedRoute>
             }
           >
+            <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

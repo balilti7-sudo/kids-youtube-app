@@ -1,33 +1,14 @@
-import { useSyncExternalStore } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Home, Tv, Settings, Tablet } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { getSavedChildAccessToken } from '../../lib/childDevice'
-
-function subscribeKidTokenChanged(onStoreChange: () => void) {
-  const fn = () => onStoreChange()
-  window.addEventListener('storage', fn)
-  window.addEventListener('safetube-kid-token-changed', fn as EventListener)
-  return () => {
-    window.removeEventListener('storage', fn)
-    window.removeEventListener('safetube-kid-token-changed', fn as EventListener)
-  }
-}
-
-function getKidTokenPresent() {
-  return typeof window !== 'undefined' && Boolean(getSavedChildAccessToken())
-}
+import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
+import { LongPressNavButton } from './LongPressNavButton'
 
 export function BottomNav() {
   const { pathname } = useLocation()
-  const hasKidToken = useSyncExternalStore(subscribeKidTokenChanged, getKidTokenPresent, () => false)
+  const hasKidToken = useKidDeviceTokenPresent()
 
-  const links = [
-    { to: '/dashboard', label: 'בית', icon: Home },
-    { to: '/channels', label: 'ערוצים', icon: Tv },
-    ...(hasKidToken ? [{ to: '/kid', label: 'ילד', icon: Tablet }] as const : []),
-    { to: '/settings', label: 'הגדרות', icon: Settings },
-  ]
+  const parentNavDiscreet = hasKidToken
 
   return (
     <nav
@@ -35,12 +16,13 @@ export function BottomNav() {
       aria-label="ניווט ראשי"
     >
       <div className="mx-auto flex max-w-lg items-stretch justify-around">
-        {links.map(({ to, label, icon: Icon }) => (
+        {parentNavDiscreet ? (
+          <LongPressNavButton to="/dashboard" label="בית" icon={Home} isActive={pathname === '/dashboard'} />
+        ) : (
           <NavLink
-            key={to}
-            to={to}
+            to="/dashboard"
             onClick={(e) => {
-              if (pathname === to) {
+              if (pathname === '/dashboard') {
                 e.preventDefault()
               }
             }}
@@ -51,10 +33,74 @@ export function BottomNav() {
               )
             }
           >
-            <Icon className="h-6 w-6" aria-hidden />
-            {label}
+            <Home className="h-6 w-6" aria-hidden />
+            בית
           </NavLink>
-        ))}
+        )}
+
+        {parentNavDiscreet ? (
+          <LongPressNavButton to="/channels" label="ערוצים" icon={Tv} isActive={pathname === '/channels'} />
+        ) : (
+          <NavLink
+            to="/channels"
+            onClick={(e) => {
+              if (pathname === '/channels') {
+                e.preventDefault()
+              }
+            }}
+            className={({ isActive }) =>
+              cn(
+                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+                isActive ? 'text-brand-700 dark:text-brand-500' : 'text-slate-500 dark:text-zinc-500'
+              )
+            }
+          >
+            <Tv className="h-6 w-6" aria-hidden />
+            ערוצים
+          </NavLink>
+        )}
+
+        {hasKidToken ? (
+          <NavLink
+            to="/kid"
+            onClick={(e) => {
+              if (pathname === '/kid') {
+                e.preventDefault()
+              }
+            }}
+            className={({ isActive }) =>
+              cn(
+                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+                isActive ? 'text-brand-700 dark:text-brand-500' : 'text-slate-500 dark:text-zinc-500'
+              )
+            }
+          >
+            <Tablet className="h-6 w-6" aria-hidden />
+            ילד
+          </NavLink>
+        ) : null}
+
+        {parentNavDiscreet ? (
+          <LongPressNavButton to="/settings" label="הגדרות" icon={Settings} isActive={pathname === '/settings'} />
+        ) : (
+          <NavLink
+            to="/settings"
+            onClick={(e) => {
+              if (pathname === '/settings') {
+                e.preventDefault()
+              }
+            }}
+            className={({ isActive }) =>
+              cn(
+                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+                isActive ? 'text-brand-700 dark:text-brand-500' : 'text-slate-500 dark:text-zinc-500'
+              )
+            }
+          >
+            <Settings className="h-6 w-6" aria-hidden />
+            הגדרות
+          </NavLink>
+        )}
       </div>
     </nav>
   )

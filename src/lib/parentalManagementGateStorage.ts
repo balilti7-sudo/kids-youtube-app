@@ -1,3 +1,4 @@
+import { touchParentalGateActivity } from './parentalGateActivity'
 import { SAFETUBE_PARENTAL_MANAGEMENT_GATE_KEY } from './safetubeSessionKeys'
 
 export function isParentalManagementGateUnlocked(): boolean {
@@ -14,6 +15,7 @@ export function setParentalManagementGateUnlocked(): void {
   } catch {
     /* ignore */
   }
+  touchParentalGateActivity()
 }
 
 export function clearParentalManagementGate(): void {

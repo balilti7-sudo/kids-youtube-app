@@ -1,4 +1,5 @@
 import { clearLocalParentSession } from './localParentAdmin'
+import { clearParentalGateActivity } from './parentalGateActivity'
 import { clearParentalManagementGate } from './parentalManagementGateStorage'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from './safetubeSessionKeys'
 import { setAppModeKid } from './appMode'
@@ -9,6 +10,7 @@ export const LOCK_MANAGEMENT_APP_EVENT = 'safetube-lock-management-app'
 /** מוחק את כל אחסון ה-PIN הרלוונטי לסשן הנוכחי (שער ניהול, הורה מקומי, ביטול נעילה במסך ילד). */
 export function clearParentPinSessions(): void {
   clearParentalManagementGate()
+  clearParentalGateActivity()
   clearLocalParentSession()
   try {
     window.sessionStorage.removeItem(SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY)

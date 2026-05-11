@@ -25,6 +25,8 @@ import { requestPairingReminderEmail } from '../lib/requestPairingReminderEmail'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
+import { lockManagementAppShell } from '../lib/lockParentApp'
+import { setParentEntryIntent } from '../lib/parentEntryIntent'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { CleanPlayer } from '../components/player/CleanPlayer'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
@@ -32,6 +34,7 @@ import type { Html5Qrcode } from 'html5-qrcode'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
 const PARENT_MODE_UNLOCK_MS = 10 * 60 * 1000
+const PARENT_TAB_LONG_PRESS_MS = 650
 
 function KidQrScanModal({
   open,
@@ -93,8 +96,28 @@ export function KidModePage() {
   const qrScannerRef = useRef<Html5Qrcode | null>(null)
   const qrDecodeLockRef = useRef(false)
   const channelVideosRequestRef = useRef(0)
+  const parentTabLongPressRef = useRef<number | null>(null)
+  const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
+
+  useEffect(() => {
+    lockManagementAppShell()
+  }, [])
+
+  const clearParentTabLongPress = useCallback(() => {
+    if (parentTabLongPressRef.current != null) {
+      window.clearTimeout(parentTabLongPressRef.current)
+      parentTabLongPressRef.current = null
+    }
+  }, [])
+
+  const clearParentSurfaceHintLongPress = useCallback(() => {
+    if (parentSurfaceHintLongPressRef.current != null) {
+      window.clearTimeout(parentSurfaceHintLongPressRef.current)
+      parentSurfaceHintLongPressRef.current = null
+    }
+  }, [])
 
   /** נקרא פעם אחת — לזיהוי סריקת QR לפני הסרת הפרמטר מהכתובת */
   const [pendingUrlPairCode] = useState(() => {
@@ -521,6 +544,7 @@ export function KidModePage() {
   }
 
   const runParentAction = (action: 'home' | 'channels') => {
+    setParentEntryIntent()
     const target = action === 'home' ? '/dashboard' : '/channels'
     if (isAuthenticated) {
       navigate(target)
@@ -834,11 +858,24 @@ export function KidModePage() {
               type="button"
               role="tab"
               aria-selected={kidSurface === 'parent'}
-              onClick={() => setKidSurface('parent')}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+              aria-label="הורים — לחיצה ארוכה לפתיחה"
+              title={`החזיקו לחוץ כדי לפתוח (${PARENT_TAB_LONG_PRESS_MS / 1000} שנ׳)`}
+              onPointerDown={() => {
+                clearParentTabLongPress()
+                parentTabLongPressRef.current = window.setTimeout(() => {
+                  parentTabLongPressRef.current = null
+                  setKidSurface('parent')
+                }, PARENT_TAB_LONG_PRESS_MS)
+              }}
+              onPointerUp={clearParentTabLongPress}
+              onPointerLeave={clearParentTabLongPress}
+              onPointerCancel={clearParentTabLongPress}
+              onContextMenu={(e) => e.preventDefault()}
+              onClick={(e) => e.preventDefault()}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition touch-manipulation select-none ${
                 kidSurface === 'parent'
                   ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                  : 'text-slate-500 opacity-90 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
               }`}
             >
               <Users className="h-3.5 w-3.5" aria-hidden />
@@ -930,8 +967,28 @@ export function KidModePage() {
                   בלשונית <strong className="font-bold">הורים</strong> — ניהול ערוצים, ובחרו את המכשיר &quot;{device.device_name}
                   &quot;.
                 </p>
-                <Button type="button" variant="secondary" className="mt-4" onClick={() => setKidSurface('parent')}>
-                  מעבר ללשונית הורים
+                <p className="mt-2 text-[11px] text-amber-900/90 dark:text-amber-200/85">
+                  לפתיחת אזור ההורים: החזיקו לחוץ על כפתור &quot;הורים&quot; בשורת הכותרת למעלה.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-3"
+                  title={`החזיקו לחוץ (${PARENT_TAB_LONG_PRESS_MS / 1000} שנ׳)`}
+                  onPointerDown={() => {
+                    clearParentSurfaceHintLongPress()
+                    parentSurfaceHintLongPressRef.current = window.setTimeout(() => {
+                      parentSurfaceHintLongPressRef.current = null
+                      setKidSurface('parent')
+                    }, PARENT_TAB_LONG_PRESS_MS)
+                  }}
+                  onPointerUp={clearParentSurfaceHintLongPress}
+                  onPointerLeave={clearParentSurfaceHintLongPress}
+                  onPointerCancel={clearParentSurfaceHintLongPress}
+                  onContextMenu={(e) => e.preventDefault()}
+                  onClick={(e) => e.preventDefault()}
+                >
+                  לשונית הורים (לחיצה ארוכה)
                 </Button>
               </div>
             </div>

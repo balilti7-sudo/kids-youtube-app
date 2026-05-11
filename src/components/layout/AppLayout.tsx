@@ -1,7 +1,12 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BYPASS_AUTH } from '../../config/dev'
-import { LOCK_MANAGEMENT_APP_EVENT } from '../../lib/lockParentApp'
+import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
+import { getSavedChildAccessToken } from '../../lib/childDevice'
+import { LOCK_MANAGEMENT_APP_EVENT, lockManagementAppShell } from '../../lib/lockParentApp'
+import { consumeParentEntryIntent } from '../../lib/parentEntryIntent'
+import { isParentManagementLockedPath } from '../../lib/parentManagementPaths'
+import { isParentalGateIdleExceeded, touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { consumeSkipParentalManagementGateOnce } from '../../lib/parentalGateSkipOnce'
 import {
   isParentalManagementGateUnlocked,
@@ -15,15 +20,29 @@ import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
 
 export function AppLayout() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const hasKidDeviceToken = useKidDeviceTokenPresent()
   const [managementUnlocked, setManagementUnlocked] = useState(
     () => BYPASS_AUTH || isParentalManagementGateUnlocked()
   )
 
   useLayoutEffect(() => {
     if (consumeSkipParentalManagementGateOnce()) {
+      touchParentalGateActivity()
       setManagementUnlocked(true)
     }
   }, [])
+
+  /** מכשיר עם טוקן ילד: לא לאפשר דילוג על שער ע״י הקלדת URL — חזרה ל־/kid אם לא אומתו. */
+  useLayoutEffect(() => {
+    if (BYPASS_AUTH) return
+    if (!getSavedChildAccessToken()) return
+    if (managementUnlocked) return
+    if (!isParentManagementLockedPath(location.pathname)) return
+    if (consumeParentEntryIntent()) return
+    navigate('/kid', { replace: true })
+  }, [location.pathname, managementUnlocked, navigate])
 
   useEffect(() => {
     if (BYPASS_AUTH) setManagementUnlocked(true)
@@ -42,6 +61,34 @@ export function AppLayout() {
     setManagementUnlocked(true)
   }
 
+  useEffect(() => {
+    if (BYPASS_AUTH || !managementUnlocked) return
+    touchParentalGateActivity()
+  }, [location.pathname, managementUnlocked])
+
+  useEffect(() => {
+    if (BYPASS_AUTH || !managementUnlocked) return
+    const bump = () => touchParentalGateActivity()
+    window.addEventListener('pointerdown', bump, { passive: true })
+    window.addEventListener('keydown', bump)
+    return () => {
+      window.removeEventListener('pointerdown', bump)
+      window.removeEventListener('keydown', bump)
+    }
+  }, [managementUnlocked])
+
+  useEffect(() => {
+    if (BYPASS_AUTH || !managementUnlocked) return
+    const id = window.setInterval(() => {
+      if (!isParentalGateIdleExceeded()) return
+      lockManagementAppShell()
+      if (getSavedChildAccessToken()) {
+        navigate('/kid', { replace: true })
+      }
+    }, 15_000)
+    return () => window.clearInterval(id)
+  }, [managementUnlocked, navigate])
+
   const showGate = !BYPASS_AUTH && !managementUnlocked
 
   return (
@@ -53,7 +100,7 @@ export function AppLayout() {
             <div className="app-floating-surface mx-auto w-full max-w-5xl p-3 sm:p-3.5 lg:p-4">
               <header className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-zinc-700/40 pb-2 dark:border-zinc-600/30">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <SafeTubeBrandMark />
+                  <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} />
                   <div className="min-w-0 flex-1">
                     <PageBackBar flush />
                   </div>
