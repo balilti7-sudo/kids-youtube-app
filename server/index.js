@@ -1260,7 +1260,7 @@ async function resolveUpstream(videoId) {
   const authStale = isYtAuthStale()
   /**
    * Resolver order (2026-05): **yt-dlp first** whenever enabled — it returns plain URLs
-   * the browser can play and matches `bridgeFetch` + `--proxy` tunneling. Invidious/Piped
+   * the browser can play (yt-dlp uses direct server egress; Node fetch may still use OUTBOUND_PROXY). Invidious/Piped
    * follow as fast fallbacks. `@distube/ytdl-core` is **last and opt-in** (`YTDL_RESOLVE_ENABLE=1`)
    * because it may surface ciphered formats that trigger "Browser cannot decode the stream".
    */
@@ -1978,9 +1978,7 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
   } else if (readonlyCookiesPath) {
     console.warn(`[ytdlp] cookies file exists but writable copy is unavailable (${readonlyCookiesPath}); continuing without --cookies`)
   }
-  if (OUTBOUND_PROXY_URL) {
-    baseArgs.push('--proxy', OUTBOUND_PROXY_URL)
-  }
+  /** yt-dlp: always direct egress — no `--proxy` (paid/broken proxies cause 402 ProxyError). */
   const cookiesFile = writableCookiesPath || readonlyCookiesPath
   const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
   /** One --extractor-args per attempt — yt-dlp does not use separate --player-client CLI flags like some wrappers. */
@@ -2158,19 +2156,15 @@ function attachRealtimeLineLogger(stream, kind, sink) {
 }
 
 /**
- * Child-process env for yt-dlp. Mirrors `OUTBOUND_PROXY_URL` into `HTTP_PROXY` /
- * `HTTPS_PROXY` / `ALL_PROXY` so Python-side requests (player JS, fragments) use
- * the same tunnel as `--proxy` and as Node `bridgeFetch` — not only the first hop.
+ * Child-process env for yt-dlp. Proxy vars are stripped so yt-dlp never uses
+ * `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` from the host or OUTBOUND_PROXY_URL
+ * (avoids 402 Payment Required from misconfigured or paid-only proxies).
+ * Node `bridgeFetch` may still use OUTBOUND_PROXY_URL when set.
  */
 function buildYtDlpSpawnEnv() {
-  const env = {
-    ...process.env,
-    YT_DLP_OAUTH2_TOKEN_FILE: YT_OAUTH_TOKEN_PATH,
-  }
-  if (OUTBOUND_PROXY_URL) {
-    env.HTTP_PROXY = OUTBOUND_PROXY_URL
-    env.HTTPS_PROXY = OUTBOUND_PROXY_URL
-    env.ALL_PROXY = OUTBOUND_PROXY_URL
+  const env = { ...process.env, YT_DLP_OAUTH2_TOKEN_FILE: YT_OAUTH_TOKEN_PATH }
+  for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
+    delete env[k]
   }
   return env
 }
