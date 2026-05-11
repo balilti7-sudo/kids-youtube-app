@@ -1,0 +1,20 @@
+# Default: let git decide line endings per-platform.
+* text=auto
+
+# Shell scripts intended for Linux must keep LF endings even on Windows checkouts.
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# systemd unit files are Linux-only -- always LF.
+*.service text eol=lf
+*.timer   text eol=lf
+
+# PowerShell scripts are Windows-only. Force CRLF on checkout so PS 5.1
+# parses them reliably regardless of the user's core.autocrlf setting.
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+
+# Batch files: CRLF.
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
