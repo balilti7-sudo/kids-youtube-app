@@ -152,14 +152,53 @@ Set-Content -Path $tmpFile -Value $newLines -Encoding UTF8
 Move-Item -Path $tmpFile -Destination $EnvFile -Force
 Write-Sub "wrote YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA"
 
+# ---- repair nssm AppParameters quoting (if needed) --------------------------
+# The original install.ps1 registered AppParameters via `nssm install <svc> <exe> <args>`,
+# which strips the inner double quotes around paths containing spaces. The service
+# then tries to launch `powershell.exe -File C:\Program` (truncated at the first
+# space in "C:\Program Files\SafeTube\start-bridge.ps1") and crash-loops every 5s.
+# Detect and repair this from a single source of truth: nssm.
+Write-Step "verifying nssm AppParameters quoting for $BridgeServiceName..."
+$nssmCmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
+if (-not $nssmCmd) {
+    # Fall back to the well-known winget shim location.
+    $wingetNssm = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\nssm.exe'
+    if (Test-Path $wingetNssm) { $nssmCmd = @{ Source = $wingetNssm } } else { Throw-Err "nssm.exe not on PATH and not at $wingetNssm" }
+}
+$BridgeScript = Join-Path $InstallDir 'start-bridge.ps1'
+$ServerDir    = Join-Path $AppDir     'server'
+$expectedAppParams = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -EnvFile "{1}" -AppDir "{2}"' -f $BridgeScript, $EnvFile, $ServerDir
+$currentAppParams  = (& $nssmCmd.Source get $BridgeServiceName AppParameters) -join ''
+if ($currentAppParams -ne $expectedAppParams) {
+    Write-Sub "AppParameters out-of-date or unquoted -- repairing"
+    Stop-Service -Name $BridgeServiceName -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    & $nssmCmd.Source set $BridgeServiceName Application   'powershell.exe' | Out-Null
+    & $nssmCmd.Source set $BridgeServiceName AppParameters $expectedAppParams | Out-Null
+    & $nssmCmd.Source set $BridgeServiceName AppDirectory  $ServerDir | Out-Null
+    Write-Sub "AppParameters reset (paths now quoted)"
+} else {
+    Write-Sub "AppParameters already correct"
+}
+
 # ---- restart the bridge -----------------------------------------------------
 Write-Step "restarting service $BridgeServiceName..."
 $svc = Get-Service -Name $BridgeServiceName -ErrorAction SilentlyContinue
 if (-not $svc) { Throw-Err "service $BridgeServiceName not found" }
 Restart-Service -Name $BridgeServiceName -Force
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 4
 $svc = Get-Service -Name $BridgeServiceName
 Write-Sub ("service status: {0}" -f $svc.Status)
+
+# Confirm something is actually listening on the bridge port. nssm reports the
+# service as "Running" even when the child crash-loops, so this is the real
+# liveness check.
+$listener = Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue
+if ($listener) {
+    Write-Sub ("port 3001 listener: pid {0} on {1}" -f $listener.OwningProcess, $listener.LocalAddress)
+} else {
+    Write-Sub "WARN: nothing listening on port 3001 yet -- check $(Join-Path $DataDir 'logs\bridge.log')"
+}
 
 # ---- register the missing scheduled task ------------------------------------
 Write-Step "ensuring scheduled task $TaskName exists (every 4h)..."

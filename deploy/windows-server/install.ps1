@@ -187,16 +187,16 @@ if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
     Start-Sleep -Seconds 1
 }
 
-$psArgs = @(
-    '-NoProfile'
-    '-NonInteractive'
-    '-ExecutionPolicy', 'Bypass'
-    '-File', "`"$BridgeScript`""
-    '-EnvFile', "`"$EnvFile`""
-    '-AppDir',  "`"$ServerDir`""
-) -join ' '
+# nssm install + AppParameters in TWO steps. Doing them together in
+# `nssm install <svc> <exe> <args>` makes nssm strip the inner double quotes
+# around paths-with-spaces, so the service then tries to launch
+# `powershell.exe -File C:\Program` and crash-loops every 5s. Setting
+# AppParameters as a single pre-quoted string via `nssm set` preserves the
+# inner double quotes so powershell.exe parses `-File "..."` correctly.
+$psArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -EnvFile "{1}" -AppDir "{2}"' -f $BridgeScript, $EnvFile, $ServerDir
 
-& $nssmCmd.Source install $ServiceName 'powershell.exe' $psArgs | Out-Null
+& $nssmCmd.Source install $ServiceName 'powershell.exe' | Out-Null
+& $nssmCmd.Source set $ServiceName AppParameters      $psArgs    | Out-Null
 & $nssmCmd.Source set $ServiceName AppDirectory       $ServerDir | Out-Null
 & $nssmCmd.Source set $ServiceName DisplayName        "SafeTube Media Bridge" | Out-Null
 & $nssmCmd.Source set $ServiceName Description        "Media bridge for SafeTube kids YouTube app (yt-dlp + Piped/Invidious fallback)" | Out-Null
