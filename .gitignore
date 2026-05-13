@@ -18,3 +18,4 @@ supabase/.temp/
 server/*-player-script.js
 server/*_cookies.txt
 server/cookies.txt
+server/.cache/

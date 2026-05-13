@@ -13,6 +13,9 @@ PowerShell on the Windows Server in Germany (`176.9.82.81`).
 | `start-bridge.ps1`                | Service entry point: loads env file → runs `node index.js`            |
 | `refresh-pot.ps1`                 | Triggered every 4h: generates fresh PO token + visitor_data           |
 | `safetube-bridge.env.example`     | Env file template (copied to `C:\ProgramData\SafeTube\bridge.env`)    |
+| `merge-bridge-ytdlp-stabilization.ps1` | Upserts yt-dlp stabilization keys into `bridge.env` (POT URL, format, cookies) |
+| `install-bgutil-pot-nssm.ps1`     | Optional second service: Rust `bgutil-pot` HTTP on port 4416            |
+| `start-bgutil-pot-background.ps1` | Quick background start of `bgutil-pot` (no nssm)                      |
 | `package.json`                    | Pins `youtube-po-token-generator` for reproducible installs           |
 
 ## Installed layout (after running install.ps1)
@@ -99,6 +102,49 @@ Generate a grant secret in PowerShell:
 
 **Leave `YOUTUBE_PO_TOKEN=` and `YOUTUBE_VISITOR_DATA=` empty** — the scheduled
 task fills them on first run.
+
+## yt-dlp stabilization (Rust bgutil POT + format 18 avoidance)
+
+The bridge defaults to **InnerTube clients `tv,web_safari`**, a **720p MP4/M4A format chain** (not throttled `best`/fmt 18), **`http://127.0.0.1:4416`** for the bgutil POT HTTP provider, and **`server\youtube_cookies.txt`** when that file exists.
+
+1. **Download** the Rust `bgutil-pot` binary for Windows x64 from [bgutil-ytdlp-pot-provider-rs releases](https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases) (e.g. `bgutil-pot-windows-x86_64.exe`), rename to `bgutil-pot.exe`, and place it under e.g. `C:\Program Files\SafeTube\`.
+
+2. **Install the yt-dlp plugin** from the same release (`bgutil-ytdlp-pot-provider-rs.zip`). Unzip into your repo’s `server\yt-dlp-plugins\` so the bridge can pass `--plugin-dirs` (see [yt-dlp plugins](https://github.com/yt-dlp/yt-dlp#installing-plugins)).
+
+3. **Optional cookies**: export a Netscape cookie file to `server\youtube_cookies.txt` (or set `YT_DLP_COOKIES_FILE` in `bridge.env`).
+
+### Update `SafeTubeBridge` (no nssm Application change)
+
+`SafeTubeBridge` runs `powershell.exe` → `start-bridge.ps1`, which loads **`C:\ProgramData\SafeTube\bridge.env`**. yt-dlp flags are **env vars**, not nssm `AppParameters`. You do **not** need to re-run `nssm set SafeTubeBridge AppParameters …` for this tuning.
+
+From an elevated PowerShell (repo clone path adjusted):
+
+```powershell
+cd C:\path\to\kids-youtube-app
+git pull
+powershell -ExecutionPolicy Bypass -File .\deploy\windows-server\merge-bridge-ytdlp-stabilization.ps1
+Restart-Service SafeTubeBridge
+```
+
+That script upserts: `YT_DLP_PRIMARY_EXTRACTOR_ARGS`, `YT_DLP_BGUTIL_POT_BASE_URL`, `YT_DLP_COOKIES_FILE`, `YT_DLP_FORMAT`. To apply the same keys manually, edit `notepad C:\ProgramData\SafeTube\bridge.env` and restart the service.
+
+### Register the POT provider as its own Windows service (nssm)
+
+After `bgutil-pot.exe` is on disk:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\windows-server\install-bgutil-pot-nssm.ps1 `
+  -BgutilPotExe 'C:\Program Files\SafeTube\bgutil-pot.exe'
+```
+
+Quick test without nssm:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\windows-server\start-bgutil-pot-background.ps1 `
+  -BgutilPotExe 'C:\Program Files\SafeTube\bgutil-pot.exe'
+```
+
+Health check: `Invoke-WebRequest http://127.0.0.1:4416/ping -UseBasicParsing`
 
 ## Go live
 

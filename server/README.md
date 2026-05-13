@@ -56,7 +56,9 @@ Required service env vars:
 - `MEDIA_BRIDGE_GRANT_SECRET=<long-random-secret>`
 - `YOUTUBE_PO_TOKEN` and `YOUTUBE_VISITOR_DATA` (same session; see yt-dlp PO Token Guide)
 
-Do **not** set `YOUTUBE_COOKIES`, `YTDL_COOKIES`, or `YOUTUBE_COOKIES_FILE` — the bridge clears them at startup.
+Do **not** set `YOUTUBE_COOKIES`, `YTDL_COOKIES`, or `YOUTUBE_COOKIES_FILE` — the bridge clears those legacy names at startup.
+
+For **yt-dlp file cookies**, use `YT_DLP_COOKIES_FILE` (default `./youtube_cookies.txt` under `server/` when the file exists). Pair with **yt-dlp ≥ 2025.05.22**, the [bgutil POT provider](https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs) on port **4416**, and the matching **yt-dlp plugin** under `server/yt-dlp-plugins/`. Env knobs: `YT_DLP_PRIMARY_EXTRACTOR_ARGS`, `YT_DLP_BGUTIL_POT_BASE_URL`, `YT_DLP_FORMAT`, `YT_DLP_PLUGIN_DIRS` (see `server/.env.example`).
 
 ### Railway
 

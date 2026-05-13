@@ -1,0 +1,23 @@
+# /etc/systemd/system/bgutil-pot.service
+# Rust POT provider (jim60105/bgutil-ytdlp-pot-provider-rs). Install binary as /usr/local/bin/bgutil-pot
+# and ensure yt-dlp plugin is under the bridge server/yt-dlp-plugins/ directory.
+#
+#   sudo cp bgutil-pot.service.example /etc/systemd/system/bgutil-pot.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bgutil-pot.service
+#   curl -sS http://127.0.0.1:4416/ping
+
+[Unit]
+Description=SafeTube bgutil POT HTTP provider for yt-dlp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bgutil-pot server --host 127.0.0.1 --port 4416
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -6,7 +6,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
@@ -48,7 +48,7 @@ if (inheritedHostFromShell !== undefined && String(inheritedHostFromShell).trim(
   process.env.HOST = inheritedHostFromShell
 }
 
-// YouTube: browser cookie headers and cookie files are not supported — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA only.
+// Strip legacy cookie env names (browser header injection). Use YT_DLP_COOKIES_FILE + yt-dlp `--cookies` instead.
 for (const k of ['YOUTUBE_COOKIES', 'YTDL_COOKIES', 'YOUTUBE_COOKIES_FILE']) {
   if (process.env[k] != null && String(process.env[k]).trim() !== '') {
     process.env[k] = ''
@@ -186,7 +186,26 @@ const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' |
  */
 const YTDL_RESOLVE_ENABLE =
   (process.env.YTDL_RESOLVE_ENABLE || '').toLowerCase() === '1' || process.env.YTDL_RESOLVE_ENABLE === 'true'
-const YT_DLP_CACHE_DIR = '/tmp/yt-dlp-cache'
+const YT_DLP_CACHE_DIR = (process.env.YT_DLP_CACHE_DIR || '').trim() || path.join(SERVER_DIR, '.cache', 'yt-dlp')
+/** Prefer merged ≤720p MP4 + M4A; avoid format 18 (360p) which is heavily throttled. */
+const DEFAULT_YT_DLP_FORMAT =
+  'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best'
+const YT_DLP_FORMAT = (process.env.YT_DLP_FORMAT || '').trim() || DEFAULT_YT_DLP_FORMAT
+/** Rust/TS bgutil POT HTTP server (`youtubepot-bgutilhttp`). Set empty or `off` to skip. Default: local provider. */
+const YT_DLP_BGUTIL_POT_BASE_URL = (() => {
+  const raw = process.env.YT_DLP_BGUTIL_POT_BASE_URL
+  if (raw === undefined || raw === null) return 'http://127.0.0.1:4416'
+  const t = String(raw).trim()
+  if (!t || /^(0|off|false|none)$/i.test(t)) return ''
+  return t.replace(/\/$/, '')
+})()
+/** Netscape cookie file for yt-dlp. Relative paths resolve under `server/`. Set to empty to disable. */
+const YT_DLP_COOKIES_PATH = (() => {
+  const unset = !Object.prototype.hasOwnProperty.call(process.env, 'YT_DLP_COOKIES_FILE')
+  const raw = unset ? './youtube_cookies.txt' : String(process.env.YT_DLP_COOKIES_FILE || '').trim()
+  if (!raw) return ''
+  return path.isAbsolute(raw) ? raw : path.join(SERVER_DIR, raw)
+})()
 const YT_OAUTH_TOKEN_PATH = (process.env.YT_OAUTH_TOKEN_PATH || '/etc/secrets/yt_oauth_token.json').trim()
 const YT_UPSTREAM_TIMEOUT_MS = 60_000
 /**
@@ -1129,9 +1148,16 @@ app.use((err, req, res, next) => {
 })
 
 app.listen(PORT, HOST, () => {
+  try {
+    mkdirSync(YT_DLP_CACHE_DIR, { recursive: true })
+  } catch (e) {
+    console.warn('[media-bridge] could not create yt-dlp cache dir', YT_DLP_CACHE_DIR, e)
+  }
   console.log(`[media-bridge] listening on http://${HOST}:${PORT} (all interfaces — use your LAN/public IP from other machines)`)
   console.log(`[media-bridge] local URL: http://127.0.0.1:${PORT}`)
-  console.log(`[media-bridge] YouTube: browser cookies disabled — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA`)
+  console.log(
+    `[media-bridge] YouTube: YT_DLP_COOKIES_FILE → ${YT_DLP_COOKIES_PATH || '(disabled)'}; optional PO pair YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA`
+  )
   console.log(
     `[media-bridge] outbound proxy: ${
       OUTBOUND_PROXY_DISABLED
@@ -1141,11 +1167,24 @@ app.listen(PORT, HOST, () => {
           : 'NOT SET (using Render IP directly)'
     }`
   )
+  if (YT_DLP_BGUTIL_POT_BASE_URL) {
+    console.log(`[media-bridge] yt-dlp bgutil POT provider: youtubepot-bgutilhttp base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`)
+  } else {
+    console.warn('[media-bridge] yt-dlp bgutil POT provider disabled (YT_DLP_BGUTIL_POT_BASE_URL empty/off)')
+  }
+  if (YT_DLP_COOKIES_PATH) {
+    if (existsSync(YT_DLP_COOKIES_PATH)) {
+      console.log(`[media-bridge] yt-dlp will use --cookies ${YT_DLP_COOKIES_PATH}`)
+    } else {
+      console.warn(`[media-bridge] yt-dlp cookie file missing: ${YT_DLP_COOKIES_PATH} (export cookies to this path or set YT_DLP_COOKIES_FILE=)`)
+    }
+  }
+  console.log(`[media-bridge] yt-dlp format string: ${YT_DLP_FORMAT}`)
   if (YOUTUBE_PO_TOKEN || YOUTUBE_VISITOR_DATA) {
     const parts = []
     if (YOUTUBE_PO_TOKEN) parts.push('po_token')
     if (YOUTUBE_VISITOR_DATA) parts.push('visitor_data')
-    console.log(`[media-bridge] yt-dlp extractor-args will include: ${parts.join(', ')}`)
+    console.log(`[media-bridge] yt-dlp youtube: extractor-args will also include: ${parts.join(', ')}`)
     if (YOUTUBE_PO_TOKEN && !YOUTUBE_VISITOR_DATA) {
       console.warn(
         '[media-bridge] YOUTUBE_PO_TOKEN is set without YOUTUBE_VISITOR_DATA — YouTube usually rejects PO tokens not paired with the visitor_data that minted them.'
@@ -1872,18 +1911,43 @@ function pickYtdlFormatResult(info) {
 
 // --- yt-dlp CLI --------------------------------------------------------------
 
+/** `--plugin-dirs` (bundled + YT_DLP_PLUGIN_DIRS) and bgutil POT HTTP extractor-args. */
+function buildYtDlpPluginDirsAndPotArgs() {
+  const out = []
+  const bundledPlugins = path.join(SERVER_DIR, 'yt-dlp-plugins')
+  if (existsSync(bundledPlugins)) {
+    out.push('--plugin-dirs', bundledPlugins)
+  }
+  const extraDirs = (process.env.YT_DLP_PLUGIN_DIRS || '').trim()
+  if (extraDirs) {
+    for (const seg of extraDirs.split(/[;,]/)) {
+      const d = seg.trim()
+      if (!d) continue
+      out.push('--plugin-dirs', path.isAbsolute(d) ? d : path.join(SERVER_DIR, d))
+    }
+  }
+  if (YT_DLP_BGUTIL_POT_BASE_URL) {
+    out.push('--extractor-args', `youtubepot-bgutilhttp:base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`)
+  }
+  return out
+}
+
 async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPSTREAM_TIMEOUT_MS) {
+  mkdirSync(YT_DLP_CACHE_DIR, { recursive: true })
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
   const ytdlpStartedAt = Date.now()
   const ytdlpRemaining = () => Math.max(0, budgetMs - (Date.now() - ytdlpStartedAt))
-  /** youtube:player_client selects InnerTube clients; web_embedded + mweb look less like anonymous bot traffic. */
+  /** youtube:player_client selects InnerTube clients; tv + web_safari per current anti-throttle guidance. */
   const rawPrimaryExtractor = (process.env.YT_DLP_PRIMARY_EXTRACTOR_ARGS || '').trim()
   const primaryExtractorArgs = rawPrimaryExtractor
     ? rawPrimaryExtractor.startsWith('youtube:')
       ? rawPrimaryExtractor
       : `youtube:${rawPrimaryExtractor}`
-    : 'youtube:player_client=web'
+    : 'youtube:player_client=tv,web_safari'
+  const pluginPotArgs = buildYtDlpPluginDirsAndPotArgs()
+  const cookiesArgs = YT_DLP_COOKIES_PATH && existsSync(YT_DLP_COOKIES_PATH) ? ['--cookies', YT_DLP_COOKIES_PATH] : []
   const baseArgs = [
+    ...pluginPotArgs,
     '--no-warnings',
     '--no-cookies-from-browser',
     '--no-check-certificate',
@@ -1893,17 +1957,16 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
     YT_DLP_CACHE_DIR,
     '--get-url',
     /**
-     * `b/best` failed in production for videos that only expose adaptive (DASH) streams
-     * with no combined audio+video file, raising "Requested format is not available".
-     * The chain below tries: best progressive mp4 ≤720p → any best mp4 → any combined
-     * file (vcodec+acodec in the same stream) → finally fall back to whatever's there.
+     * Prefer merged ≤720p MP4 + M4A; avoid throttled low progressive (e.g. fmt 18).
+     * Override with YT_DLP_FORMAT.
      */
     '-f',
-    'b[ext=mp4][height<=720]/b[ext=mp4]/b[acodec!=none][vcodec!=none]/b/best',
+    YT_DLP_FORMAT,
     '--user-agent',
     YT_DLP_UA,
     '--add-header',
     'Accept-Language:en-US,en;q=0.9',
+    ...cookiesArgs,
   ]
   /** One --extractor-args per attempt — yt-dlp does not use separate --player-client CLI flags like some wrappers. */
   const attempts = [
