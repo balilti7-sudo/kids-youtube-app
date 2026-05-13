@@ -401,3 +401,297 @@ ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cooki
 [stream] resolve failed: yt-dlp exited with code 1
 ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
 
+[media-bridge] yt-dlp cookie file missing: C:\Users\eladtheking1010\kids-youtube-app\server\youtube_cookies.txt (export cookies to this path or set YT_DLP_COOKIES_FILE=)
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+[invidious] https://inv.nadeko.net status 403, trying next instance
+[deadcache] https://inv.nadeko.net marked dead for 300s (http 403)
+[invidious] https://vid.puffyan.us status 502, trying next instance
+[deadcache] https://vid.puffyan.us marked dead for 300s (http 502)
+[invidious] https://invidious.private.coffee status 502, trying next instance
+[deadcache] https://invidious.private.coffee marked dead for 300s (http 502)
+[invidious] https://invidious.jing.rocks request error: fetch failed
+[deadcache] https://invidious.jing.rocks marked dead for 300s (network: fetch failed)
+[invidious] https://invidious.slipfox.xyz request error: fetch failed
+[deadcache] https://invidious.slipfox.xyz marked dead for 300s (network: fetch failed)
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://yewtu.be status 403, trying next instance
+[deadcache] https://yewtu.be marked dead for 300s (http 403)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[invidious] https://invidious.fdn.fr request error: fetch failed
+[deadcache] https://invidious.fdn.fr marked dead for 300s (network: fetch failed)
+[piped] https://pa.mint.lgbt request error: fetch failed
+[deadcache] https://pa.mint.lgbt marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://invidious.perennialte.ch status 403, trying next instance
+[deadcache] https://invidious.perennialte.ch marked dead for 300s (http 403)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pipedapi.privacydev.net request error: fetch failed
+[deadcache] https://pipedapi.privacydev.net marked dead for 300s (network: fetch failed)
+[piped] https://api.vkr.dev request error: fetch failed
+[deadcache] https://api.vkr.dev marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15
+const express = require('express');
+                ^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and 'C:\Users\eladtheking1010\kids-youtube-app\server\package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///C:/Users/eladtheking1010/kids-youtube-app/server/index.js:15:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+node:internal/modules/cjs/loader:1479
+  throw err;
+  ^
+
+Error: Cannot find module 'C:\Users\eladtheking1010\kids-youtube-app\server\index.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1476:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1049:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1073:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1094:12)
+    at Module._load (node:internal/modules/cjs/loader:1262:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v24.15.0
+node:internal/modules/cjs/loader:1479
+  throw err;
+  ^
+
+Error: Cannot find module 'C:\Users\eladtheking1010\kids-youtube-app\server\index.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1476:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1049:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1073:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1094:12)
+    at Module._load (node:internal/modules/cjs/loader:1262:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v24.15.0
+node:internal/modules/cjs/loader:1479
+  throw err;
+  ^
+
+Error: Cannot find module 'C:\Users\eladtheking1010\kids-youtube-app\server\index.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1476:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1049:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1073:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1094:12)
+    at Module._load (node:internal/modules/cjs/loader:1262:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v24.15.0
+node:internal/modules/cjs/loader:1479
+  throw err;
+  ^
+
+Error: Cannot find module 'C:\Users\eladtheking1010\kids-youtube-app\server\index.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1476:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1049:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1073:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1094:12)
+    at Module._load (node:internal/modules/cjs/loader:1262:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v24.15.0
