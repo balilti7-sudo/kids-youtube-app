@@ -68,7 +68,6 @@ sudo nano /etc/safetube-bridge.env
 Set every line that says `FIXME`:
 
 - `PUBLIC_BASE_URL`             — your Cloudflare Tunnel URL, no trailing slash
-- `YOUTUBE_COOKIES_FILE`        — absolute path to your Netscape cookies.txt
 - `SUPABASE_URL`                — `https://YOUR_PROJECT_REF.supabase.co`
 - `SUPABASE_ANON_KEY`           — Supabase anon key
 - `MEDIA_BRIDGE_GRANT_SECRET`   — `openssl rand -hex 32`
@@ -154,9 +153,7 @@ Three things to try, in order:
    `web.gvs+%s` to `web+%s`, then rerun.
 2. Try multi-client: also change the `printf` line to
    `printf 'YOUTUBE_PO_TOKEN=web.gvs+%s,web.player+%s,mweb.gvs+%s\n' "$PO" "$PO" "$PO"`.
-3. Re-export `cookies.txt` from the same browser profile + Google account, in
-   the same calendar day — stale cookies + fresh PO token is a common rejection
-   pattern.
+3. Regenerate the PO token + visitor_data pair (same session) and restart the bridge — mismatched or stale pairs are a common rejection pattern.
 
 **Bridge keeps the SAME tokens after a refresh that "succeeded"**
 The `npm install` in the generator dir failed silently. Run it manually:

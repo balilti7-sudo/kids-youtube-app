@@ -54,11 +54,9 @@ Required service env vars:
 - `SUPABASE_URL=https://<your-project>.supabase.co`
 - `SUPABASE_ANON_KEY=<anon-key>`
 - `MEDIA_BRIDGE_GRANT_SECRET=<long-random-secret>`
-- `YOUTUBE_COOKIES_FILE=/etc/secrets/youtube.com_cookies.txt`
+- `YOUTUBE_PO_TOKEN` and `YOUTUBE_VISITOR_DATA` (same session; see yt-dlp PO Token Guide)
 
-Also upload your cookies file as a Render secret file at:
-
-- `/etc/secrets/youtube.com_cookies.txt`
+Do **not** set `YOUTUBE_COOKIES`, `YTDL_COOKIES`, or `YOUTUBE_COOKIES_FILE` — the bridge clears them at startup.
 
 ### Railway
 
@@ -68,10 +66,7 @@ Create a service from the repo and set:
 - Build command: `npm install`
 - Start command: `npm start`
 
-Use the same env vars as Render. For cookies, either:
-
-- Add file storage and point `YOUTUBE_COOKIES_FILE` to it, or
-- Set `YOUTUBE_COOKIES` (header-style cookie string) if file mounts are inconvenient.
+Use the same env vars as Render. For YouTube, set `YOUTUBE_PO_TOKEN` and `YOUTUBE_VISITOR_DATA` (paired).
 
 ## After backend is live: update Vercel
 

@@ -124,7 +124,6 @@ The env file was just created from the template. EDIT IT before starting the bri
 
 Fill in every line that says FIXME:
   - PUBLIC_BASE_URL          (your Cloudflare Tunnel URL, no trailing slash)
-  - YOUTUBE_COOKIES_FILE     (absolute path to your Netscape cookies.txt)
   - SUPABASE_URL             (https://YOUR_PROJECT_REF.supabase.co)
   - SUPABASE_ANON_KEY        (Supabase anon key)
   - MEDIA_BRIDGE_GRANT_SECRET    (generate with: openssl rand -hex 32)

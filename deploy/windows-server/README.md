@@ -86,7 +86,6 @@ Set every line that says `FIXME`:
 | Variable                       | What to put                                                                                |
 | ------------------------------ | ------------------------------------------------------------------------------------------ |
 | `PUBLIC_BASE_URL`              | Your Cloudflare Tunnel URL, no trailing slash (e.g. `https://xyz.trycloudflare.com`)       |
-| `YOUTUBE_COOKIES_FILE`         | Absolute path to `youtube.com_cookies.txt` — backslashes need doubling: `C:\\path\\to\\file.txt` |
 | `SUPABASE_URL`                 | `https://ioylyyqlluenkkltguhf.supabase.co` (from your dev `.env`)                          |
 | `SUPABASE_ANON_KEY`            | The anon key from your dev `.env`                                                          |
 | `MEDIA_BRIDGE_GRANT_SECRET`    | Random hex string — see below                                                              |
@@ -122,7 +121,7 @@ Within ~10 seconds you should see:
 [start-bridge] loaded N env vars
 [media-bridge] listening on http://0.0.0.0:3001 ...
 [media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
-[auth] cookies ready (...)
+[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)
 ```
 
 Stop tailing with Ctrl+C and verify the scheduled task succeeded:

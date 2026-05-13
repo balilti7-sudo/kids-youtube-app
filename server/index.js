@@ -6,7 +6,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
-import { chmodSync, copyFileSync, existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
@@ -47,6 +47,14 @@ if (inheritedMediaBridgeHostFromShell !== undefined && String(inheritedMediaBrid
 if (inheritedHostFromShell !== undefined && String(inheritedHostFromShell).trim() !== '') {
   process.env.HOST = inheritedHostFromShell
 }
+
+// YouTube: browser cookie headers and cookie files are not supported — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA only.
+for (const k of ['YOUTUBE_COOKIES', 'YTDL_COOKIES', 'YOUTUBE_COOKIES_FILE']) {
+  if (process.env[k] != null && String(process.env[k]).trim() !== '') {
+    process.env[k] = ''
+  }
+}
+
 const LOCAL_DEFAULT_YT_DLP =
   process.platform === 'win32' ? path.join(SERVER_DIR, 'yt-dlp.exe') : path.join(SERVER_DIR, 'yt-dlp')
 // On hosted Linux (Render/Railway), local binary may not exist on first deploy.
@@ -178,25 +186,6 @@ const YT_DLP_ENABLE = (process.env.YT_DLP_ENABLE || '1').toLowerCase() === '1' |
  */
 const YTDL_RESOLVE_ENABLE =
   (process.env.YTDL_RESOLVE_ENABLE || '').toLowerCase() === '1' || process.env.YTDL_RESOLVE_ENABLE === 'true'
-/** Netscape cookies export; helps yt-dlp pass YouTube bot checks when present. */
-const YT_DLP_DEFAULT_COOKIES = path.join(SERVER_DIR, 'youtube.com_cookies.txt')
-/** Drop Netscape `cookies.txt` here for yt-dlp `--cookies` (same format as browser export). */
-const YT_DLP_COOKIES_TXT = path.join(SERVER_DIR, 'cookies.txt')
-const RENDER_YT_COOKIES_PATH = '/etc/secrets/youtube_cookies.txt'
-const WRITABLE_YT_COOKIES_PATH = '/tmp/youtube_cookies.txt'
-
-/**
- * Netscape cookies.txt for yt-dlp + auth checks.
- * Order: `YOUTUBE_COOKIES_FILE` → `./cookies.txt` → Render secret → `youtube.com_cookies.txt`.
- */
-function resolveReadonlyNetscapeCookiesPath() {
-  const fromEnv = (process.env.YOUTUBE_COOKIES_FILE || '').trim()
-  if (fromEnv) return fromEnv
-  if (existsSync(YT_DLP_COOKIES_TXT)) return YT_DLP_COOKIES_TXT
-  if (existsSync(RENDER_YT_COOKIES_PATH)) return RENDER_YT_COOKIES_PATH
-  if (existsSync(YT_DLP_DEFAULT_COOKIES)) return YT_DLP_DEFAULT_COOKIES
-  return ''
-}
 const YT_DLP_CACHE_DIR = '/tmp/yt-dlp-cache'
 const YT_OAUTH_TOKEN_PATH = (process.env.YT_OAUTH_TOKEN_PATH || '/etc/secrets/yt_oauth_token.json').trim()
 const YT_UPSTREAM_TIMEOUT_MS = 60_000
@@ -237,10 +226,8 @@ function isInstanceDead(base) {
 }
 
 /**
- * "Cookies / YouTube auth appear stale" cooldown — set when ytdl returns 429 or yt-dlp's
- * cookie attempt hits a sign-in/bot gate. While active, the resolver demotes the
- * cookie-aware backends and tries Invidious/Piped first to stop wasting budget on calls
- * that we already know YouTube will block. Any successful resolution clears it.
+ * YouTube auth cooldown — set when ytdl returns 429 or yt-dlp hits a sign-in/bot gate.
+ * While active, Invidious/Piped are tried first. Any successful resolution clears it.
  */
 const YT_AUTH_STALE_TTL_MS = Number(process.env.YT_AUTH_STALE_TTL_MS) || 5 * 60 * 1000
 let ytAuthStaleUntil = 0
@@ -255,7 +242,7 @@ function isYtAuthStale() {
 function markYtAuthStaleNow(reason = 'unspecified') {
   ytAuthStaleUntil = Date.now() + YT_AUTH_STALE_TTL_MS
   console.warn(
-    `[ytauth] cookies/auth marked STALE for ${Math.round(YT_AUTH_STALE_TTL_MS / 1000)}s (reason=${reason}) — preferring invidious/piped during cooldown`
+    `[ytauth] YouTube auth marked STALE for ${Math.round(YT_AUTH_STALE_TTL_MS / 1000)}s (reason=${reason}) — preferring invidious/piped during cooldown`
   )
 }
 function clearYtAuthStale() {
@@ -264,8 +251,6 @@ function clearYtAuthStale() {
   }
   ytAuthStaleUntil = 0
 }
-const LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['SID', 'HSID', 'SSID', 'SAPISID']
-const SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS']
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim()
 const SUPABASE_ANON_KEY = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim()
 /** Service role — Media Bridge only; never expose to the browser. Used for pairing-code reminder emails. */
@@ -293,13 +278,13 @@ const MODERN_CHROME_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 const BROWSER_UA = (process.env.BROWSER_USER_AGENT || '').trim() || MODERN_CHROME_UA
 
-/** Match exported cookies/browser; override in Render via YT_DLP_USER_AGENT (Chrome UA recommended). */
-const CHROME_COOKIES_UA = MODERN_CHROME_UA
-const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_COOKIES_UA
+/** Default reference UA for yt-dlp when `YT_DLP_USER_AGENT` is unset (Chrome on Windows). */
+const CHROME_REF_UA = MODERN_CHROME_UA
+const YT_DLP_UA = (process.env.YT_DLP_USER_AGENT || '').trim() || CHROME_REF_UA
 
 /**
  * Optional YouTube PO token for yt-dlp (`CLIENT.CONTEXT+TOKEN`, see yt-dlp wiki PO-Token-Guide).
- * Merged into `--extractor-args` when set. Prefer fresh browser cookies on Render when possible.
+ * Merged into `--extractor-args` when set. Pair with `YOUTUBE_VISITOR_DATA` from the same session.
  *
  * Examples:
  *   web.gvs+TOKEN1                                  (single-client form)
@@ -313,6 +298,10 @@ const YOUTUBE_PO_TOKEN = (process.env.YOUTUBE_PO_TOKEN || '').trim()
  * Merged into yt-dlp `--extractor-args` alongside `po_token` when set.
  */
 const YOUTUBE_VISITOR_DATA = (process.env.YOUTUBE_VISITOR_DATA || '').trim()
+
+function hasYoutubePoPair() {
+  return Boolean(YOUTUBE_PO_TOKEN && YOUTUBE_VISITOR_DATA)
+}
 
 /** Merge a `key=value` pair into a yt-dlp `youtube:...` extractor-args inner string (idempotent). */
 function mergeYoutubeExtractorParam(inner, key, value) {
@@ -582,10 +571,9 @@ app.get('/health', (_req, res) => {
   res.status(200).setHeader('Cache-Control', 'no-store').type('application/json').send('{"ok":true}')
 })
 
-/** Optional: cookie + email config snapshot (heavier — use for debugging, not for frequent pings). */
+/** Optional: bridge auth snapshot (heavier — use for debugging, not for frequent pings). */
 app.get('/health/verbose', (_req, res) => {
-  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
-  const cookies = inspectYoutubeCookiesFile(cookiesFile)
+  const po = hasYoutubePoPair()
   res.json({
     ok: true,
     service: 'safetube-media-bridge',
@@ -596,14 +584,10 @@ app.get('/health/verbose', (_req, res) => {
     },
     auth: {
       ytDlpEnabled: YT_DLP_ENABLE,
-      cookiesFile: cookies.filePath || null,
-      cookiesFileUsable: cookies.usable,
-      hasRequiredAuthCookies: cookies.hasRequiredAuthCookies,
-      presentRequiredCookies: cookies.presentRequiredCookies,
-      requiredCookies: [...LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES],
-      secureRequiredCookies: [...SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES],
-      cookiesReason: cookies.reason || null,
-      lastModifiedAt: cookies.lastModifiedAt,
+      youtubeCookiesDisabled: true,
+      poTokenConfigured: Boolean(YOUTUBE_PO_TOKEN),
+      visitorDataConfigured: Boolean(YOUTUBE_VISITOR_DATA),
+      poPairReady: po,
     },
   })
 })
@@ -613,7 +597,7 @@ app.get('/health/verbose', (_req, res) => {
  * Global, read-only system diagnostics. Reports:
  *  - the bridge's *outbound* public IP (so you can confirm whether YouTube/Piped/Invidious
  *    are blocking the Render IP specifically),
- *  - yt-dlp + ytdl-core versions, cookies file freshness/usability,
+ *  - yt-dlp + ytdl-core versions, PO token / visitor_data flags,
  *  - current `auth-stale` cooldown + dead-instance cache,
  *  - parallel reachability probes against the configured Piped + Invidious instances
  *    (uses a known-public test video to avoid side effects).
@@ -630,11 +614,11 @@ app.get('/api/diagnostics', async (_req, res) => {
     'accept-language': 'en-US,en;q=0.9',
   }
 
-  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
-  const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
-  const ytdlEnvCookieCount = parseYoutubeCookieHeader(
-    process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || ''
-  ).length
+  const poDiag = {
+    poTokenConfigured: Boolean(YOUTUBE_PO_TOKEN),
+    visitorDataConfigured: Boolean(YOUTUBE_VISITOR_DATA),
+    pairReady: hasYoutubePoPair(),
+  }
 
   const deadSnapshot = []
   for (const [base, exp] of deadInstances.entries()) {
@@ -679,10 +663,6 @@ app.get('/api/diagnostics', async (_req, res) => {
     Promise.all(invidiousJobs),
   ])
 
-  const lastModifiedMs = cookieStatus.lastModifiedAt
-    ? new Date(cookieStatus.lastModifiedAt).getTime()
-    : null
-
   res.json({
     ok: true,
     elapsedMs: Date.now() - startedAt,
@@ -711,26 +691,26 @@ app.get('/api/diagnostics', async (_req, res) => {
       configured: Boolean(OUTBOUND_PROXY_URL),
       urlMasked: maskProxyUrl(OUTBOUND_PROXY_URL),
       httpTunnelActive: Boolean(getUndiciProxyDispatcher()),
-      poTokenConfigured: Boolean((process.env.YOUTUBE_PO_TOKEN || '').trim()),
+      poTokenConfigured: Boolean(YOUTUBE_PO_TOKEN),
+      visitorDataConfigured: Boolean(YOUTUBE_VISITOR_DATA),
     },
+    youtubePo: poDiag,
     versions: {
       ytDlp: ytDlpVer,
       ytDlpPath: YT_DLP_PATH,
       ytDlpEnabled: YT_DLP_ENABLE,
     },
     cookies: {
-      filePath: cookieStatus.filePath || null,
-      usable: cookieStatus.usable,
-      hasRequiredAuthCookies: cookieStatus.hasRequiredAuthCookies,
-      presentRequiredCookies: cookieStatus.presentRequiredCookies,
-      missingRequiredCookies: cookieStatus.missingRequiredCookies,
-      reason: cookieStatus.reason || null,
-      lastModifiedAt: cookieStatus.lastModifiedAt,
-      ageHours:
-        lastModifiedMs != null
-          ? Math.round((Date.now() - lastModifiedMs) / 3_600_000)
-          : null,
-      ytdlEnvCookieCount,
+      disabled: true,
+      filePath: null,
+      usable: false,
+      hasRequiredAuthCookies: false,
+      presentRequiredCookies: [],
+      missingRequiredCookies: [],
+      reason: 'Browser cookies disabled — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA',
+      lastModifiedAt: null,
+      ageHours: null,
+      ytdlEnvCookieCount: 0,
     },
     auth: {
       stale: isYtAuthStale(),
@@ -768,7 +748,7 @@ app.get('/api/diagnostics', async (_req, res) => {
 
 /**
  * GET /api/diagnostics/stream/:videoId
- * Read-only diagnostics: shows which resolver path works/fails and whether auth cookies are usable.
+ * Read-only diagnostics: shows which resolver path works/fails and PO token readiness.
  */
 app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
   const raw = req.params.videoId
@@ -776,19 +756,15 @@ app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
   if (!YT_ID_RE.test(raw)) return res.status(400).json({ error: 'Invalid YouTube video id' })
 
   const videoId = raw
-  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
-  const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
-  const ytdlCookieCount = parseYoutubeCookieHeader(process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').length
   const report = {
     ok: false,
     videoId,
     checkedAt: new Date().toISOString(),
     auth: {
-      ytdlCookieHeaderCount: ytdlCookieCount,
-      ytDlpCookiesFile: cookieStatus.filePath || null,
-      ytDlpCookiesUsable: cookieStatus.usable,
-      ytDlpHasRequiredAuthCookies: cookieStatus.hasRequiredAuthCookies,
-      ytDlpMissingReason: cookieStatus.reason || null,
+      youtubeCookiesDisabled: true,
+      poTokenConfigured: Boolean(YOUTUBE_PO_TOKEN),
+      visitorDataConfigured: Boolean(YOUTUBE_VISITOR_DATA),
+      poPairReady: hasYoutubePoPair(),
     },
     resolvers: {
       piped: { ok: false, detail: null, data: null },
@@ -970,7 +946,8 @@ app.get('/api/stream/:videoId', async (req, res) => {
       return res.status(429).json({
         error: 'BOT_CHECK',
         detail: message,
-        message: 'YouTube requested bot verification. Refresh exported cookies and try again.',
+        message:
+          'YouTube requested bot verification. Refresh YOUTUBE_PO_TOKEN and YOUTUBE_VISITOR_DATA (same session) and restart the bridge.',
         requiresAuth: true,
       })
     }
@@ -986,7 +963,8 @@ app.get('/api/stream/:videoId', async (req, res) => {
       return res.status(428).json({
         error: 'AUTH_COOKIES_INVALID',
         detail: message,
-        message: 'YouTube auth cookies are missing/expired. Export fresh cookies.txt from a signed-in browser.',
+        message:
+          'YouTube blocked this request. Set a valid YOUTUBE_PO_TOKEN and YOUTUBE_VISITOR_DATA pair (from the same session) on the bridge.',
         requiresAuth: true,
       })
     }
@@ -1025,7 +1003,8 @@ app.get('/api/media/:videoId', async (req, res) => {
         return res.status(429).json({
           error: 'BOT_CHECK',
           detail: message,
-          message: 'YouTube requested bot verification. Refresh exported cookies and try again.',
+          message:
+          'YouTube requested bot verification. Refresh YOUTUBE_PO_TOKEN and YOUTUBE_VISITOR_DATA (same session) and restart the bridge.',
           requiresAuth: true,
         })
       }
@@ -1041,7 +1020,8 @@ app.get('/api/media/:videoId', async (req, res) => {
         return res.status(428).json({
           error: 'AUTH_COOKIES_INVALID',
           detail: message,
-          message: 'YouTube auth cookies are missing/expired. Export fresh cookies.txt from a signed-in browser.',
+          message:
+          'YouTube blocked this request. Set a valid YOUTUBE_PO_TOKEN and YOUTUBE_VISITOR_DATA pair (from the same session) on the bridge.',
           requiresAuth: true,
         })
       }
@@ -1151,19 +1131,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, HOST, () => {
   console.log(`[media-bridge] listening on http://${HOST}:${PORT} (all interfaces — use your LAN/public IP from other machines)`)
   console.log(`[media-bridge] local URL: http://127.0.0.1:${PORT}`)
-  const rawCookies = (process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()
-  const headerCount = parseYoutubeCookieHeader(rawCookies).length
-  const cookieFilePath = resolveReadonlyNetscapeCookiesPath()
-  const fileCount = headerCount > 0 ? 0 : parseNetscapeCookiesFile(cookieFilePath).length
-  let cookieMsg
-  if (headerCount > 0) {
-    cookieMsg = `env header (${headerCount} name=value pairs)`
-  } else if (fileCount > 0) {
-    cookieMsg = `cookies file ${cookieFilePath} (${fileCount} entries)`
-  } else {
-    cookieMsg = 'NONE — add server/cookies.txt (Netscape), set YOUTUBE_COOKIES_FILE, or use YOUTUBE_COOKIES env'
-  }
-  console.log(`[media-bridge] ytdl cookies source: ${cookieMsg}`)
+  console.log(`[media-bridge] YouTube: browser cookies disabled — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA`)
   console.log(
     `[media-bridge] outbound proxy: ${
       OUTBOUND_PROXY_DISABLED
@@ -1215,15 +1183,11 @@ app.listen(PORT, HOST, () => {
   console.log(
     `[media-bridge] Email: Resend ${(process.env.RESEND_API_KEY || '').trim() ? 'ON' : 'OFF (set RESEND_API_KEY)'}; welcome route secret ${MEDIA_BRIDGE_WELCOME_KEY ? 'ON' : 'OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)'}`
   )
-  const cookiesFile = resolveReadonlyNetscapeCookiesPath()
-  const cookies = inspectYoutubeCookiesFile(cookiesFile)
-  if (!cookies.usable || !cookies.hasRequiredAuthCookies) {
-    console.warn(
-      `[auth] cookies not ready (${cookies.reason || 'unknown'}). If YouTube returns BOT_CHECK/PRIVATE_VIDEO, export a fresh Netscape cookies.txt from a signed-in browser.`
-    )
+  if (hasYoutubePoPair()) {
+    console.log('[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)')
   } else {
-    console.log(
-      `[auth] cookies ready (${cookies.cookieCount} entries, required auth cookies: ${cookies.presentRequiredCookies.join(', ')})`
+    console.warn(
+      '[auth] Missing PO pair — set both YOUTUBE_PO_TOKEN and YOUTUBE_VISITOR_DATA from the same session, or YouTube may return 403 / bot checks.'
     )
   }
 })
@@ -1279,22 +1243,11 @@ function getSegmentRec(token) {
 
 // --- resolution chain --------------------------------------------------------
 
-/**
- * Resolves an active cookies source — env header OR Netscape file (used by yt-dlp).
- */
-function hasUsableYoutubeAuth() {
-  if ((process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || '').trim()) return true
-  const cookieFilePath = resolveReadonlyNetscapeCookiesPath()
-  if (!cookieFilePath) return false
-  const status = inspectYoutubeCookiesFile(cookieFilePath)
-  return Boolean(status.usable && status.hasRequiredAuthCookies)
-}
-
 async function resolveUpstream(videoId) {
   const startedAt = Date.now()
   const remaining = () => Math.max(0, OVERALL_RESOLVE_BUDGET_MS - (Date.now() - startedAt))
   let lastErr
-  const cookiesReady = hasUsableYoutubeAuth()
+  const poPairReady = hasYoutubePoPair()
   const authStale = isYtAuthStale()
   /**
    * Resolver order (2026-05): **yt-dlp first** whenever enabled — it returns plain URLs
@@ -1307,7 +1260,7 @@ async function resolveUpstream(videoId) {
   resolverOrder.push('invidious', 'piped')
   if (YTDL_RESOLVE_ENABLE) resolverOrder.push('ytdl')
   console.log(
-    `[resolve] order=${resolverOrder.join('->')} cookies=${cookiesReady ? 'ready' : 'absent'} authStale=${authStale} ytdlCore=${YTDL_RESOLVE_ENABLE ? 'on' : 'off'}`
+    `[resolve] order=${resolverOrder.join('->')} poPair=${poPairReady ? 'ready' : 'absent'} authStale=${authStale} ytdlCore=${YTDL_RESOLVE_ENABLE ? 'on' : 'off'}`
   )
 
   for (const stage of resolverOrder) {
@@ -1654,91 +1607,34 @@ async function resolveViaInvidious(videoId, budgetMs = INVIDIOUS_PER_INSTANCE_TI
 
 // --- ytdl (already @distube/ytdl-core) --------------------------------------
 
-function parseYoutubeCookieHeader(raw) {
-  if (!raw || typeof raw !== 'string') return []
-  return raw
-    .split(';')
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((pair) => {
-      const i = pair.indexOf('=')
-      if (i === -1) return null
-      const name = pair.slice(0, i).trim()
-      const value = pair.slice(i + 1).trim()
-      if (!name) return null
-      return { name, value, domain: '.youtube.com' }
-    })
-    .filter(Boolean)
-}
-
-/**
- * Parse a Netscape/Mozilla cookies.txt file (the same format yt-dlp consumes) into the
- * `[{name, value, domain}, ...]` shape that `@distube/ytdl-core`'s `createAgent` expects.
- * Lets us reuse the YouTube secret already mounted at `/etc/secrets/...` so `ytdl` no longer
- * hits anonymous-IP rate limits (HTTP 429) on Render.
- */
-function parseNetscapeCookiesFile(filePath) {
-  if (!filePath || !existsSync(filePath)) return []
-  let text = ''
-  try {
-    text = readFileSync(filePath, 'utf8')
-  } catch {
-    return []
-  }
-  const cookies = []
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line) continue
-    if (line.startsWith('#') && !line.startsWith('#HttpOnly_')) continue
-    const cleaned = line.startsWith('#HttpOnly_') ? line.slice('#HttpOnly_'.length) : line
-    const parts = cleaned.split('\t')
-    if (parts.length < 7) continue
-    const [domain, , path, , , name, value] = parts
-    if (!name || value === undefined) continue
-    cookies.push({ name, value, domain: domain || '.youtube.com', path: path || '/' })
-  }
-  return cookies
-}
-
+/** ytdl-core agent: optional outbound proxy only (no browser cookies). */
 function getYtdlAgent() {
-  const rawHeader = process.env.YOUTUBE_COOKIES || process.env.YTDL_COOKIES || ''
-  const cookieFilePath = resolveReadonlyNetscapeCookiesPath()
-
-  const cookies = rawHeader.trim() ? parseYoutubeCookieHeader(rawHeader) : parseNetscapeCookiesFile(cookieFilePath)
-  const source = rawHeader.trim() ? 'env-header' : cookieFilePath ? `file:${cookieFilePath}` : 'none'
   const proxyTag = OUTBOUND_PROXY_URL ? 'proxy' : 'direct'
-  const key = `${proxyTag}::${source}::${cookies.length}`
+  const key = `${proxyTag}::no-cookies`
   if (cachedYtdlAgent.key === key && cachedYtdlAgent.agent) {
     return cachedYtdlAgent.agent
   }
   let agent = null
-  if (cookies.length > 0 || OUTBOUND_PROXY_URL) {
-    if (OUTBOUND_PROXY_URL && typeof ytdl.createProxyAgent === 'function') {
-      // @distube/ytdl-core ≥4: dedicated factory that keeps the cookie jar AND
-      // routes the underlying socket through the proxy.
-      try {
-        agent = ytdl.createProxyAgent({ uri: OUTBOUND_PROXY_URL }, cookies.length ? cookies : undefined)
-      } catch (err) {
-        console.warn('[ytdl] createProxyAgent failed, falling back to direct:', err && err.message ? err.message : err)
-      }
+  if (OUTBOUND_PROXY_URL && typeof ytdl.createProxyAgent === 'function') {
+    try {
+      agent = ytdl.createProxyAgent({ uri: OUTBOUND_PROXY_URL }, undefined)
+    } catch (err) {
+      console.warn('[ytdl] createProxyAgent failed, falling back to direct:', err && err.message ? err.message : err)
     }
-    if (!agent) {
-      if (OUTBOUND_PROXY_URL && isHttpSchemeProxy(OUTBOUND_PROXY_URL)) {
-        console.error(
-          `[ytdl] OUTBOUND_PROXY_URL is set (${maskProxyUrl(OUTBOUND_PROXY_URL)}) but proxy agent unavailable — tunneling FAILED, falling back to direct (YouTube likely still sees Render IP).`
-        )
-      }
-      agent = cookies.length > 0 ? ytdl.createAgent(cookies) : null
-    }
+  }
+  if (!agent && OUTBOUND_PROXY_URL && isHttpSchemeProxy(OUTBOUND_PROXY_URL)) {
+    console.error(
+      `[ytdl] OUTBOUND_PROXY_URL is set (${maskProxyUrl(OUTBOUND_PROXY_URL)}) but proxy agent unavailable — tunneling FAILED, falling back to direct (YouTube likely still sees server IP).`
+    )
   }
   cachedYtdlAgent = { key, agent }
   const proxyMsg = OUTBOUND_PROXY_URL ? ` via proxy ${maskProxyUrl(OUTBOUND_PROXY_URL)}` : ''
-  if (cookies.length > 0) {
-    console.log(`[ytdl] using cookies (count: ${cookies.length}, source: ${source})${proxyMsg}`)
-  } else if (OUTBOUND_PROXY_URL) {
-    console.log(`[ytdl] no cookies, requesting${proxyMsg}`)
+  if (OUTBOUND_PROXY_URL) {
+    console.log(`[ytdl] requesting${proxyMsg} (no browser cookies; use PO token + visitor_data for yt-dlp)`)
   } else {
-    console.warn('[ytdl] no cookies available — anonymous requests are likely to hit YouTube rate limits (429)')
+    console.warn(
+      '[ytdl] no outbound proxy — anonymous YouTube requests may rate-limit (429); yt-dlp path uses YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA when set'
+    )
   }
   return agent
 }
@@ -1918,7 +1814,7 @@ async function resolveViaYtdl(videoId, budgetMs = YTDL_GETINFO_TIMEOUT_MS * YTDL
       lastError = e instanceof Error ? e : new Error(String(e))
       const msg = lastError.message || ''
       if (/\b429\b|too many requests/i.test(msg)) {
-        markYtAuthStaleNow('ytdl 429 (likely IP rate-limited even with cookies)')
+        markYtAuthStaleNow('ytdl 429 (likely IP rate-limited)')
         throw lastError
       }
       if (isLikelyYtdlBotError(e)) {
@@ -1987,8 +1883,6 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
       ? rawPrimaryExtractor
       : `youtube:${rawPrimaryExtractor}`
     : 'youtube:player_client=web'
-  const readonlyCookiesPath = resolveReadonlyNetscapeCookiesPath()
-  const writableCookiesPath = ensureWritableCookies(readonlyCookiesPath)
   const baseArgs = [
     '--no-warnings',
     '--no-cookies-from-browser',
@@ -2011,42 +1905,20 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
     '--add-header',
     'Accept-Language:en-US,en;q=0.9',
   ]
-  if (writableCookiesPath) {
-    baseArgs.push('--cookies', writableCookiesPath)
-  } else if (readonlyCookiesPath) {
-    console.warn(`[ytdlp] cookies file exists but writable copy is unavailable (${readonlyCookiesPath}); continuing without --cookies`)
-  }
-  /** yt-dlp: always direct egress — no `--proxy` (paid/broken proxies cause 402 ProxyError). */
-  const cookiesFile = writableCookiesPath || readonlyCookiesPath
-  const cookieStatus = inspectYoutubeCookiesFile(cookiesFile)
   /** One --extractor-args per attempt — yt-dlp does not use separate --player-client CLI flags like some wrappers. */
-  const attempts = []
-  if (cookieStatus.usable && cookieStatus.hasRequiredAuthCookies) {
-    attempts.push({
-      name: 'cookies-web_embedded',
+  const attempts = [
+    {
+      name: 'web_embedded',
       args: ['--extractor-args', applyYoutubeAuthExtractorArgs(primaryExtractorArgs)],
-    })
-    attempts.push({
-      name: 'cookies-fallback_tv',
+    },
+    {
+      name: 'fallback_tv',
       args: [
         '--extractor-args',
         applyYoutubeAuthExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
       ],
-    })
-  } else if (cookieStatus.filePath) {
-    console.warn(`[ytdlp] cookies file not auth-ready (${cookieStatus.reason || 'unknown'})`)
-  }
-  attempts.push({
-    name: 'no-cookies-web_embedded',
-    args: ['--extractor-args', applyYoutubeAuthExtractorArgs(primaryExtractorArgs)],
-  })
-  attempts.push({
-    name: 'no-cookies-fallback_tv',
-    args: [
-      '--extractor-args',
-      applyYoutubeAuthExtractorArgs('youtube:player_client=tv_embedded,android,ios'),
-    ],
-  })
+    },
+  ]
 
   const ff = bundledFfmpegPath()
   const ffmpegArgs = ff ? ['--ffmpeg-location', ff] : []
@@ -2105,20 +1977,6 @@ async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPS
         msg.includes("confirm you're not a bot") ||
         /\b403\b/.test(msg)
       if (looksLikeAuthGate) {
-        /**
-         * If we sent cookies and YouTube STILL demanded sign-in, the cookies are
-         * effectively dead (server-side session revoked or IP-tied). Burning the
-         * remaining ~50s of budget on more yt-dlp attempts blocks the resolver from
-         * reaching Invidious/Piped at all. Bail out fast so the upper resolver can
-         * fall through to the public proxy backends.
-         */
-        if (attempt.name.startsWith('cookies-')) {
-          markYtAuthStaleNow()
-          console.warn(
-            `[ytdlp] ${attempt.name} auth/bot gate WITH cookies — cookies appear stale, aborting yt-dlp early to free budget for invidious/piped`
-          )
-          throw e instanceof Error ? e : new Error(msg)
-        }
         console.warn(`[ytdlp] ${attempt.name} auth/bot gate, trying next mode`)
         continue
       }
@@ -2255,107 +2113,6 @@ function runYtDlpWithRealtimeLogs(args, timeoutMs) {
       resolve({ stdout, stderr, code })
     })
   })
-}
-
-function ensureWritableCookies(readonlyCookiesPath) {
-  if (!readonlyCookiesPath || !existsSync(readonlyCookiesPath)) return null
-  try {
-    const srcStat = statSync(readonlyCookiesPath)
-    let needCopy = true
-    if (existsSync(WRITABLE_YT_COOKIES_PATH)) {
-      const dstStat = statSync(WRITABLE_YT_COOKIES_PATH)
-      needCopy = srcStat.mtimeMs > dstStat.mtimeMs
-    }
-    if (needCopy) {
-      copyFileSync(readonlyCookiesPath, WRITABLE_YT_COOKIES_PATH)
-      chmodSync(WRITABLE_YT_COOKIES_PATH, 0o600)
-    }
-    return WRITABLE_YT_COOKIES_PATH
-  } catch (err) {
-    console.error('[ytdlp] failed to prepare writable cookies copy:', err)
-    return null
-  }
-}
-
-function hasUsableCookiesFile(filePath) {
-  if (!filePath) return false
-  if (!existsSync(filePath)) return false
-  try {
-    return statSync(filePath).size > 100
-  } catch {
-    return false
-  }
-}
-
-function inspectYoutubeCookiesFile(filePath) {
-  const out = {
-    filePath: filePath || '',
-    exists: false,
-    usable: false,
-    cookieCount: 0,
-    isNetscapeFormat: false,
-    hasRequiredAuthCookies: false,
-    presentRequiredCookies: [],
-    reason: '',
-    lastModifiedAt: null,
-  }
-  if (!filePath) {
-    out.reason = 'cookies file path not configured'
-    return out
-  }
-  if (!existsSync(filePath)) {
-    out.reason = 'cookies file does not exist'
-    return out
-  }
-  out.exists = true
-  try {
-    const st = statSync(filePath)
-    out.lastModifiedAt = new Date(st.mtimeMs).toISOString()
-    if (st.size <= 100) {
-      out.reason = 'cookies file is too small'
-      return out
-    }
-    const text = readFileSync(filePath, 'utf8')
-    const lines = text.split(/\r?\n/)
-    out.isNetscapeFormat = lines[0]?.trim() === '# Netscape HTTP Cookie File'
-    if (!out.isNetscapeFormat) {
-      out.reason = 'cookies file is not Netscape format'
-      return out
-    }
-    const cookieNames = new Set()
-    for (const line of lines) {
-      if (!line || line.startsWith('#')) continue
-      const parts = line.split('\t')
-      if (parts.length < 7) continue
-      out.cookieCount += 1
-      const name = (parts[5] || '').trim()
-      if (name) cookieNames.add(name)
-    }
-    const presentLegacyRequiredCookies = LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.filter((n) =>
-      cookieNames.has(n)
-    )
-    const presentSecureRequiredCookies = SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.filter((n) =>
-      cookieNames.has(n)
-    )
-    out.presentRequiredCookies = [...new Set([...presentLegacyRequiredCookies, ...presentSecureRequiredCookies])]
-    const hasLegacySet = presentLegacyRequiredCookies.length === LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.length
-    const hasSecureSet = presentSecureRequiredCookies.length === SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.length
-    out.hasRequiredAuthCookies = hasLegacySet || hasSecureSet
-    out.usable = out.cookieCount > 0
-    if (!out.usable) {
-      out.reason = 'cookies file has no cookie entries'
-      return out
-    }
-    if (!out.hasRequiredAuthCookies) {
-      out.reason = `missing required auth cookies (${LEGACY_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.join(', ')}) or secure auth cookies (${SECURE_REQUIRED_YOUTUBE_AUTH_COOKIE_NAMES.join(', ')})`
-      return out
-    }
-    out.reason = 'ok'
-    return out
-  } catch (e) {
-    out.reason = e instanceof Error ? e.message : String(e)
-    return out
-  }
 }
 
 function isPrivateVideoError(message) {

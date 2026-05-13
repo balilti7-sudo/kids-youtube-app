@@ -256,7 +256,6 @@ if ($envCreated) {
     Write-Host ""
     Write-Host "Fill in every line that says FIXME:"
     Write-Host "  - PUBLIC_BASE_URL          (your Cloudflare Tunnel URL, no trailing slash)"
-    Write-Host "  - YOUTUBE_COOKIES_FILE     (absolute path to your Netscape cookies.txt)"
     Write-Host "  - SUPABASE_URL             (https://YOUR_PROJECT_REF.supabase.co)"
     Write-Host "  - SUPABASE_ANON_KEY"
     Write-Host "  - MEDIA_BRIDGE_GRANT_SECRET    (generate any 64-char random string)"

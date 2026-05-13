@@ -28,7 +28,7 @@ function deriveSummary(d: BridgeDiagnostics | null, error: string | null): Deriv
   const pipedAlive = d.probes.piped.filter((p) => p.ok && !p.skipped).length
   const invidiousAlive = d.probes.invidious.filter((p) => p.ok && !p.skipped).length
   const anyExtractor = pipedAlive > 0 || invidiousAlive > 0
-  const cookiesOk = d.cookies.usable && d.cookies.hasRequiredAuthCookies
+  const poPairOk = d.youtubePo?.pairReady ?? false
   const ytDlpOk = d.versions.ytDlp.ok
 
   if (!d.outbound.direct?.ok && !anyExtractor) {
@@ -40,7 +40,7 @@ function deriveSummary(d: BridgeDiagnostics | null, error: string | null): Deriv
       longLabel: 'אין יציאת רשת ואף resolver לא עובד',
     }
   }
-  if (!anyExtractor && !cookiesOk && !ytDlpOk) {
+  if (!anyExtractor && !poPairOk && !ytDlpOk) {
     return {
       health: 'red',
       pipedAlive,
@@ -49,7 +49,7 @@ function deriveSummary(d: BridgeDiagnostics | null, error: string | null): Deriv
       longLabel: 'אין resolver זמין — לא נצליח לפתור סרטונים',
     }
   }
-  if (d.auth.stale || (!anyExtractor && cookiesOk)) {
+  if (d.auth.stale || (!anyExtractor && poPairOk)) {
     return {
       health: 'yellow',
       pipedAlive,
@@ -57,16 +57,16 @@ function deriveSummary(d: BridgeDiagnostics | null, error: string | null): Deriv
       shortLabel: 'מוגבל',
       longLabel: d.auth.stale
         ? `YouTube הגביל את ה-IP — שימוש במצב fallback (${d.auth.staleRemainingSec ?? 0} ש' נותרו)`
-        : 'מסתמך רק על cookies. שני ה-proxies מאוטים',
+        : 'מסתמך בעיקר על yt-dlp עם PO token — שני ה-proxies מאוטים',
     }
   }
-  if (!cookiesOk) {
+  if (!poPairOk) {
     return {
       health: 'yellow',
       pipedAlive,
       invidiousAlive,
       shortLabel: 'חלקי',
-      longLabel: 'cookies לא תקפים — חלק מהסרטונים לא יזורמו',
+      longLabel: 'חסר זוג PO (YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA) — חלק מהסרטונים עלולים להיכשל',
     }
   }
   return {
@@ -74,7 +74,7 @@ function deriveSummary(d: BridgeDiagnostics | null, error: string | null): Deriv
     pipedAlive,
     invidiousAlive,
     shortLabel: 'תקין',
-    longLabel: `${pipedAlive} Piped + ${invidiousAlive} Invidious פעילים, cookies תקפים`,
+    longLabel: `${pipedAlive} Piped + ${invidiousAlive} Invidious פעילים, זוג PO מוגדר`,
   }
 }
 
@@ -207,11 +207,16 @@ export function BridgeStatusBadge() {
                 mono
               />
               <Field
-                label="Cookies"
+                label="YouTube PO"
                 value={
-                  data.cookies.usable
-                    ? `תקפים (${data.cookies.ageHours ?? '?'} שעות, ${data.cookies.presentRequiredCookies.length}/7 נוכחים)`
-                    : data.cookies.reason ?? 'לא זמינים'
+                  data.youtubePo?.pairReady
+                    ? 'מוגדר (po_token + visitor_data)'
+                    : [
+                        !data.youtubePo?.poTokenConfigured && 'חסר po_token',
+                        !data.youtubePo?.visitorDataConfigured && 'חסר visitor_data',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || 'לא מוגדר'
                 }
               />
               <Field

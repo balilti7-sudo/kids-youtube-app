@@ -354,7 +354,7 @@ async function doFetchStreamInfo(
       }
       if (res.status === 403 && errorCode === 'PRIVATE_VIDEO') {
         throw new StreamApiError(
-          'הסרטון פרטי ודורש חשבון YouTube עם הרשאה מתאימה (cookies תקינים).',
+          'הסרטון פרטי — YouTube דורש הרשאה שלא זמינה דרך הגשר.',
           res.status,
           detail
         )
@@ -368,14 +368,14 @@ async function doFetchStreamInfo(
       }
       if (res.status === 429 && errorCode === 'BOT_CHECK') {
         throw new StreamApiError(
-          'YouTube זיהה אימות "לא רובוט". צריך לייצא מחדש cookies מחשבון מחובר ולנסות שוב.',
+          'YouTube דרש אימות "לא רובוט". יש לרענן את זוג ה-tokens (PO + visitor_data) בשרת הגשר.',
           res.status,
           detail
         )
       }
       if (res.status === 428 && errorCode === 'AUTH_COOKIES_INVALID') {
         throw new StreamApiError(
-          'קובץ ה-cookies של YouTube לא תקין או פג תוקף. יש לייצא מחדש cookies.txt מחשבון מחובר.',
+          'YouTube חסם את הבקשה. ודאו ש-YOUTUBE_PO_TOKEN ו-YOUTUBE_VISITOR_DATA מוגדרים בשרת הגשר (אותה סשן).',
           res.status,
           detail
         )
@@ -404,9 +404,21 @@ export interface BridgeDiagnostics {
     /** When an http(s) proxy is active, this is the public IP seen through the tunnel. */
     viaProxy: { ok: boolean; ip: string | null; ms?: number; status?: number; error?: string } | null
   }
-  proxy: { configured: boolean; urlMasked: string | null; httpTunnelActive?: boolean }
+  proxy: {
+    configured: boolean
+    urlMasked: string | null
+    httpTunnelActive?: boolean
+    poTokenConfigured?: boolean
+    visitorDataConfigured?: boolean
+  }
+  youtubePo?: {
+    poTokenConfigured: boolean
+    visitorDataConfigured: boolean
+    pairReady: boolean
+  }
   versions: { ytDlp: { ok: boolean; version?: string; error?: string } }
   cookies: {
+    disabled?: boolean
     usable: boolean
     hasRequiredAuthCookies: boolean
     presentRequiredCookies: string[]
