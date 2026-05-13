@@ -10,6 +10,15 @@ import { Input } from '../ui/Input'
 
 const WRONG_PASSWORD_HE = 'הסיסמה שגויה'
 
+/** Dev always; production when env is set, or when `PARENT_PIN_FORGOT_SHOW_SKIP_IN_PROD` is true (revert after one-off). */
+const PARENT_PIN_FORGOT_SHOW_SKIP_IN_PROD = false
+
+const SHOW_PARENT_PIN_FORGOT_SKIP_VERIFY =
+  import.meta.env.DEV ||
+  import.meta.env.VITE_PARENT_PIN_FORGOT_SKIP_VERIFY === '1' ||
+  import.meta.env.VITE_PARENT_PIN_FORGOT_SKIP_VERIFY === 'true' ||
+  PARENT_PIN_FORGOT_SHOW_SKIP_IN_PROD
+
 function isInvalidLoginCredentials(error: { message?: string; status?: number; code?: string }): boolean {
   const msg = (error.message ?? '').toLowerCase()
   if (error.code === 'invalid_credentials') return true
@@ -66,6 +75,8 @@ export function ParentalForgotPinModal({
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState('')
   const [accountReauthVerified, setAccountReauthVerified] = useState(false)
+  /** null = probing Supabase session vs userId */
+  const [activeSessionMatches, setActiveSessionMatches] = useState<boolean | null>(null)
 
   const resetForm = useCallback(() => {
     setAccountPassword('')
@@ -76,11 +87,28 @@ export function ParentalForgotPinModal({
     setOtpSent(false)
     setOtpCode('')
     setAccountReauthVerified(false)
+    setActiveSessionMatches(null)
   }, [])
 
   useEffect(() => {
     if (!open) resetForm()
   }, [open, resetForm])
+
+  useEffect(() => {
+    if (!open || !useEmailOtpInsteadOfPassword || !userId?.trim()) {
+      setActiveSessionMatches(null)
+      return
+    }
+    let cancelled = false
+    setActiveSessionMatches(null)
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return
+      setActiveSessionMatches(session?.user?.id === userId)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, useEmailOtpInsteadOfPassword, userId])
 
   const pinFieldsLocked = useEmailOtpInsteadOfPassword && !accountReauthVerified
 
@@ -188,7 +216,7 @@ export function ParentalForgotPinModal({
 
     if (useEmailOtpInsteadOfPassword) {
       if (!accountReauthVerified) {
-        setError('נא לשלוח קוד אימות לאימייל ולאמת אותו לפני שמירת קוד ההורה.')
+        setError('נא ללחוץ ״אשר לפי חיבור קיים״ או לאמת לפי המייל לפני שמירת קוד ההורה.')
         return
       }
     } else {
@@ -273,7 +301,7 @@ export function ParentalForgotPinModal({
                     שכחתי קוד הורה
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-zinc-400">
-                    {useEmailOtpInsteadOfPassword ? 'אימות במייל, ואז קוד חדש' : 'אימות סיסמת החשבון, ואז קוד חדש'}
+                    {useEmailOtpInsteadOfPassword ? 'אישור חיבור קיים, ואז קוד חדש' : 'אימות סיסמת החשבון, ואז קוד חדש'}
                   </p>
                 </div>
               </div>
@@ -291,69 +319,98 @@ export function ParentalForgotPinModal({
               {useEmailOtpInsteadOfPassword ? (
                 <>
                   <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-                    החשבון מחובר בלי סיסמה מקומית (למשל Google). שלחו קוד אימות לאימייל שלכם, הזינו את הקוד שקיבלתם,
-                    ואז הגדירו קוד הורה חדש בן {PARENT_PIN_DIGIT_MIN}–{PARENT_PIN_DIGIT_MAX} ספרות.
+                    החשבון מחובר בלי סיסמה מקומית (למשל Google). אם <strong className="text-slate-800 dark:text-zinc-200">כבר מחוברים כאן</strong> עם אותו
+                    משתמש — לחצו ״אשר לפי חיבור קיים״ כדי לפתוח את שדות קוד ההורה החדש בלי מייל (מומלץ כשהמייל שולח רק קישור).
                   </p>
-
-                  <div className="space-y-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="w-full"
-                      disabled={busy || accountReauthVerified}
-                      onClick={() => void handleSendEmailOtp()}
-                    >
-                      {otpSent ? 'שלחו שוב קוד אימות לאימייל שלי' : 'שלחו קוד אימות לאימייל שלי'}
-                    </Button>
-                    {otpSent ? (
-                      <p className="text-center text-xs text-slate-500 dark:text-zinc-400">
-                        נשלח אימייל. אם יש קישור בלבד — לחצו עליו; אם יש קוד — הזינו אותו למטה.
-                      </p>
-                    ) : null}
-                  </div>
 
                   {accountReauthVerified ? (
                     <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-100">
                       האימות הצליח — ניתן לבחור קוד הורה חדש.
                     </p>
+                  ) : activeSessionMatches === null ? (
+                    <p className="flex items-center justify-center gap-2 text-center text-sm text-slate-500 dark:text-zinc-400">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                      בודקים חיבור פעיל…
+                    </p>
+                  ) : activeSessionMatches ? (
+                    <Button
+                      type="button"
+                      className="w-full"
+                      disabled={busy}
+                      onClick={() => void handleContinueWithActiveSession()}
+                    >
+                      אשר לפי חיבור קיים
+                    </Button>
                   ) : (
                     <div className="space-y-2">
-                      <label htmlFor="forgot-pin-email-otp" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                        קוד מהאימייל
-                      </label>
-                      <Input
-                        id="forgot-pin-email-otp"
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value.replace(/\s/g, ''))}
-                        disabled={busy}
-                        placeholder="הדביקו את הקוד"
-                        dir="ltr"
-                        className="text-center font-mono text-lg tracking-widest"
-                      />
-                      <Button type="button" className="w-full" disabled={busy || !otpSent} onClick={() => void handleVerifyEmailOtp()}>
-                        אמתו קוד
-                      </Button>
-                      <p className="text-center text-xs text-slate-500 dark:text-zinc-500">
-                        אין גישה למייל כרגע? אם אתם בטוחים שאתם המשתמשים המחוברים למכשיר הזה בלבד:
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-100">
+                        לא זוהה סשן שמתאים למשתמש הזה במכשיר. אם אתם בכל זאת מחוברים — לחצו למטה. אחרת התחברו מחדש עם Google, או השתמשו באימות במייל (מתקדם).
                       </p>
                       <Button
                         type="button"
                         variant="secondary"
-                        className="w-full text-sm"
-                        disabled={busy || accountReauthVerified}
+                        className="w-full"
+                        disabled={busy}
                         onClick={() => void handleContinueWithActiveSession()}
                       >
-                        המשיכו לפי הסשן המחובר
+                        אשר לפי חיבור קיים
                       </Button>
                     </div>
                   )}
 
-                  {import.meta.env.DEV ? (
+                  {!accountReauthVerified ? (
+                    <details className="group rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800/50">
+                      <summary className="cursor-pointer select-none text-sm font-medium text-slate-700 outline-none marker:text-slate-400 dark:text-zinc-300">
+                        אימות במייל (אופציונלי — לעיתים נשלח רק קישור)
+                      </summary>
+                      <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-zinc-700">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="w-full"
+                          disabled={busy}
+                          onClick={() => void handleSendEmailOtp()}
+                        >
+                          {otpSent ? 'שלחו שוב קוד או קישור למייל' : 'שלחו קוד או קישור למייל'}
+                        </Button>
+                        {otpSent ? (
+                          <p className="text-center text-xs text-slate-500 dark:text-zinc-400">
+                            נשלח אימייל. אם יש קוד — הזינו למטה. אם רק קישור — השתמשו ב״אשר לפי חיבור קיים״ למעלה אחרי שחזרתם לאפליקציה.
+                          </p>
+                        ) : null}
+                        <div className="space-y-2">
+                          <label htmlFor="forgot-pin-email-otp" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            קוד מהאימייל
+                          </label>
+                          <Input
+                            id="forgot-pin-email-otp"
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            value={otpCode}
+                            onChange={(e) => setOtpCode(e.target.value.replace(/\s/g, ''))}
+                            disabled={busy}
+                            placeholder="הדביקו את הקוד"
+                            dir="ltr"
+                            className="text-center font-mono text-lg tracking-widest"
+                          />
+                          <Button type="button" className="w-full" disabled={busy || !otpSent} onClick={() => void handleVerifyEmailOtp()}>
+                            אמתו קוד
+                          </Button>
+                        </div>
+                      </div>
+                    </details>
+                  ) : null}
+
+                  {SHOW_PARENT_PIN_FORGOT_SKIP_VERIFY ? (
                     <div className="border-t border-dashed border-amber-300 pt-3 dark:border-amber-800">
-                      <p className="mb-2 text-center text-xs text-amber-800 dark:text-amber-200">מצב פיתוח בלבד</p>
+                      <p className="mb-2 text-center text-xs text-amber-800 dark:text-amber-200">
+                        {import.meta.env.DEV
+                          ? 'מצב פיתוח'
+                          : PARENT_PIN_FORGOT_SHOW_SKIP_IN_PROD
+                            ? 'דילוג לפי קבוע זמני בקוד — החזירו ל־false ופרסמו מחדש'
+                            : 'מצב חירום לפי משתנה סביבה — הסירו VITE_PARENT_PIN_FORGOT_SKIP_VERIFY אחרי השימוש'}
+                      </p>
                       <Button
                         type="button"
                         variant="secondary"
@@ -361,7 +418,7 @@ export function ParentalForgotPinModal({
                         disabled={busy}
                         onClick={handleDevForceReauth}
                       >
-                        דילוג על אימות (פיתוח)
+                        דילוג על אימות
                       </Button>
                     </div>
                   ) : null}
