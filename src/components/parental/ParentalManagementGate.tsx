@@ -6,6 +6,7 @@ import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/parentPin'
 import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
+import { userRequiresEmailOtpForParentPinForgot } from '../../lib/parentPinForgotReauth'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../ui/Button'
@@ -281,6 +282,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
         }}
         userId={user?.id ?? ''}
         userEmail={user?.email ?? ''}
+        useEmailOtpInsteadOfPassword={userRequiresEmailOtpForParentPinForgot(user)}
         refreshProfile={refreshProfile}
       />
     </AnimatePresence>
