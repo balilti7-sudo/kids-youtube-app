@@ -607,6 +607,7 @@ app.get('/health/verbose', (_req, res) => {
       poTokenConfigured: Boolean(YOUTUBE_PO_TOKEN),
       visitorDataConfigured: Boolean(YOUTUBE_VISITOR_DATA),
       poPairReady: po,
+      ytDlpPot: getYtDlpPotBridgeSnapshot(),
     },
   })
 })
@@ -670,7 +671,7 @@ app.get('/api/diagnostics', async (_req, res) => {
     return { base, dead: false, ...r }
   })
 
-  const [outboundPair, ytDlpVer, ytDirect, ytWatch, pipedProbes, invidiousProbes] = await Promise.all([
+  const [outboundPair, ytDlpVer, ytDirect, ytWatch, pipedProbes, invidiousProbes, bgutilPotPing] = await Promise.all([
     probeOutboundIps(),
     probeYtDlpVersion(),
     probeUrl('https://www.youtube.com/', { timeoutMs: PROBE_TIMEOUT_MS, headers: PROBE_HEADERS }),
@@ -680,6 +681,7 @@ app.get('/api/diagnostics', async (_req, res) => {
     }),
     Promise.all(pipedJobs),
     Promise.all(invidiousJobs),
+    probeBgutilPotProviderPing(),
   ])
 
   res.json({
@@ -719,6 +721,10 @@ app.get('/api/diagnostics', async (_req, res) => {
       ytDlpPath: YT_DLP_PATH,
       ytDlpEnabled: YT_DLP_ENABLE,
     },
+    ytDlpPot: {
+      ...getYtDlpPotBridgeSnapshot(),
+      providerHttpPing: bgutilPotPing,
+    },
     cookies: {
       disabled: true,
       filePath: null,
@@ -726,10 +732,13 @@ app.get('/api/diagnostics', async (_req, res) => {
       hasRequiredAuthCookies: false,
       presentRequiredCookies: [],
       missingRequiredCookies: [],
-      reason: 'Browser cookies disabled — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA',
+      reason:
+        'Legacy browser cookie env vars are cleared. Optional YT_DLP_COOKIES_FILE for yt-dlp; PO via YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA and/or bgutil POT HTTP.',
       lastModifiedAt: null,
       ageHours: null,
       ytdlEnvCookieCount: 0,
+      ytDlpCookiesFile: YT_DLP_COOKIES_PATH || null,
+      ytDlpCookiesFileExists: Boolean(YT_DLP_COOKIES_PATH && existsSync(YT_DLP_COOKIES_PATH)),
     },
     auth: {
       stale: isYtAuthStale(),
@@ -784,6 +793,7 @@ app.get('/api/diagnostics/stream/:videoId', async (req, res) => {
       poTokenConfigured: Boolean(YOUTUBE_PO_TOKEN),
       visitorDataConfigured: Boolean(YOUTUBE_VISITOR_DATA),
       poPairReady: hasYoutubePoPair(),
+      ytDlpPot: getYtDlpPotBridgeSnapshot(),
     },
     resolvers: {
       piped: { ok: false, detail: null, data: null },
@@ -1728,6 +1738,30 @@ async function probeUrl(url, { timeoutMs = 6_000, method = 'GET', headers = {} }
   }
 }
 
+/** GET {base}/ping on the local bgutil POT HTTP server (Rust/TS provider). */
+async function probeBgutilPotProviderPing() {
+  if (!YT_DLP_BGUTIL_POT_BASE_URL) {
+    return { skipped: true, reason: 'YT_DLP_BGUTIL_POT_BASE_URL unset or disabled' }
+  }
+  const startedAt = Date.now()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 4_000)
+  try {
+    const base = YT_DLP_BGUTIL_POT_BASE_URL.replace(/\/$/, '')
+    const pingUrl = new URL('ping', `${base}/`).toString()
+    const r = await fetch(pingUrl, { signal: ctrl.signal, redirect: 'manual' })
+    return { ok: r.ok, status: r.status, ms: Date.now() - startedAt, url: pingUrl }
+  } catch (e) {
+    return {
+      ok: false,
+      ms: Date.now() - startedAt,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function probeIpify({ dispatcher = undefined } = {}) {
   const startedAt = Date.now()
   const ctrl = new AbortController()
@@ -1930,6 +1964,27 @@ function buildYtDlpPluginDirsAndPotArgs() {
     out.push('--extractor-args', `youtubepot-bgutilhttp:base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`)
   }
   return out
+}
+
+/**
+ * Read-only snapshot for /health/verbose and /api/diagnostics — how we wire yt-dlp to the bgutil POT HTTP plugin.
+ * yt-dlp's framework uses `--extractor-args "youtubepot-<pluginKey>:..."` (see yt_dlp/extractor/youtube/pot/README.md).
+ * There is no `--youtube-search-pot-provider` CLI flag used by this bridge.
+ */
+function getYtDlpPotBridgeSnapshot() {
+  const bundled = path.join(SERVER_DIR, 'yt-dlp-plugins')
+  const argvPrefix = buildYtDlpPluginDirsAndPotArgs()
+  return {
+    howItWorks:
+      'Bridge passes the same argv prefix to every yt-dlp attempt: --plugin-dir(s) for the bgutil zip, then --extractor-args youtubepot-bgutilhttp:base_url=<URL>. yt-dlp discovers POT providers via plugins; there is no separate --youtube-search-pot-provider flag here.',
+    ytDlpBgutilPotBaseUrl: YT_DLP_BGUTIL_POT_BASE_URL || null,
+    youtubepotBgutilhttpExtractorArgs: YT_DLP_BGUTIL_POT_BASE_URL
+      ? `youtubepot-bgutilhttp:base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`
+      : null,
+    bundledPluginDir: bundled,
+    bundledPluginDirExists: existsSync(bundled),
+    argvPrefixFlat: argvPrefix,
+  }
 }
 
 async function resolveViaYtDlpCli(videoId, diagnostics = null, budgetMs = YT_UPSTREAM_TIMEOUT_MS) {

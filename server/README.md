@@ -58,7 +58,7 @@ Required service env vars:
 
 Do **not** set `YOUTUBE_COOKIES`, `YTDL_COOKIES`, or `YOUTUBE_COOKIES_FILE` — the bridge clears those legacy names at startup.
 
-For **yt-dlp file cookies**, use `YT_DLP_COOKIES_FILE` (default `./youtube_cookies.txt` under `server/` when the file exists). Pair with **yt-dlp ≥ 2025.05.22**, the [bgutil POT provider](https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs) on port **4416**, and the matching **yt-dlp plugin** under `server/yt-dlp-plugins/`. Env knobs: `YT_DLP_PRIMARY_EXTRACTOR_ARGS`, `YT_DLP_BGUTIL_POT_BASE_URL`, `YT_DLP_FORMAT`, `YT_DLP_PLUGIN_DIRS` (see `server/.env.example`).
+For **yt-dlp file cookies**, use `YT_DLP_COOKIES_FILE` (default `./youtube_cookies.txt` under `server/` when the file exists). Pair with **yt-dlp ≥ 2025.05.22**, the [bgutil POT provider](https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs) on port **4416**, and the matching **yt-dlp plugin** under `server/yt-dlp-plugins/`. The bridge passes `--extractor-args "youtubepot-bgutilhttp:base_url=..."` (yt-dlp’s POT plugin API — there is no `--youtube-search-pot-provider` flag here). Env: `YT_DLP_PRIMARY_EXTRACTOR_ARGS`, `YT_DLP_BGUTIL_POT_BASE_URL`, `YT_DLP_FORMAT`, `YT_DLP_PLUGIN_DIRS` (see `server/.env.example`). Check `GET /api/diagnostics` → `ytDlpPot` and `providerHttpPing`, or `GET /health/verbose` → `auth.ytDlpPot`.
 
 ### Railway
 
