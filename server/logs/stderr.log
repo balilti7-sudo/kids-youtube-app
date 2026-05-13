@@ -1,0 +1,403 @@
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[ytdlp] cookies-web_embedded failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] cookies-fallback_tv failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] no-cookies-web_embedded failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] no-cookies-fallback_tv failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[invidious] https://invidious.private.coffee status 502, trying next instance
+[deadcache] https://invidious.private.coffee marked dead for 300s (http 502)
+[invidious] https://yewtu.be status 403, trying next instance
+[deadcache] https://yewtu.be marked dead for 300s (http 403)
+[invidious] https://vid.puffyan.us status 502, trying next instance
+[deadcache] https://vid.puffyan.us marked dead for 300s (http 502)
+[invidious] https://invidious.jing.rocks request error: fetch failed
+[deadcache] https://invidious.jing.rocks marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://api.piped.coderabbit.de request error: fetch failed
+[deadcache] https://api.piped.coderabbit.de marked dead for 300s (network: fetch failed)
+[piped] https://pa.mint.lgbt request error: fetch failed
+[deadcache] https://pa.mint.lgbt marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] cookies-web_embedded failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] cookies-fallback_tv failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] no-cookies-web_embedded failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] no-cookies-fallback_tv failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[invidious] https://invidious.perennialte.ch status 403, trying next instance
+[deadcache] https://invidious.perennialte.ch marked dead for 300s (http 403)
+[invidious] https://invidious.slipfox.xyz request error: fetch failed
+[deadcache] https://invidious.slipfox.xyz marked dead for 300s (network: fetch failed)
+[invidious] https://invidious.fdn.fr request error: fetch failed
+[deadcache] https://invidious.fdn.fr marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pipedapi.nerdvpn.de request error: fetch failed
+[deadcache] https://pipedapi.nerdvpn.de marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.adminforge.de request error: fetch failed
+[deadcache] https://pipedapi.adminforge.de marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[ytdlp] cookies-web_embedded failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] cookies-fallback_tv failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] no-cookies-web_embedded failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp] no-cookies-fallback_tv failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[invidious] https://yewtu.be status 403, trying next instance
+[deadcache] https://yewtu.be marked dead for 300s (http 403)
+[invidious] https://invidious.perennialte.ch status 403, trying next instance
+[deadcache] https://invidious.perennialte.ch marked dead for 300s (http 403)
+[invidious] https://invidious.jing.rocks request error: fetch failed
+[deadcache] https://invidious.jing.rocks marked dead for 300s (network: fetch failed)
+[invidious] https://invidious.slipfox.xyz request error: fetch failed
+[deadcache] https://invidious.slipfox.xyz marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pa.mint.lgbt request error: fetch failed
+[deadcache] https://pa.mint.lgbt marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.privacydev.net request error: fetch failed
+[deadcache] https://pipedapi.privacydev.net marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[auth] cookies not ready (cookies file does not exist). If YouTube returns BOT_CHECK/PRIVATE_VIDEO, export a fresh Netscape cookies.txt from a signed-in browser.
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[auth] cookies not ready (cookies file does not exist). If YouTube returns BOT_CHECK/PRIVATE_VIDEO, export a fresh Netscape cookies.txt from a signed-in browser.
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[auth] cookies not ready (cookies file does not exist). If YouTube returns BOT_CHECK/PRIVATE_VIDEO, export a fresh Netscape cookies.txt from a signed-in browser.
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://invidious.private.coffee status 502, trying next instance
+[deadcache] https://invidious.private.coffee marked dead for 300s (http 502)
+[invidious] https://invidious.slipfox.xyz request error: fetch failed
+[deadcache] https://invidious.slipfox.xyz marked dead for 300s (network: fetch failed)
+[invidious] https://yewtu.be status 403, trying next instance
+[deadcache] https://yewtu.be marked dead for 300s (http 403)
+[invidious] https://invidious.jing.rocks request error: fetch failed
+[deadcache] https://invidious.jing.rocks marked dead for 300s (network: fetch failed)
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://invidious.fdn.fr request error: fetch failed
+[deadcache] https://invidious.fdn.fr marked dead for 300s (network: fetch failed)
+[invidious] https://vid.puffyan.us status 502, trying next instance
+[deadcache] https://vid.puffyan.us marked dead for 300s (http 502)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pipedapi.kavin.rocks status 403, trying next instance
+[deadcache] https://pipedapi.kavin.rocks marked dead for 300s (http 403)
+[piped] https://pipedapi.privacydev.net request error: fetch failed
+[deadcache] https://pipedapi.privacydev.net marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://inv.nadeko.net status 403, trying next instance
+[deadcache] https://inv.nadeko.net marked dead for 300s (http 403)
+[invidious] https://invidious.perennialte.ch status 403, trying next instance
+[deadcache] https://invidious.perennialte.ch marked dead for 300s (http 403)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://api.vkr.dev request error: fetch failed
+[deadcache] https://api.vkr.dev marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.adminforge.de request error: fetch failed
+[deadcache] https://pipedapi.adminforge.de marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[media-bridge] yt-dlp cookie file missing: C:\Users\eladtheking1010\kids-youtube-app\server\youtube_cookies.txt (export cookies to this path or set YT_DLP_COOKIES_FILE=)
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://invidious.fdn.fr request error: fetch failed
+[deadcache] https://invidious.fdn.fr marked dead for 300s (network: fetch failed)
+[invidious] https://invidious.perennialte.ch status 403, trying next instance
+[deadcache] https://invidious.perennialte.ch marked dead for 300s (http 403)
+[invidious] https://vid.puffyan.us status 502, trying next instance
+[deadcache] https://vid.puffyan.us marked dead for 300s (http 502)
+[invidious] https://invidious.jing.rocks request error: fetch failed
+[deadcache] https://invidious.jing.rocks marked dead for 300s (network: fetch failed)
+[invidious] https://invidious.private.coffee status 502, trying next instance
+[deadcache] https://invidious.private.coffee marked dead for 300s (http 502)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pipedapi.adminforge.de request error: fetch failed
+[deadcache] https://pipedapi.adminforge.de marked dead for 300s (network: fetch failed)
+[piped] https://api.piped.coderabbit.de request error: fetch failed
+[deadcache] https://api.piped.coderabbit.de marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://inv.nadeko.net status 403, trying next instance
+[deadcache] https://inv.nadeko.net marked dead for 300s (http 403)
+[invidious] https://yewtu.be status 403, trying next instance
+[deadcache] https://yewtu.be marked dead for 300s (http 403)
+[invidious] https://invidious.slipfox.xyz request error: fetch failed
+[deadcache] https://invidious.slipfox.xyz marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://api.vkr.dev request error: fetch failed
+[deadcache] https://api.vkr.dev marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pa.mint.lgbt request error: fetch failed
+[deadcache] https://pa.mint.lgbt marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pipedapi.privacydev.net request error: fetch failed
+[deadcache] https://pipedapi.privacydev.net marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pipedapi.nerdvpn.de request error: fetch failed
+[deadcache] https://pipedapi.nerdvpn.de marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[media-bridge] yt-dlp cookie file missing: C:\Users\eladtheking1010\kids-youtube-app\server\youtube_cookies.txt (export cookies to this path or set YT_DLP_COOKIES_FILE=)
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+[media-bridge] yt-dlp cookie file missing: C:\Users\eladtheking1010\kids-youtube-app\server\youtube_cookies.txt (export cookies to this path or set YT_DLP_COOKIES_FILE=)
+[media-bridge] CORS: ALLOW ANY origin (MEDIA_BRIDGE_CORS_ALLOW_ANY or CORS_ORIGIN=*) — not recommended on a public IP
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://invidious.private.coffee status 502, trying next instance
+[deadcache] https://invidious.private.coffee marked dead for 300s (http 502)
+[invidious] https://invidious.slipfox.xyz request error: fetch failed
+[deadcache] https://invidious.slipfox.xyz marked dead for 300s (network: fetch failed)
+[invidious] https://inv.nadeko.net status 403, trying next instance
+[deadcache] https://inv.nadeko.net marked dead for 300s (http 403)
+[invidious] https://invidious.perennialte.ch status 403, trying next instance
+[deadcache] https://invidious.perennialte.ch marked dead for 300s (http 403)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://api.piped.coderabbit.de request error: fetch failed
+[deadcache] https://api.piped.coderabbit.de marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.kavin.rocks status 403, trying next instance
+[deadcache] https://pipedapi.kavin.rocks marked dead for 300s (http 403)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://yewtu.be status 403, trying next instance
+[deadcache] https://yewtu.be marked dead for 300s (http 403)
+[invidious] https://invidious.jing.rocks request error: fetch failed
+[deadcache] https://invidious.jing.rocks marked dead for 300s (network: fetch failed)
+[invidious] https://invidious.fdn.fr request error: fetch failed
+[deadcache] https://invidious.fdn.fr marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://pipedapi.nerdvpn.de request error: fetch failed
+[deadcache] https://pipedapi.nerdvpn.de marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=web_embedded
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] web_embedded auth/bot gate, trying next mode
+********** YOUTUBE 403/BOT DETECTION **********
+[ytdlp] attempt=fallback_tv
+yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+***********************************************
+[ytdlp] fallback_tv auth/bot gate, trying next mode
+[resolve] ytdlp failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[invidious] https://yewtu.be status 403, trying next instance
+[deadcache] https://yewtu.be marked dead for 300s (http 403)
+[invidious] https://invidious.fdn.fr request error: fetch failed
+[deadcache] https://invidious.fdn.fr marked dead for 300s (network: fetch failed)
+[invidious] https://invidious.private.coffee status 502, trying next instance
+[deadcache] https://invidious.private.coffee marked dead for 300s (http 502)
+[piped] https://pipedapi.tokhmi.xyz blocked or non-json challenge, trying next instance
+[piped] https://api.piped.coderabbit.de request error: fetch failed
+[deadcache] https://api.piped.coderabbit.de marked dead for 300s (network: fetch failed)
+[piped] https://pipedapi.privacydev.net request error: fetch failed
+[deadcache] https://pipedapi.privacydev.net marked dead for 300s (network: fetch failed)
+[stream] resolve failed: yt-dlp exited with code 1
+ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+

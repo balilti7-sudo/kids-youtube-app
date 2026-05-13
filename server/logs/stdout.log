@@ -1,0 +1,257 @@
+[media-bridge] listening on http://0.0.0.0:8787 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:8787
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] cookies ready (21 entries, required auth cookies: SID, HSID, SSID, SAPISID, __Secure-3PSID, __Secure-3PAPISID, __Secure-3PSIDTS)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] cookies ready (21 entries, required auth cookies: SID, HSID, SSID, SAPISID, __Secure-3PSID, __Secure-3PAPISID, __Secure-3PSIDTS)
+[req] OPTIONS /api/stream/wSBjvOYRoYA
+[req] GET /api/stream/wSBjvOYRoYA
+[resolve] order=ytdlp->invidious->piped cookies=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[req] GET /api/stream/wSBjvOYRoYA
+[resolve] order=ytdlp->invidious->piped cookies=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] cookies ready (21 entries, required auth cookies: SID, HSID, SSID, SAPISID, __Secure-3PSID, __Secure-3PAPISID, __Secure-3PSIDTS)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] cookies ready (21 entries, required auth cookies: SID, HSID, SSID, SAPISID, __Secure-3PSID, __Secure-3PAPISID, __Secure-3PSIDTS)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] cookies ready (21 entries, required auth cookies: SID, HSID, SSID, SAPISID, __Secure-3PSID, __Secure-3PAPISID, __Secure-3PSIDTS)
+[req] OPTIONS /api/stream/wSBjvOYRoYA
+[req] GET /api/stream/wSBjvOYRoYA
+[resolve] order=ytdlp->invidious->piped cookies=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[ytdlp][stderr] ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+[ytdlp] stderr: ERROR: [youtube] wSBjvOYRoYA: Requested format is not available. Use --list-formats for a list of available formats
+
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] ytdl cookies source: env header (21 name=value pairs)
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] YouTube: browser cookies disabled — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] YouTube: browser cookies disabled — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)
+[req] POST /api/route
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] YouTube: browser cookies disabled — use YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp extractor-args will include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)
+[req] OPTIONS /api/stream/nWIa-z46FUw
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] YouTube: YT_DLP_COOKIES_FILE → C:\Users\eladtheking1010\kids-youtube-app\server\youtube_cookies.txt; optional PO pair YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp bgutil POT provider: youtubepot-bgutilhttp base_url=http://127.0.0.1:4416
+[media-bridge] yt-dlp format string: 18/best
+[media-bridge] yt-dlp youtube: extractor-args will also include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)
+[req] OPTIONS /api/stream/nWIa-z46FUw
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[req] OPTIONS /api/stream/pn6-YUtRcBE
+[req] GET /api/stream/pn6-YUtRcBE
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] pn6-YUtRcBE: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] YouTube: YT_DLP_COOKIES_FILE → C:\Users\eladtheking1010\kids-youtube-app\server\youtube_cookies.txt; optional PO pair YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp bgutil POT provider: youtubepot-bgutilhttp base_url=http://127.0.0.1:4416
+[media-bridge] yt-dlp format string: bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best
+[media-bridge] yt-dlp youtube: extractor-args will also include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)
+[media-bridge] listening on http://0.0.0.0:3001 (all interfaces — use your LAN/public IP from other machines)
+[media-bridge] local URL: http://127.0.0.1:3001
+[media-bridge] YouTube: YT_DLP_COOKIES_FILE → C:\Users\eladtheking1010\kids-youtube-app\server\youtube_cookies.txt; optional PO pair YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA
+[media-bridge] outbound proxy: NOT SET (using Render IP directly)
+[media-bridge] yt-dlp bgutil POT provider: youtubepot-bgutilhttp base_url=http://127.0.0.1:4416
+[media-bridge] yt-dlp format string: bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best
+[media-bridge] yt-dlp youtube: extractor-args will also include: po_token, visitor_data
+[media-bridge] Resolve: yt-dlp primary C:\Users\eladtheking1010\kids-youtube-app\server\yt-dlp.exe; Invidious(1 pref / 11 total); Piped(3 pref); ytdl-core OFF (set YTDL_RESOLVE_ENABLE=1 to enable)
+[media-bridge] Email: Resend OFF (set RESEND_API_KEY); welcome route secret OFF (set MEDIA_BRIDGE_WELCOME_KEY + VITE_MEDIA_BRIDGE_WELCOME_KEY for email-confirm signups)
+[auth] YOUTUBE_PO_TOKEN + YOUTUBE_VISITOR_DATA are set (paired for yt-dlp extractor-args)
+[req] OPTIONS /api/stream/nWIa-z46FUw
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[req] OPTIONS /api/stream/nWIa-z46FUw
+[req] GET /api/stream/nWIa-z46FUw
+[resolve] order=ytdlp->invidious->piped poPair=ready authStale=false ytdlCore=off
+[ytdlp][oauth2] Token not found yet at secrets path: /etc/secrets/yt_oauth_token.json
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+[ytdlp][stderr] ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+[ytdlp] stderr: ERROR: [youtube] nWIa-z46FUw: Sign in to confirm you�re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
