@@ -9,6 +9,7 @@ import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfile
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../ui/Button'
+import { ParentalForgotPinModal } from './ParentalForgotPinModal'
 
 type DigitSlot = '' | string
 type SixDigit = [DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot]
@@ -21,13 +22,14 @@ const SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const
  * שכבת מסך מלאה — חובה להזין את קוד ההורה לפני גישה לאזור הניהול (דשבורד, ערוצים וכו׳).
  */
 export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void }) {
-  const { user, profile } = useAuth()
+  const { user, profile, refreshProfile } = useAuth()
   const localParent = useLocalParentManagement()
   const signOut = useAuthStore((s) => s.signOut)
 
   const [digits, setDigits] = useState<SixDigit>(EMPTY_SIX)
   const [error, setError] = useState<string | null>(null)
   const [verifying, setVerifying] = useState(false)
+  const [forgotPinOpen, setForgotPinOpen] = useState(false)
   const digitsRef = useRef(digits)
   digitsRef.current = digits
   const inFlightRef = useRef(false)
@@ -146,6 +148,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
   const pinContiguous = contiguousDigitsFromPinSlots(digits)
   const canSubmitPin = isValidParentPinDigits(pinContiguous) || isEmergencyParentManagementBypass(pinContiguous)
+  const canUseForgotPin = Boolean(user?.id && user?.email?.trim())
 
   return (
     <AnimatePresence>
@@ -226,6 +229,22 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
               אישור
             </Button>
 
+            {canUseForgotPin ? (
+              <div className="text-center">
+                <button
+                  type="button"
+                  disabled={verifying}
+                  onClick={() => setForgotPinOpen(true)}
+                  className={cn(
+                    'text-sm font-medium text-brand-600 underline-offset-2 hover:underline',
+                    'disabled:cursor-not-allowed disabled:opacity-50 dark:text-brand-400'
+                  )}
+                >
+                  שכחתי קוד
+                </button>
+              </div>
+            ) : null}
+
             {verifying ? (
               <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-zinc-400">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -252,6 +271,18 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
           </div>
         </motion.div>
       </motion.div>
+
+      <ParentalForgotPinModal
+        open={forgotPinOpen}
+        onClose={() => setForgotPinOpen(false)}
+        onSuccess={() => {
+          setForgotPinOpen(false)
+          onUnlocked()
+        }}
+        userId={user?.id ?? ''}
+        userEmail={user?.email ?? ''}
+        refreshProfile={refreshProfile}
+      />
     </AnimatePresence>
   )
 }
