@@ -9,7 +9,7 @@
       YT_DLP_COOKIES_FILE=./youtube_cookies.txt
       YT_DLP_FORMAT=bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best
 
-    SafeTubeBridge reads this file via start-bridge.ps1 — nssm AppParameters do not need to change.
+    SafeTubeBridge reads this file via start-bridge.ps1; nssm AppParameters do not need to change.
 
     After running:  Restart-Service SafeTubeBridge
 #>
@@ -31,10 +31,15 @@ $updates = [ordered]@{
 }
 
 if (-not (Test-Path $EnvFile)) {
-    throw "Env file not found: $EnvFile — create it from safetube-bridge.env.example or run install.ps1 first."
+    throw "Env file not found: $EnvFile - create it from safetube-bridge.env.example or run install.ps1 first."
 }
 
-$lines = @(Get-Content -LiteralPath $EnvFile -Encoding UTF8)
+$lines = @()
+try {
+    $lines = @(Get-Content -LiteralPath $EnvFile -Encoding UTF8)
+} catch {
+    throw "Cannot read $EnvFile : $($_.Exception.Message). If this is the production bridge.env, run PowerShell as Administrator, or copy the file elsewhere and pass -EnvFile."
+}
 $keysToReplace = [System.Collections.Generic.HashSet[string]]::new([string[]]@($updates.Keys))
 $out = [System.Collections.Generic.List[string]]::new()
 
@@ -60,4 +65,4 @@ if ($WhatIf) {
 }
 
 Set-Content -LiteralPath $EnvFile -Value $out -Encoding utf8
-Write-Host "[merge-ytdlp] updated $EnvFile — run: Restart-Service SafeTubeBridge" -ForegroundColor Green
+Write-Host "[merge-ytdlp] updated $EnvFile - run: Restart-Service SafeTubeBridge" -ForegroundColor Green
