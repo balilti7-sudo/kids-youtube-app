@@ -50,7 +50,6 @@ function buildYtDlpArgs({ videoId, client, poToken, visitorData, jsonOnly }) {
   const args = [
     '--no-warnings',
     '--no-playlist',
-    '--no-call-home',
     '--no-check-certificates',
     '-f', YT_DLP_FORMAT,
     // (1) + (2) + (4): pass POT creds and pin the client used.
