@@ -30,6 +30,14 @@ const PROXY_URL = process.env.PROXY_URL || '';               // optional http://
 // Ordered fallback chain — first client wins, but if YT challenges we'll retry the next.
 const CLIENT_CHAIN = (process.env.YT_CLIENT_CHAIN || 'web_embedded,tv,web_safari').split(',');
 
+/** Chrome Mobile on Android — aligns with InnerTube `android` / mobile clients. Override: YT_DLP_USER_AGENT */
+const DEFAULT_ANDROID_YOUTUBE_UA =
+  'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36';
+const YT_DLP_USER_AGENT = (process.env.YT_DLP_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
+
+const YT_DLP_CLIENT_CERT = (process.env.YT_DLP_CLIENT_CERT || '').trim();
+const YT_DLP_CLIENT_KEY = (process.env.YT_DLP_CLIENT_KEY || '').trim();
+
 // ─── App setup ───────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors({ origin: true, credentials: false }));
@@ -41,6 +49,11 @@ app.use((req, _res, next) => {
   next();
 });
 
+function resolveBridgePath(p) {
+  if (!p) return '';
+  return path.isAbsolute(p) ? p : path.join(__dirname, p);
+}
+
 // ─── yt-dlp invocation ───────────────────────────────────────────────────────
 
 /**
@@ -51,19 +64,25 @@ function buildYtDlpArgs({ videoId, client, poToken, visitorData, jsonOnly }) {
     '--no-warnings',
     '--no-playlist',
     '--no-check-certificates',
+    '--no-cookies',
     '-f', YT_DLP_FORMAT,
     // (1) + (2) + (4): pass POT creds and pin the client used.
     '--extractor-args',
     `youtube:player_client=${client};po_token=${client}.gvs+${poToken};visitor_data=${visitorData}`,
-    // Stable, non-suspicious UA.
     '--user-agent',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    YT_DLP_USER_AGENT,
     '--add-header', 'Accept-Language:en-US,en;q=0.9',
   ];
 
-  if (COOKIES_FILE && fs.existsSync(COOKIES_FILE)) {
-    args.push('--cookies', COOKIES_FILE);
+  const cert = resolveBridgePath(YT_DLP_CLIENT_CERT);
+  const key = resolveBridgePath(YT_DLP_CLIENT_KEY);
+  if (cert && key && fs.existsSync(cert) && fs.existsSync(key)) {
+    args.push('--client-certificate', cert, '--client-key', key);
+  }
+
+  const cookiesPath = COOKIES_FILE ? resolveBridgePath(COOKIES_FILE) : '';
+  if (cookiesPath && fs.existsSync(cookiesPath)) {
+    args.push('--cookies', cookiesPath);
   }
   if (PROXY_URL) {
     args.push('--proxy', PROXY_URL);
