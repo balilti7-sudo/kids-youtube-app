@@ -1,7 +1,7 @@
 // server/index.js — SafeTube Bridge
 //
 // Updated fixes:
-//   ✓ iOS first in CLIENT_CHAIN, then Android / web_embedded / tv
+//   ✓ tv + web_embedded first in CLIENT_CHAIN, then ios / android
 //   ✓ Correct po_token injection (without .gvs+)
 //   ✓ Better resistance against "Sign in to confirm you're not a bot"
 //   ✓ External access enabled on 0.0.0.0
@@ -42,7 +42,7 @@ const YT_DLP_CLIENT_KEY = (process.env.YT_DLP_CLIENT_KEY || '').trim();
 // FIXED CLIENT CHAIN
 const CLIENT_CHAIN = (
   process.env.YT_CLIENT_CHAIN ||
-  'ios,android,web_embedded,tv'
+  'tv,web_embedded,ios,android'
 ).split(',');
 
 // ─── App setup ───────────────────────────────────────────────────────────────
