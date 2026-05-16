@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node index.js",
+    "start": "node index.cjs",
     "dev": "node --watch index.js",
     "download-tools": "node download-tools.mjs"
   },
