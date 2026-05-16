@@ -5,7 +5,7 @@
 //   ✓ Correct po_token injection (without .gvs+)
 //   ✓ Better resistance against "Sign in to confirm you're not a bot"
 //   ✓ External access enabled on 0.0.0.0
-//   ✓ POT auto-refresh support
+//   ✓ POT auto-refresh (POT_URL on Render, else POT_PROVIDER_URL, else :4416)
 
 'use strict';
 
