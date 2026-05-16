@@ -1,39 +1,82 @@
+import {
+  isValidParentPinDigits,
+  pinsMatch,
+  resolvedManagementPinFromProfileRow,
+} from './parentPin'
 import { supabase } from './supabase'
-
-const ERROR_HE: Record<string, string> = {
-  not_authenticated: 'יש להתחבר מחדש',
-  profile_not_found: 'פרופיל לא נמצא',
-  wrong_current_pin: 'קוד PIN נוכחי שגוי',
-  current_pin_required: 'נא להזין את קוד PIN הנוכחי',
-  pin_too_short: 'הקוד החדש קצר מדי (מינימום 4 ספרות)',
-  pin_too_long: 'הקוד החדש ארוך מדי (מקסימום 6 ספרות)',
-  pin_not_numeric: 'הקוד חייב להכיל ספרות בלבד',
-  parent_pin_update_not_allowed: 'לא ניתן לעדכן את הקוד בדרך זו. נסו שוב מהמסך.',
-}
 
 export type ChangeParentPinResult = { ok: true } | { ok: false; message: string }
 
+const WRONG_CURRENT_PIN_HE = 'קוד PIN נוכחי שגוי'
+
+function profileHasConfiguredPin(row: { parent_pin?: unknown; access_code?: unknown }): boolean {
+  const stored = resolvedManagementPinFromProfileRow(row)
+  return stored.length >= 4 && stored !== '0000'
+}
+
+/**
+ * Change parent PIN via direct profiles SELECT + compare + UPDATE (no RPC).
+ */
 export async function changeParentPin(
+  userId: string,
   currentPin: string,
   newPin: string,
 ): Promise<ChangeParentPinResult> {
-  const { data, error } = await supabase.rpc('change_parent_pin', {
-    p_current_pin: currentPin.replace(/\D/g, ''),
-    p_new_pin: newPin.replace(/\D/g, ''),
-  })
+  const currentDigits = currentPin.replace(/\D/g, '')
+  const newDigits = newPin.replace(/\D/g, '')
 
-  if (error) {
-    const code = (error as { code?: string }).code
-    if (code === '42501' || error.message?.includes('parent_pin_update_not_allowed')) {
-      return { ok: false, message: ERROR_HE.parent_pin_update_not_allowed }
-    }
-    return { ok: false, message: error.message || 'עדכון הקוד נכשל' }
+  if (!userId.trim()) {
+    return { ok: false, message: 'יש להתחבר מחדש' }
   }
 
-  const row = data as { ok?: boolean; error?: string } | null
-  if (!row?.ok) {
-    const key = typeof row?.error === 'string' ? row.error : ''
-    return { ok: false, message: ERROR_HE[key] ?? 'עדכון הקוד נכשל' }
+  if (!isValidParentPinDigits(newDigits)) {
+    return { ok: false, message: 'הקוד החדש חייב להכיל בין 4 ל-6 ספרות' }
+  }
+
+  const { data, error: selectError } = await supabase
+    .from('profiles')
+    .select('parent_pin, access_code')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (selectError) {
+    return { ok: false, message: selectError.message || 'לא ניתן לטעון את הקוד הנוכחי' }
+  }
+
+  if (!data) {
+    return { ok: false, message: 'פרופיל לא נמצא' }
+  }
+
+  const pinConfigured = profileHasConfiguredPin(data)
+
+  if (pinConfigured) {
+    if (!isValidParentPinDigits(currentDigits)) {
+      return { ok: false, message: 'נא להזין את קוד PIN הנוכחי' }
+    }
+
+    const stored = resolvedManagementPinFromProfileRow(data)
+    if (!pinsMatch(currentDigits, stored)) {
+      return { ok: false, message: WRONG_CURRENT_PIN_HE }
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from('profiles')
+    .update({ parent_pin: newDigits })
+    .eq('id', userId)
+
+  if (updateError) {
+    if (
+      updateError.code === '42501' ||
+      updateError.message?.includes('parent_pin_update_not_allowed')
+    ) {
+      return {
+        ok: false,
+        message:
+          'עדכון הקוד נחסם בשרת. אם הופעלה מיגרציית אבטחה ישנה — הסירו את הטריגר או הריצו את המיגרציה לביטולו.',
+      }
+    }
+    return { ok: false, message: updateError.message || 'עדכון הקוד נכשל' }
   }
 
   return { ok: true }

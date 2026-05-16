@@ -7,7 +7,6 @@ import {
   PARENT_PIN_DIGIT_MAX,
   PARENT_PIN_DIGIT_MIN,
 } from '../lib/parentPin'
-import { verifyLoggedInUserParentPin } from '../lib/verifyParentProfilePin'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/Button'
@@ -151,15 +150,7 @@ export function ProfilePage() {
 
     setParentPinSaving(true)
     try {
-      if (pinAlreadyConfigured) {
-        const verified = await verifyLoggedInUserParentPin(user.id, currentDigits)
-        if (!verified.ok) {
-          toast.error(verified.errorMessage)
-          return
-        }
-      }
-
-      const result = await changeParentPin(currentDigits, newDigits)
+      const result = await changeParentPin(user.id, currentDigits, newDigits)
       if (!result.ok) {
         toast.error(result.message)
         return
