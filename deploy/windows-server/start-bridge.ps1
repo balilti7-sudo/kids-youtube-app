@@ -78,13 +78,20 @@ if (Test-Path $EnvFile) {
 }
 
 # ---- exec node --------------------------------------------------------------
-$IndexJs = Join-Path $AppDir 'index.js'
-if (-not (Test-Path $IndexJs)) { throw "$IndexJs not found -- wrong -AppDir?" }
+# Entry detection (after cd6f53c the bridge moved from index.js to index.cjs).
+$EntryFile = $null
+foreach ($name in @('index.cjs', 'index.js', 'index.mjs')) {
+    $candidate = Join-Path $AppDir $name
+    if (Test-Path $candidate) { $EntryFile = $candidate; break }
+}
+if (-not $EntryFile) {
+    throw "No bridge entry file found in $AppDir (expected index.cjs / index.js / index.mjs)."
+}
 
 Set-Location $AppDir
-Write-Status "exec: `"$NodeExe`" `"$IndexJs`" (cwd=$AppDir)"
+Write-Status "exec: `"$NodeExe`" `"$EntryFile`" (cwd=$AppDir)"
 
 # Run node in the foreground so nssm sees the same process lifecycle as node itself.
 # When node exits, PowerShell exits with the same code, and nssm restarts on non-zero.
-& $NodeExe $IndexJs
+& $NodeExe $EntryFile
 exit $LASTEXITCODE
