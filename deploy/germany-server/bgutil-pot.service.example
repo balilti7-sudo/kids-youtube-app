@@ -5,7 +5,10 @@
 #   sudo cp bgutil-pot.service.example /etc/systemd/system/bgutil-pot.service
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now bgutil-pot.service
-#   curl -sS http://127.0.0.1:4416/ping
+#   curl -sS http://127.0.0.1:26148/ping
+#
+# For Render (external access), prefer:
+#   sudo bash deploy/germany-server/configure-bgutil-pot-external.sh
 
 [Unit]
 Description=SafeTube bgutil POT HTTP provider for yt-dlp
@@ -14,7 +17,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/bgutil-pot server --host 127.0.0.1 --port 4416
+ExecStart=/usr/local/bin/bgutil-pot server --host 0.0.0.0 --port 26148
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

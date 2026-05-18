@@ -130,7 +130,41 @@ cd <APP_DIR>/server && npm install --omit=dev
 sudo systemctl restart safetube-bridge
 ```
 
+## bgutil POT for Render (port 26148, public)
+
+Render’s bridge calls `POT_URL=http://<germany-ip>:26148` (no shared secret — plain HTTP).
+
+On the Germany VPS, after `git pull`:
+
+```bash
+sudo bash deploy/germany-server/configure-bgutil-pot-external.sh
+```
+
+This script:
+
+- Installs `bgutil-pot.service` with `--host 0.0.0.0 --port 26148`
+- Runs `ufw allow 26148/tcp` when `ufw` is present
+- Stops a conflicting PM2 or localhost-only `4416` instance
+- Restarts `bgutil-pot.service`
+
+Verify:
+
+```bash
+curl -fsS http://127.0.0.1:26148/ping
+curl -fsS http://176.9.82.81:26148/ping   # from another machine
+sudo systemctl status bgutil-pot --no-pager
+```
+
+On Render set: `POT_URL=http://176.9.82.81:26148` (not `POT_SERVER_URL`).
+
 ## Troubleshooting
+
+**Render health: `pot.reachable: false`, `Connection was reset`**
+
+1. Run `configure-bgutil-pot-external.sh` (see above).
+2. Confirm listen: `ss -tlnp | grep 26148` shows `0.0.0.0:26148`.
+3. Hetzner/cloud firewall: allow inbound TCP 26148.
+4. `curl http://176.9.82.81:26148/ping` from outside the VPS.
 
 **`safetube-bridge` won't start — `node: command not found`**
 `which node` returns something other than `/usr/bin/node`. Edit

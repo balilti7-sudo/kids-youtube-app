@@ -33,8 +33,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-if [ ! -f "$APP_DIR/server/index.js" ]; then
-  echo "install.sh: did not find $APP_DIR/server/index.js — is this the right repo?" >&2
+if [ ! -f "$APP_DIR/server/index.js" ] && [ ! -f "$APP_DIR/server/index.cjs" ]; then
+  echo "install.sh: did not find server/index.js or server/index.cjs — is this the right repo?" >&2
   exit 1
 fi
 
