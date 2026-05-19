@@ -89,33 +89,64 @@ async function fetchVisitorData() {
     if (r && r.visitor_data) return r.visitor_data;
   } catch (_) { /* fall through */ }
 
-  // Fallback: scrape from youtube.com bootstrap (no auth, public).
+  // Fallback: InnerTube /visitor_id endpoint (public, no auth).
+  // YouTube removed `visitorData` from www.youtube.com/sw.js_data in 2026, so
+  // we mint a fresh visitor identity directly via the WEB client InnerTube call
+  // (same strategy as deploy/windows-server/generate-po-token.mjs).
   return await new Promise((resolve, reject) => {
-    https
-      .get(
-        'https://www.youtube.com/sw.js_data',
-        {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-          },
-          timeout: REQUEST_TIMEOUT_MS,
+    const payload = Buffer.from(JSON.stringify({
+      context: {
+        client: {
+          clientName: 'WEB',
+          clientVersion: '2.20240814.00.00',
+          hl: 'en',
+          gl: 'US',
         },
-        (res) => {
-          const chunks = [];
-          res.on('data', (c) => chunks.push(c));
-          res.on('end', () => {
-            const body = Buffer.concat(chunks).toString('utf8');
-            // visitorData lives inside the JSON-ish payload; grab via regex.
-            const m = body.match(/"visitorData"\s*:\s*"([^"]+)"/);
-            if (m) return resolve(m[1]);
-            reject(new Error('visitorData not found in sw.js_data response'));
-          });
+      },
+    }));
+
+    const req = https.request(
+      {
+        method: 'POST',
+        hostname: 'www.youtube.com',
+        port: 443,
+        path: '/youtubei/v1/visitor_id?prettyPrint=false',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': payload.length,
+          Accept: 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'X-YouTube-Client-Name': '1',
+          'X-YouTube-Client-Version': '2.20240814.00.00',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         },
-      )
-      .on('error', reject);
+        timeout: REQUEST_TIMEOUT_MS,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            return reject(new Error(
+              `InnerTube /visitor_id HTTP ${res.statusCode}: ${body.slice(0, 200)}`,
+            ));
+          }
+          let data;
+          try { data = JSON.parse(body); }
+          catch (e) { return reject(new Error(`InnerTube /visitor_id non-JSON response: ${body.slice(0, 200)}`)); }
+          const vd = data && data.responseContext && data.responseContext.visitorData;
+          if (typeof vd === 'string' && vd.length >= 20) return resolve(vd);
+          reject(new Error('InnerTube /visitor_id response missing visitorData'));
+        });
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('InnerTube /visitor_id timeout')));
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
   });
 }
 
