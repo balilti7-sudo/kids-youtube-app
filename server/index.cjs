@@ -9,11 +9,16 @@
 
 'use strict';
 
+const path = require('path');
+// Load server/.env when running standalone (NSSM start-bridge.ps1 already injects env).
+try {
+  require('dotenv').config({ path: path.join(__dirname, '.env') });
+} catch (_) { /* dotenv optional */ }
+
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
 const fs = require('fs');
-const path = require('path');
 
 const potClient = require('./pot-client.cjs');
 
