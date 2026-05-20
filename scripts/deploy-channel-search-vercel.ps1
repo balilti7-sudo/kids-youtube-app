@@ -14,6 +14,7 @@ $files = @(
   'src/components/kid/ChannelVideoSearchBar.tsx',
   'src/lib/filterVideosByTitle.ts',
   'src/pages/KidModePage.tsx',
+  'src/components/channels/ChannelManager.tsx',
   'scripts/deploy-channel-search-vercel.ps1'
 )
 foreach ($f in $files) {
@@ -22,9 +23,9 @@ foreach ($f in $files) {
 $pending = git diff --cached --name-only
 if ($pending) {
   git commit -m @"
-feat(kid): channel video search bar at top with instant title filter
+fix(kid): show channel video search above video list on kid and parent preview
 
-Extract kid-friendly search UI; sticky bar filters cached channel videos client-side only.
+Place search bar directly above the channel video list (/kid and /channels preview).
 "@
   if ($LASTEXITCODE -ne 0) { throw "git commit failed ($LASTEXITCODE)" }
   Write-Host "OK: committed $($pending.Count) path(s)" -ForegroundColor Green

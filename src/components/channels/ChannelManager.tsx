@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -11,6 +11,8 @@ import { supabase } from '../../lib/supabase'
 import { WhitelistView } from './WhitelistView'
 import { ChannelSearch } from './ChannelSearch'
 import { RemoveChannelModal } from './RemoveChannelModal'
+import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
+import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -50,6 +52,7 @@ export function ChannelManager() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewVideos, setPreviewVideos] = useState<PreviewRow[]>([])
+  const [previewVideoSearch, setPreviewVideoSearch] = useState('')
   const [activePreviewVideoId, setActivePreviewVideoId] = useState<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
 
@@ -194,6 +197,7 @@ export function ChannelManager() {
       setPreviewLoading(false)
       setPreviewError(null)
       setPreviewVideos([])
+      setPreviewVideoSearch('')
       setActivePreviewVideoId(null)
       return
     }
@@ -202,6 +206,7 @@ export function ChannelManager() {
     setPreviewLoading(true)
     setPreviewError(null)
     setPreviewVideos([])
+    setPreviewVideoSearch('')
     setActivePreviewVideoId(null)
 
     void (async () => {
@@ -250,19 +255,33 @@ export function ChannelManager() {
     }
   }, [previewChannel, localParent.isActive, localParent.localAccessToken, user])
 
-  const activePreviewVideo = previewVideos.find((v) => v.videoId === activePreviewVideoId) ?? null
+  const filteredPreviewVideos = useMemo(
+    () => filterVideosByTitle(previewVideos, previewVideoSearch),
+    [previewVideos, previewVideoSearch]
+  )
+
+  const activePreviewVideo = filteredPreviewVideos.find((v) => v.videoId === activePreviewVideoId) ?? null
+
+  useEffect(() => {
+    if (filteredPreviewVideos.length === 0) return
+    setActivePreviewVideoId((prev) =>
+      prev && filteredPreviewVideos.some((v) => v.videoId === prev) ? prev : filteredPreviewVideos[0].videoId
+    )
+  }, [previewVideos, previewVideoSearch, filteredPreviewVideos])
 
   const goPrevManagerPreview = useCallback(() => {
     if (!activePreviewVideoId) return
-    const idx = previewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
-    if (idx > 0) setActivePreviewVideoId(previewVideos[idx - 1].videoId)
-  }, [previewVideos, activePreviewVideoId])
+    const idx = filteredPreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx > 0) setActivePreviewVideoId(filteredPreviewVideos[idx - 1].videoId)
+  }, [filteredPreviewVideos, activePreviewVideoId])
 
   const goNextManagerPreview = useCallback(() => {
     if (!activePreviewVideoId) return
-    const idx = previewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
-    if (idx >= 0 && idx < previewVideos.length - 1) setActivePreviewVideoId(previewVideos[idx + 1].videoId)
-  }, [previewVideos, activePreviewVideoId])
+    const idx = filteredPreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx >= 0 && idx < filteredPreviewVideos.length - 1) {
+      setActivePreviewVideoId(filteredPreviewVideos[idx + 1].videoId)
+    }
+  }, [filteredPreviewVideos, activePreviewVideoId])
 
   const handlePickPreviewVideo = (video: PreviewRow) => {
     console.log('VIDEO CLICKED', video)
@@ -356,11 +375,21 @@ export function ChannelManager() {
                   <h3 className="mt-3 text-base font-bold leading-snug text-slate-900 dark:text-zinc-100">
                     {activePreviewVideo.title}
                   </h3>
+                  <ChannelVideoSearchBar
+                    id="parent-channel-video-search"
+                    value={previewVideoSearch}
+                    onChange={setPreviewVideoSearch}
+                    totalCount={previewVideos.length}
+                    filteredCount={filteredPreviewVideos.length}
+                    channelLabel={previewChannel.channel_name}
+                    className="mt-4"
+                  />
                   <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
                     {import.meta.env.DEV
                       ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/components/channels/ChannelManager.tsx' }), null)
                       : null}
-                    {previewVideos.map((v) => {
+                    {filteredPreviewVideos.length > 0 ? (
+                      filteredPreviewVideos.map((v) => {
                       const isCurrent = v.videoId === activePreviewVideo.videoId
                       return (
                         <PreviewVideoCard
@@ -370,8 +399,28 @@ export function ChannelManager() {
                           onClick={handlePickPreviewVideo}
                         />
                       )
-                    })}
+                    })
+                    ) : (
+                      <p className="rounded-xl border border-dashed border-slate-300 px-3 py-6 text-center text-sm font-medium text-slate-600 dark:border-zinc-600 dark:text-zinc-400">
+                        {previewVideoSearch.trim()
+                          ? 'אין סרטונים שמתאימים לחיפוש.'
+                          : 'אין סרטונים במטמון לערוץ זה.'}
+                      </p>
+                    )}
                   </div>
+                </>
+              ) : previewVideos.length > 0 && previewVideoSearch.trim() ? (
+                <>
+                  <ChannelVideoSearchBar
+                    id="parent-channel-video-search-empty"
+                    value={previewVideoSearch}
+                    onChange={setPreviewVideoSearch}
+                    totalCount={previewVideos.length}
+                    filteredCount={0}
+                    channelLabel={previewChannel.channel_name}
+                    className="mt-2"
+                  />
+                  <p className="mt-3 text-sm text-slate-600 dark:text-zinc-400">אין סרטונים שמתאימים לחיפוש.</p>
                 </>
               ) : (
                 <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים במטמון לערוץ זה.</p>
