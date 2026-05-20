@@ -342,7 +342,16 @@ function publicBridgeOrigin(req) {
   return `${proto}://${host}`.replace(/\/+$/, '');
 }
 
-function proxyUpstreamMedia(req, res, upstreamUrl, { videoId } = {}) {
+const MAX_MEDIA_REDIRECTS = 8;
+
+function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 } = {}) {
+  if (redirectCount > MAX_MEDIA_REDIRECTS) {
+    return res.status(502).json({
+      error: 'proxy_failed',
+      detail: 'too many redirects from upstream CDN',
+    });
+  }
+
   let upstream;
   try {
     upstream = new URL(upstreamUrl);
@@ -367,6 +376,38 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId } = {}) {
     { method: 'GET', headers },
     (proxyRes) => {
       const status = proxyRes.statusCode || 502;
+
+      // googlevideo often 302s to the edge node — <video> cannot follow that itself.
+      if (status >= 300 && status < 400) {
+        const location = proxyRes.headers.location;
+        proxyRes.resume();
+        if (!location) {
+          if (!res.headersSent) {
+            res.status(502).json({
+              error: 'proxy_failed',
+              detail: `upstream redirect ${status} without Location`,
+            });
+          }
+          return;
+        }
+        let nextUrl;
+        try {
+          nextUrl = new URL(location, upstream).href;
+        } catch (err) {
+          if (!res.headersSent) {
+            res.status(502).json({
+              error: 'proxy_failed',
+              detail: err.message,
+            });
+          }
+          return;
+        }
+        return proxyUpstreamMedia(req, res, nextUrl, {
+          videoId,
+          redirectCount: redirectCount + 1,
+        });
+      }
+
       if (status >= 400) {
         if (videoId && (status === 403 || status === 410)) {
           resolveCache.delete(videoId);
