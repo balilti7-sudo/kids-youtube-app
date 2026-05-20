@@ -334,12 +334,21 @@ function inferStreamMetadata(upstreamUrl) {
 }
 
 function publicBridgeOrigin(req) {
+  // Cloudflare Tunnel / reverse proxy: use the HTTPS host the browser sees.
+  const forwardedHost = (req.get('x-forwarded-host') || req.get('host') || '')
+    .split(',')[0]
+    .trim();
+  const forwardedProto = (req.get('x-forwarded-proto') || req.protocol || 'http')
+    .split(',')[0]
+    .trim();
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`.replace(/\/+$/, '');
+  }
+
   const configured = (process.env.PUBLIC_BRIDGE_ORIGIN || '').trim();
   if (configured) return configured.replace(/\/+$/, '');
-  const host = req.get('host');
-  if (!host) return `http://127.0.0.1:${PORT}`;
-  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
-  return `${proto}://${host}`.replace(/\/+$/, '');
+
+  return `http://127.0.0.1:${PORT}`.replace(/\/+$/, '');
 }
 
 const MAX_MEDIA_REDIRECTS = 8;

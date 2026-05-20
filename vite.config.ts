@@ -12,5 +12,17 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    // Dev: same-origin `/api/*` and `/health` → local Media Bridge (8787). Avoids CORS and
+    // "Failed to fetch" when only the frontend port is open in the browser.
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+      },
+    },
   },
 })

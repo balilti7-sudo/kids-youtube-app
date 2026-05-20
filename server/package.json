@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node index.cjs",
-    "dev": "node --watch index.js",
+    "dev": "node --watch index.cjs",
     "download-tools": "node download-tools.mjs"
   },
   "dependencies": {
