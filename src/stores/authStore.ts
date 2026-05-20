@@ -6,6 +6,29 @@ import { clearChildAccessToken, getSavedChildAccessToken } from '../lib/childDev
 import { clearAppMode, setAppModeKid, setAppModeParent } from '../lib/appMode'
 import { clearParentPinSessions } from '../lib/lockParentApp'
 
+/**
+ * useAuth/LoginForm keep "stuck" / "failure" counters in sessionStorage that
+ * can auto-sign-out the user after 3 consecutive misses. A genuine login race
+ * (brief null-profile render between session-set and profile-set) was bumping
+ * those counters even on success, so the user got bounced. Clear them on any
+ * successful auth transition to keep the state clean.
+ */
+const AUTH_SESSION_COUNTER_KEYS = [
+  'safetube_auth_failure_count',
+  'safetube_session_profile_stuck_count',
+  'safetube_login_failure_count',
+] as const
+
+function clearAuthSessionCounters() {
+  try {
+    for (const key of AUTH_SESSION_COUNTER_KEYS) {
+      window.sessionStorage.removeItem(key)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 interface AuthState {
   user: User | null
   session: Session | null
@@ -89,6 +112,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (!error) {
       setAppModeParent()
+      // Reset stuck/failure counters BEFORE the React re-render so the brief
+      // null-profile window after session-set doesn't trip auto-signOut in useAuth.
+      clearAuthSessionCounters()
       // No global onAuthStateChange listener anymore — sync the store ourselves.
       if (data.session) {
         set({ session: data.session, user: data.session.user, loading: false })
@@ -140,6 +166,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           code: err.code,
         })
       } else if (data.session) {
+        clearAuthSessionCounters()
         // No global onAuthStateChange listener anymore — sync the store ourselves.
         set({ session: data.session, user: data.session.user, loading: false })
         void get().fetchProfile()

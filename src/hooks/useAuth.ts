@@ -1,11 +1,18 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { supabase } from '../lib/supabase'
 
 const AUTH_FAILURE_COUNT_KEY = 'safetube_auth_failure_count'
 const AUTH_FAILURE_CLEAR_THRESHOLD = 3
 const SESSION_PROFILE_STUCK_COUNT_KEY = 'safetube_session_profile_stuck_count'
-const SESSION_PROFILE_STUCK_THRESHOLD = 3
+/**
+ * Bumped from 3 to 5 + we now require ~3s of grace time before incrementing,
+ * because a successful sign-in produces one transient render where session is
+ * set but profile is still null. Counting that render as a "stuck" iteration
+ * was bouncing users out within a fraction of a second of logging in.
+ */
+const SESSION_PROFILE_STUCK_THRESHOLD = 5
+const SESSION_PROFILE_STUCK_GRACE_MS = 3000
 
 function clearCorruptedSupabaseTokenStorage() {
   try {
@@ -112,6 +119,17 @@ export function useAuth() {
     else useAuthStore.setState({ profile: null, profileLoading: false })
   }, [user, fetchProfile])
 
+  const sessionEstablishedAtRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (session && user) {
+      if (sessionEstablishedAtRef.current === null) {
+        sessionEstablishedAtRef.current = Date.now()
+      }
+    } else {
+      sessionEstablishedAtRef.current = null
+    }
+  }, [session, user])
+
   useEffect(() => {
     if (!session || !user) {
       resetSessionProfileStuckCounter()
@@ -121,6 +139,19 @@ export function useAuth() {
     if (profile) {
       resetSessionProfileStuckCounter()
       return
+    }
+
+    // Give the in-flight fetchProfile() a chance before counting this render as
+    // a "stuck" iteration. Without this, the very first re-render after a
+    // successful signIn (session set, profile not yet hydrated) was already
+    // bumping the counter, and 3 consecutive bumps triggered an auto-signOut.
+    const establishedAt = sessionEstablishedAtRef.current
+    if (establishedAt !== null && Date.now() - establishedAt < SESSION_PROFILE_STUCK_GRACE_MS) {
+      const wait = SESSION_PROFILE_STUCK_GRACE_MS - (Date.now() - establishedAt) + 50
+      const t = window.setTimeout(() => {
+        void useAuthStore.getState().fetchProfile()
+      }, wait)
+      return () => window.clearTimeout(t)
     }
 
     const shouldReset = registerSessionProfileStuckAndShouldClear()
