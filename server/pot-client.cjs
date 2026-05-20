@@ -154,10 +154,13 @@ async function mintPoToken(visitorData) {
   const r = await httpJson('POST', `${POT_BASE_URL}/get_pot`, {
     content_binding: visitorData,
   });
-  if (!r || !r.po_token) {
-    throw new Error(`POT response missing po_token: ${JSON.stringify(r)}`);
+  // bgutil-ytdlp-pot-provider (Python) returns `po_token` (snake_case);
+  // bgutil-ytdlp-pot-provider-rs (Rust) returns `poToken` (camelCase). Accept both.
+  const token = r && (r.po_token || r.poToken);
+  if (!token) {
+    throw new Error(`POT response missing po_token/poToken: ${JSON.stringify(r)}`);
   }
-  return r.po_token;
+  return token;
 }
 
 /**
