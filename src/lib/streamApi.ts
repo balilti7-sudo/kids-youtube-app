@@ -195,6 +195,49 @@ export function streamResponseToSource(data: StreamApiResponse): { src: string; 
   return { src, type: mimeToVideoJsType(data.mimeType, data.format) }
 }
 
+/** Normalize legacy/minimal bridge JSON (`{ videoId, client, url }`) into `StreamApiResponse`. */
+export function normalizeStreamApiResponse(
+  body: Record<string, unknown>,
+  videoId: string
+): StreamApiResponse {
+  const id = String(body.videoId || videoId)
+  const rawUrl = typeof body.url === 'string' ? body.url.trim() : ''
+  const isUpstreamCdn = /googlevideo\.com/i.test(rawUrl)
+  const inferredFormat: StreamApiResponse['format'] =
+    body.format === 'hls' || body.format === 'direct'
+      ? body.format
+      : /\.m3u8(\?|$)/i.test(rawUrl)
+        ? 'hls'
+        : 'direct'
+
+  const playbackUrl =
+    rawUrl.startsWith('http') && !isUpstreamCdn
+      ? rawUrl
+      : getMediaBridgeMediaUrl(id)
+
+  const mimeType =
+    typeof body.mimeType === 'string' && body.mimeType.trim()
+      ? body.mimeType.trim()
+      : inferredFormat === 'hls'
+        ? 'application/vnd.apple.mpegurl'
+        : 'video/mp4'
+
+  return {
+    videoId: id,
+    url: playbackUrl,
+    format: inferredFormat,
+    mimeType,
+    quality: typeof body.quality === 'string' ? body.quality : null,
+    source:
+      typeof body.source === 'string'
+        ? body.source
+        : typeof body.client === 'string'
+          ? `ytdlp:${body.client}`
+          : 'bridge',
+    proxied: body.proxied !== false || isUpstreamCdn,
+  }
+}
+
 /**
  * Default budget for resolving a stream via the Media Bridge (Piped / ytdl / yt-dlp).
  * Larger than the server's own resolve budget (`OVERALL_RESOLVE_BUDGET_MS`, ~70s) so the
@@ -382,7 +425,8 @@ async function doFetchStreamInfo(
       }
       throw new StreamApiError(detail ? `${errMsg}: ${detail}` : errMsg, res.status, detail)
     }
-    return (await res.json()) as StreamApiResponse
+    const body = (await res.json()) as Record<string, unknown>
+    return normalizeStreamApiResponse(body, videoId)
   } finally {
     clearTimeout(timeout)
     if (signal) signal.removeEventListener('abort', abortForwarded)

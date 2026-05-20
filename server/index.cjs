@@ -17,6 +17,8 @@ try {
 
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const https = require('https');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
@@ -28,11 +30,22 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp.exe';
 
-const YT_DLP_FORMAT =
-  process.env.YT_DLP_FORMAT ||
-  'best[height<=720][ext=mp4]/best[ext=mp4]/best';
+/**
+ * Muxed progressive MP4 only — required for --get-url + HTML5 <video>.
+ * Do NOT use bestvideo+bestaudio here: that yields two URLs (or audio-only itag 140
+ * on tv client), which the browser cannot decode as a single stream.
+ */
+const DEFAULT_YT_DLP_FORMAT =
+  'best[height<=720][ext=mp4][vcodec!=none][acodec!=none]/' +
+  'best[ext=mp4][vcodec!=none][acodec!=none]/' +
+  '22/18/' +
+  'best[height<=720][ext=mp4]/best[ext=mp4]';
 
-const COOKIES_FILE = process.env.COOKIES_FILE || '';
+const YT_DLP_FORMAT = process.env.YT_DLP_FORMAT || DEFAULT_YT_DLP_FORMAT;
+
+/** Netscape cookie file for yt-dlp (--cookies). Env: COOKIES_FILE or YT_DLP_COOKIES_FILE; default ./cookies.txt */
+const COOKIES_FILE_ENV =
+  (process.env.COOKIES_FILE || process.env.YT_DLP_COOKIES_FILE || './cookies.txt').trim();
 const PROXY_URL = process.env.PROXY_URL || '';
 
 /** Chrome Mobile on Android — aligns with InnerTube `android` / mobile clients (not desktop Windows). */
@@ -72,7 +85,42 @@ function resolveBridgePath(p) {
   return path.isAbsolute(p) ? p : path.join(__dirname, p);
 }
 
+/** Resolved absolute path to Netscape cookies.txt, or '' if missing/disabled. */
+function resolveCookiesPath() {
+  if (!COOKIES_FILE_ENV) return '';
+  const resolved = resolveBridgePath(COOKIES_FILE_ENV);
+  return fs.existsSync(resolved) ? resolved : '';
+}
+
 // ─── yt-dlp invocation ───────────────────────────────────────────────────────
+
+/**
+ * --get-url may print multiple lines for DASH; pick a muxed video URL the browser can play.
+ */
+function pickBrowserPlayableStreamUrl(stdout) {
+  const lines = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return '';
+  if (lines.length === 1) return lines[0];
+
+  const isAudioOnly = (u) =>
+    /[?&]itag=140(?:&|$)/.test(u) ||
+    /mime=audio/i.test(u) ||
+    /acodec=[^&]*&[^&]*vcodec=none/i.test(u);
+
+  const isMuxedVideo = (u) =>
+    /mime=video/i.test(u) ||
+    (/googlevideo\.com/i.test(u) && !isAudioOnly(u));
+
+  const muxed = lines.find(isMuxedVideo);
+  if (muxed) return muxed;
+
+  const notAudio = lines.find((u) => !isAudioOnly(u));
+  return notAudio || lines[lines.length - 1];
+}
 
 function buildYtDlpArgs({
   videoId,
@@ -81,12 +129,21 @@ function buildYtDlpArgs({
   visitorData,
   jsonOnly,
 }) {
+  const cookiesPath = resolveCookiesPath();
+
   const args = [
     '--no-warnings',
     '--no-playlist',
     '--no-check-certificates',
-    '--no-cookies',
+  ];
 
+  // Only disable cookies when no Netscape file is configured. Passing both
+  // --no-cookies and --cookies can prevent yt-dlp from loading the file.
+  if (!cookiesPath) {
+    args.push('--no-cookies');
+  }
+
+  args.push(
     '-f',
     YT_DLP_FORMAT,
 
@@ -99,7 +156,7 @@ function buildYtDlpArgs({
 
     '--add-header',
     'Accept-Language:en-US,en;q=0.9',
-  ];
+  );
 
   const cert = resolveBridgePath(YT_DLP_CLIENT_CERT);
   const key = resolveBridgePath(YT_DLP_CLIENT_KEY);
@@ -107,8 +164,7 @@ function buildYtDlpArgs({
     args.push('--client-certificate', cert, '--client-key', key);
   }
 
-  const cookiesPath = COOKIES_FILE ? resolveBridgePath(COOKIES_FILE) : '';
-  if (cookiesPath && fs.existsSync(cookiesPath)) {
+  if (cookiesPath) {
     args.push('--cookies', cookiesPath);
   }
 
@@ -221,6 +277,144 @@ async function resolveVideo(videoId, { jsonOnly = false } = {}) {
   throw lastErr || new Error('resolveVideo: unknown failure');
 }
 
+/** Cache googlevideo URLs so `/api/stream` + `/api/media` share one yt-dlp resolve. */
+const RESOLVE_CACHE_TTL_MS = Number(process.env.RESOLVE_CACHE_TTL_MS || 15 * 60 * 1000);
+const resolveCache = new Map();
+
+function resolveCacheGet(videoId) {
+  const hit = resolveCache.get(videoId);
+  if (!hit || hit.expiresAt <= Date.now()) {
+    if (hit) resolveCache.delete(videoId);
+    return null;
+  }
+  return hit;
+}
+
+function resolveCacheSet(videoId, upstreamUrl, client) {
+  resolveCache.set(videoId, {
+    upstreamUrl,
+    client,
+    expiresAt: Date.now() + RESOLVE_CACHE_TTL_MS,
+  });
+}
+
+async function getCachedUpstreamUrl(videoId) {
+  const hit = resolveCacheGet(videoId);
+  if (hit) return hit;
+
+  const { client, output } = await resolveVideo(videoId, { jsonOnly: false });
+  const upstreamUrl = pickBrowserPlayableStreamUrl(output);
+  if (!upstreamUrl) {
+    throw new Error('yt-dlp returned no playable URL');
+  }
+  resolveCacheSet(videoId, upstreamUrl, client);
+  return resolveCacheGet(videoId);
+}
+
+function inferStreamMetadata(upstreamUrl) {
+  const format = /\.m3u8(\?|$)/i.test(upstreamUrl) ? 'hls' : 'direct';
+  let mimeType = 'video/mp4';
+  const mimeParam = upstreamUrl.match(/[?&]mime=([^&]+)/i);
+  if (mimeParam) {
+    try {
+      mimeType = decodeURIComponent(mimeParam[1].replace(/\+/g, '%20'));
+    } catch {
+      mimeType = mimeParam[1];
+    }
+  } else if (format === 'hls') {
+    mimeType = 'application/vnd.apple.mpegurl';
+  }
+
+  let quality = null;
+  const itag = upstreamUrl.match(/[?&]itag=(\d+)/)?.[1];
+  if (itag === '18') quality = '360p';
+  else if (itag === '22') quality = '720p';
+
+  return { format, mimeType, quality };
+}
+
+function publicBridgeOrigin(req) {
+  const configured = (process.env.PUBLIC_BRIDGE_ORIGIN || '').trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  const host = req.get('host');
+  if (!host) return `http://127.0.0.1:${PORT}`;
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
+  return `${proto}://${host}`.replace(/\/+$/, '');
+}
+
+function proxyUpstreamMedia(req, res, upstreamUrl, { videoId } = {}) {
+  let upstream;
+  try {
+    upstream = new URL(upstreamUrl);
+  } catch (err) {
+    return res.status(502).json({
+      error: 'proxy_failed',
+      detail: err.message,
+    });
+  }
+
+  const lib = upstream.protocol === 'https:' ? https : http;
+  const headers = {
+    'User-Agent': YT_DLP_USER_AGENT,
+    Accept: '*/*',
+    Referer: 'https://www.youtube.com/',
+    Origin: 'https://www.youtube.com',
+  };
+  if (req.headers.range) headers.Range = req.headers.range;
+
+  const proxyReq = lib.request(
+    upstream,
+    { method: 'GET', headers },
+    (proxyRes) => {
+      const status = proxyRes.statusCode || 502;
+      if (status >= 400) {
+        if (videoId && (status === 403 || status === 410)) {
+          resolveCache.delete(videoId);
+        }
+        if (!res.headersSent) res.status(status);
+        proxyRes.resume();
+        return res.end();
+      }
+
+      res.status(status);
+      for (const [key, value] of Object.entries(proxyRes.headers)) {
+        if (value == null || value === '') continue;
+        const lk = key.toLowerCase();
+        if (
+          lk === 'content-type' ||
+          lk === 'content-length' ||
+          lk === 'content-range' ||
+          lk === 'accept-ranges' ||
+          lk === 'cache-control'
+        ) {
+          res.setHeader(key, value);
+        }
+      }
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader(
+        'Access-Control-Expose-Headers',
+        'Content-Length, Content-Range, Accept-Ranges'
+      );
+      if (!res.getHeader('Content-Type')) {
+        res.setHeader('Content-Type', 'video/mp4');
+      }
+      proxyRes.pipe(res);
+    }
+  );
+
+  proxyReq.on('error', (err) => {
+    console.error('[/api/media] proxy error:', err.message);
+    if (!res.headersSent) {
+      res.status(502).json({
+        error: 'proxy_failed',
+        detail: err.message,
+      });
+    }
+  });
+
+  proxyReq.end();
+}
+
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 app.get('/health', async (_req, res) => {
@@ -237,7 +431,9 @@ app.get('/health', async (_req, res) => {
       reachable: potUp,
     },
     ytDlp: YT_DLP_PATH,
+    ytDlpFormat: YT_DLP_FORMAT,
     clientChain: CLIENT_CHAIN,
+    cookiesFile: resolveCookiesPath() || null,
   });
 });
 
@@ -251,21 +447,32 @@ app.get('/api/stream/:videoId', async (req, res) => {
   }
 
   try {
-    const { client, output } =
-      await resolveVideo(videoId, {
-        jsonOnly: false,
-      });
+    const cached = await getCachedUpstreamUrl(videoId);
+    const upstreamUrl = cached.upstreamUrl;
+    const client = cached.client;
 
-    const url =
-      output
-        .split('\n')
-        .filter(Boolean)
-        .pop();
+    if (/[?&]itag=140(?:&|$)/.test(upstreamUrl) || /mime=audio/i.test(upstreamUrl)) {
+      console.warn(
+        `[api/stream] WARNING: URL looks audio-only (itag=140); check YT_DLP_FORMAT — ${upstreamUrl.slice(0, 120)}…`
+      );
+    } else {
+      console.log(
+        `[api/stream] ${videoId} client=${client} muxed url (${upstreamUrl.length} chars)`
+      );
+    }
+
+    const { format, mimeType, quality } = inferStreamMetadata(upstreamUrl);
+    const origin = publicBridgeOrigin(req);
+    const playbackUrl = `${origin}/api/media/${encodeURIComponent(videoId)}`;
 
     res.json({
       videoId,
-      client,
-      url,
+      url: playbackUrl,
+      format,
+      mimeType,
+      quality,
+      source: `ytdlp:${client}`,
+      proxied: true,
     });
   } catch (err) {
     console.error(
@@ -278,6 +485,28 @@ app.get('/api/stream/:videoId', async (req, res) => {
       detail: err.message
         .split('\n')
         .slice(0, 3),
+    });
+  }
+});
+
+/** Proxied progressive MP4 / HLS for `<video src>` — supports Range seeks. */
+app.get('/api/media/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+
+  if (!/^[\w-]{11}$/.test(videoId)) {
+    return res.status(400).json({
+      error: 'invalid videoId',
+    });
+  }
+
+  try {
+    const cached = await getCachedUpstreamUrl(videoId);
+    proxyUpstreamMedia(req, res, cached.upstreamUrl, { videoId });
+  } catch (err) {
+    console.error('[/api/media] failed:', err.message);
+    res.status(502).json({
+      error: 'resolve_failed',
+      detail: err.message.split('\n').slice(0, 3),
     });
   }
 });
@@ -370,6 +599,17 @@ app.listen(PORT, HOST, async () => {
   console.log(
     `[bridge] POT provider: ${potClient.POT_BASE_URL}`
   );
+
+  console.log(`[bridge] yt-dlp format: ${YT_DLP_FORMAT}`);
+
+  const cookiesPath = resolveCookiesPath();
+  if (cookiesPath) {
+    console.log(`[bridge] yt-dlp cookies: ${cookiesPath}`);
+  } else {
+    console.warn(
+      `[bridge] yt-dlp cookies: NOT FOUND (expected ${resolveBridgePath(COOKIES_FILE_ENV)}) — bot challenges likely`
+    );
+  }
 
   const potUp = await potClient.ping();
 

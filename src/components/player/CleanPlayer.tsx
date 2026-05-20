@@ -5,8 +5,8 @@ import { cn } from '../../lib/utils'
 import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
 import {
   fetchStreamInfo,
-  getMediaBridgeMediaUrl,
   getStreamApiBaseUrl,
+  streamResponseToSource,
   StreamApiError,
   type StreamApiResponse,
 } from '../../lib/streamApi'
@@ -184,7 +184,6 @@ function CleanPlayerMediaBridge({
     hlsJsActiveRef.current = false
     ac = new AbortController()
     const signal = ac.signal
-    const mediaUrl = getMediaBridgeMediaUrl(videoId)
 
     /**
      * Stream metadata must not depend on `<video ref>`: StrictMode / rapid dependency
@@ -217,6 +216,8 @@ function CleanPlayerMediaBridge({
           detachHls()
           el.removeAttribute('src')
           el.load()
+
+          const { src: playbackSrc } = streamResponseToSource(info)
 
           if (info.format === 'hls' && !canPlayNativeHls()) {
             if (!Hls.isSupported()) {
@@ -265,13 +266,16 @@ function CleanPlayerMediaBridge({
                 })
               }
             })
-            hls.loadSource(mediaUrl)
+            hls.loadSource(playbackSrc)
             hls.attachMedia(el)
             setPhase({ kind: 'playing', info })
             return
           }
 
-          el.src = mediaUrl
+          el.src = playbackSrc
+          if (import.meta.env.DEV) {
+            console.info('[CleanPlayer] <video src>', playbackSrc)
+          }
           setPhase({ kind: 'playing', info })
         }
 
