@@ -1,0 +1,16 @@
+# Vercel frontend-only deploy (Vite). Keep upload under 100 MB.
+server/
+deploy/
+scripts/
+supabase/
+node_modules/
+dist/
+.git/
+.cursor/
+agent-transcripts/
+*.log
+**/*.log
+.env
+.env.*
+!.env.example
+server/logs/
