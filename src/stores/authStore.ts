@@ -89,39 +89,74 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   fetchProfile: async () => {
     const user = get().user
     if (!user) {
+      console.info('[fetchProfile] skip — no user in store')
       set({ profile: null, profileLoading: false })
       return
     }
+    console.info('[fetchProfile] start', { userId: user.id })
     set({ profileLoading: true })
     const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
     if (error) {
-      console.warn('[fetchProfile] profiles select failed', { message: error.message, code: error.code })
+      const err = error as { message?: string; code?: string; details?: string; hint?: string; status?: number }
+      console.error('[fetchProfile] profiles SELECT failed', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+        hint: err.hint,
+        status: err.status,
+      })
       set({ profile: null, profileLoading: false })
       return
     }
     if (!data) {
-      console.warn('[fetchProfile] no profile row; attempting on-the-fly upsert', user.id)
+      console.warn('[fetchProfile] no profile row; attempting on-the-fly upsert', { userId: user.id })
       const created = await ensureProfileRowForUser(user)
+      console.info('[fetchProfile] upsert result', { created: Boolean(created) })
       set({ profile: created, profileLoading: false })
       return
     }
+    console.info('[fetchProfile] success', {
+      userId: user.id,
+      onboardingDone: (data as Profile).onboarding_done,
+      hasParentPin: Boolean((data as Profile).parent_pin),
+      hasAccessCode: Boolean((data as Profile).access_code),
+    })
     set({ profile: data as Profile, profileLoading: false })
   },
 
   signIn: async (email, password) => {
+    console.info('[authStore.signIn] requesting signInWithPassword', { email })
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (!error) {
-      setAppModeParent()
-      // Reset stuck/failure counters BEFORE the React re-render so the brief
-      // null-profile window after session-set doesn't trip auto-signOut in useAuth.
-      clearAuthSessionCounters()
-      // No global onAuthStateChange listener anymore — sync the store ourselves.
-      if (data.session) {
-        set({ session: data.session, user: data.session.user, loading: false })
-        void get().fetchProfile()
-      }
+    if (error) {
+      const err = error as Error & { status?: number; code?: string }
+      console.error('[authStore.signIn] supabase returned error', {
+        message: err.message,
+        name: err.name,
+        status: err.status,
+        code: err.code,
+      })
+      return { error: new Error(error.message) }
     }
-    return { error: error ? new Error(error.message) : null }
+    console.info('[authStore.signIn] supabase success', {
+      hasSession: Boolean(data.session),
+      userId: data.session?.user?.id ?? null,
+      email: data.session?.user?.email ?? null,
+      expiresAt: data.session?.expires_at
+        ? new Date(data.session.expires_at * 1000).toISOString()
+        : null,
+    })
+    setAppModeParent()
+    // Reset stuck/failure counters BEFORE the React re-render so the brief
+    // null-profile window after session-set doesn't trip auto-signOut in useAuth.
+    clearAuthSessionCounters()
+    // No global onAuthStateChange listener anymore — sync the store ourselves.
+    if (data.session) {
+      set({ session: data.session, user: data.session.user, loading: false })
+      void get().fetchProfile()
+    } else {
+      console.warn('[authStore.signIn] no session returned despite success — email confirmation may be required')
+    }
+    return { error: null }
   },
 
   signUp: async (email, password) => {
@@ -208,6 +243,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
+    console.warn('[authStore.signOut] CALLED — stack trace follows', new Error('signOut callsite').stack)
     clearParentPinSessions()
     await supabase.auth.signOut()
     set({ user: null, session: null, profile: null, profileLoading: false })
@@ -219,6 +255,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOutClearEverything: async () => {
+    console.warn('[authStore.signOutClearEverything] CALLED — stack trace follows', new Error('signOutClearEverything callsite').stack)
     clearChildAccessToken()
     clearParentPinSessions()
     await supabase.auth.signOut()

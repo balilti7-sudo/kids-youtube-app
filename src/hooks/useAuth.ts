@@ -88,11 +88,20 @@ export function useAuth() {
 
   useEffect(() => {
     let mounted = true
+    console.info('[useAuth] initial getSession() mount')
 
     supabase.auth
       .getSession()
       .then(({ data: { session: s } }) => {
-        if (!mounted) return
+        if (!mounted) {
+          console.info('[useAuth] getSession resolved AFTER unmount — ignored')
+          return
+        }
+        console.info('[useAuth] getSession resolved', {
+          hasSession: Boolean(s),
+          userId: s?.user?.id ?? null,
+          email: s?.user?.email ?? null,
+        })
         setSession(s)
         setLoading(false)
         if (s?.user) {
@@ -102,7 +111,7 @@ export function useAuth() {
         }
       })
       .catch((e) => {
-        console.error('[auth] getSession failed', e)
+        console.error('[useAuth] getSession FAILED — this would set session=null', e)
         registerAuthFailureAndMaybeClearCorruptedToken()
         if (!mounted) return
         setSession(null)
@@ -110,6 +119,7 @@ export function useAuth() {
       })
 
     return () => {
+      console.info('[useAuth] cleanup — initial getSession effect (mounted=false)')
       mounted = false
     }
   }, [setSession, setLoading])
@@ -148,24 +158,38 @@ export function useAuth() {
     const establishedAt = sessionEstablishedAtRef.current
     if (establishedAt !== null && Date.now() - establishedAt < SESSION_PROFILE_STUCK_GRACE_MS) {
       const wait = SESSION_PROFILE_STUCK_GRACE_MS - (Date.now() - establishedAt) + 50
+      console.info('[useAuth] stuck-check within grace period — retrying fetchProfile in', wait, 'ms')
       const t = window.setTimeout(() => {
         void useAuthStore.getState().fetchProfile()
       }, wait)
       return () => window.clearTimeout(t)
     }
 
+    const counter = Number(window.sessionStorage.getItem(SESSION_PROFILE_STUCK_COUNT_KEY) || '0')
+    console.warn('[useAuth] stuck iteration', {
+      counter,
+      threshold: SESSION_PROFILE_STUCK_THRESHOLD,
+      userId: user.id,
+    })
     const shouldReset = registerSessionProfileStuckAndShouldClear()
     if (!shouldReset) {
       void useAuthStore.getState().fetchProfile()
       return
     }
 
-    console.error('[auth] session exists but profile failed repeatedly; clearing local auth token and forcing clean login')
-    clearCorruptedSupabaseTokenStorage()
+    console.error(
+      '[useAuth] session exists but profile failed repeatedly — WOULD force signOut. ' +
+      'Look upstream for [fetchProfile] errors to see WHY the profile lookup keeps coming back null/error.',
+    )
+    // Auto-signOut intentionally DISABLED. The original safety net (clear local
+    // tokens + force fresh login after 3 missed profile fetches) was masking
+    // the real failure mode: profile lookups returning null didn't mean the
+    // session was corrupted, just that the user didn't have a profiles row yet
+    // (or RLS blocked it). Kicking the user out gave a "logged in for a split
+    // second then logged out" experience. Keep the logging, drop the action.
+    // Re-enable explicitly only after we've actually confirmed an
+    // unrecoverable-token failure mode that this catch would solve.
     resetSessionProfileStuckCounter()
-    void supabase.auth.signOut().finally(() => {
-      useAuthStore.setState({ user: null, session: null, profile: null, loading: false, profileLoading: false })
-    })
   }, [session, user, profile, loading, profileLoading])
 
   return {

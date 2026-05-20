@@ -2,9 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { normalizePairingUrlInAddressBar } from './lib/pairingCodeFromQr'
+import { installAuthDiagnostics } from './lib/authDiagnostics'
 import App from './App.tsx'
 
 normalizePairingUrlInAddressBar()
+installAuthDiagnostics()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
