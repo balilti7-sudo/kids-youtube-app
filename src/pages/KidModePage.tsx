@@ -1083,17 +1083,19 @@ export function KidModePage() {
                   </div>
                 </div>
 
+                {/* Kid watch: instant title search — no PIN, no parent mode */}
+                <div className="border-b border-black/[0.06] bg-white px-1.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-2">
+                  <ChannelVideoSearchBar
+                    id="kid-channel-video-search"
+                    value={videoSearch}
+                    onChange={setVideoSearch}
+                    totalCount={channelVideos.length}
+                    filteredCount={filteredVideos.length}
+                    channelLabel={activeChannel?.channel_name ?? null}
+                  />
+                </div>
+
                 <div className="mx-auto max-w-[1600px] gap-0 px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:flex lg:min-h-0 lg:flex-col lg:gap-3 lg:px-3 lg:pt-2">
-                  <div className="mb-2 lg:hidden">
-                    <ChannelVideoSearchBar
-                      id="kid-channel-video-search-mobile"
-                      value={videoSearch}
-                      onChange={setVideoSearch}
-                      totalCount={channelVideos.length}
-                      filteredCount={filteredVideos.length}
-                      channelLabel={activeChannel?.channel_name ?? null}
-                    />
-                  </div>
                   <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row lg:gap-2">
                   <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
                     {channelLoading ? (
@@ -1158,15 +1160,6 @@ export function KidModePage() {
 
                   <aside className="mt-3 min-w-0 border-t border-black/[0.06] pt-3 dark:border-zinc-800 lg:mt-0 lg:w-[min(100%,400px)] lg:shrink-0 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-4 dark:lg:border-zinc-800">
                     <div className="lg:sticky lg:top-[52px] lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:pb-8 lg:pe-1">
-                      <ChannelVideoSearchBar
-                        id="kid-channel-video-search"
-                        value={videoSearch}
-                        onChange={setVideoSearch}
-                        totalCount={channelVideos.length}
-                        filteredCount={filteredVideos.length}
-                        channelLabel={activeChannel?.channel_name ?? null}
-                        className="mb-3 hidden lg:block"
-                      />
                       <div className="mb-2 flex items-center gap-2">
                         <Play className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" fill="currentColor" aria-hidden />
                         <p className="text-sm font-bold text-slate-800 dark:text-zinc-200">הסרטונים של הערוץ</p>
