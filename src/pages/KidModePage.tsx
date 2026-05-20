@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, Play, Search, ShieldAlert, Smartphone, Unplug, Users, X } from 'lucide-react'
+import { Camera, Play, Search, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
 import { Button } from '../components/ui/Button'
+import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
@@ -27,6 +28,7 @@ import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
 import { lockManagementAppShell } from '../lib/lockParentApp'
 import { setParentEntryIntent } from '../lib/parentEntryIntent'
+import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { CleanPlayer } from '../components/player/CleanPlayer'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
@@ -128,11 +130,10 @@ export function KidModePage() {
     }
   })
 
-  const filteredVideos = useMemo(() => {
-    const q = videoSearch.trim().toLowerCase()
-    if (!q) return channelVideos
-    return channelVideos.filter((v) => v.title.toLowerCase().includes(q))
-  }, [channelVideos, videoSearch])
+  const filteredVideos = useMemo(
+    () => filterVideosByTitle(channelVideos, videoSearch),
+    [channelVideos, videoSearch]
+  )
 
   const activeVideo = useMemo(
     () => filteredVideos.find((v) => v.videoId === activeVideoId) ?? null,
@@ -1042,6 +1043,16 @@ export function KidModePage() {
               </aside>
 
               <div className="min-w-0 flex-1 bg-[#f3f3f3] dark:bg-[#0f0f0f] lg:pt-0">
+                <div className="sticky top-0 z-20 border-b border-black/[0.06] bg-[#f3f3f3]/95 px-1.5 py-2 backdrop-blur-sm dark:border-zinc-800 dark:bg-[#0f0f0f]/95 sm:px-2">
+                  <ChannelVideoSearchBar
+                    id="kid-channel-video-search"
+                    value={videoSearch}
+                    onChange={setVideoSearch}
+                    totalCount={channelVideos.length}
+                    filteredCount={filteredVideos.length}
+                    channelLabel={activeChannel?.channel_name ?? null}
+                  />
+                </div>
                 <div className="border-b border-black/[0.06] bg-white px-1.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/90 lg:hidden">
                   <p className="mb-1 px-0.5 text-[11px] font-bold text-slate-500">ערוץ</p>
                   <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5">
@@ -1083,62 +1094,6 @@ export function KidModePage() {
                 </div>
 
                 <div className="mx-auto max-w-[1600px] gap-0 px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:flex lg:min-h-0 lg:flex-col lg:gap-3 lg:px-3 lg:pt-2">
-                  <section
-                    className="w-full rounded-2xl border-2 border-slate-200/90 bg-white px-3 py-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/95 sm:px-4 sm:py-4"
-                    aria-label="חיפוש סרטונים בערוץ"
-                  >
-                    <div className="mb-2 flex flex-wrap items-center gap-2 sm:gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-100 dark:bg-brand-950/80">
-                        <Search className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-bold leading-tight text-slate-900 dark:text-zinc-50 sm:text-xl">
-                          חיפוש בערוץ
-                        </h3>
-                        <p className="text-sm font-medium text-slate-600 dark:text-zinc-400">
-                          מצאו מהר את הסרטון שאתם רוצים
-                        </p>
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <label htmlFor="kid-channel-video-search" className="sr-only">
-                        חיפוש לפי שם סרטון בערוץ הנבחר
-                      </label>
-                      <Search
-                        className="pointer-events-none absolute end-3 top-1/2 z-[1] h-7 w-7 -translate-y-1/2 text-slate-400 dark:text-zinc-500"
-                        aria-hidden
-                      />
-                      <Input
-                        id="kid-channel-video-search"
-                        value={videoSearch}
-                        onChange={(e) => setVideoSearch(e.target.value)}
-                        placeholder="הקלידו כאן את שם הסרטון…"
-                        autoComplete="off"
-                        dir="rtl"
-                        className={`min-h-[52px] rounded-2xl border-2 border-slate-200 bg-slate-50/80 text-lg font-medium text-slate-900 shadow-inner placeholder:text-slate-400 focus:bg-white dark:border-zinc-600 dark:bg-zinc-950/80 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:bg-zinc-900 ${
-                          videoSearch.trim() ? 'ps-12 pe-14' : 'pe-14 ps-4'
-                        }`}
-                      />
-                      {videoSearch.trim() ? (
-                        <button
-                          type="button"
-                          className="absolute start-3 top-1/2 z-[1] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl bg-slate-200/90 text-slate-700 transition hover:bg-slate-300/90 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
-                          onClick={() => setVideoSearch('')}
-                          aria-label="מחק את החיפוש"
-                        >
-                          <X className="h-6 w-6" strokeWidth={2.5} aria-hidden />
-                        </button>
-                      ) : null}
-                    </div>
-                    <p className="mt-2 text-sm font-semibold text-slate-600 dark:text-zinc-400" aria-live="polite">
-                      {channelVideos.length === 0
-                        ? 'אין עדיין סרטונים ברשימה'
-                        : filteredVideos.length === channelVideos.length
-                          ? `${channelVideos.length} סרטונים בערוץ`
-                          : `מוצגים ${filteredVideos.length} מתוך ${channelVideos.length} סרטונים`}
-                    </p>
-                  </section>
-
                   <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row lg:gap-2">
                   <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
                     {channelLoading ? (
