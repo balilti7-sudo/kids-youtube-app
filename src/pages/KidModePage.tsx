@@ -98,6 +98,7 @@ export function KidModePage() {
   const qrScannerRef = useRef<Html5Qrcode | null>(null)
   const qrDecodeLockRef = useRef(false)
   const channelVideosRequestRef = useRef(0)
+  const [videoSearchFocused, setVideoSearchFocused] = useState(false)
   const parentTabLongPressRef = useRef<number | null>(null)
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
@@ -135,10 +136,13 @@ export function KidModePage() {
     [channelVideos, videoSearch]
   )
 
-  const activeVideo = useMemo(
-    () => filteredVideos.find((v) => v.videoId === activeVideoId) ?? null,
-    [filteredVideos, activeVideoId]
-  )
+  const activeVideo = useMemo(() => {
+    const inFiltered = filteredVideos.find((v) => v.videoId === activeVideoId)
+    if (inFiltered) return inFiltered
+    const inAll = channelVideos.find((v) => v.videoId === activeVideoId)
+    if (videoSearch.trim() && inAll) return inAll
+    return null
+  }, [filteredVideos, channelVideos, activeVideoId, videoSearch])
 
   const activeChannel = useMemo(
     () => channels.find((c) => c.youtube_channel_id === (activeChannelId ?? '')) ?? null,
@@ -329,6 +333,7 @@ export function KidModePage() {
   }, [activeChannelId, channelPickNonce, loadChannelVideos])
 
   useEffect(() => {
+    if (videoSearchFocused) return
     if (channelVideos.length === 0) {
       setActiveVideoId(null)
       return
@@ -340,7 +345,7 @@ export function KidModePage() {
     setActiveVideoId((prev) =>
       prev && filteredVideos.some((v) => v.videoId === prev) ? prev : filteredVideos[0].videoId
     )
-  }, [channelVideos, filteredVideos])
+  }, [channelVideos, videoSearch, filteredVideos, videoSearchFocused])
 
   useEffect(() => {
     if (!accessToken) return
@@ -1089,6 +1094,7 @@ export function KidModePage() {
                     id="kid-channel-video-search"
                     value={videoSearch}
                     onChange={setVideoSearch}
+                    onFocusChange={setVideoSearchFocused}
                     totalCount={channelVideos.length}
                     filteredCount={filteredVideos.length}
                     channelLabel={activeChannel?.channel_name ?? null}
