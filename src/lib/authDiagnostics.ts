@@ -32,7 +32,7 @@ export function installAuthDiagnostics() {
 
   supabase.auth.onAuthStateChange((event, session) => {
     const stamp = new Date().toISOString()
-    const isWarn = event === 'SIGNED_OUT' || event === 'USER_DELETED'
+    const isWarn = event === 'SIGNED_OUT' || String(event) === 'USER_DELETED'
     console.info(
       `%c[auth-diag] ${stamp} event=${event}`,
       isWarn ? STYLE_WARN : STYLE,

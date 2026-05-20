@@ -40,19 +40,19 @@ export async function verifyLoggedInUserParentPin(userId: string, pin: string): 
     return { ok: false, errorMessage: 'נא להזין בין 4 ל-6 ספרות' }
   }
 
-  /** `*` — כדי שלא תיפול בקשה אם העמודה `access_code` עדיין לא נוספה ב-Supabase. */
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('parent_pin')
+    .eq('id', userId)
+    .maybeSingle()
 
   if (error) {
     console.warn('[verifyLoggedInUserParentPin] profiles select failed', error.message)
     return { ok: false, errorMessage: 'לא ניתן לאמת כרגע, נסו שוב' }
   }
 
-  const ppRaw = data?.parent_pin ?? null
-  const acRaw = data?.access_code ?? null
   const stored = resolvedManagementPinFromProfileRow({
-    parent_pin: ppRaw,
-    access_code: acRaw,
+    parent_pin: data?.parent_pin ?? null,
   })
 
   if (stored.length < 4 || stored === '0000') {

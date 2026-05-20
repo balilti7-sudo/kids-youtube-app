@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { PictureInPicture2 } from 'lucide-react'
 import Hls from 'hls.js'
+import { setMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
+import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
 import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
 import {
@@ -454,6 +456,39 @@ function CleanPlayerMediaBridge({
       } catch {
         /* ignore */
       }
+    }
+  }, [phase.kind, videoId])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el) return
+
+    const sync = () => {
+      const on = !el.paused && !el.ended
+      setMediaPlaybackActive(on)
+      if (on) touchParentalGateActivity()
+    }
+
+    const onPlay = () => sync()
+    const onPause = () => sync()
+    const onEnded = () => sync()
+
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
+    el.addEventListener('ended', onEnded)
+    sync()
+
+    const tick = window.setInterval(() => {
+      if (!el.paused && !el.ended) touchParentalGateActivity()
+    }, 30_000)
+
+    return () => {
+      window.clearInterval(tick)
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
+      el.removeEventListener('ended', onEnded)
+      setMediaPlaybackActive(false)
     }
   }, [phase.kind, videoId])
 

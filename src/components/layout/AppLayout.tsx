@@ -6,6 +6,7 @@ import { getSavedChildAccessToken } from '../../lib/childDevice'
 import { LOCK_MANAGEMENT_APP_EVENT, lockManagementAppShell } from '../../lib/lockParentApp'
 import { consumeParentEntryIntent } from '../../lib/parentEntryIntent'
 import { isParentManagementLockedPath } from '../../lib/parentManagementPaths'
+import { isMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
 import { isParentalGateIdleExceeded, touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { consumeSkipParentalManagementGateOnce } from '../../lib/parentalGateSkipOnce'
 import {
@@ -80,6 +81,10 @@ export function AppLayout() {
   useEffect(() => {
     if (BYPASS_AUTH || !managementUnlocked) return
     const id = window.setInterval(() => {
+      if (isMediaPlaybackActive()) {
+        touchParentalGateActivity()
+        return
+      }
       if (!isParentalGateIdleExceeded()) return
       lockManagementAppShell()
       if (getSavedChildAccessToken()) {
