@@ -73,6 +73,12 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb' }));
 
+void import('./register-email-routes.mjs')
+  .then(({ registerBridgeEmailRoutes }) => registerBridgeEmailRoutes(app))
+  .catch((err) => {
+    console.warn('[bridge] email routes not registered:', err?.message || err)
+  })
+
 app.use((req, _res, next) => {
   console.log(
     `[${new Date().toISOString()}] ${req.method} ${req.url} from=${req.ip}`

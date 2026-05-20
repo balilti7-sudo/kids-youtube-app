@@ -9,6 +9,7 @@ import {
 } from '../lib/parentPin'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { requestPinChangedEmail } from '../lib/requestPinChangedEmail'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 
@@ -36,7 +37,7 @@ function isInvalidLoginCredentials(error: { message?: string; status?: number; c
 }
 
 export function ProfilePage() {
-  const { user, profile, refreshProfile } = useAuth()
+  const { user, profile, session, refreshProfile } = useAuth()
   const [email, setEmail] = useState('')
   const [emailSaving, setEmailSaving] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
@@ -157,6 +158,7 @@ export function ProfilePage() {
       }
 
       toast.success('קוד PIN לנעילת הורים עודכן')
+      requestPinChangedEmail(session?.access_token)
       setCurrentParentPin('')
       setNewParentPin('')
       setNewParentPinConfirm('')

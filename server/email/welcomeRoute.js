@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { sendWelcomeEmail } from './sendWelcome.js'
 import { sendPinEmail } from './sendPin.js'
 import { sendPairingReminderEmail } from './sendPairingReminder.js'
+import { sendPinChangedEmail } from './sendPinChanged.js'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -11,6 +12,9 @@ const rateByIp = new Map()
 const dedupeWelcome = new Map()
 /** @type {Map<string, number>} normalized email -> expiresAt — pairing reminder (stricter) */
 const dedupePairingReminder = new Map()
+/** @type {Map<string, number>} normalized email -> expiresAt — PIN changed notification */
+const dedupePinChanged = new Map()
+const PIN_CHANGED_DEDUPE_MS = 2 * 60 * 1000
 
 const WELCOME_RATE_WINDOW_MS = 60 * 60 * 1000
 const WELCOME_RATE_MAX = 20
@@ -29,6 +33,9 @@ function pruneDedupe() {
   }
   for (const [k, exp] of dedupePairingReminder) {
     if (now > exp) dedupePairingReminder.delete(k)
+  }
+  for (const [k, exp] of dedupePinChanged) {
+    if (now > exp) dedupePinChanged.delete(k)
   }
 }
 
@@ -272,6 +279,60 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseSer
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('[email/pin]', msg)
+      return res.status(502).json({ ok: false, error: msg })
+    }
+  })
+
+  /** PIN change confirmation — authenticated parent only; never includes PIN in email. */
+  app.post('/api/email/pin-changed', async (req, res) => {
+    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    if (!apiKey) {
+      return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
+    }
+
+    const ip = getClientIp(req)
+    if (!rateLimitOk(ip)) {
+      return res.status(429).json({ ok: false, error: 'Too many requests' })
+    }
+
+    const bearer = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim()
+    if (!bearer || !supabaseAuthClient) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' })
+    }
+
+    const { data: userData, error: userError } = await supabaseAuthClient.auth.getUser(bearer)
+    if (userError || !userData.user?.email) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' })
+    }
+
+    const email = normalizeEmail(userData.user.email)
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ ok: false, error: 'Invalid email' })
+    }
+
+    pruneDedupe()
+    const now = Date.now()
+    if (dedupePinChanged.has(email) && dedupePinChanged.get(email) > now) {
+      return res.status(200).json({ ok: true, skipped: true })
+    }
+
+    let displayName = userData.user.user_metadata?.full_name || null
+    if (supabaseServiceClient) {
+      const { data: profile } = await supabaseServiceClient
+        .from('profiles')
+        .select('full_name')
+        .eq('id', userData.user.id)
+        .maybeSingle()
+      if (profile?.full_name) displayName = profile.full_name
+    }
+
+    try {
+      await sendPinChangedEmail({ to: email, displayName })
+      dedupePinChanged.set(email, now + PIN_CHANGED_DEDUPE_MS)
+      return res.status(200).json({ ok: true, sent: true })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[email/pin-changed]', msg)
       return res.status(502).json({ ok: false, error: msg })
     }
   })
