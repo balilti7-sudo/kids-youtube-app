@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { PictureInPicture2 } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { PictureInPicture2, Repeat, SkipForward } from 'lucide-react'
 import Hls from 'hls.js'
 import { setMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
 import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
@@ -27,6 +27,66 @@ export type CleanPlayerProps = {
   onNextTrack?: () => void
   /** Lock screen / headset “previous”. */
   onPreviousTrack?: () => void
+  /** When false, the “next” button is disabled (e.g. last item in channel/playlist). */
+  hasNextTrack?: boolean
+  /** Kid queue bar (next + loop). Default: true when `onNextTrack` is provided. */
+  queueControls?: boolean
+}
+
+function KidPlayerQueueControls({
+  loopEnabled,
+  onLoopToggle,
+  onNext,
+  hasNext,
+  className,
+}: {
+  loopEnabled: boolean
+  onLoopToggle: () => void
+  onNext: () => void
+  hasNext: boolean
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        'flex shrink-0 items-center justify-center gap-2 border-t border-white/10 bg-black/90 px-3 py-2.5',
+        className
+      )}
+      dir="rtl"
+      role="toolbar"
+      aria-label="בקרת ניגון"
+    >
+      <button
+        type="button"
+        onClick={onLoopToggle}
+        aria-pressed={loopEnabled}
+        className={cn(
+          'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
+          loopEnabled
+            ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
+            : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
+        )}
+        title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
+      >
+        <Repeat className="h-5 w-5 shrink-0" aria-hidden />
+        <span className="text-sm font-bold">נגן שוב ושוב</span>
+      </button>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!hasNext}
+        className={cn(
+          'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 border-white/25 bg-white/10 px-3 text-sm font-bold text-zinc-100 transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
+          hasNext ? 'hover:bg-white/15' : 'cursor-not-allowed opacity-40'
+        )}
+        title="שיר הבא"
+        aria-label="שיר הבא"
+      >
+        <SkipForward className="h-5 w-5 shrink-0" aria-hidden />
+        <span className="text-sm font-bold">שיר הבא</span>
+      </button>
+    </div>
+  )
 }
 
 function buildYoutubeArtwork(videoId: string): MediaImage[] {
@@ -83,10 +143,23 @@ function CleanPlayerYoutubeIframe({
   className,
   channelTitle,
   posterUrl,
+  onNextTrack,
+  hasNextTrack = true,
+  queueControls,
 }: CleanPlayerProps) {
+  const [loopEnabled, setLoopEnabled] = useState(false)
+  const showQueueBar = queueControls ?? Boolean(onNextTrack)
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
-  const src = safeId ? buildYoutubePrivacyEmbedUrl(safeId, { origin }) : ''
+  const src = useMemo(() => {
+    if (!safeId) return ''
+    const base = buildYoutubePrivacyEmbedUrl(safeId, { origin })
+    if (!loopEnabled) return base
+    const u = new URL(base)
+    u.searchParams.set('loop', '1')
+    u.searchParams.set('playlist', safeId)
+    return u.toString()
+  }, [safeId, origin, loopEnabled])
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
@@ -111,7 +184,11 @@ function CleanPlayerYoutubeIframe({
   }, [videoId, title, channelTitle, posterUrl])
 
   return (
-    <div className={cn('relative h-full w-full min-h-0 overflow-hidden bg-black', className)} dir="ltr">
+    <div
+      className={cn('flex h-full w-full min-h-0 flex-col overflow-hidden bg-black', className)}
+      dir="ltr"
+    >
+      <div className="relative min-h-0 flex-1">
       {!safeId || !src ? (
         <div
           className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/90 px-4 text-center text-sm text-amber-100"
@@ -122,6 +199,7 @@ function CleanPlayerYoutubeIframe({
         </div>
       ) : (
         <iframe
+          key={src}
           title={title}
           src={src}
           className="h-full w-full border-0"
@@ -132,6 +210,15 @@ function CleanPlayerYoutubeIframe({
         />
       )}
       <span className="sr-only">{title}</span>
+      </div>
+      {showQueueBar ? (
+        <KidPlayerQueueControls
+          loopEnabled={loopEnabled}
+          onLoopToggle={() => setLoopEnabled((v) => !v)}
+          onNext={() => onNextTrack?.()}
+          hasNext={hasNextTrack}
+        />
+      ) : null}
     </div>
   )
 }
@@ -144,18 +231,31 @@ function CleanPlayerMediaBridge({
   posterUrl,
   onNextTrack,
   onPreviousTrack,
+  hasNextTrack = true,
+  queueControls,
 }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
   const wasPlayingBeforeHiddenRef = useRef(false)
+  const onNextTrackRef = useRef(onNextTrack)
   const [phase, setPhase] = useState<PlayerPhase>({ kind: 'resolving' })
   const [retryNonce, setRetryNonce] = useState(0)
   const [bridgeWaking, setBridgeWaking] = useState(false)
   const [pipActive, setPipActive] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
+  const [loopEnabled, setLoopEnabled] = useState(false)
   const errId = useId()
+  const showQueueBar = queueControls ?? Boolean(onNextTrack)
+
+  useEffect(() => {
+    onNextTrackRef.current = onNextTrack
+  }, [onNextTrack])
+
+  useEffect(() => {
+    setLoopEnabled(false)
+  }, [videoId])
 
   const handleRetry = useCallback(() => {
     setBridgeWaking(false)
@@ -472,11 +572,11 @@ function CleanPlayerMediaBridge({
 
     const onPlay = () => sync()
     const onPause = () => sync()
-    const onEnded = () => sync()
+    const onEndedForActivity = () => sync()
 
     el.addEventListener('play', onPlay)
     el.addEventListener('pause', onPause)
-    el.addEventListener('ended', onEnded)
+    el.addEventListener('ended', onEndedForActivity)
     sync()
 
     const tick = window.setInterval(() => {
@@ -487,10 +587,44 @@ function CleanPlayerMediaBridge({
       window.clearInterval(tick)
       el.removeEventListener('play', onPlay)
       el.removeEventListener('pause', onPause)
-      el.removeEventListener('ended', onEnded)
+      el.removeEventListener('ended', onEndedForActivity)
       setMediaPlaybackActive(false)
     }
   }, [phase.kind, videoId])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el) return
+
+    const tryAutoplay = () => {
+      void el.play().catch(() => {})
+    }
+    if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      tryAutoplay()
+    } else {
+      el.addEventListener('canplay', tryAutoplay, { once: true })
+    }
+    return () => el.removeEventListener('canplay', tryAutoplay)
+  }, [phase.kind, videoId])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el) return
+
+    const onQueueEnded = () => {
+      if (loopEnabled) {
+        el.currentTime = 0
+        void el.play().catch(() => {})
+        return
+      }
+      onNextTrackRef.current?.()
+    }
+
+    el.addEventListener('ended', onQueueEnded)
+    return () => el.removeEventListener('ended', onQueueEnded)
+  }, [phase.kind, videoId, loopEnabled])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
@@ -544,11 +678,16 @@ function CleanPlayerMediaBridge({
 
   const showOverlay = phase.kind !== 'playing'
 
+  const handleNextClick = useCallback(() => {
+    onNextTrack?.()
+  }, [onNextTrack])
+
   return (
     <div
-      className={cn('relative h-full w-full min-h-0 overflow-hidden bg-black', className)}
+      className={cn('flex h-full w-full min-h-0 flex-col overflow-hidden bg-black', className)}
       dir="ltr"
     >
+      <div className="relative min-h-0 flex-1">
       {showOverlay ? (
         <div
           className={cn(
@@ -618,6 +757,15 @@ function CleanPlayerMediaBridge({
         }}
       />
       <span className="sr-only">{title}</span>
+      </div>
+      {showQueueBar ? (
+        <KidPlayerQueueControls
+          loopEnabled={loopEnabled}
+          onLoopToggle={() => setLoopEnabled((v) => !v)}
+          onNext={handleNextClick}
+          hasNext={hasNextTrack}
+        />
+      ) : null}
     </div>
   )
 }

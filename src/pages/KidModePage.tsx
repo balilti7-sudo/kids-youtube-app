@@ -167,6 +167,14 @@ export function KidModePage() {
     [channels, activeChannelId]
   )
 
+  const activeVideoQueueIndex = useMemo(() => {
+    if (!activeVideoId) return -1
+    return filteredVideos.findIndex((v) => v.videoId === activeVideoId)
+  }, [filteredVideos, activeVideoId])
+
+  const hasNextChannelVideo =
+    activeVideoQueueIndex >= 0 && activeVideoQueueIndex < filteredVideos.length - 1
+
   const handlePlayerNextTrack = useCallback(() => {
     const list = filteredVideos
     const idx = list.findIndex((v) => v.videoId === activeVideoId)
@@ -1176,6 +1184,7 @@ export function KidModePage() {
                                 posterUrl={activeVideo.thumbnail}
                                 onNextTrack={handlePlayerNextTrack}
                                 onPreviousTrack={handlePlayerPreviousTrack}
+                                hasNextTrack={hasNextChannelVideo}
                                 className="h-full w-full"
                               />
                             </div>

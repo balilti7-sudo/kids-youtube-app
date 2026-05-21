@@ -32,6 +32,9 @@ export function KidPlaylistView({ items, loading, playlistApi }: Props) {
     )
   }, [items])
 
+  const activeIndex = items.findIndex((v) => v.youtube_video_id === activeVideoId)
+  const hasNextPlaylistVideo = activeIndex >= 0 && activeIndex < items.length - 1
+
   const goNext = useCallback(() => {
     if (!activeVideoId) return
     const idx = items.findIndex((v) => v.youtube_video_id === activeVideoId)
@@ -89,6 +92,7 @@ export function KidPlaylistView({ items, loading, playlistApi }: Props) {
                       posterUrl={active.thumbnail_url}
                       onNextTrack={goNext}
                       onPreviousTrack={goPrev}
+                      hasNextTrack={hasNextPlaylistVideo}
                       className="h-full w-full"
                     />
                   </div>
