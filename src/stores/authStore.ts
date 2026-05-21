@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { clearChildAccessToken, getSavedChildAccessToken } from '../lib/childDevice'
 import { clearAppMode, setAppModeKid, setAppModeParent } from '../lib/appMode'
 import { clearParentPinSessions } from '../lib/lockParentApp'
+import { applyPendingParentPinForProfile } from '../lib/pendingParentPin'
 
 /**
  * useAuth/LoginForm keep "stuck" / "failure" counters in sessionStorage that
@@ -111,17 +112,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!data) {
       console.warn('[fetchProfile] no profile row; attempting on-the-fly upsert', { userId: user.id })
       const created = await ensureProfileRowForUser(user)
-      console.info('[fetchProfile] upsert result', { created: Boolean(created) })
-      set({ profile: created, profileLoading: false })
+      const withPin = created
+        ? await applyPendingParentPinForProfile(user.id, user.email, created)
+        : null
+      console.info('[fetchProfile] upsert result', { created: Boolean(withPin) })
+      set({ profile: withPin, profileLoading: false })
       return
     }
+    const profileRow = data as Profile
+    const withPin = await applyPendingParentPinForProfile(user.id, user.email, profileRow)
     console.info('[fetchProfile] success', {
       userId: user.id,
-      onboardingDone: (data as Profile).onboarding_done,
-      hasParentPin: Boolean((data as Profile).parent_pin),
-      hasAccessCode: Boolean((data as Profile).access_code),
+      onboardingDone: withPin?.onboarding_done,
+      hasParentPin: Boolean(withPin?.parent_pin),
+      hasAccessCode: Boolean(withPin?.access_code),
     })
-    set({ profile: data as Profile, profileLoading: false })
+    set({ profile: withPin, profileLoading: false })
   },
 
   signIn: async (email, password) => {

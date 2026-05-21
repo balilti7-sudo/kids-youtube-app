@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import { useAuth } from '../hooks/useAuth'
@@ -8,6 +8,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { isProfileParentPinMissing, PARENT_PIN_DIGIT_MAX, PARENT_PIN_DIGIT_MIN } from '../lib/parentPin'
+import { clearPendingParentPin, readPendingParentPin } from '../lib/pendingParentPin'
 import { requestPinEmail } from '../lib/requestPinEmail'
 import { setSkipParentalManagementGateOnce } from '../lib/parentalGateSkipOnce'
 
@@ -24,6 +25,13 @@ export function SetParentPinPage() {
   const [pin, setPin] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const email = profile?.email || user?.email
+    if (!email) return
+    const pending = readPendingParentPin(email)
+    if (pending) setPin(pending)
+  }, [profile?.email, user?.email])
 
   if (loading || profileLoading) {
     return (
@@ -68,6 +76,7 @@ export function SetParentPinPage() {
       pin: parsed.data,
       accessToken: null,
     })
+    clearPendingParentPin()
 
     await refreshProfile()
     setSaving(false)
@@ -81,7 +90,8 @@ export function SetParentPinPage() {
         <SafeTubeLogo size="sm" className="mb-4" />
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-100">הגדרת קוד הורה</h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
-          לפני כניסה לדשבורד, צריך להגדיר קוד הורה חד-פעמי. קוד זה נדרש לניהול הערוצים וההגדרות.
+          לפני כניסה לדשבורד, הגדירו קוד הורה ({PARENT_PIN_DIGIT_MIN}–{PARENT_PIN_DIGIT_MAX} ספרות). אם בחרתם קוד בהרשמה — הוא
+          מופיע למטה; אחרי השמירה נשלח אליכם מייל עם הקוד לשמירה.
         </p>
 
         <form className="mt-5 space-y-3" onSubmit={onSubmit} noValidate>

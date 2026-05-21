@@ -26,14 +26,14 @@ export default function AuthCallback() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        goNext('/dashboard')
+        goNext('/')
       } else if (event === 'SIGNED_OUT' || (!session && event !== 'INITIAL_SESSION')) {
         goNext('/auth')
       }
     })
 
     void supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) goNext('/dashboard')
+      if (session) goNext('/')
     })
 
     return () => {
