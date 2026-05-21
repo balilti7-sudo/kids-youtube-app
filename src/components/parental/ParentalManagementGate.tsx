@@ -6,7 +6,6 @@ import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/parentPin'
 import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
-import { userRequiresEmailOtpForParentPinForgot } from '../../lib/parentPinForgotReauth'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../ui/Button'
@@ -23,7 +22,7 @@ const SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const
  * שכבת מסך מלאה — חובה להזין את קוד ההורה לפני גישה לאזור הניהול (דשבורד, ערוצים וכו׳).
  */
 export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void }) {
-  const { user, profile, refreshProfile } = useAuth()
+  const { user, profile } = useAuth()
   const localParent = useLocalParentManagement()
   const signOut = useAuthStore((s) => s.signOut)
 
@@ -149,7 +148,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
   const pinContiguous = contiguousDigitsFromPinSlots(digits)
   const canSubmitPin = isValidParentPinDigits(pinContiguous) || isEmergencyParentManagementBypass(pinContiguous)
-  const canUseForgotPin = Boolean(user?.id && user?.email?.trim())
+  const canUseForgotPin = true
 
   return (
     <AnimatePresence>
@@ -276,14 +275,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
       <ParentalForgotPinModal
         open={forgotPinOpen}
         onClose={() => setForgotPinOpen(false)}
-        onSuccess={() => {
-          setForgotPinOpen(false)
-          onUnlocked()
-        }}
-        userId={user?.id ?? ''}
-        userEmail={user?.email ?? ''}
-        useEmailOtpInsteadOfPassword={userRequiresEmailOtpForParentPinForgot(user)}
-        refreshProfile={refreshProfile}
+        defaultEmail={user?.email ?? ''}
       />
     </AnimatePresence>
   )

@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
 import { BridgeStatusBadge } from './BridgeStatusBadge'
+import { ParentPinSettingsCard } from './ParentPinSettingsCard'
 import { toast } from 'sonner'
 
 const linkItems = [
@@ -62,6 +63,8 @@ export function SettingsPanel() {
           ) : null}
         </div>
       </div>
+
+      <ParentPinSettingsCard />
 
       <nav className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         {linkItems.map(({ to, label, icon: Icon }) => (

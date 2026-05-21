@@ -3,6 +3,7 @@ import { sendWelcomeEmail } from './sendWelcome.js'
 import { sendPinEmail } from './sendPin.js'
 import { sendPairingReminderEmail } from './sendPairingReminder.js'
 import { sendPinChangedEmail } from './sendPinChanged.js'
+import { sendPinResetEmail } from './sendPinReset.js'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -14,7 +15,9 @@ const dedupeWelcome = new Map()
 const dedupePairingReminder = new Map()
 /** @type {Map<string, number>} normalized email -> expiresAt — PIN changed notification */
 const dedupePinChanged = new Map()
+const dedupePinReset = new Map()
 const PIN_CHANGED_DEDUPE_MS = 2 * 60 * 1000
+const PIN_RESET_DEDUPE_MS = 5 * 60 * 1000
 
 const WELCOME_RATE_WINDOW_MS = 60 * 60 * 1000
 const WELCOME_RATE_MAX = 20
@@ -37,6 +40,15 @@ function pruneDedupe() {
   for (const [k, exp] of dedupePinChanged) {
     if (now > exp) dedupePinChanged.delete(k)
   }
+  for (const [k, exp] of dedupePinReset) {
+    if (now > exp) dedupePinReset.delete(k)
+  }
+}
+
+function generateParentPinDigits() {
+  let s = ''
+  for (let i = 0; i < 6; i++) s += String(Math.floor(Math.random() * 10))
+  return s
 }
 
 function rateLimitOk(ip) {
@@ -279,6 +291,79 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseSer
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('[email/pin]', msg)
+      return res.status(502).json({ ok: false, error: msg })
+    }
+  })
+
+  /**
+   * Forgot parent PIN: generate a new PIN server-side and email it (gate UI never collects a new PIN).
+   * Requires MEDIA_BRIDGE welcome key (same as pairing reminder). Always returns ok to avoid email enumeration.
+   */
+  app.post('/api/email/pin-reset-request', async (req, res) => {
+    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    if (!apiKey) {
+      return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
+    }
+
+    const email = normalizeEmail(req.body?.email)
+    if (!email || !EMAIL_RE.test(email)) {
+      return res.status(400).json({ ok: false, error: 'Invalid email' })
+    }
+
+    const headerKey = String(req.get('x-media-bridge-welcome-key') || '').trim()
+    if (!welcomeKey || !safeEqualKey(headerKey, welcomeKey)) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' })
+    }
+
+    const ip = getClientIp(req)
+    if (!rateLimitOk(ip)) {
+      return res.status(429).json({ ok: false, error: 'Too many requests' })
+    }
+
+    pruneDedupe()
+    const now = Date.now()
+    if (dedupePinReset.has(email) && dedupePinReset.get(email) > now) {
+      return res.status(200).json({ ok: true, sent: false, message: 'deduped' })
+    }
+
+    if (!supabaseServiceClient) {
+      return res.status(503).json({ ok: false, error: 'Service database not configured' })
+    }
+
+    try {
+      const { data: profile, error: qErr } = await supabaseServiceClient
+        .from('profiles')
+        .select('id, email, full_name, parent_pin')
+        .ilike('email', email)
+        .maybeSingle()
+
+      if (qErr) {
+        console.error('[email/pin-reset-request] profile', qErr.message)
+        return res.status(200).json({ ok: true, sent: false })
+      }
+
+      if (!profile?.id) {
+        return res.status(200).json({ ok: true, sent: false })
+      }
+
+      const newPin = generateParentPinDigits()
+      const { error: upErr } = await supabaseServiceClient
+        .from('profiles')
+        .update({ parent_pin: newPin })
+        .eq('id', profile.id)
+
+      if (upErr) {
+        console.error('[email/pin-reset-request] update', upErr.message)
+        return res.status(502).json({ ok: false, error: 'Update failed' })
+      }
+
+      await sendPinResetEmail({ to: email, displayName: profile.full_name })
+      await sendPinEmail({ to: email, pin: newPin })
+      dedupePinReset.set(email, now + PIN_RESET_DEDUPE_MS)
+      return res.status(200).json({ ok: true, sent: true })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[email/pin-reset-request]', msg)
       return res.status(502).json({ ok: false, error: msg })
     }
   })

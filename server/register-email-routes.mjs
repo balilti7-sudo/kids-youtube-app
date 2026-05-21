@@ -30,5 +30,5 @@ export function registerBridgeEmailRoutes(app) {
     welcomeKey,
   })
 
-  console.log('[bridge] email routes: /api/email/welcome, /pairing-reminder, /pin, /pin-changed')
+  console.log('[bridge] email routes: /api/email/welcome, /pairing-reminder, /pin, /pin-reset-request, /pin-changed')
 }
