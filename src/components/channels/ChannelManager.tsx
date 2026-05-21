@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -6,7 +6,6 @@ import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
 import { useChannels } from '../../hooks/useChannels'
 import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
-import { getChildCachedChannelVideos } from '../../lib/childDevice'
 import { supabase } from '../../lib/supabase'
 import { WhitelistView } from './WhitelistView'
 import { ChannelSearch } from './ChannelSearch'
@@ -20,6 +19,11 @@ import { toast } from 'sonner'
 import { Skeleton } from '../ui/Skeleton'
 import { Modal } from '../ui/Modal'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
+import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
+import { HideVideoButton } from './HideVideoButton'
+import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
+import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
+import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
 
 type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
 
@@ -51,6 +55,8 @@ export function ChannelManager() {
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewVideos, setPreviewVideos] = useState<PreviewRow[]>([])
   const [activePreviewVideoId, setActivePreviewVideoId] = useState<string | null>(null)
+  const [previewVideoSearch, setPreviewVideoSearch] = useState('')
+  const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
@@ -195,6 +201,8 @@ export function ChannelManager() {
       setPreviewError(null)
       setPreviewVideos([])
       setActivePreviewVideoId(null)
+      setPreviewVideoSearch('')
+      setHiddenVideoIds(new Set())
       return
     }
 
@@ -203,18 +211,31 @@ export function ChannelManager() {
     setPreviewError(null)
     setPreviewVideos([])
     setActivePreviewVideoId(null)
+    setPreviewVideoSearch('')
 
     void (async () => {
       try {
         let rows: PreviewRow[] = []
+        let hidden = new Set<string>()
+
         if (localParent.isActive && localParent.localAccessToken) {
-          const { data, error } = await getChildCachedChannelVideos(localParent.localAccessToken, channel.youtube_channel_id)
-          if (error) throw error
-          rows = (data ?? []).map((v) => ({
-            videoId: v.youtube_video_id,
-            title: v.title,
-            thumbnail: v.thumbnail_url,
-          }))
+          const pin = getLocalParentPin?.() ?? ''
+          const { data, error } = await supabase.rpc('local_parent_list_channel_videos', {
+            p_access_token: localParent.localAccessToken,
+            p_pin: pin,
+            p_youtube_channel_id: channel.youtube_channel_id,
+          })
+          if (error) throw new Error(error.message)
+          rows = ((data ?? []) as Record<string, unknown>[]).map((v) => {
+            const row = v as { youtube_video_id: string; title: string; thumbnail_url: string | null }
+            return {
+              videoId: row.youtube_video_id,
+              title: row.title,
+              thumbnail: row.thumbnail_url,
+            }
+          })
+          const hidRes = await listHiddenVideoIdsLocalParent(localParent.localAccessToken, pin)
+          hidden = hidRes.data
         } else if (user) {
           const { data, error } = await supabase
             .from('channel_videos_cache')
@@ -230,12 +251,17 @@ export function ChannelManager() {
               thumbnail: row.thumbnail_url,
             }
           })
+          if (deviceId) {
+            const hidRes = await listHiddenVideoIdsForDevice(deviceId)
+            hidden = hidRes.data
+          }
         } else {
           throw new Error('אין הרשאה מקומית לטעון סרטוני ערוץ.')
         }
 
         if (cancelled) return
         setPreviewVideos(rows)
+        setHiddenVideoIds(hidden)
         setActivePreviewVideoId(rows[0]?.videoId ?? null)
       } catch (e) {
         if (cancelled) return
@@ -248,21 +274,40 @@ export function ChannelManager() {
     return () => {
       cancelled = true
     }
-  }, [previewChannel, localParent.isActive, localParent.localAccessToken, user])
+  }, [previewChannel, localParent.isActive, localParent.localAccessToken, user, deviceId, getLocalParentPin])
 
-  const activePreviewVideo = previewVideos.find((v) => v.videoId === activePreviewVideoId) ?? null
+  const filteredPreviewVideos = useMemo(
+    () => filterVideosByTitle(previewVideos, previewVideoSearch),
+    [previewVideos, previewVideoSearch]
+  )
+
+  const activePreviewVideo =
+    filteredPreviewVideos.find((v) => v.videoId === activePreviewVideoId) ??
+    previewVideos.find((v) => v.videoId === activePreviewVideoId) ??
+    null
 
   const goPrevManagerPreview = useCallback(() => {
     if (!activePreviewVideoId) return
-    const idx = previewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
-    if (idx > 0) setActivePreviewVideoId(previewVideos[idx - 1].videoId)
-  }, [previewVideos, activePreviewVideoId])
+    const idx = filteredPreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx > 0) setActivePreviewVideoId(filteredPreviewVideos[idx - 1].videoId)
+  }, [filteredPreviewVideos, activePreviewVideoId])
 
   const goNextManagerPreview = useCallback(() => {
     if (!activePreviewVideoId) return
-    const idx = previewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
-    if (idx >= 0 && idx < previewVideos.length - 1) setActivePreviewVideoId(previewVideos[idx + 1].videoId)
-  }, [previewVideos, activePreviewVideoId])
+    const idx = filteredPreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx >= 0 && idx < filteredPreviewVideos.length - 1) {
+      setActivePreviewVideoId(filteredPreviewVideos[idx + 1].videoId)
+    }
+  }, [filteredPreviewVideos, activePreviewVideoId])
+
+  const handleHiddenChanged = useCallback((videoId: string, hidden: boolean) => {
+    setHiddenVideoIds((prev) => {
+      const next = new Set(prev)
+      if (hidden) next.add(videoId)
+      else next.delete(videoId)
+      return next
+    })
+  }, [])
 
   const handlePickPreviewVideo = (video: PreviewRow) => {
     console.log('VIDEO CLICKED', video)
@@ -317,7 +362,10 @@ export function ChannelManager() {
           <WhitelistView
             channels={whitelist}
             onRemoveRequest={requestRemoveChannel}
-            onPreviewRequest={(c) => setPreviewChannel(c)}
+            onPreviewRequest={(c) => {
+              setPreviewVideoSearch('')
+              setPreviewChannel(c)
+            }}
           />
           {previewChannel ? (
             <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
@@ -353,21 +401,91 @@ export function ChannelManager() {
                       />
                     </div>
                   </div>
-                  <h3 className="mt-3 text-base font-bold leading-snug text-slate-900 dark:text-zinc-100">
-                    {activePreviewVideo.title}
-                  </h3>
+                  <ChannelVideoSearchBar
+                    id="parent-channel-video-search"
+                    value={previewVideoSearch}
+                    onChange={setPreviewVideoSearch}
+                    totalCount={previewVideos.length}
+                    filteredCount={filteredPreviewVideos.length}
+                    channelLabel={previewChannel.channel_name}
+                    className="mb-3"
+                  />
+                  <div className="mt-3 flex flex-wrap items-start justify-between gap-2">
+                    <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-zinc-100">
+                      {activePreviewVideo.title}
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                    {(deviceId || localParent.localAccessToken) && (
+                      <HideVideoButton
+                        deviceId={deviceId}
+                        youtubeVideoId={activePreviewVideo.videoId}
+                        youtubeChannelId={previewChannel.youtube_channel_id}
+                        hidden={hiddenVideoIds.has(activePreviewVideo.videoId)}
+                        localAccessToken={localParent.localAccessToken}
+                        getLocalParentPin={getLocalParentPin}
+                        compact
+                        onChanged={(h) => handleHiddenChanged(activePreviewVideo.videoId, h)}
+                      />
+                    )}
+                    {user?.id || localParent.localAccessToken ? (
+                      <AddToPlaylistButton
+                        mode={user?.id ? 'parent' : 'kid'}
+                        userId={user?.id ? (ownerUserId ?? user.id) : null}
+                        childAccessToken={user?.id ? null : localParent.localAccessToken}
+                        compact
+                        video={{
+                          youtube_video_id: activePreviewVideo.videoId,
+                          title: activePreviewVideo.title,
+                          thumbnail_url: activePreviewVideo.thumbnail,
+                          youtube_channel_id: previewChannel.youtube_channel_id,
+                          channel_name: previewChannel.channel_name,
+                        }}
+                      />
+                    ) : null}
+                    </div>
+                  </div>
                   <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
-                    {import.meta.env.DEV
-                      ? (console.log('ACTIVE VIDEO LIST RENDER', { fileName: 'src/components/channels/ChannelManager.tsx' }), null)
-                      : null}
-                    {previewVideos.map((v) => {
+                    {filteredPreviewVideos.map((v) => {
                       const isCurrent = v.videoId === activePreviewVideo.videoId
+                      const isHidden = hiddenVideoIds.has(v.videoId)
                       return (
                         <PreviewVideoCard
                           key={v.videoId}
                           video={v}
                           active={isCurrent}
+                          dimmed={isHidden}
                           onClick={handlePickPreviewVideo}
+                          actionSlot={
+                            <div className="flex shrink-0 flex-col gap-1">
+                              {(deviceId || localParent.localAccessToken) && (
+                                <HideVideoButton
+                                  deviceId={deviceId}
+                                  youtubeVideoId={v.videoId}
+                                  youtubeChannelId={previewChannel.youtube_channel_id}
+                                  hidden={isHidden}
+                                  compact
+                                  localAccessToken={localParent.localAccessToken}
+                                  getLocalParentPin={getLocalParentPin}
+                                  onChanged={(h) => handleHiddenChanged(v.videoId, h)}
+                                />
+                              )}
+                              {user?.id || localParent.localAccessToken ? (
+                                <AddToPlaylistButton
+                                  mode={user?.id ? 'parent' : 'kid'}
+                                  userId={user?.id ? (ownerUserId ?? user.id) : null}
+                                  childAccessToken={user?.id ? null : localParent.localAccessToken}
+                                  compact
+                                  video={{
+                                    youtube_video_id: v.videoId,
+                                    title: v.title,
+                                    thumbnail_url: v.thumbnail,
+                                    youtube_channel_id: previewChannel.youtube_channel_id,
+                                    channel_name: previewChannel.channel_name,
+                                  }}
+                                />
+                              ) : null}
+                            </div>
+                          }
                         />
                       )
                     })}
@@ -484,11 +602,15 @@ export function ChannelManager() {
 function PreviewVideoCard({
   video,
   active,
+  dimmed,
   onClick,
+  actionSlot,
 }: {
   video: PreviewRow
   active: boolean
+  dimmed?: boolean
   onClick: (video: PreviewRow) => void
+  actionSlot?: ReactNode
 }) {
   if (import.meta.env.DEV) {
     // eslint-disable-next-line no-console -- explicit click target tracing requested
@@ -503,33 +625,38 @@ function PreviewVideoCard({
     })
   }
   return (
-    <button
-      type="button"
-      className={`flex w-full items-center gap-2 rounded-lg p-1.5 text-right transition ${
+    <div
+      className={`flex w-full items-center gap-2 rounded-lg p-1.5 transition ${
         active
           ? 'bg-slate-100 ring-1 ring-brand-500/40 dark:bg-zinc-800'
           : 'hover:bg-slate-50 dark:hover:bg-zinc-800/70'
-      } pointer-events-auto`}
-      onClick={() => {
-        // eslint-disable-next-line no-console -- explicit click target tracing requested
-        console.log('VIDEO CLICKED', {
-          file: 'src/components/channels/ChannelManager.tsx',
-          component: 'PreviewVideoCard',
-          props: {
-            videoId: video.videoId,
-            title: video.title,
-            active,
-          },
-        })
-        onClick(video)
-      }}
+      } ${dimmed ? 'opacity-50' : ''}`}
     >
-      <div className="pointer-events-none relative h-12 w-20 shrink-0 overflow-hidden rounded bg-slate-100 dark:bg-zinc-800">
-        {video.thumbnail ? (
-          <img src={video.thumbnail} alt="" loading="lazy" className="pointer-events-none h-full w-full object-cover" />
-        ) : null}
-      </div>
-      <span className="line-clamp-2 text-xs font-medium text-slate-800 dark:text-zinc-200">{video.title}</span>
-    </button>
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-2 text-right pointer-events-auto"
+        onClick={() => {
+          // eslint-disable-next-line no-console -- explicit click target tracing requested
+          console.log('VIDEO CLICKED', {
+            file: 'src/components/channels/ChannelManager.tsx',
+            component: 'PreviewVideoCard',
+            props: {
+              videoId: video.videoId,
+              title: video.title,
+              active,
+            },
+          })
+          onClick(video)
+        }}
+      >
+        <div className="pointer-events-none relative h-12 w-20 shrink-0 overflow-hidden rounded bg-slate-100 dark:bg-zinc-800">
+          {video.thumbnail ? (
+            <img src={video.thumbnail} alt="" loading="lazy" className="pointer-events-none h-full w-full object-cover" />
+          ) : null}
+        </div>
+        <span className="line-clamp-2 text-xs font-medium text-slate-800 dark:text-zinc-200">{video.title}</span>
+      </button>
+      {actionSlot ? <div className="shrink-0">{actionSlot}</div> : null}
+    </div>
   )
 }

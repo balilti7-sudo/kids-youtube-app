@@ -128,6 +128,20 @@ Restart-Service SafeTubeBridge
 
 That script upserts: `YT_DLP_PRIMARY_EXTRACTOR_ARGS`, `YT_DLP_BGUTIL_POT_BASE_URL`, `YT_DLP_COOKIES_FILE`, `YT_DLP_FORMAT`. To apply the same keys manually, edit `notepad C:\ProgramData\SafeTube\bridge.env` and restart the service.
 
+## Germany production deploy + email routes (one command)
+
+On the Germany server, after `git pull`, restart **SafeTubeBridge** with the latest `index.cjs` and email routes (`/api/email/pin-changed` for PIN change notifications — no PIN in the email body):
+
+```powershell
+cd C:\Users\eladtheking1010\kids-youtube-app; git pull; powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows-server\deploy-germany-bridge.ps1
+```
+
+Or double-click **`deploy-germany-bridge-admin.cmd`** (requests UAC).
+
+The deploy script calls **`populate-bridge-env.ps1`** (Supabase CLI + `.env.local` / `vercel env pull`) so `bridge.env` gets real `RESEND_API_KEY`, `SUPABASE_*`, and `MEDIA_BRIDGE_WELCOME_KEY` — not placeholders. Requires **`reset-safetube-bridge-nssm.ps1`** and **`apply-bridge-env-nssm.ps1`** in this folder (included in repo).
+
+Set real values in `C:\ProgramData\SafeTube\bridge.env` for **`RESEND_API_KEY`**, **`SUPABASE_URL`**, and **`SUPABASE_ANON_KEY`**. The deploy script verifies `POST /api/email/pin-changed` returns **401** without auth (route registered).
+
 ### Register the POT provider as its own Windows service (nssm)
 
 After `bgutil-pot.exe` is on disk:

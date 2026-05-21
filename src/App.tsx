@@ -10,6 +10,7 @@ import AuthCallback from './pages/AuthCallback'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ChannelsPage } from './pages/ChannelsPage'
+import { PlaylistsPage } from './pages/PlaylistsPage'
 import { SubscriptionPage } from './pages/SubscriptionPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -109,6 +110,7 @@ export default function App() {
             <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/channels" element={<ChannelsPage />} />
+            <Route path="/playlists" element={<PlaylistsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/devices" element={<Navigate to="/dashboard" replace />} />

@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Home, Tv, Settings, Tablet } from 'lucide-react'
+import { Home, Tv, ListMusic, Settings, Tablet } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
 import { LongPressNavButton } from './LongPressNavButton'
@@ -57,6 +57,34 @@ export function BottomNav() {
           >
             <Tv className="h-6 w-6" aria-hidden />
             ערוצים
+          </NavLink>
+        )}
+
+        {parentNavDiscreet ? (
+          <LongPressNavButton
+            to="/playlists"
+            label="פלייליסטים"
+            icon={ListMusic}
+            isActive={pathname === '/playlists'}
+          />
+        ) : (
+          <NavLink
+            to="/playlists"
+            onClick={(e) => {
+              if (pathname === '/playlists') {
+                e.preventDefault()
+              }
+            }}
+            className={({ isActive }) =>
+              cn(
+                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+                isActive ? 'text-brand-700 dark:text-brand-500' : 'text-slate-500 dark:text-zinc-500'
+              )
+            }
+          >
+            <ListMusic className="h-6 w-6" aria-hidden />
+            <span className="max-[360px]:hidden sm:inline">הפלייליסטים שלי</span>
+            <span className="sm:hidden">פלייליסטים</span>
           </NavLink>
         )}
 

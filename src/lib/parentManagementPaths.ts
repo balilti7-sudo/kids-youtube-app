@@ -2,6 +2,7 @@
 export const PARENT_MANAGEMENT_PATHS = new Set([
   '/dashboard',
   '/channels',
+  '/playlists',
   '/settings',
   '/profile',
   '/subscription',

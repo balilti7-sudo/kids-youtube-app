@@ -4,8 +4,7 @@ import { Camera, ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users
 import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
 import { KidPlaylistView } from '../components/kid/KidPlaylistView'
-import { PlaylistToggleButton } from '../components/kid/PlaylistToggleButton'
-import { useChildPlaylist } from '../hooks/useChildPlaylist'
+import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
@@ -107,21 +106,6 @@ export function KidModePage() {
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
-  const playlist = useChildPlaylist(accessToken)
-
-  const handlePlaylistToggle = useCallback(
-    async (payload: Parameters<typeof playlist.toggle>[0]) => {
-      const { error: toggleError } = await playlist.toggle(payload)
-      if (toggleError) setError(toggleError.message)
-      return { error: toggleError }
-    },
-    [playlist]
-  )
-
-  useEffect(() => {
-    if (kidWatchTab === 'playlist' && accessToken) void playlist.refresh()
-  }, [kidWatchTab, accessToken, playlist.refresh])
-
   useEffect(() => {
     lockManagementAppShell()
   }, [])
@@ -865,7 +849,7 @@ export function KidModePage() {
                 {kidSurface === 'parent'
                   ? 'אזור הורים'
                   : kidWatchTab === 'playlist'
-                    ? 'הפלייליסט שלי'
+                    ? 'הפלייליסטים שלי'
                     : device.device_name}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-zinc-500">{KID_APP_DISPLAY_NAME}</p>
@@ -908,8 +892,8 @@ export function KidModePage() {
               }`}
             >
               <ListMusic className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="max-[360px]:hidden sm:inline">הפלייליסט שלי</span>
-              <span className="sm:hidden">פלייליסט</span>
+              <span className="max-[360px]:hidden sm:inline">הפלייליסטים שלי</span>
+              <span className="sm:hidden">פלייליסטים</span>
             </button>
             <button
               type="button"
@@ -1018,15 +1002,7 @@ export function KidModePage() {
         <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-0 lg:grid lg:min-h-0 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] lg:items-start">
           {kidWatchTab === 'playlist' ? (
             <div className="min-w-0 flex-1 lg:col-span-2">
-              <KidPlaylistView
-                items={playlist.items}
-                loading={playlist.loading}
-                playlistApi={{
-                  isInPlaylist: playlist.isInPlaylist,
-                  toggle: handlePlaylistToggle,
-                  toggleBusyId: playlist.toggleBusyId,
-                }}
-              />
+              {accessToken ? <KidPlaylistView childAccessToken={accessToken} /> : null}
             </div>
           ) : channels.length === 0 ? (
             <div className="px-3 py-4 sm:px-4 lg:col-span-2">
@@ -1196,11 +1172,11 @@ export function KidModePage() {
                           </h2>
                           <p className="text-sm text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
                           {accessToken ? (
-                            <PlaylistToggleButton
-                              inPlaylist={playlist.isInPlaylist(activeVideo.videoId)}
-                              busy={playlist.toggleBusyId === activeVideo.videoId}
-                              onToggle={handlePlaylistToggle}
-                              payload={{
+                            <AddToPlaylistButton
+                              mode="kid"
+                              userId={null}
+                              childAccessToken={accessToken}
+                              video={{
                                 youtube_video_id: activeVideo.videoId,
                                 title: activeVideo.title,
                                 thumbnail_url: activeVideo.thumbnail || null,
@@ -1299,12 +1275,12 @@ export function KidModePage() {
                                       </p>
                                     </button>
                                     {accessToken ? (
-                                      <PlaylistToggleButton
+                                      <AddToPlaylistButton
+                                        mode="kid"
+                                        userId={null}
+                                        childAccessToken={accessToken}
                                         compact
-                                        inPlaylist={playlist.isInPlaylist(video.videoId)}
-                                        busy={playlist.toggleBusyId === video.videoId}
-                                        onToggle={handlePlaylistToggle}
-                                        payload={{
+                                        video={{
                                           youtube_video_id: video.videoId,
                                           title: video.title,
                                           thumbnail_url: video.thumbnail || null,
