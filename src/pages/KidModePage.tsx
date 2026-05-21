@@ -1144,7 +1144,7 @@ export function KidModePage() {
                 </div>
 
                 {/* Kid watch: instant title search — no PIN, no parent mode */}
-                <div className="border-b border-black/[0.06] bg-white px-1.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-2">
+                <div className="border-b border-zinc-800/80 bg-[#0f0f0f] px-3 py-3 sm:px-4">
                   <ChannelVideoSearchBar
                     id="kid-channel-video-search"
                     value={videoSearch}

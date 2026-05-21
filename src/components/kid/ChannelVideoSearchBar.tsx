@@ -10,13 +10,11 @@ export type ChannelVideoSearchBarProps = {
   filteredCount: number
   channelLabel?: string | null
   className?: string
-  /** Parent can skip heavy updates (e.g. auto-select video) while the kid is typing. */
   onFocusChange?: (focused: boolean) => void
 }
 
 /**
- * Kid-friendly instant title filter input (client-side). Keeps local input state while
- * focused so parent re-renders do not steal the caret.
+ * Kid channel title search — single inline field, instant filter via parent state.
  */
 export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   id: idProp,
@@ -39,7 +37,8 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   }, [value])
 
   const trimmed = localValue.trim()
-  const showingAll = trimmed.length === 0 || filteredCount === totalCount
+  const hasQuery = trimmed.length > 0
+  const showingAll = !hasQuery || filteredCount === totalCount
 
   const commitChange = useCallback(
     (next: string) => {
@@ -49,79 +48,71 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
     [onChange]
   )
 
-  const focusInput = useCallback(() => {
-    inputRef.current?.focus()
-  }, [])
-
   const clearInput = useCallback(() => {
     commitChange('')
-    focusInput()
-  }, [commitChange, focusInput])
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [commitChange])
 
   return (
     <section
-      className={cn(
-        'w-full rounded-2xl border-2 border-slate-200/90 bg-white px-3 py-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/95 sm:px-4 sm:py-4',
-        className
-      )}
+      className={cn('w-full', className)}
       aria-label="חיפוש סרטונים בערוץ"
     >
-      <div className="mb-2 flex flex-wrap items-center gap-2 sm:gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-100 dark:bg-brand-950/80">
-          <Search className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
-        </div>
-        <div className="min-w-0">
-          <h3 className="text-lg font-bold leading-tight text-slate-900 dark:text-zinc-50 sm:text-xl">
-            חיפוש בערוץ
-          </h3>
-          <p className="text-sm font-medium text-slate-600 dark:text-zinc-400">
-            {channelLabel ? (
-              <>
-                מצאו סרטון ב־<span className="font-bold text-slate-800 dark:text-zinc-200">{channelLabel}</span>
-              </>
-            ) : (
-              'הקלידו שם סרטון — הרשימה מתעדכנת מיד'
-            )}
-          </p>
-        </div>
+      <div className="mb-2.5 text-right">
+        <h3 className="text-base font-bold leading-tight text-zinc-100 sm:text-lg">חיפוש בערוץ</h3>
+        <p className="mt-0.5 text-xs font-medium text-zinc-400 sm:text-sm">
+          {channelLabel ? (
+            <>
+              מצאו סרטון ב־<span className="text-zinc-200">{channelLabel}</span>
+            </>
+          ) : (
+            'הקלידו שם סרטון — הרשימה מתעדכנת מיד'
+          )}
+        </p>
       </div>
 
       <div className="relative">
         <label htmlFor={inputId} className="sr-only">
           חיפוש לפי שם סרטון בערוץ הנבחר
         </label>
+
+        {/* type="text" — avoids native mobile search/clear chrome (duplicate icons) */}
         <input
           ref={inputRef}
           id={inputId}
-          type="search"
+          type="text"
+          inputMode="search"
           value={localValue}
           onChange={(e) => commitChange(e.target.value)}
           onFocus={() => onFocusChange?.(true)}
           onBlur={() => onFocusChange?.(false)}
-          placeholder="הקלידו כאן את שם הסרטון…"
+          placeholder="חפשו סרטון בערוץ…"
           autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           dir="rtl"
           enterKeyHint="search"
           className={cn(
-            'min-h-[52px] w-full rounded-2xl border-2 border-slate-200 bg-slate-50/80 text-lg font-medium text-slate-900 shadow-inner outline-none ring-brand-500 placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:ring-2 dark:border-zinc-600 dark:bg-zinc-950/80 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:bg-zinc-900',
-            trimmed ? 'ps-10 pe-11' : 'px-11'
+            'h-12 w-full rounded-2xl border border-zinc-600/90 bg-zinc-900 text-base font-medium text-zinc-50 shadow-sm outline-none transition placeholder:text-zinc-500',
+            'focus:border-brand-500/70 focus:ring-2 focus:ring-brand-500/25',
+            'padding-inline-start-[2.75rem]',
+            hasQuery ? 'padding-inline-end-[2.75rem]' : 'padding-inline-end-4'
           )}
         />
-        <button
-          type="button"
-          tabIndex={-1}
-          className="absolute inset-y-0 end-2 my-auto flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-200/80 hover:text-slate-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={focusInput}
-          aria-label="מקד לשדה החיפוש"
+
+        {/* RTL: inline-start = right edge — one subtle search icon */}
+        <span
+          className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-zinc-500"
+          aria-hidden
         >
-          <Search className="h-5 w-5" strokeWidth={2.25} aria-hidden />
-        </button>
-        {trimmed ? (
+          <Search className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} />
+        </span>
+
+        {hasQuery ? (
           <button
             type="button"
             tabIndex={-1}
-            className="absolute inset-y-0 start-2 my-auto flex h-7 w-7 items-center justify-center rounded-full bg-slate-200/90 text-slate-600 transition hover:bg-slate-300/90 dark:bg-zinc-700/90 dark:text-zinc-200 dark:hover:bg-zinc-600"
+            className="absolute inset-y-0 end-2.5 my-auto flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100"
             onMouseDown={(e) => e.preventDefault()}
             onClick={clearInput}
             aria-label="מחק את החיפוש"
@@ -131,7 +122,7 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
         ) : null}
       </div>
 
-      <p className="mt-2 text-sm font-semibold text-slate-600 dark:text-zinc-400" aria-live="polite">
+      <p className="mt-2 text-xs font-medium text-zinc-500 sm:text-sm" aria-live="polite">
         {totalCount === 0
           ? 'אין עדיין סרטונים ברשימה'
           : showingAll
