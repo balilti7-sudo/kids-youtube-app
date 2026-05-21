@@ -1143,6 +1143,18 @@ export function KidModePage() {
                   </div>
                 </div>
 
+                <div className="border-b border-zinc-800/80 bg-[#0f0f0f] px-3 py-3 lg:hidden">
+                  <ChannelVideoSearchBar
+                    id="kid-channel-video-search-mobile"
+                    value={videoSearch}
+                    onChange={setVideoSearch}
+                    onFocusChange={setVideoSearchFocused}
+                    totalCount={channelVideos.length}
+                    filteredCount={filteredVideos.length}
+                    channelLabel={activeChannel?.channel_name ?? null}
+                  />
+                </div>
+
                 <div className="mx-auto max-w-[1600px] gap-0 px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:flex lg:min-h-0 lg:flex-col lg:gap-3 lg:px-3 lg:pt-2">
                   <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row lg:gap-2">
                   <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
@@ -1230,7 +1242,7 @@ export function KidModePage() {
                         totalCount={channelVideos.length}
                         filteredCount={filteredVideos.length}
                         channelLabel={activeChannel?.channel_name ?? null}
-                        className="mb-3"
+                        className="mb-3 hidden lg:block"
                       />
                       <div className="mb-2 flex items-center gap-2">
                         <Play className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" fill="currentColor" aria-hidden />
