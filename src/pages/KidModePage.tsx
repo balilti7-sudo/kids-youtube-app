@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, Play, Search, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
+import { Camera, ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
+import { KidPlaylistView } from '../components/kid/KidPlaylistView'
+import { PlaylistToggleButton } from '../components/kid/PlaylistToggleButton'
+import { useChildPlaylist } from '../hooks/useChildPlaylist'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
@@ -75,6 +78,7 @@ export function KidModePage() {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [videoSearch, setVideoSearch] = useState('')
   const [kidSurface, setKidSurface] = useState<'watch' | 'parent'>('watch')
+  const [kidWatchTab, setKidWatchTab] = useState<'channels' | 'playlist'>('channels')
   /** כל לחיצה על ערוץ (גם על אותו ערוץ) — כדי ש־useEffect יטען מחדש גם כש־activeChannelId לא משתנה */
   const [channelPickNonce, setChannelPickNonce] = useState(0)
   const [accessToken, setAccessToken] = useState<string | null>(null)
@@ -103,6 +107,20 @@ export function KidModePage() {
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
+  const playlist = useChildPlaylist(accessToken)
+
+  const handlePlaylistToggle = useCallback(
+    async (payload: Parameters<typeof playlist.toggle>[0]) => {
+      const { error: toggleError } = await playlist.toggle(payload)
+      if (toggleError) setError(toggleError.message)
+      return { error: toggleError }
+    },
+    [playlist]
+  )
+
+  useEffect(() => {
+    if (kidWatchTab === 'playlist' && accessToken) void playlist.refresh()
+  }, [kidWatchTab, accessToken, playlist.refresh])
 
   useEffect(() => {
     lockManagementAppShell()
@@ -836,7 +854,11 @@ export function KidModePage() {
             <SafeTubeBrandMark to="/kid" size="compact" />
             <div className="min-w-0 flex-1 text-right">
               <p className="truncate text-sm font-bold text-slate-900 dark:text-zinc-50">
-                {kidSurface === 'watch' ? device.device_name : 'אזור הורים'}
+                {kidSurface === 'parent'
+                  ? 'אזור הורים'
+                  : kidWatchTab === 'playlist'
+                    ? 'הפלייליסט שלי'
+                    : device.device_name}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-zinc-500">{KID_APP_DISPLAY_NAME}</p>
             </div>
@@ -849,16 +871,37 @@ export function KidModePage() {
             <button
               type="button"
               role="tab"
-              aria-selected={kidSurface === 'watch'}
-              onClick={() => setKidSurface('watch')}
+              aria-selected={kidSurface === 'watch' && kidWatchTab === 'channels'}
+              onClick={() => {
+                setKidSurface('watch')
+                setKidWatchTab('channels')
+              }}
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                kidSurface === 'watch'
+                kidSurface === 'watch' && kidWatchTab === 'channels'
                   ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
                   : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
               }`}
             >
               <Play className="h-3.5 w-3.5" aria-hidden />
               צפייה
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={kidSurface === 'watch' && kidWatchTab === 'playlist'}
+              onClick={() => {
+                setKidSurface('watch')
+                setKidWatchTab('playlist')
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-semibold transition sm:px-3 ${
+                kidSurface === 'watch' && kidWatchTab === 'playlist'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+              }`}
+            >
+              <ListMusic className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="max-[360px]:hidden sm:inline">הפלייליסט שלי</span>
+              <span className="sm:hidden">פלייליסט</span>
             </button>
             <button
               type="button"
@@ -965,7 +1008,19 @@ export function KidModePage() {
         </section>
       ) : (
         <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-0 lg:grid lg:min-h-0 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] lg:items-start">
-          {channels.length === 0 ? (
+          {kidWatchTab === 'playlist' ? (
+            <div className="min-w-0 flex-1 lg:col-span-2">
+              <KidPlaylistView
+                items={playlist.items}
+                loading={playlist.loading}
+                playlistApi={{
+                  isInPlaylist: playlist.isInPlaylist,
+                  toggle: handlePlaylistToggle,
+                  toggleBusyId: playlist.toggleBusyId,
+                }}
+              />
+            </div>
+          ) : channels.length === 0 ? (
             <div className="px-3 py-4 sm:px-4 lg:col-span-2">
               <div className="rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-5 text-sm leading-relaxed text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/35 dark:text-amber-100">
                 <p className="font-semibold">אין ערוצים שמקושרים למכשיר הזה</p>
@@ -1127,11 +1182,25 @@ export function KidModePage() {
                             </div>
                           </div>
                         </div>
-                        <div className="mt-2 px-0 sm:px-1">
+                        <div className="mt-2 flex flex-col gap-2 px-0 sm:px-1">
                           <h2 className="text-base font-bold leading-snug text-slate-900 dark:text-zinc-50 sm:text-lg">
                             {activeVideo.title}
                           </h2>
-                          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
+                          <p className="text-sm text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
+                          {accessToken ? (
+                            <PlaylistToggleButton
+                              inPlaylist={playlist.isInPlaylist(activeVideo.videoId)}
+                              busy={playlist.toggleBusyId === activeVideo.videoId}
+                              onToggle={handlePlaylistToggle}
+                              payload={{
+                                youtube_video_id: activeVideo.videoId,
+                                title: activeVideo.title,
+                                thumbnail_url: activeVideo.thumbnail || null,
+                                youtube_channel_id: activeChannelId,
+                                channel_name: activeChannel?.channel_name ?? null,
+                              }}
+                            />
+                          ) : null}
                         </div>
                       </>
                     ) : channelVideos.length > 0 && videoSearch.trim() ? (
@@ -1175,39 +1244,59 @@ export function KidModePage() {
                           ? filteredVideos.map((video) => {
                               const isCurrent = video.videoId === activeVideo?.videoId
                               return (
-                                <li key={video.videoId} className="max-lg:w-[124px] max-lg:shrink-0 lg:w-full">
-                                  <button
-                                    type="button"
-                                    onClick={() => setActiveVideoId(video.videoId)}
-                                    className={`group pointer-events-auto flex w-full gap-2 rounded-xl p-2 text-right transition max-lg:flex max-lg:flex-col max-lg:items-stretch max-lg:gap-1.5 max-lg:p-1.5 lg:flex-row ${
+                                <li key={video.videoId} className="max-lg:w-[min(100%,280px)] max-lg:shrink-0 lg:w-full">
+                                  <div
+                                    className={`flex w-full flex-col gap-2 rounded-xl p-2 transition max-lg:items-stretch lg:flex-row lg:items-start ${
                                       isCurrent
                                         ? 'bg-white shadow-md ring-2 ring-brand-500/50 dark:bg-zinc-900'
-                                        : 'hover:bg-white/90 dark:hover:bg-zinc-900/70'
+                                        : 'bg-white/60 hover:bg-white/90 dark:bg-zinc-900/40 dark:hover:bg-zinc-900/70'
                                     }`}
                                   >
-                                    <div className="pointer-events-none relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[76px] lg:w-32 lg:max-h-none lg:min-w-[128px] min-[400px]:lg:w-[168px]">
-                                      {video.thumbnail ? (
-                                        <img
-                                          src={video.thumbnail}
-                                          alt=""
-                                          loading="lazy"
-                                          className="pointer-events-none h-full w-full object-cover transition group-hover:opacity-95"
-                                        />
-                                      ) : (
-                                        <div className="flex h-full w-full items-center justify-center text-xs font-medium text-slate-500">
-                                          וידאו
-                                        </div>
-                                      )}
-                                      {isCurrent ? (
-                                        <span className="absolute bottom-1.5 end-1.5 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                                          מנגן עכשיו
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    <p className="line-clamp-2 flex-1 py-1 text-start text-xs font-semibold leading-snug text-slate-800 max-lg:text-center sm:text-sm dark:text-zinc-200">
-                                      {video.title}
-                                    </p>
-                                  </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveVideoId(video.videoId)}
+                                      className="flex min-w-0 flex-1 gap-2 text-right max-lg:flex-col lg:flex-row"
+                                    >
+                                      <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[76px] lg:w-32 lg:max-h-none lg:min-w-[128px] min-[400px]:lg:w-[168px]">
+                                        {video.thumbnail ? (
+                                          <img
+                                            src={video.thumbnail}
+                                            alt=""
+                                            loading="lazy"
+                                            className="h-full w-full object-cover"
+                                          />
+                                        ) : (
+                                          <div className="flex h-full w-full items-center justify-center text-xs font-medium text-slate-500">
+                                            וידאו
+                                          </div>
+                                        )}
+                                        {isCurrent ? (
+                                          <span className="absolute bottom-1.5 end-1.5 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                                            מנגן עכשיו
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <p className="line-clamp-2 flex-1 py-1 text-start text-xs font-semibold leading-snug text-slate-800 max-lg:text-center sm:text-sm dark:text-zinc-200">
+                                        {video.title}
+                                      </p>
+                                    </button>
+                                    {accessToken ? (
+                                      <PlaylistToggleButton
+                                        compact
+                                        inPlaylist={playlist.isInPlaylist(video.videoId)}
+                                        busy={playlist.toggleBusyId === video.videoId}
+                                        onToggle={handlePlaylistToggle}
+                                        payload={{
+                                          youtube_video_id: video.videoId,
+                                          title: video.title,
+                                          thumbnail_url: video.thumbnail || null,
+                                          youtube_channel_id: activeChannelId,
+                                          channel_name: activeChannel?.channel_name ?? null,
+                                        }}
+                                        className="w-full max-lg:mx-auto lg:w-auto"
+                                      />
+                                    ) : null}
+                                  </div>
                                 </li>
                               )
                             })
