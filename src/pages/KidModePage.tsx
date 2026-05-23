@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Camera, ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
+import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
 import { KidPlaylistView } from '../components/kid/KidPlaylistView'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
 import { Input } from '../components/ui/Input'
@@ -839,24 +840,24 @@ export function KidModePage() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f3f3f3] text-slate-900 dark:bg-[#0f0f0f] dark:text-zinc-100">
-      <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/90 pb-[env(safe-area-inset-top)] shadow-sm backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90">
+    <div className="min-h-dvh bg-yt-bg text-yt-text">
+      <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 pb-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="mx-auto flex max-w-[1920px] items-center justify-between gap-2 px-2 py-2 sm:px-3 sm:py-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <SafeTubeBrandMark to="/kid" size="compact" />
             <div className="min-w-0 flex-1 text-right">
-              <p className="truncate text-sm font-bold text-slate-900 dark:text-zinc-50">
+              <p className="truncate text-sm font-bold text-yt-text">
                 {kidSurface === 'parent'
                   ? 'אזור הורים'
                   : kidWatchTab === 'playlist'
                     ? 'הפלייליסטים שלי'
                     : device.device_name}
               </p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-500">{KID_APP_DISPLAY_NAME}</p>
+              <p className="text-[11px] text-yt-textMuted">{KID_APP_DISPLAY_NAME}</p>
             </div>
           </div>
           <div
-            className="flex shrink-0 items-center gap-0.5 rounded-full border border-slate-200/90 bg-slate-100/50 p-0.5 dark:border-zinc-700 dark:bg-zinc-900/80"
+            className="flex shrink-0 items-center gap-0.5 rounded-full border border-yt-border bg-yt-input p-0.5"
             role="tablist"
             aria-label="מצב מסך"
           >
@@ -870,8 +871,8 @@ export function KidModePage() {
               }}
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                 kidSurface === 'watch' && kidWatchTab === 'channels'
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                  ? 'bg-yt-surfaceHover text-yt-text shadow-sm'
+                  : 'text-yt-textMuted hover:text-yt-text'
               }`}
             >
               <Play className="h-3.5 w-3.5" aria-hidden />
@@ -887,8 +888,8 @@ export function KidModePage() {
               }}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-semibold transition sm:px-3 ${
                 kidSurface === 'watch' && kidWatchTab === 'playlist'
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                  ? 'bg-yt-surfaceHover text-yt-text shadow-sm'
+                  : 'text-yt-textMuted hover:text-yt-text'
               }`}
             >
               <ListMusic className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -915,8 +916,8 @@ export function KidModePage() {
               onClick={(e) => e.preventDefault()}
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition touch-manipulation select-none ${
                 kidSurface === 'parent'
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'text-slate-500 opacity-90 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
+                  ? 'bg-yt-surfaceHover text-yt-text shadow-sm'
+                  : 'text-yt-textMuted opacity-90 hover:text-yt-text'
               }`}
             >
               <Users className="h-3.5 w-3.5" aria-hidden />
@@ -1167,7 +1168,7 @@ export function KidModePage() {
                           </div>
                         </div>
                         <div className="mt-2 flex flex-col gap-2 px-0 sm:px-1">
-                          <h2 className="text-base font-bold leading-snug text-slate-900 dark:text-zinc-50 sm:text-lg">
+                          <h2 className="text-base font-bold leading-snug text-yt-text sm:text-lg">
                             {activeVideo.title}
                           </h2>
                           <p className="text-sm text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
@@ -1233,64 +1234,38 @@ export function KidModePage() {
                         <Play className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" fill="currentColor" aria-hidden />
                         <p className="text-sm font-bold text-slate-800 dark:text-zinc-200">הסרטונים של הערוץ</p>
                       </div>
-                      <ul className="no-scrollbar flex gap-2 max-lg:flex-row max-lg:overflow-x-auto max-lg:pb-1 lg:flex-col lg:gap-1.5 lg:overflow-visible">
+                      <ul className="no-scrollbar flex flex-col gap-1">
                         {filteredVideos.length > 0
                           ? filteredVideos.map((video) => {
                               const isCurrent = video.videoId === activeVideo?.videoId
                               return (
-                                <li key={video.videoId} className="max-lg:w-[min(100%,280px)] max-lg:shrink-0 lg:w-full">
-                                  <div
-                                    className={`flex w-full flex-col gap-2 rounded-xl p-2 transition max-lg:items-stretch lg:flex-row lg:items-start ${
-                                      isCurrent
-                                        ? 'bg-white shadow-md ring-2 ring-brand-500/50 dark:bg-zinc-900'
-                                        : 'bg-white/60 hover:bg-white/90 dark:bg-zinc-900/40 dark:hover:bg-zinc-900/70'
-                                    }`}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => setActiveVideoId(video.videoId)}
-                                      className="flex min-w-0 flex-1 gap-2 text-right max-lg:flex-col lg:flex-row"
-                                    >
-                                      <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[76px] lg:w-32 lg:max-h-none lg:min-w-[128px] min-[400px]:lg:w-[168px]">
-                                        {video.thumbnail ? (
-                                          <img
-                                            src={video.thumbnail}
-                                            alt=""
-                                            loading="lazy"
-                                            className="h-full w-full object-cover"
-                                          />
-                                        ) : (
-                                          <div className="flex h-full w-full items-center justify-center text-xs font-medium text-slate-500">
-                                            וידאו
-                                          </div>
-                                        )}
-                                        {isCurrent ? (
-                                          <span className="absolute bottom-1.5 end-1.5 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                                            מנגן עכשיו
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                      <p className="line-clamp-2 flex-1 py-1 text-start text-xs font-semibold leading-snug text-slate-800 max-lg:text-center sm:text-sm dark:text-zinc-200">
-                                        {video.title}
-                                      </p>
-                                    </button>
-                                    {accessToken ? (
-                                      <AddToPlaylistButton
-                                        mode="kid"
-                                        userId={null}
-                                        childAccessToken={accessToken}
-                                        compact
-                                        video={{
-                                          youtube_video_id: video.videoId,
-                                          title: video.title,
-                                          thumbnail_url: video.thumbnail || null,
-                                          youtube_channel_id: activeChannelId,
-                                          channel_name: activeChannel?.channel_name ?? null,
-                                        }}
-                                        className="w-full max-lg:mx-auto lg:w-auto"
-                                      />
-                                    ) : null}
-                                  </div>
+                                <li key={video.videoId} className="w-full">
+                                  <YoutubeVideoCard
+                                    layout="row"
+                                    title={video.title}
+                                    thumbnail={video.thumbnail}
+                                    channelName={activeChannel?.channel_name ?? undefined}
+                                    active={isCurrent}
+                                    playingLabel="מנגן"
+                                    onClick={() => setActiveVideoId(video.videoId)}
+                                    actionSlot={
+                                      accessToken ? (
+                                        <AddToPlaylistButton
+                                          mode="kid"
+                                          userId={null}
+                                          childAccessToken={accessToken}
+                                          compact
+                                          video={{
+                                            youtube_video_id: video.videoId,
+                                            title: video.title,
+                                            thumbnail_url: video.thumbnail || null,
+                                            youtube_channel_id: activeChannelId,
+                                            channel_name: activeChannel?.channel_name ?? null,
+                                          }}
+                                        />
+                                      ) : null
+                                    }
+                                  />
                                 </li>
                               )
                             })

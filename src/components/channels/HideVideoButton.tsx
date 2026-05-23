@@ -74,11 +74,11 @@ export function HideVideoButton({
         aria-label={label}
         title={label}
         className={cn(
-          'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 font-bold transition',
+          'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border font-semibold transition',
           action === 'unhide'
-            ? 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100'
-            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200',
-          compact ? 'min-h-[40px] min-w-[40px] px-2 text-xs' : 'min-h-[48px] px-3 text-sm',
+            ? 'border-emerald-700/50 bg-emerald-950/30 text-emerald-200 hover:bg-emerald-950/50'
+            : 'border-yt-border bg-yt-surface text-yt-text hover:bg-yt-surfaceHover',
+          compact ? 'min-h-[40px] min-w-[40px] px-2 text-xs' : 'min-h-[44px] px-4 text-sm',
           className
         )}
         onClick={(e) => {

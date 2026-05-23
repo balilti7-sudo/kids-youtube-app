@@ -97,13 +97,13 @@ export function AppLayout() {
   const showGate = !BYPASS_AUTH && !managementUnlocked
 
   return (
-    <div className="relative flex min-h-dvh flex-col">
+    <div className="relative flex min-h-dvh flex-col bg-yt-bg">
       {showGate ? <ParentalManagementGate onUnlocked={handleManagementUnlocked} /> : null}
       {!showGate ? (
         <>
-          <main className="safe-pb-nav flex flex-1 justify-center px-2 pt-3 sm:px-3 sm:pt-4">
-            <div className="app-floating-surface mx-auto w-full max-w-5xl p-3 sm:p-3.5 lg:p-4">
-              <header className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-zinc-700/40 pb-2 dark:border-zinc-600/30">
+          <main className="safe-pb-nav flex flex-1 flex-col">
+            <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 px-3 py-2 backdrop-blur-md sm:px-4">
+              <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                   <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} />
                   <div className="min-w-0 flex-1">
@@ -111,7 +111,9 @@ export function AppLayout() {
                   </div>
                 </div>
                 <LockAppButton />
-              </header>
+              </div>
+            </header>
+            <div className="mx-auto w-full max-w-5xl flex-1 px-3 py-4 sm:px-4">
               <Outlet />
               <ParentAppFooter />
             </div>

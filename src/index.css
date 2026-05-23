@@ -9,16 +9,27 @@
     @apply antialiased;
   }
   body {
-    @apply min-h-dvh bg-[#fff5f5] text-slate-900 font-sans dark:bg-zinc-950 dark:text-zinc-100;
+    @apply min-h-dvh bg-yt-bg font-sans text-yt-text;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
 @layer components {
-  /* לבן, פינות מעוגלות מאוד וצל עדין — תוכן “צף” על רקע בהיר */
   .app-floating-surface {
-    @apply rounded-[2rem] bg-white text-slate-900 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] dark:ring-zinc-800;
+    @apply rounded-2xl bg-yt-bg text-yt-text ring-0;
+  }
+
+  .yt-video-grid {
+    @apply grid grid-cols-1 gap-x-4 gap-y-10 sm:grid-cols-2 xl:grid-cols-3;
+  }
+
+  .yt-pill-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition bg-yt-surfaceHover text-yt-text hover:bg-[#3f3f3f];
+  }
+
+  .yt-pill-btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition border border-yt-border bg-transparent text-yt-text hover:bg-yt-surface;
   }
 }
 

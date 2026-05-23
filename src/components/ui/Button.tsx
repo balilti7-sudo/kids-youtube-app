@@ -4,12 +4,12 @@ import { cn } from '../../lib/utils'
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
 const variants: Record<Variant, string> = {
-  primary:
-    'bg-brand-600 !text-white hover:bg-brand-700 active:scale-[0.98] disabled:!text-white/90',
-  secondary:
-    'bg-slate-200 text-slate-900 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700',
-  ghost: 'bg-transparent text-slate-700 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
-  danger: 'bg-danger-600 !text-white hover:bg-danger-500 disabled:!text-white/90',
+  primary: 'yt-pill-btn-primary disabled:opacity-50',
+  secondary: 'yt-pill-btn-secondary disabled:opacity-50',
+  ghost:
+    'inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-yt-textMuted transition hover:bg-yt-surface hover:text-yt-text disabled:opacity-50',
+  danger:
+    'inline-flex items-center justify-center gap-2 rounded-full bg-yt-red px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600 disabled:opacity-50',
 }
 
 export function Button({
@@ -23,11 +23,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:opacity-50',
-        variants[variant],
-        className
-      )}
+      className={cn(variants[variant], className)}
       disabled={disabled}
       {...props}
     >

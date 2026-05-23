@@ -148,7 +148,7 @@ export function ParentalPinModal({
         >
           <button
             type="button"
-            className="absolute inset-0 bg-slate-950/55 backdrop-blur-md dark:bg-black/60"
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             aria-label="סגור"
             onClick={onClose}
           />
@@ -162,14 +162,13 @@ export function ParentalPinModal({
             exit={{ scale: 0.92, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 420, damping: 28 }}
             className={cn(
-              'relative w-full max-w-md overflow-hidden rounded-2xl border border-white/25',
-              'bg-white/75 shadow-2xl shadow-slate-900/15 ring-1 ring-white/40',
-              'backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/75 dark:ring-white/5'
+              'relative w-full max-w-md overflow-hidden rounded-3xl border border-yt-border',
+              'bg-yt-surface shadow-2xl ring-1 ring-yt-border/80'
             )}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-zinc-700/80">
-              <h2 id="parental-pin-title" className="text-lg font-bold text-slate-900 dark:text-zinc-50">
+            <div className="flex items-start justify-between gap-3 border-b border-yt-border px-5 py-4">
+              <h2 id="parental-pin-title" className="text-lg font-bold text-yt-text">
                 {title}
               </h2>
               <button
@@ -183,7 +182,7 @@ export function ParentalPinModal({
             </div>
 
             <div className="space-y-5 px-5 py-6">
-              <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">{description}</p>
+              <p className="text-sm leading-relaxed text-yt-textMuted">{description}</p>
 
               <div dir="ltr" className="flex flex-wrap justify-center gap-2" onPaste={handlePaste}>
                 {SLOT_INDEXES.map((i) => (

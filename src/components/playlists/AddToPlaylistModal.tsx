@@ -221,7 +221,7 @@ export function AddToPlaylistModal({
         </div>
       }
     >
-      <p className="mb-3 line-clamp-2 text-sm text-slate-600 dark:text-zinc-400">{video.title}</p>
+      <p className="mb-3 line-clamp-2 text-sm text-yt-textMuted">{video.title}</p>
 
       <div className="mb-3 flex gap-2">
         <Input
@@ -271,16 +271,16 @@ export function AddToPlaylistModal({
                   type="button"
                   onClick={() => togglePlaylist(pl.id)}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 text-right transition',
+                    'flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-right transition',
                     checked
-                      ? 'border-brand-500 bg-brand-50 dark:border-brand-600 dark:bg-brand-950/40'
-                      : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900'
+                      ? 'border-yt-textMuted/40 bg-yt-surfaceHover'
+                      : 'border-yt-border bg-yt-surface hover:bg-yt-surfaceHover'
                   )}
                 >
                   <ListMusic className="h-5 w-5 shrink-0 text-brand-600" aria-hidden />
                   <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-slate-900 dark:text-zinc-100">{pl.name}</span>
-                    <span className="text-xs text-slate-500">{pl.video_count} סרטונים</span>
+                    <span className="block font-semibold text-yt-text">{pl.name}</span>
+                    <span className="text-xs text-yt-textMuted">{pl.video_count} סרטונים</span>
                   </span>
                   <span
                     className={cn(

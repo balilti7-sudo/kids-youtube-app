@@ -22,6 +22,7 @@ import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
 import { HideVideoButton } from './HideVideoButton'
 import { ParentChannelVideoSearch, type ParentVideoSearchMode } from './ParentChannelVideoSearch'
+import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
 
@@ -316,44 +317,31 @@ export function ChannelManager() {
 
   const renderYoutubeSearchResults = useCallback(
     (results: YouTubeVideoResult[]) => (
-      <div className="max-h-72 space-y-2 overflow-y-auto">
+      <div className="yt-video-grid max-h-96 overflow-y-auto">
         {results.map((v) => (
-          <div
+          <YoutubeVideoCard
             key={v.videoId}
-            className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/40"
-          >
-            {v.thumbnail ? (
-              <img
-                src={v.thumbnail}
-                alt=""
-                referrerPolicy="no-referrer"
-                loading="lazy"
-                className="h-14 w-24 shrink-0 rounded-lg bg-slate-100 object-cover dark:bg-zinc-800"
-              />
-            ) : (
-              <div className="h-14 w-24 shrink-0 rounded-lg bg-slate-100 dark:bg-zinc-800" />
-            )}
-            <div className="min-w-0 flex-1 text-right">
-              <p className="line-clamp-2 text-sm font-semibold text-slate-900 dark:text-zinc-100">{v.title}</p>
-              {v.channelTitle ? (
-                <p className="truncate text-xs text-slate-500 dark:text-zinc-500">{v.channelTitle}</p>
-              ) : null}
-            </div>
-            {user?.id || localParent.localAccessToken ? (
-              <AddToPlaylistButton
-                mode={user?.id ? 'parent' : 'kid'}
-                userId={user?.id ? (ownerUserId ?? user.id) : null}
-                childAccessToken={user?.id ? null : localParent.localAccessToken}
-                compact
-                video={{
-                  youtube_video_id: v.videoId,
-                  title: v.title,
-                  thumbnail_url: v.thumbnail,
-                  channel_name: v.channelTitle || null,
-                }}
-              />
-            ) : null}
-          </div>
+            layout="grid"
+            title={v.title}
+            thumbnail={v.thumbnail}
+            channelName={v.channelTitle || undefined}
+            actionSlot={
+              user?.id || localParent.localAccessToken ? (
+                <AddToPlaylistButton
+                  mode={user?.id ? 'parent' : 'kid'}
+                  userId={user?.id ? (ownerUserId ?? user.id) : null}
+                  childAccessToken={user?.id ? null : localParent.localAccessToken}
+                  compact
+                  video={{
+                    youtube_video_id: v.videoId,
+                    title: v.title,
+                    thumbnail_url: v.thumbnail,
+                    channel_name: v.channelTitle || null,
+                  }}
+                />
+              ) : null
+            }
+          />
         ))}
       </div>
     ),
@@ -737,10 +725,8 @@ function PreviewVideoCard({
   }
   return (
     <div
-      className={`flex w-full items-center gap-2 rounded-lg p-1.5 transition ${
-        active
-          ? 'bg-slate-100 ring-1 ring-brand-500/40 dark:bg-zinc-800'
-          : 'hover:bg-slate-50 dark:hover:bg-zinc-800/70'
+      className={`flex w-full items-center gap-2 rounded-xl p-1.5 transition ${
+        active ? 'bg-yt-surface ring-1 ring-yt-border' : 'hover:bg-yt-surface/80'
       }`}
     >
       <button
@@ -760,12 +746,12 @@ function PreviewVideoCard({
           onClick(video)
         }}
       >
-        <div className="pointer-events-none relative h-12 w-20 shrink-0 overflow-hidden rounded bg-slate-100 dark:bg-zinc-800">
+        <div className="pointer-events-none relative h-14 w-24 shrink-0 overflow-hidden rounded-xl bg-yt-surfaceHover">
           {video.thumbnail ? (
             <img src={video.thumbnail} alt="" loading="lazy" className="pointer-events-none h-full w-full object-cover" />
           ) : null}
         </div>
-        <span className="line-clamp-2 text-xs font-medium text-slate-800 dark:text-zinc-200">{video.title}</span>
+        <span className="line-clamp-2 text-xs font-medium text-yt-text">{video.title}</span>
       </button>
       {actionSlot ? <div className="shrink-0">{actionSlot}</div> : null}
     </div>

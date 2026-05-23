@@ -14,7 +14,7 @@ export type ChannelVideoSearchBarProps = {
 }
 
 /**
- * Kid channel title search — single inline field, instant filter via parent state.
+ * Kid channel title search — YouTube-style pill input.
  */
 export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   id: idProp,
@@ -31,16 +31,13 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   const showingAll = !hasQuery || filteredCount === totalCount
 
   return (
-    <section
-      className={cn('w-full', className)}
-      aria-label="חיפוש סרטונים בערוץ"
-    >
+    <section className={cn('w-full', className)} aria-label="חיפוש סרטונים בערוץ">
       <div className="mb-2.5 text-right">
-        <h3 className="text-base font-bold leading-tight text-zinc-100 sm:text-lg">חיפוש בערוץ</h3>
-        <p className="mt-0.5 text-xs font-medium text-zinc-400 sm:text-sm">
+        <h3 className="text-base font-bold leading-tight text-yt-text sm:text-lg">חיפוש בערוץ</h3>
+        <p className="mt-0.5 text-xs font-medium text-yt-textMuted sm:text-sm">
           {channelLabel ? (
             <>
-              מצאו סרטון ב־<span className="text-zinc-200">{channelLabel}</span>
+              מצאו סרטון ב־<span className="text-yt-text">{channelLabel}</span>
             </>
           ) : (
             'הקלידו שם סרטון — הרשימה מתעדכנת מיד'
@@ -57,7 +54,7 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
         aria-label="חיפוש לפי שם סרטון בערוץ הנבחר"
       />
 
-      <p className="mt-2 text-xs font-medium text-zinc-500 sm:text-sm" aria-live="polite">
+      <p className="mt-2 text-xs font-medium text-yt-textMuted sm:text-sm" aria-live="polite">
         {totalCount === 0
           ? 'אין עדיין סרטונים ברשימה'
           : showingAll

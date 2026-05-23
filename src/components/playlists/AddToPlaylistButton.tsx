@@ -33,8 +33,8 @@ export function AddToPlaylistButton({
         aria-label="הוסף לפלייליסט"
         title="הוסף לפלייליסט"
         className={cn(
-          'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 border-brand-200 bg-brand-50 font-bold text-brand-800 transition hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-100',
-          compact ? 'min-h-[40px] min-w-[40px] px-2 text-xs' : 'min-h-[48px] px-3 text-sm',
+          'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-yt-border bg-yt-surface font-semibold text-yt-text transition hover:bg-yt-surfaceHover',
+          compact ? 'min-h-[40px] min-w-[40px] px-2 text-xs' : 'min-h-[44px] px-4 text-sm',
           className
         )}
         onClick={(e) => {

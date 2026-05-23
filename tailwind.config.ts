@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Heebo', 'system-ui', 'sans-serif'],
+        sans: ['Heebo', 'Roboto', 'Arial', 'system-ui', 'sans-serif'],
       },
       colors: {
         brand: {
@@ -26,6 +26,17 @@ export default {
         danger: {
           500: '#ef4444',
           600: '#dc2626',
+        },
+        yt: {
+          bg: '#0f0f0f',
+          surface: '#212121',
+          surfaceHover: '#272727',
+          border: '#303030',
+          input: '#121212',
+          searchBtn: '#222222',
+          text: '#ffffff',
+          textMuted: '#aaaaaa',
+          red: '#ff0000',
         },
       },
     },

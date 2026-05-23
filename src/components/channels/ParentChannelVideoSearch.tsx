@@ -85,14 +85,12 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
   return (
     <section className={cn('w-full', className)} aria-label="חיפוש סרטונים להורים">
       <div className="mb-2.5 text-right">
-        <h3 className="text-base font-bold leading-tight text-slate-900 dark:text-zinc-100 sm:text-lg">
-          חיפוש סרטונים
-        </h3>
-        <p className="mt-0.5 text-xs font-medium text-slate-500 dark:text-zinc-400 sm:text-sm">
+        <h3 className="text-base font-bold leading-tight text-yt-text sm:text-lg">חיפוש סרטונים</h3>
+        <p className="mt-0.5 text-xs font-medium text-yt-textMuted sm:text-sm">
           {mode === 'channel' ? (
             channelLabel ? (
               <>
-                מצאו סרטון ב־<span className="text-slate-700 dark:text-zinc-200">{channelLabel}</span>
+                מצאו סרטון ב־<span className="text-yt-text">{channelLabel}</span>
               </>
             ) : (
               'הקלידו שם סרטון — הרשימה מתעדכנת מיד'
@@ -106,7 +104,7 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
       <div
         role="tablist"
         aria-label="סוג חיפוש"
-        className="mb-2.5 flex gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/60"
+        className="mb-2.5 flex gap-1 rounded-full border border-yt-border bg-yt-input p-1"
       >
         {MODE_TABS.map((tab) => {
           const active = mode === tab.id
@@ -117,10 +115,10 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
               role="tab"
               aria-selected={active}
               className={cn(
-                'min-h-[40px] flex-1 rounded-lg px-2 text-sm font-bold transition',
+                'min-h-[40px] flex-1 rounded-full px-2 text-sm font-semibold transition',
                 active
-                  ? 'bg-white text-brand-800 shadow-sm dark:bg-zinc-900 dark:text-brand-100'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+                  ? 'bg-yt-surfaceHover text-yt-text shadow-sm'
+                  : 'text-yt-textMuted hover:text-yt-text'
               )}
               onClick={() => handleModeChange(tab.id)}
             >
@@ -136,11 +134,10 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
         onChange={onChange}
         placeholder={placeholder}
         aria-label={mode === 'channel' ? 'חיפוש לפי שם סרטון בערוץ' : 'חיפוש סרטונים ב-YouTube'}
-        inputClassName="border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
       />
 
       {mode === 'channel' ? (
-        <p className="mt-2 text-xs font-medium text-slate-500 dark:text-zinc-500 sm:text-sm" aria-live="polite">
+        <p className="mt-2 text-xs font-medium text-yt-textMuted sm:text-sm" aria-live="polite">
           {channelTotalCount === 0
             ? 'אין עדיין סרטונים ברשימה'
             : showingAllChannel
@@ -150,18 +147,18 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
       ) : (
         <div className="mt-3 space-y-2" aria-live="polite">
           {!hasQuery ? (
-            <p className="text-xs font-medium text-slate-500 dark:text-zinc-500 sm:text-sm">
+            <p className="text-xs font-medium text-yt-textMuted sm:text-sm">
               הקלידו מילות חיפוש כדי לחפש בכל YouTube
             </p>
           ) : youtubeLoading ? (
-            <div className="flex items-center justify-center gap-2 py-4 text-sm text-slate-600 dark:text-zinc-400">
+            <div className="flex items-center justify-center gap-2 py-4 text-sm text-yt-textMuted">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               מחפש ב-YouTube…
             </div>
           ) : youtubeError ? (
-            <p className="text-sm text-danger-600 dark:text-red-400">{youtubeError}</p>
+            <p className="text-sm text-yt-red">{youtubeError}</p>
           ) : debouncedYoutubeQuery && youtubeResults.length === 0 ? (
-            <p className="text-sm text-slate-600 dark:text-zinc-400">
+            <p className="text-sm text-yt-textMuted">
               לא נמצאו סרטונים עבור &quot;{debouncedYoutubeQuery}&quot;
             </p>
           ) : youtubeResults.length > 0 && youtubeResultsSlot ? (

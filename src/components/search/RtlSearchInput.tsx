@@ -14,8 +14,7 @@ export type RtlSearchInputProps = {
 }
 
 /**
- * RTL Hebrew search field — icon on the right (text start), clear on the left.
- * Wrapper sets dir="rtl" so absolute positioning matches typed Hebrew text.
+ * YouTube-style RTL pill search — icon button in grey capsule on the right (text start).
  */
 export const RtlSearchInput = memo(function RtlSearchInput({
   id: idProp,
@@ -53,7 +52,14 @@ export const RtlSearchInput = memo(function RtlSearchInput({
   }, [commitChange])
 
   return (
-    <div dir="rtl" className={cn('relative w-full', className)} aria-label={ariaLabel}>
+    <div
+      dir="rtl"
+      className={cn(
+        'flex h-11 w-full items-center overflow-hidden rounded-full border border-yt-border bg-yt-input shadow-sm transition focus-within:border-yt-textMuted/40',
+        className
+      )}
+      aria-label={ariaLabel}
+    >
       <label htmlFor={inputId} className="sr-only">
         {ariaLabel ?? placeholder}
       </label>
@@ -74,26 +80,17 @@ export const RtlSearchInput = memo(function RtlSearchInput({
         dir="rtl"
         enterKeyHint="search"
         className={cn(
-          'h-12 w-full rounded-2xl border border-zinc-600/90 bg-zinc-900 text-base font-medium text-zinc-50 shadow-sm outline-none transition placeholder:text-zinc-500',
-          'focus:border-brand-500/70 focus:ring-2 focus:ring-brand-500/25',
-          'pr-12 pl-4',
-          hasQuery && 'pl-11',
+          'min-w-0 flex-1 bg-transparent px-4 text-sm font-normal text-yt-text outline-none placeholder:text-yt-textMuted',
+          hasQuery ? 'pl-2' : '',
           inputClassName
         )}
       />
-
-      <span
-        className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-zinc-500"
-        aria-hidden
-      >
-        <Search className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} />
-      </span>
 
       {hasQuery ? (
         <button
           type="button"
           tabIndex={-1}
-          className="absolute inset-y-0 left-2.5 my-auto flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100"
+          className="me-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-yt-textMuted transition hover:bg-yt-surfaceHover hover:text-yt-text"
           onMouseDown={(e) => e.preventDefault()}
           onClick={clearInput}
           aria-label="מחק את החיפוש"
@@ -101,6 +98,13 @@ export const RtlSearchInput = memo(function RtlSearchInput({
           <X className="h-4 w-4" strokeWidth={2.5} aria-hidden />
         </button>
       ) : null}
+
+      <span
+        className="me-1 flex h-9 w-11 shrink-0 items-center justify-center rounded-full bg-yt-searchBtn text-yt-text"
+        aria-hidden
+      >
+        <Search className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} />
+      </span>
     </div>
   )
 })
