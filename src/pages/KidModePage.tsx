@@ -4,6 +4,7 @@ import { Camera, ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users
 import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
 import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
+import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
 import { KidPlaylistView } from '../components/kid/KidPlaylistView'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
 import { Input } from '../components/ui/Input'
@@ -140,12 +141,13 @@ export function KidModePage() {
   )
 
   const activeVideo = useMemo(() => {
-    const inFiltered = filteredVideos.find((v) => v.videoId === activeVideoId)
-    if (inFiltered) return inFiltered
-    const inAll = channelVideos.find((v) => v.videoId === activeVideoId)
-    if (videoSearch.trim() && inAll) return inAll
-    return null
-  }, [filteredVideos, channelVideos, activeVideoId, videoSearch])
+    if (!activeVideoId) return null
+    return channelVideos.find((v) => v.videoId === activeVideoId) ?? null
+  }, [channelVideos, activeVideoId])
+
+  const handleSelectVideo = useCallback((videoId: string) => {
+    setActiveVideoId(videoId)
+  }, [])
 
   const activeChannel = useMemo(
     () => channels.find((c) => c.youtube_channel_id === (activeChannelId ?? '')) ?? null,
@@ -344,19 +346,27 @@ export function KidModePage() {
   }, [activeChannelId, channelPickNonce, loadChannelVideos])
 
   useEffect(() => {
-    if (videoSearchFocused) return
     if (channelVideos.length === 0) {
       setActiveVideoId(null)
       return
     }
+    setActiveVideoId((prev) => {
+      if (prev && channelVideos.some((v) => v.videoId === prev)) return prev
+      return channelVideos[0]?.videoId ?? null
+    })
+  }, [channelVideos, activeChannelId, channelPickNonce])
+
+  useEffect(() => {
+    if (videoSearchFocused) return
     if (filteredVideos.length === 0) {
-      setActiveVideoId(null)
+      if (videoSearch.trim()) setActiveVideoId(null)
       return
     }
-    setActiveVideoId((prev) =>
-      prev && filteredVideos.some((v) => v.videoId === prev) ? prev : filteredVideos[0].videoId
-    )
-  }, [channelVideos, videoSearch, filteredVideos, videoSearchFocused])
+    setActiveVideoId((prev) => {
+      if (prev && filteredVideos.some((v) => v.videoId === prev)) return prev
+      return filteredVideos[0]?.videoId ?? null
+    })
+  }, [videoSearch, filteredVideos, videoSearchFocused])
 
   useEffect(() => {
     if (!accessToken) return
@@ -1140,10 +1150,10 @@ export function KidModePage() {
                   />
                 </div>
 
-                <div className="mx-auto max-w-[1600px] gap-0 px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:flex lg:min-h-0 lg:flex-col lg:gap-3 lg:px-3 lg:pt-2">
-                  <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row lg:gap-2">
-                  <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
-                    {channelLoading ? (
+                <YoutubeWatchLayout
+                  className="mx-auto max-w-[1600px] px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:px-3 lg:pt-2"
+                  main={
+                    channelLoading ? (
                       <div className="flex aspect-video max-w-5xl items-center justify-center gap-3 rounded-xl bg-black/90 text-zinc-200">
                         <LoadingSpinner className="h-9 w-9 shrink-0 border-2 border-red-500 border-t-transparent" />
                         <span className="text-base font-semibold">טוען…</span>
@@ -1215,11 +1225,10 @@ export function KidModePage() {
                         <Unplug className="h-14 w-14 text-slate-400" strokeWidth={1.75} aria-hidden />
                         <p className="text-base font-medium text-slate-700 dark:text-zinc-300">בחרו ערוץ כדי לטעון סרטונים.</p>
                       </div>
-                    )}
-                  </div>
-
-                  <aside className="mt-3 min-w-0 border-t border-black/[0.06] pt-3 dark:border-zinc-800 lg:mt-0 lg:w-[min(100%,400px)] lg:shrink-0 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-4 dark:lg:border-zinc-800">
-                    <div className="lg:sticky lg:top-[52px] lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:pb-8 lg:pe-1">
+                    )
+                  }
+                  sidebar={
+                    <>
                       <ChannelVideoSearchBar
                         id="kid-channel-video-search"
                         value={videoSearch}
@@ -1237,7 +1246,7 @@ export function KidModePage() {
                       <ul className="no-scrollbar flex flex-col gap-1">
                         {filteredVideos.length > 0
                           ? filteredVideos.map((video) => {
-                              const isCurrent = video.videoId === activeVideo?.videoId
+                              const isCurrent = video.videoId === activeVideoId
                               return (
                                 <li key={video.videoId} className="w-full">
                                   <YoutubeVideoCard
@@ -1247,7 +1256,7 @@ export function KidModePage() {
                                     channelName={activeChannel?.channel_name ?? undefined}
                                     active={isCurrent}
                                     playingLabel="מנגן"
-                                    onClick={() => setActiveVideoId(video.videoId)}
+                                    onClick={() => handleSelectVideo(video.videoId)}
                                     actionSlot={
                                       accessToken ? (
                                         <AddToPlaylistButton
@@ -1282,10 +1291,9 @@ export function KidModePage() {
                           </p>
                         </div>
                       ) : null}
-                    </div>
-                  </aside>
-                  </div>
-                </div>
+                    </>
+                  }
+                />
               </div>
             </>
           )}
