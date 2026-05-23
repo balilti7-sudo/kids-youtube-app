@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
 import { useChannels } from '../../hooks/useChannels'
-import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
+import type { WhitelistedChannel, YouTubeChannelResult, YouTubeVideoResult } from '../../types'
 import { supabase } from '../../lib/supabase'
 import { WhitelistView } from './WhitelistView'
 import { ChannelSearch } from './ChannelSearch'
@@ -21,7 +21,7 @@ import { Modal } from '../ui/Modal'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
 import { HideVideoButton } from './HideVideoButton'
-import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
+import { ParentChannelVideoSearch, type ParentVideoSearchMode } from './ParentChannelVideoSearch'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
 
@@ -56,6 +56,7 @@ export function ChannelManager() {
   const [previewVideos, setPreviewVideos] = useState<PreviewRow[]>([])
   const [activePreviewVideoId, setActivePreviewVideoId] = useState<string | null>(null)
   const [previewVideoSearch, setPreviewVideoSearch] = useState('')
+  const [previewSearchMode, setPreviewSearchMode] = useState<ParentVideoSearchMode>('channel')
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
 
@@ -67,7 +68,11 @@ export function ChannelManager() {
     searchLoading,
     searchError,
     loading: listLoading,
+    videoSearchResults,
+    videoSearchLoading,
+    videoSearchError,
     search,
+    searchVideos,
     loadWhitelist,
     refreshChannelVideosCache,
     addToWhitelist,
@@ -202,6 +207,7 @@ export function ChannelManager() {
       setPreviewVideos([])
       setActivePreviewVideoId(null)
       setPreviewVideoSearch('')
+      setPreviewSearchMode('channel')
       setHiddenVideoIds(new Set())
       return
     }
@@ -278,8 +284,16 @@ export function ChannelManager() {
   }, [previewChannel, localParent.isActive, localParent.localAccessToken, user, deviceId, getLocalParentPin])
 
   const filteredPreviewVideos = useMemo(
-    () => filterVideosByTitle(previewVideos, previewVideoSearch),
-    [previewVideos, previewVideoSearch]
+    () =>
+      previewSearchMode === 'channel'
+        ? filterVideosByTitle(previewVideos, previewVideoSearch)
+        : previewVideos,
+    [previewVideos, previewVideoSearch, previewSearchMode]
+  )
+
+  const baseVisiblePreviewCount = useMemo(
+    () => previewVideos.filter((v) => !hiddenVideoIds.has(v.videoId)).length,
+    [previewVideos, hiddenVideoIds]
   )
 
   /** Visible to parent in channel preview — hidden videos live only on /hidden-videos */
@@ -292,6 +306,59 @@ export function ChannelManager() {
     visiblePreviewVideos.find((v) => v.videoId === activePreviewVideoId) ??
     visiblePreviewVideos[0] ??
     null
+
+  const handleYoutubeVideoSearch = useCallback(
+    (query: string) => {
+      void searchVideos(query)
+    },
+    [searchVideos]
+  )
+
+  const renderYoutubeSearchResults = useCallback(
+    (results: YouTubeVideoResult[]) => (
+      <div className="max-h-72 space-y-2 overflow-y-auto">
+        {results.map((v) => (
+          <div
+            key={v.videoId}
+            className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/40"
+          >
+            {v.thumbnail ? (
+              <img
+                src={v.thumbnail}
+                alt=""
+                referrerPolicy="no-referrer"
+                loading="lazy"
+                className="h-14 w-24 shrink-0 rounded-lg bg-slate-100 object-cover dark:bg-zinc-800"
+              />
+            ) : (
+              <div className="h-14 w-24 shrink-0 rounded-lg bg-slate-100 dark:bg-zinc-800" />
+            )}
+            <div className="min-w-0 flex-1 text-right">
+              <p className="line-clamp-2 text-sm font-semibold text-slate-900 dark:text-zinc-100">{v.title}</p>
+              {v.channelTitle ? (
+                <p className="truncate text-xs text-slate-500 dark:text-zinc-500">{v.channelTitle}</p>
+              ) : null}
+            </div>
+            {user?.id || localParent.localAccessToken ? (
+              <AddToPlaylistButton
+                mode={user?.id ? 'parent' : 'kid'}
+                userId={user?.id ? (ownerUserId ?? user.id) : null}
+                childAccessToken={user?.id ? null : localParent.localAccessToken}
+                compact
+                video={{
+                  youtube_video_id: v.videoId,
+                  title: v.title,
+                  thumbnail_url: v.thumbnail,
+                  channel_name: v.channelTitle || null,
+                }}
+              />
+            ) : null}
+          </div>
+        ))}
+      </div>
+    ),
+    [user?.id, ownerUserId, localParent.localAccessToken]
+  )
 
   const goPrevManagerPreview = useCallback(() => {
     if (!activePreviewVideoId) return
@@ -422,13 +489,20 @@ export function ChannelManager() {
                       />
                     </div>
                   </div>
-                  <ChannelVideoSearchBar
+                  <ParentChannelVideoSearch
                     id="parent-channel-video-search"
+                    mode={previewSearchMode}
+                    onModeChange={setPreviewSearchMode}
                     value={previewVideoSearch}
                     onChange={setPreviewVideoSearch}
-                    totalCount={visiblePreviewVideos.length}
-                    filteredCount={visiblePreviewVideos.length}
+                    channelTotalCount={baseVisiblePreviewCount}
+                    channelFilteredCount={visiblePreviewVideos.length}
                     channelLabel={previewChannel.channel_name}
+                    youtubeLoading={videoSearchLoading}
+                    youtubeError={videoSearchError}
+                    youtubeResults={videoSearchResults}
+                    onYoutubeSearch={handleYoutubeVideoSearch}
+                    youtubeResultsSlot={renderYoutubeSearchResults}
                     className="mb-3"
                   />
                   {hiddenVideoIds.size > 0 ? (
