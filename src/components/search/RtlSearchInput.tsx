@@ -76,7 +76,7 @@ export const RtlSearchInput = memo(function RtlSearchInput({
         className={cn(
           'h-12 w-full rounded-2xl border border-zinc-600/90 bg-zinc-900 text-base font-medium text-zinc-50 shadow-sm outline-none transition placeholder:text-zinc-500',
           'focus:border-brand-500/70 focus:ring-2 focus:ring-brand-500/25',
-          'pr-11 pl-4',
+          'pr-12 pl-4',
           hasQuery && 'pl-11',
           inputClassName
         )}
