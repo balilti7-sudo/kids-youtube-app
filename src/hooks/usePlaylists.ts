@@ -73,7 +73,7 @@ export function usePlaylists(opts: {
       }
       return { data: null, error: new Error('לא מחובר') }
     },
-    [mode, userId, childAccessToken, refresh, playlists]
+    [mode, userId, childAccessToken, refresh]
   )
 
   const fetchVideos = useCallback(

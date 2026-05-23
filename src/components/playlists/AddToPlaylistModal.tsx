@@ -1,12 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
-import { ListMusic, Plus } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ListMusic, Plus, Search } from 'lucide-react'
+import { toast } from 'sonner'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
-import type { PlaylistVideoPayload } from '../../lib/playlists'
 import type { PlaylistMode } from '../../hooks/usePlaylists'
-import { usePlaylists } from '../../hooks/usePlaylists'
+import type { PlaylistVideoPayload, UserPlaylist } from '../../lib/playlists'
+import {
+  addVideoToPlaylist,
+  addVideoToPlaylistForChild,
+  createPlaylistForChild,
+  createPlaylistForUser,
+  listPlaylistsForChild,
+  listPlaylistsForUser,
+  playlistIdsContainingVideo,
+  playlistIdsContainingVideoForChild,
+  removeVideoFromPlaylist,
+  removeVideoFromPlaylistForChild,
+} from '../../lib/playlists'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -28,30 +40,74 @@ export function AddToPlaylistModal({
   video,
   onSuccess,
 }: Props) {
-  const api = usePlaylists({ mode, userId, childAccessToken })
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>([])
+  const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [loadingMembership, setLoadingMembership] = useState(false)
+  const initialIdsRef = useRef<Set<string>>(new Set())
+  const [filterQuery, setFilterQuery] = useState('')
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadMembership = useCallback(async () => {
-    if (!open) return
-    setLoadingMembership(true)
-    const { data } = await api.getPlaylistIdsForVideo(video.youtube_video_id)
-    setSelectedIds(new Set(data))
-    setLoadingMembership(false)
-  }, [open, api, video.youtube_video_id])
+  const canLoad = mode === 'parent' ? Boolean(userId) : Boolean(childAccessToken)
 
+  /** Load playlists + membership exactly once per modal open */
   useEffect(() => {
-    if (open) {
-      setError(null)
-      setNewName('')
-      void api.refresh()
-      void loadMembership()
+    if (!open || !canLoad) return
+
+    let cancelled = false
+    setError(null)
+    setFilterQuery('')
+    setNewName('')
+    setLoading(true)
+    setPlaylists([])
+    setSelectedIds(new Set())
+    initialIdsRef.current = new Set()
+
+    void (async () => {
+      try {
+        const [listResult, memberResult] = await Promise.all([
+          mode === 'parent' && userId
+            ? listPlaylistsForUser(userId)
+            : childAccessToken
+              ? listPlaylistsForChild(childAccessToken)
+              : Promise.resolve({ data: [], error: null }),
+          mode === 'parent' && userId
+            ? playlistIdsContainingVideo(userId, video.youtube_video_id)
+            : childAccessToken
+              ? playlistIdsContainingVideoForChild(childAccessToken, video.youtube_video_id)
+              : Promise.resolve({ data: [], error: null }),
+        ])
+
+        if (cancelled) return
+
+        if (listResult.error) {
+          setError(listResult.error.message)
+          return
+        }
+
+        const ids = new Set(memberResult.data ?? [])
+        setPlaylists(listResult.data)
+        setSelectedIds(ids)
+        initialIdsRef.current = ids
+      } catch {
+        if (!cancelled) setError('טעינת פלייליסטים נכשלה')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
-  }, [open, api, loadMembership])
+  }, [open, canLoad, mode, userId, childAccessToken, video.youtube_video_id])
+
+  const filteredPlaylists = useMemo(() => {
+    const q = filterQuery.trim().toLowerCase()
+    if (!q) return playlists
+    return playlists.filter((pl) => pl.name.toLowerCase().includes(q))
+  }, [playlists, filterQuery])
 
   const togglePlaylist = (id: string) => {
     setSelectedIds((prev) => {
@@ -67,45 +123,82 @@ export function AddToPlaylistModal({
     if (!name) return
     setCreating(true)
     setError(null)
-    const { data, error: createErr } = await api.createPlaylist(name)
+
+    let created: UserPlaylist | null = null
+    let createErr: Error | null = null
+
+    if (mode === 'parent' && userId) {
+      const res = await createPlaylistForUser(userId, name)
+      created = res.data
+      createErr = res.error
+    } else if (mode === 'kid' && childAccessToken) {
+      const res = await createPlaylistForChild(childAccessToken, name)
+      if (res.error) createErr = res.error
+      else if (res.data) {
+        created = { id: res.data, name, video_count: 0, updated_at: '' }
+      }
+    } else {
+      createErr = new Error('לא מחובר')
+    }
+
     setCreating(false)
     if (createErr) {
       setError(createErr.message)
       return
     }
-    if (data?.id) {
-      setSelectedIds((prev) => new Set(prev).add(data.id))
+    if (created) {
+      setPlaylists((prev) => [created!, ...prev.filter((p) => p.id !== created!.id)])
+      setSelectedIds((prev) => new Set(prev).add(created!.id))
       setNewName('')
-      await api.refresh()
+      setFilterQuery('')
+      toast.success(`הפלייליסט "${created.name}" נוצר`)
     }
   }
 
   const handleSave = async () => {
-    setSaving(true)
-    setError(null)
-    const { data: initial } = await api.getPlaylistIdsForVideo(video.youtube_video_id)
-    const initialSet = new Set(initial)
+    const initialSet = initialIdsRef.current
     const toAdd = [...selectedIds].filter((id) => !initialSet.has(id))
     const toRemove = [...initialSet].filter((id) => !selectedIds.has(id))
 
+    if (toAdd.length === 0 && toRemove.length === 0) {
+      toast.info('לא בוצעו שינויים')
+      onClose()
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+
     for (const pid of toAdd) {
-      const { error: addErr } = await api.addVideo(pid, video)
-      if (addErr) {
+      const res =
+        mode === 'parent'
+          ? await addVideoToPlaylist(pid, video)
+          : childAccessToken
+            ? await addVideoToPlaylistForChild(childAccessToken, pid, video)
+            : { error: new Error('לא מחובר') }
+      if (res.error) {
         setSaving(false)
-        setError(addErr.message)
+        setError(res.error.message)
         return
       }
     }
+
     for (const pid of toRemove) {
-      const { error: remErr } = await api.removeVideo(pid, video.youtube_video_id)
-      if (remErr) {
+      const res =
+        mode === 'parent'
+          ? await removeVideoFromPlaylist(pid, video.youtube_video_id)
+          : childAccessToken
+            ? await removeVideoFromPlaylistForChild(childAccessToken, pid, video.youtube_video_id)
+            : { error: new Error('לא מחובר') }
+      if (res.error) {
         setSaving(false)
-        setError(remErr.message)
+        setError(res.error.message)
         return
       }
     }
 
     setSaving(false)
+    toast.success(toAdd.length > 0 && toRemove.length === 0 ? 'נוסף לפלייליסט' : 'הפלייליסט עודכן')
     onSuccess?.()
     onClose()
   }
@@ -121,7 +214,7 @@ export function AddToPlaylistModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             ביטול
           </Button>
-          <Button type="button" onClick={() => void handleSave()} disabled={saving || loadingMembership}>
+          <Button type="button" onClick={() => void handleSave()} disabled={saving || loading}>
             {saving ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
             {saving ? 'שומר…' : 'שמור'}
           </Button>
@@ -130,7 +223,7 @@ export function AddToPlaylistModal({
     >
       <p className="mb-3 line-clamp-2 text-sm text-slate-600 dark:text-zinc-400">{video.title}</p>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-3 flex gap-2">
         <Input
           placeholder="שם פלייליסט חדש"
           value={newName}
@@ -143,20 +236,34 @@ export function AddToPlaylistModal({
         </Button>
       </div>
 
+      {!loading && playlists.length > 0 ? (
+        <div className="relative mb-3">
+          <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+          <Input
+            placeholder="חיפוש פלייליסט…"
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            className="pr-9"
+          />
+        </div>
+      ) : null}
+
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
 
-      {api.loading || loadingMembership ? (
+      {loading ? (
         <div className="flex items-center justify-center gap-2 py-8">
           <LoadingSpinner className="h-8 w-8 border-2 border-brand-500 border-t-transparent" />
           <span className="text-sm text-slate-600">טוען פלייליסטים…</span>
         </div>
-      ) : api.playlists.length === 0 ? (
+      ) : playlists.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-500">
           אין עדיין פלייליסטים. צרו אחד למעלה ולחצו שמור.
         </p>
+      ) : filteredPlaylists.length === 0 ? (
+        <p className="py-6 text-center text-sm text-slate-500">אין פלייליסטים שמתאימים לחיפוש.</p>
       ) : (
         <ul className="space-y-2">
-          {api.playlists.map((pl) => {
+          {filteredPlaylists.map((pl) => {
             const checked = selectedIds.has(pl.id)
             return (
               <li key={pl.id}>
