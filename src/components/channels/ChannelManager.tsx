@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -262,7 +262,8 @@ export function ChannelManager() {
         if (cancelled) return
         setPreviewVideos(rows)
         setHiddenVideoIds(hidden)
-        setActivePreviewVideoId(rows[0]?.videoId ?? null)
+        const visible = rows.filter((r) => !hidden.has(r.videoId))
+        setActivePreviewVideoId(visible[0]?.videoId ?? null)
       } catch (e) {
         if (cancelled) return
         setPreviewError(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
@@ -281,33 +282,46 @@ export function ChannelManager() {
     [previewVideos, previewVideoSearch]
   )
 
+  /** Visible to parent in channel preview — hidden videos live only on /hidden-videos */
+  const visiblePreviewVideos = useMemo(
+    () => filteredPreviewVideos.filter((v) => !hiddenVideoIds.has(v.videoId)),
+    [filteredPreviewVideos, hiddenVideoIds]
+  )
+
   const activePreviewVideo =
-    filteredPreviewVideos.find((v) => v.videoId === activePreviewVideoId) ??
-    previewVideos.find((v) => v.videoId === activePreviewVideoId) ??
+    visiblePreviewVideos.find((v) => v.videoId === activePreviewVideoId) ??
+    visiblePreviewVideos[0] ??
     null
 
   const goPrevManagerPreview = useCallback(() => {
     if (!activePreviewVideoId) return
-    const idx = filteredPreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
-    if (idx > 0) setActivePreviewVideoId(filteredPreviewVideos[idx - 1].videoId)
-  }, [filteredPreviewVideos, activePreviewVideoId])
+    const idx = visiblePreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx > 0) setActivePreviewVideoId(visiblePreviewVideos[idx - 1].videoId)
+  }, [visiblePreviewVideos, activePreviewVideoId])
 
   const goNextManagerPreview = useCallback(() => {
     if (!activePreviewVideoId) return
-    const idx = filteredPreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
-    if (idx >= 0 && idx < filteredPreviewVideos.length - 1) {
-      setActivePreviewVideoId(filteredPreviewVideos[idx + 1].videoId)
+    const idx = visiblePreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+    if (idx >= 0 && idx < visiblePreviewVideos.length - 1) {
+      setActivePreviewVideoId(visiblePreviewVideos[idx + 1].videoId)
     }
-  }, [filteredPreviewVideos, activePreviewVideoId])
+  }, [visiblePreviewVideos, activePreviewVideoId])
 
-  const handleHiddenChanged = useCallback((videoId: string, hidden: boolean) => {
-    setHiddenVideoIds((prev) => {
-      const next = new Set(prev)
-      if (hidden) next.add(videoId)
-      else next.delete(videoId)
-      return next
-    })
-  }, [])
+  const handleHidden = useCallback(
+    (videoId: string) => {
+      setHiddenVideoIds((prev) => {
+        const next = new Set(prev).add(videoId)
+        setActivePreviewVideoId((current) => {
+          if (current !== videoId) return current
+          const remaining = previewVideos.filter((v) => v.videoId !== videoId && !prev.has(v.videoId))
+          const searched = filterVideosByTitle(remaining, previewVideoSearch)
+          return searched[0]?.videoId ?? null
+        })
+        return next
+      })
+    },
+    [previewVideos, previewVideoSearch]
+  )
 
   const handlePickPreviewVideo = (video: PreviewRow) => {
     console.log('VIDEO CLICKED', video)
@@ -385,6 +399,13 @@ export function ChannelManager() {
                 <p className="text-sm text-slate-600 dark:text-zinc-400">טוען סרטונים מהמטמון…</p>
               ) : previewError ? (
                 <p className="text-sm text-danger-600">{previewError}</p>
+              ) : previewVideos.length > 0 && visiblePreviewVideos.length === 0 ? (
+                <p className="text-sm text-slate-600 dark:text-zinc-400">
+                  כל הסרטונים בערוץ הזה חסומים.{' '}
+                  <Link to="/hidden-videos" className="font-semibold text-amber-800 underline dark:text-amber-300">
+                    ניהול סרטונים חסומים
+                  </Link>
+                </p>
               ) : activePreviewVideo ? (
                 <>
                   <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-black pt-[56.25%] shadow-sm dark:border-zinc-700">
@@ -405,11 +426,21 @@ export function ChannelManager() {
                     id="parent-channel-video-search"
                     value={previewVideoSearch}
                     onChange={setPreviewVideoSearch}
-                    totalCount={previewVideos.length}
-                    filteredCount={filteredPreviewVideos.length}
+                    totalCount={visiblePreviewVideos.length}
+                    filteredCount={visiblePreviewVideos.length}
                     channelLabel={previewChannel.channel_name}
                     className="mb-3"
                   />
+                  {hiddenVideoIds.size > 0 ? (
+                    <p className="mb-2 text-xs">
+                      <Link
+                        to="/hidden-videos"
+                        className="font-semibold text-amber-800 underline dark:text-amber-300"
+                      >
+                        {hiddenVideoIds.size} סרטונים חסומים — ניהול והחזרה
+                      </Link>
+                    </p>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap items-start justify-between gap-2">
                     <h3 className="text-base font-bold leading-snug text-slate-900 dark:text-zinc-100">
                       {activePreviewVideo.title}
@@ -418,13 +449,18 @@ export function ChannelManager() {
                     {(deviceId || localParent.localAccessToken) && (
                       <HideVideoButton
                         deviceId={deviceId}
-                        youtubeVideoId={activePreviewVideo.videoId}
-                        youtubeChannelId={previewChannel.youtube_channel_id}
-                        hidden={hiddenVideoIds.has(activePreviewVideo.videoId)}
                         localAccessToken={localParent.localAccessToken}
-                        getLocalParentPin={getLocalParentPin}
+                        verifyPin={verifyChannelParentPin}
+                        action="hide"
                         compact
-                        onChanged={(h) => handleHiddenChanged(activePreviewVideo.videoId, h)}
+                        video={{
+                          youtube_video_id: activePreviewVideo.videoId,
+                          title: activePreviewVideo.title,
+                          thumbnail_url: activePreviewVideo.thumbnail,
+                          youtube_channel_id: previewChannel.youtube_channel_id,
+                          channel_name: previewChannel.channel_name,
+                        }}
+                        onSuccess={() => handleHidden(activePreviewVideo.videoId)}
                       />
                     )}
                     {user?.id || localParent.localAccessToken ? (
@@ -445,28 +481,31 @@ export function ChannelManager() {
                     </div>
                   </div>
                   <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
-                    {filteredPreviewVideos.map((v) => {
-                      const isCurrent = v.videoId === activePreviewVideo.videoId
-                      const isHidden = hiddenVideoIds.has(v.videoId)
+                    {visiblePreviewVideos.map((v) => {
+                      const isCurrent = v.videoId === activePreviewVideo?.videoId
                       return (
                         <PreviewVideoCard
                           key={v.videoId}
                           video={v}
                           active={isCurrent}
-                          dimmed={isHidden}
                           onClick={handlePickPreviewVideo}
                           actionSlot={
                             <div className="flex shrink-0 flex-col gap-1">
                               {(deviceId || localParent.localAccessToken) && (
                                 <HideVideoButton
                                   deviceId={deviceId}
-                                  youtubeVideoId={v.videoId}
-                                  youtubeChannelId={previewChannel.youtube_channel_id}
-                                  hidden={isHidden}
-                                  compact
                                   localAccessToken={localParent.localAccessToken}
-                                  getLocalParentPin={getLocalParentPin}
-                                  onChanged={(h) => handleHiddenChanged(v.videoId, h)}
+                                  verifyPin={verifyChannelParentPin}
+                                  action="hide"
+                                  compact
+                                  video={{
+                                    youtube_video_id: v.videoId,
+                                    title: v.title,
+                                    thumbnail_url: v.thumbnail,
+                                    youtube_channel_id: previewChannel.youtube_channel_id,
+                                    channel_name: previewChannel.channel_name,
+                                  }}
+                                  onSuccess={() => handleHidden(v.videoId)}
                                 />
                               )}
                               {user?.id || localParent.localAccessToken ? (
@@ -602,13 +641,11 @@ export function ChannelManager() {
 function PreviewVideoCard({
   video,
   active,
-  dimmed,
   onClick,
   actionSlot,
 }: {
   video: PreviewRow
   active: boolean
-  dimmed?: boolean
   onClick: (video: PreviewRow) => void
   actionSlot?: ReactNode
 }) {
@@ -630,7 +667,7 @@ function PreviewVideoCard({
         active
           ? 'bg-slate-100 ring-1 ring-brand-500/40 dark:bg-zinc-800'
           : 'hover:bg-slate-50 dark:hover:bg-zinc-800/70'
-      } ${dimmed ? 'opacity-50' : ''}`}
+      }`}
     >
       <button
         type="button"

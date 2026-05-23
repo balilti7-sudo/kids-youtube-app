@@ -11,6 +11,7 @@ import { OnboardingPage } from './pages/OnboardingPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ChannelsPage } from './pages/ChannelsPage'
 import { PlaylistsPage } from './pages/PlaylistsPage'
+import { HiddenVideosPage } from './pages/HiddenVideosPage'
 import { SubscriptionPage } from './pages/SubscriptionPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -111,6 +112,7 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/playlists" element={<PlaylistsPage />} />
+            <Route path="/hidden-videos" element={<HiddenVideosPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/devices" element={<Navigate to="/dashboard" replace />} />

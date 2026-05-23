@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { CreditCard, Info, LogOut, UserCircle } from 'lucide-react'
+import { CreditCard, EyeOff, Info, LogOut, UserCircle } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useSubscription } from '../../hooks/useSubscription'
 import { supabase } from '../../lib/supabase'
@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 
 const linkItems = [
   { to: '/profile', label: 'חשבון והתחברות', icon: UserCircle },
+  { to: '/hidden-videos', label: 'סרטונים חסומים', icon: EyeOff },
   { to: '/subscription', label: 'ניהול מנוי', icon: CreditCard },
 ] as const
 

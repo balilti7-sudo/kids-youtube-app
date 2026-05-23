@@ -3,6 +3,7 @@ export const PARENT_MANAGEMENT_PATHS = new Set([
   '/dashboard',
   '/channels',
   '/playlists',
+  '/hidden-videos',
   '/settings',
   '/profile',
   '/subscription',
