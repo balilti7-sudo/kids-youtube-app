@@ -104,14 +104,12 @@ export function AppLayout() {
         <>
           <main className="safe-pb-nav flex flex-1 flex-col">
             <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 px-3 py-2 backdrop-blur-md sm:px-4">
-              <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} />
-                  <div className="min-w-0 flex-1">
-                    <PageBackBar flush />
-                  </div>
+              <div className="mx-auto grid max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <div className="flex min-w-0 items-center">
+                  <PageBackBar flush />
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} />
+                <div className="flex items-center justify-end gap-1.5 sm:gap-2">
                   <ThemeToggle />
                   <LockAppButton />
                 </div>

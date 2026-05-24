@@ -116,6 +116,9 @@ export function ChannelPreviewModal({
     if (idx >= 0 && idx < videos.length - 1) setActiveVideoId(videos[idx + 1].videoId)
   }, [videos, activeVideoId])
 
+  const previewActiveIndex = videos.findIndex((v) => v.videoId === activeVideoId)
+  const hasNextPreviewVideo = previewActiveIndex >= 0 && previewActiveIndex < videos.length - 1
+
   const sidebarVideos = useMemo(() => {
     const q = query.trim().toLowerCase()
     const base = active ? videos.filter((v) => v.videoId !== active.videoId) : videos
@@ -204,6 +207,7 @@ export function ChannelPreviewModal({
                       posterUrl={active.thumbnail}
                       onPreviousTrack={goPrevPreviewTrack}
                       onNextTrack={goNextPreviewTrack}
+                      hasNextTrack={hasNextPreviewVideo}
                       className="h-full w-full"
                     />
                   </div>

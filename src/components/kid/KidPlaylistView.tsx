@@ -5,15 +5,27 @@ import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
+import { QuickBlockButton } from '../channels/QuickBlockButton'
+import { VideoThumbWithQuickBlock } from '../video/VideoThumbWithQuickBlock'
+import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { usePlaylists } from '../../hooks/usePlaylists'
 import type { PlaylistVideo, UserPlaylist } from '../../lib/playlists'
+import type { ParentPinVerifyResult } from '../../lib/verifyParentManagementPin'
 import { cn } from '../../lib/utils'
+
+export type ParentQuickBlockConfig = {
+  enabled: boolean
+  localAccessToken: string
+  cachedPin?: string | null
+  verifyPin: (pin: string) => Promise<ParentPinVerifyResult>
+}
 
 type Props = {
   childAccessToken: string
+  parentQuickBlock?: ParentQuickBlockConfig | null
 }
 
-export function KidPlaylistView({ childAccessToken }: Props) {
+export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
   const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos } = usePlaylists({
     mode: 'kid',
     userId: null,
@@ -208,11 +220,11 @@ export function KidPlaylistView({ childAccessToken }: Props) {
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-col gap-0 lg:flex-row lg:gap-3">
-          <div className="min-w-0 flex-1 lg:max-w-[min(100%,1280px)]">
-            {active ? (
+        <YoutubeWatchLayout
+          main={
+            active ? (
               <>
-                <div className="relative w-full overflow-hidden rounded-none bg-black sm:rounded-xl">
+                <div className="relative w-full overflow-hidden rounded-none bg-black transition-all duration-500 ease-in-out sm:rounded-xl">
                   <div className="relative pt-[56.25%]">
                     <div className="absolute inset-0 min-h-0">
                       <CleanPlayer
@@ -253,10 +265,10 @@ export function KidPlaylistView({ childAccessToken }: Props) {
                   />
                 </div>
               </>
-            ) : null}
-          </div>
-
-          <aside className="mt-3 min-w-0 border-t border-black/[0.06] pt-3 dark:border-zinc-800 lg:mt-0 lg:w-[min(100%,400px)] lg:shrink-0 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-3 dark:lg:border-zinc-800">
+            ) : null
+          }
+          sidebar={
+            <>
             <div className="mb-2 flex items-center gap-2">
               <Play className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" fill="currentColor" aria-hidden />
               <p className="text-sm font-bold text-slate-800 dark:text-zinc-200">סדר הניגון</p>
@@ -273,34 +285,53 @@ export function KidPlaylistView({ childAccessToken }: Props) {
                           : 'bg-white/60 hover:bg-white dark:bg-zinc-900/50 dark:hover:bg-zinc-900/80'
                       }`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => handleSelectVideo(video.youtube_video_id)}
-                        className="flex min-w-0 flex-1 gap-2 text-right max-lg:flex-col lg:flex-row"
-                      >
-                        <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[76px] lg:w-32 lg:min-w-[128px]">
-                          {video.thumbnail_url ? (
-                            <img
-                              src={video.thumbnail_url}
-                              alt=""
-                              loading="lazy"
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
-                              וידאו
-                            </div>
-                          )}
-                          {isCurrent ? (
-                            <span className="absolute bottom-1 end-1 rounded bg-red-600 px-1 py-0.5 text-[10px] font-bold text-white">
-                              מנגן
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="line-clamp-2 flex-1 text-start text-xs font-semibold leading-snug text-slate-800 sm:text-sm dark:text-zinc-200">
-                          {video.title}
-                        </p>
-                      </button>
+                      <div className="flex min-w-0 flex-1 gap-2 max-lg:flex-col lg:flex-row lg:items-start">
+                        <VideoThumbWithQuickBlock
+                          thumbnailUrl={video.thumbnail_url}
+                          className="aspect-video w-full max-lg:max-h-[76px] lg:h-[72px] lg:w-32 lg:min-w-[128px] rounded-lg"
+                          onClick={() => handleSelectVideo(video.youtube_video_id)}
+                          quickBlock={
+                            parentQuickBlock?.enabled ? (
+                              <QuickBlockButton
+                                video={{
+                                  youtube_video_id: video.youtube_video_id,
+                                  title: video.title,
+                                  thumbnail_url: video.thumbnail_url,
+                                  youtube_channel_id: video.youtube_channel_id,
+                                  channel_name: video.channel_name,
+                                }}
+                                localAccessToken={parentQuickBlock.localAccessToken}
+                                cachedPin={parentQuickBlock.cachedPin}
+                                verifyPin={parentQuickBlock.verifyPin}
+                                onSuccess={() => {
+                                  setVideos((prev) =>
+                                    prev.filter((x) => x.youtube_video_id !== video.youtube_video_id)
+                                  )
+                                  if (activeVideoId === video.youtube_video_id) {
+                                    setActiveVideoId(null)
+                                  }
+                                }}
+                              />
+                            ) : null
+                          }
+                          playingBadge={
+                            isCurrent ? (
+                              <span className="pointer-events-none absolute bottom-1 end-1 rounded bg-red-600 px-1 py-0.5 text-[10px] font-bold text-white">
+                                מנגן
+                              </span>
+                            ) : null
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSelectVideo(video.youtube_video_id)}
+                          className="min-w-0 flex-1 text-start max-lg:mt-1 lg:py-0.5"
+                        >
+                          <p className="line-clamp-2 text-xs font-semibold leading-snug text-slate-800 sm:text-sm dark:text-zinc-200">
+                            {video.title}
+                          </p>
+                        </button>
+                      </div>
                       <AddToPlaylistButton
                         mode="kid"
                         userId={null}
@@ -320,8 +351,9 @@ export function KidPlaylistView({ childAccessToken }: Props) {
                 )
               })}
             </ul>
-          </aside>
-        </div>
+            </>
+          }
+        />
       )}
     </div>
   )

@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { EyeOff, Link as LinkIcon, Lock } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useAuth } from '../hooks/useAuth'
 import { useDevices } from '../hooks/useDevices'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { useLocalParentManagement } from '../hooks/useLocalParentManagement'
 import { verifyParentManagementPin } from '../lib/verifyParentManagementPin'
 import {
+  clearAllHiddenVideosAuthenticated,
+  clearAllHiddenVideosLocalParent,
   listHiddenVideosAuthenticated,
   listHiddenVideosLocalParent,
   type HiddenVideoRow,
@@ -14,6 +17,7 @@ import {
 import { HideVideoButton } from '../components/channels/HideVideoButton'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { ParentalPinModal } from '../components/parental/ParentalPinModal'
+import { Modal } from '../components/ui/Modal'
 import { Button } from '../components/ui/Button'
 
 export function HiddenVideosPage() {
@@ -28,6 +32,8 @@ export function HiddenVideosPage() {
   const [error, setError] = useState<string | null>(null)
   const [pinOpen, setPinOpen] = useState(true)
   const [accessGranted, setAccessGranted] = useState(false)
+  const [unblockAllOpen, setUnblockAllOpen] = useState(false)
+  const [unblockAllBusy, setUnblockAllBusy] = useState(false)
   const verifiedPinRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -118,6 +124,41 @@ export function HiddenVideosPage() {
     }
   }, [accessGranted, navigate])
 
+  const handleUnblockAllConfirm = useCallback(async () => {
+    const pin = verifiedPinRef.current
+    if (!pin) {
+      lockAccess()
+      return
+    }
+
+    setUnblockAllBusy(true)
+    try {
+      let result: { deleted: number; error: Error | null }
+      if (localParent.isActive && localParent.localAccessToken) {
+        result = await clearAllHiddenVideosLocalParent(localParent.localAccessToken, pin)
+      } else if (deviceId) {
+        result = await clearAllHiddenVideosAuthenticated(deviceId, pin)
+      } else {
+        toast.error('לא נבחר מכשיר')
+        return
+      }
+
+      if (result.error) {
+        toast.error(result.error.message)
+        if (result.error.message.includes('קוד הורה')) lockAccess()
+        return
+      }
+
+      setItems([])
+      setUnblockAllOpen(false)
+      toast.success(
+        result.deleted > 0 ? `שוחררו ${result.deleted} סרטונים` : 'כל החסימות שוחררו'
+      )
+    } finally {
+      setUnblockAllBusy(false)
+    }
+  }, [deviceId, localParent.isActive, localParent.localAccessToken, lockAccess])
+
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
 
   return (
@@ -188,7 +229,21 @@ export function HiddenVideosPage() {
               </Link>
             </div>
           ) : (
-            <ul className="space-y-3">
+            <>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-slate-600 dark:text-zinc-400">
+                  {items.length} סרטונים חסומים
+                </p>
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={() => setUnblockAllOpen(true)}
+                  disabled={unblockAllBusy}
+                >
+                  שחרור הכל
+                </Button>
+              </div>
+              <ul className="space-y-3">
               {items.map((v) => (
                 <li
                   key={v.youtube_video_id}
@@ -236,6 +291,7 @@ export function HiddenVideosPage() {
                 </li>
               ))}
             </ul>
+            </>
           )}
 
           <Button
@@ -252,6 +308,36 @@ export function HiddenVideosPage() {
           </Button>
         </>
       )}
+
+      <Modal
+        open={unblockAllOpen}
+        onClose={() => !unblockAllBusy && setUnblockAllOpen(false)}
+        title="שחרור כל החסימות"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setUnblockAllOpen(false)}
+              disabled={unblockAllBusy}
+            >
+              ביטול
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => void handleUnblockAllConfirm()}
+              disabled={unblockAllBusy}
+            >
+              {unblockAllBusy ? 'משחרר…' : 'אישור'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+          האם אתה בטוח שברצונך לשחרר את כל החסימות?
+        </p>
+      </Modal>
 
       <ParentalPinModal
         open={pinOpen}

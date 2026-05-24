@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { PictureInPicture2, Repeat, SkipForward } from 'lucide-react'
+import { PictureInPicture2, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
 import Hls from 'hls.js'
 import { setMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
 import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
+import { toast } from 'sonner'
+import { useWatchTheaterMode } from '../../hooks/useWatchTheaterMode'
 import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
 import {
   fetchStreamInfo,
@@ -33,19 +35,38 @@ export type CleanPlayerProps = {
   queueControls?: boolean
 }
 
-function KidPlayerQueueControls({
+const END_OF_PLAYLIST_TOAST = 'הגעת לסוף הפלייליסט'
+
+function useNextVideoHandler(onNextTrack?: () => void, hasNextTrack = true) {
+  return useCallback(() => {
+    if (!onNextTrack) return
+    if (hasNextTrack) {
+      onNextTrack()
+      return
+    }
+    toast.message(END_OF_PLAYLIST_TOAST, { duration: 2800 })
+  }, [onNextTrack, hasNextTrack])
+}
+
+function PlayerControlBar({
   loopEnabled,
   onLoopToggle,
   onNext,
   hasNext,
+  showQueueControls,
   className,
 }: {
   loopEnabled: boolean
   onLoopToggle: () => void
   onNext: () => void
   hasNext: boolean
+  showQueueControls: boolean
   className?: string
 }) {
+  const theater = useWatchTheaterMode()
+
+  if (!showQueueControls && !theater) return null
+
   return (
     <div
       className={cn(
@@ -56,35 +77,56 @@ function KidPlayerQueueControls({
       role="toolbar"
       aria-label="בקרת ניגון"
     >
-      <button
-        type="button"
-        onClick={onLoopToggle}
-        aria-pressed={loopEnabled}
-        className={cn(
-          'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
-          loopEnabled
-            ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
-            : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
-        )}
-        title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
-      >
-        <Repeat className="h-5 w-5 shrink-0" aria-hidden />
-        <span className="text-sm font-bold">נגן שוב ושוב</span>
-      </button>
-      <button
-        type="button"
-        onClick={onNext}
-        disabled={!hasNext}
-        className={cn(
-          'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 border-white/25 bg-white/10 px-3 text-sm font-bold text-zinc-100 transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
-          hasNext ? 'hover:bg-white/15' : 'cursor-not-allowed opacity-40'
-        )}
-        title="שיר הבא"
-        aria-label="שיר הבא"
-      >
-        <SkipForward className="h-5 w-5 shrink-0" aria-hidden />
-        <span className="text-sm font-bold">שיר הבא</span>
-      </button>
+      {theater ? (
+        <button
+          type="button"
+          onClick={theater.toggleTheaterMode}
+          aria-pressed={theater.theaterMode}
+          aria-label={theater.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+          className={cn(
+            'hidden min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 lg:flex',
+            theater.theaterMode
+              ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
+              : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
+          )}
+          title={theater.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+        >
+          <RectangleHorizontal className="h-5 w-5 shrink-0" aria-hidden />
+          <span className="text-sm font-bold">תיאטרון</span>
+        </button>
+      ) : null}
+      {showQueueControls ? (
+        <>
+          <button
+            type="button"
+            onClick={onLoopToggle}
+            aria-pressed={loopEnabled}
+            className={cn(
+              'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
+              loopEnabled
+                ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
+                : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
+            )}
+            title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
+          >
+            <Repeat className="h-5 w-5 shrink-0" aria-hidden />
+            <span className="text-sm font-bold">נגן שוב ושוב</span>
+          </button>
+          <button
+            type="button"
+            onClick={onNext}
+            className={cn(
+              'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 border-white/25 bg-white/10 px-3 text-sm font-bold text-zinc-100 transition hover:bg-white/15 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
+              !hasNext && 'opacity-85'
+            )}
+            title="הסרטון הבא"
+            aria-label="הסרטון הבא"
+          >
+            <SkipForward className="h-5 w-5 shrink-0" aria-hidden />
+            <span className="text-sm font-bold">הסרטון הבא</span>
+          </button>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -148,7 +190,10 @@ function CleanPlayerYoutubeIframe({
   queueControls,
 }: CleanPlayerProps) {
   const [loopEnabled, setLoopEnabled] = useState(false)
-  const showQueueBar = queueControls ?? Boolean(onNextTrack)
+  const theater = useWatchTheaterMode()
+  const showQueueControls = queueControls ?? Boolean(onNextTrack)
+  const showControlBar = showQueueControls || Boolean(theater)
+  const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
   const src = useMemo(() => {
@@ -211,12 +256,13 @@ function CleanPlayerYoutubeIframe({
       )}
       <span className="sr-only">{title}</span>
       </div>
-      {showQueueBar ? (
-        <KidPlayerQueueControls
+      {showControlBar ? (
+        <PlayerControlBar
           loopEnabled={loopEnabled}
           onLoopToggle={() => setLoopEnabled((v) => !v)}
-          onNext={() => onNextTrack?.()}
+          onNext={handleNextVideo}
           hasNext={hasNextTrack}
+          showQueueControls={showQueueControls}
         />
       ) : null}
     </div>
@@ -240,6 +286,8 @@ function CleanPlayerMediaBridge({
   const hlsJsActiveRef = useRef(false)
   const wasPlayingBeforeHiddenRef = useRef(false)
   const onNextTrackRef = useRef(onNextTrack)
+  const hasNextTrackRef = useRef(hasNextTrack)
+  const handleNextVideoRef = useRef<() => void>(() => {})
   const [phase, setPhase] = useState<PlayerPhase>({ kind: 'resolving' })
   const [retryNonce, setRetryNonce] = useState(0)
   const [bridgeWaking, setBridgeWaking] = useState(false)
@@ -247,11 +295,22 @@ function CleanPlayerMediaBridge({
   const [pipSupported, setPipSupported] = useState(false)
   const [loopEnabled, setLoopEnabled] = useState(false)
   const errId = useId()
-  const showQueueBar = queueControls ?? Boolean(onNextTrack)
+  const theater = useWatchTheaterMode()
+  const showQueueControls = queueControls ?? Boolean(onNextTrack)
+  const showControlBar = showQueueControls || Boolean(theater)
+  const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
 
   useEffect(() => {
     onNextTrackRef.current = onNextTrack
   }, [onNextTrack])
+
+  useEffect(() => {
+    hasNextTrackRef.current = hasNextTrack
+  }, [hasNextTrack])
+
+  useEffect(() => {
+    handleNextVideoRef.current = handleNextVideo
+  }, [handleNextVideo])
 
   useEffect(() => {
     setLoopEnabled(false)
@@ -493,7 +552,7 @@ function CleanPlayerMediaBridge({
         el.pause()
       })
       ms.setActionHandler('previoustrack', onPreviousTrack ?? null)
-      ms.setActionHandler('nexttrack', onNextTrack ?? null)
+      ms.setActionHandler('nexttrack', () => handleNextVideoRef.current())
     } catch {
       /* older WebKit */
     }
@@ -619,7 +678,9 @@ function CleanPlayerMediaBridge({
         void el.play().catch(() => {})
         return
       }
-      onNextTrackRef.current?.()
+      if (hasNextTrackRef.current) {
+        onNextTrackRef.current?.()
+      }
     }
 
     el.addEventListener('ended', onQueueEnded)
@@ -677,10 +738,6 @@ function CleanPlayerMediaBridge({
   }, [pipSupported])
 
   const showOverlay = phase.kind !== 'playing'
-
-  const handleNextClick = useCallback(() => {
-    onNextTrack?.()
-  }, [onNextTrack])
 
   return (
     <div
@@ -758,12 +815,13 @@ function CleanPlayerMediaBridge({
       />
       <span className="sr-only">{title}</span>
       </div>
-      {showQueueBar ? (
-        <KidPlayerQueueControls
+      {showControlBar ? (
+        <PlayerControlBar
           loopEnabled={loopEnabled}
           onLoopToggle={() => setLoopEnabled((v) => !v)}
-          onNext={handleNextClick}
+          onNext={handleNextVideo}
           hasNext={hasNextTrack}
+          showQueueControls={showQueueControls}
         />
       ) : null}
     </div>

@@ -20,7 +20,9 @@ import { Skeleton } from '../ui/Skeleton'
 import { Modal } from '../ui/Modal'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
+import { QuickBlockButton } from './QuickBlockButton'
 import { HideVideoButton } from './HideVideoButton'
+import { useHideVideoContext } from '../../hooks/useHideVideoContext'
 import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
@@ -39,6 +41,7 @@ export function ChannelManager() {
   const { user, profile } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
   const localParent = useLocalParentManagement()
+  const hideVideoCtx = useHideVideoContext()
   const localParentPinForRpcRef = useRef<string | null>(null)
   const getLocalParentPin = useCallback(() => localParentPinForRpcRef.current, [])
   const { devices, loading: devLoading } = useDevices(ownerUserId)
@@ -316,6 +319,10 @@ export function ChannelManager() {
     }
   }, [visiblePreviewVideos, activePreviewVideoId])
 
+  const previewActiveIndex = visiblePreviewVideos.findIndex((v) => v.videoId === activePreviewVideoId)
+  const hasNextPreviewVideo =
+    previewActiveIndex >= 0 && previewActiveIndex < visiblePreviewVideos.length - 1
+
   const handleHidden = useCallback(
     (videoId: string) => {
       setHiddenVideoIds((prev) => {
@@ -419,7 +426,7 @@ export function ChannelManager() {
                   className="mt-2"
                   main={
                     <>
-                      <div className="relative w-full overflow-hidden rounded-xl bg-black pt-[56.25%]">
+                        <div className="relative w-full overflow-hidden rounded-xl bg-black pt-[56.25%] transition-all duration-500 ease-in-out">
                         <div className="absolute inset-0 min-h-0">
                           <CleanPlayer
                             key={activePreviewVideo.videoId}
@@ -429,6 +436,7 @@ export function ChannelManager() {
                             posterUrl={activePreviewVideo.thumbnail}
                             onPreviousTrack={goPrevManagerPreview}
                             onNextTrack={goNextManagerPreview}
+                            hasNextTrack={hasNextPreviewVideo}
                             className="h-full w-full"
                           />
                         </div>
@@ -510,6 +518,24 @@ export function ChannelManager() {
                                 active={isCurrent}
                                 playingLabel="מנגן"
                                 onClick={() => handlePickPreviewVideo(v.videoId)}
+                                thumbnailAction={
+                                  hideVideoCtx.canQuickBlock ? (
+                                    <QuickBlockButton
+                                      video={{
+                                        youtube_video_id: v.videoId,
+                                        title: v.title,
+                                        thumbnail_url: v.thumbnail,
+                                        youtube_channel_id: previewChannel.youtube_channel_id,
+                                        channel_name: previewChannel.channel_name,
+                                      }}
+                                      deviceId={hideVideoCtx.deviceId}
+                                      localAccessToken={hideVideoCtx.localAccessToken}
+                                      cachedPin={hideVideoCtx.cachedPin}
+                                      verifyPin={hideVideoCtx.verifyPin}
+                                      onSuccess={() => handleHidden(v.videoId)}
+                                    />
+                                  ) : null
+                                }
                                 actionSlot={
                                   <div className="flex shrink-0 flex-col gap-1">
                                     {(deviceId || localParent.localAccessToken) && (

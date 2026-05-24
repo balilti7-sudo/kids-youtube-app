@@ -24,7 +24,10 @@ import {
   type ChildAllowedChannel,
   type ChildDeviceState,
 } from '../lib/childDevice'
-import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
+import { isLocalParentSessionValid, readLocalParentSession, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
+import { verifyParentManagementPin } from '../lib/verifyParentManagementPin'
+import { QuickBlockButton } from '../components/channels/QuickBlockButton'
+import type { ParentQuickBlockConfig } from '../components/kid/KidPlaylistView'
 import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
 import { requestPairingReminderEmail } from '../lib/requestPairingReminderEmail'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
@@ -140,6 +143,25 @@ export function KidModePage() {
     () => filterVideosByTitle(channelVideos, videoSearch),
     [channelVideos, videoSearch]
   )
+
+  const parentQuickBlock = useMemo((): ParentQuickBlockConfig | null => {
+    if (!parentModeUnlocked || !accessToken) return null
+    const session = isLocalParentSessionValid() ? readLocalParentSession() : null
+    return {
+      enabled: true,
+      localAccessToken: accessToken,
+      cachedPin: session?.pin ?? null,
+      verifyPin: (pin: string) =>
+        verifyParentManagementPin(
+          {
+            userId: undefined,
+            profile: null,
+            localParent: { isActive: true, pin: session?.pin ?? null },
+          },
+          pin
+        ),
+    }
+  }, [parentModeUnlocked, accessToken])
 
   const activeVideo = useMemo(() => {
     if (!activeVideoId) return null
@@ -853,21 +875,19 @@ export function KidModePage() {
   return (
     <div className="min-h-dvh bg-yt-bg text-yt-text">
       <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 pb-[env(safe-area-inset-top)] backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1920px] items-center justify-between gap-2 px-2 py-2 sm:px-3 sm:py-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <SafeTubeBrandMark to="/kid" size="compact" />
-            <div className="min-w-0 flex-1 text-right">
-              <p className="truncate text-sm font-bold text-yt-text">
-                {kidSurface === 'parent'
-                  ? 'אזור הורים'
-                  : kidWatchTab === 'playlist'
-                    ? 'הפלייליסטים שלי'
-                    : device.device_name}
-              </p>
-              <p className="text-[11px] text-yt-textMuted">{KID_APP_DISPLAY_NAME}</p>
-            </div>
+        <div className="mx-auto grid max-w-[1920px] grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-2 sm:px-3 sm:py-2">
+          <div className="min-w-0 text-right">
+            <p className="truncate text-sm font-bold text-yt-text">
+              {kidSurface === 'parent'
+                ? 'אזור הורים'
+                : kidWatchTab === 'playlist'
+                  ? 'הפלייליסטים שלי'
+                  : device.device_name}
+            </p>
+            <p className="text-[11px] text-yt-textMuted">{KID_APP_DISPLAY_NAME}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <SafeTubeBrandMark to="/kid" size="compact" />
+          <div className="flex items-center justify-end gap-1.5">
             <ThemeToggle compact />
             <div
               className="flex shrink-0 items-center gap-0.5 rounded-full border border-yt-border bg-yt-input p-0.5"
@@ -1017,7 +1037,9 @@ export function KidModePage() {
         <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-0 lg:grid lg:min-h-0 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] lg:items-start">
           {kidWatchTab === 'playlist' ? (
             <div className="min-w-0 flex-1 lg:col-span-2">
-              {accessToken ? <KidPlaylistView childAccessToken={accessToken} /> : null}
+              {accessToken ? (
+                <KidPlaylistView childAccessToken={accessToken} parentQuickBlock={parentQuickBlock} />
+              ) : null}
             </div>
           ) : channels.length === 0 ? (
             <div className="px-3 py-4 sm:px-4 lg:col-span-2">
@@ -1164,7 +1186,7 @@ export function KidModePage() {
                       </div>
                     ) : activeVideo ? (
                       <>
-                        <div className="relative w-full overflow-hidden rounded-none bg-black shadow-[0_0_0_1px_rgba(0,0,0,0.08)] sm:rounded-xl">
+                        <div className="relative w-full overflow-hidden rounded-none bg-black shadow-[0_0_0_1px_rgba(0,0,0,0.08)] transition-all duration-500 ease-in-out sm:rounded-xl">
                           <div className="relative pt-[56.25%]">
                             <div className="absolute inset-0 min-h-0">
                               <CleanPlayer
@@ -1261,6 +1283,30 @@ export function KidModePage() {
                                     active={isCurrent}
                                     playingLabel="מנגן"
                                     onClick={() => handleSelectVideo(video.videoId)}
+                                    thumbnailAction={
+                                      parentQuickBlock ? (
+                                        <QuickBlockButton
+                                          video={{
+                                            youtube_video_id: video.videoId,
+                                            title: video.title,
+                                            thumbnail_url: video.thumbnail || null,
+                                            youtube_channel_id: activeChannelId,
+                                            channel_name: activeChannel?.channel_name ?? null,
+                                          }}
+                                          localAccessToken={parentQuickBlock.localAccessToken}
+                                          cachedPin={parentQuickBlock.cachedPin}
+                                          verifyPin={parentQuickBlock.verifyPin}
+                                          onSuccess={() => {
+                                            setChannelVideos((prev) =>
+                                              prev.filter((v) => v.videoId !== video.videoId)
+                                            )
+                                            if (activeVideoId === video.videoId) {
+                                              setActiveVideoId(null)
+                                            }
+                                          }}
+                                        />
+                                      ) : null
+                                    }
                                     actionSlot={
                                       accessToken ? (
                                         <AddToPlaylistButton

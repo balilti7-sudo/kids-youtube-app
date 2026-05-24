@@ -10,6 +10,9 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
+import { QuickBlockButton } from '../components/channels/QuickBlockButton'
+import { VideoThumbWithQuickBlock } from '../components/video/VideoThumbWithQuickBlock'
+import { useHideVideoContext } from '../hooks/useHideVideoContext'
 import { cn } from '../lib/utils'
 import { toast } from 'sonner'
 
@@ -30,6 +33,7 @@ export function PlaylistsPage() {
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
   const loadRequestRef = useRef(0)
+  const hideVideoCtx = useHideVideoContext()
 
   const selected = playlists.find((p) => p.id === selectedId) ?? null
 
@@ -238,9 +242,7 @@ export function PlaylistsPage() {
                 <ul className="max-h-64 space-y-2 overflow-y-auto">
                   {videos.map((v) => (
                     <li key={v.youtube_video_id}>
-                      <button
-                        type="button"
-                        onClick={() => setActiveVideoId(v.youtube_video_id)}
+                      <div
                         className={cn(
                           'flex w-full gap-2 rounded-lg p-2 text-right',
                           v.youtube_video_id === activeVideoId
@@ -248,11 +250,36 @@ export function PlaylistsPage() {
                             : 'hover:bg-slate-50 dark:hover:bg-zinc-800/60'
                         )}
                       >
-                        {v.thumbnail_url ? (
-                          <img src={v.thumbnail_url} alt="" className="h-12 w-20 shrink-0 rounded object-cover" />
-                        ) : null}
-                        <span className="line-clamp-2 text-xs font-medium">{v.title}</span>
-                      </button>
+                        <VideoThumbWithQuickBlock
+                          thumbnailUrl={v.thumbnail_url}
+                          className="h-12 w-20 rounded"
+                          onClick={() => setActiveVideoId(v.youtube_video_id)}
+                          quickBlock={
+                            hideVideoCtx.canQuickBlock ? (
+                              <QuickBlockButton
+                                video={{
+                                  youtube_video_id: v.youtube_video_id,
+                                  title: v.title,
+                                  thumbnail_url: v.thumbnail_url,
+                                  youtube_channel_id: v.youtube_channel_id,
+                                  channel_name: v.channel_name,
+                                }}
+                                deviceId={hideVideoCtx.deviceId}
+                                localAccessToken={hideVideoCtx.localAccessToken}
+                                cachedPin={hideVideoCtx.cachedPin}
+                                verifyPin={hideVideoCtx.verifyPin}
+                              />
+                            ) : null
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setActiveVideoId(v.youtube_video_id)}
+                          className="min-w-0 flex-1 text-right"
+                        >
+                          <span className="line-clamp-2 text-xs font-medium">{v.title}</span>
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

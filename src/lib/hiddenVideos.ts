@@ -158,3 +158,37 @@ export async function setVideoHiddenLocalParent(
   if (msg.includes('INVALID_PARENT_PIN')) return { error: new Error('קוד הורה שגוי') }
   return { error: new Error(msg) }
 }
+
+/** Authenticated parent: remove all hidden videos for a device — requires parent PIN */
+export async function clearAllHiddenVideosAuthenticated(
+  deviceId: string,
+  pin: string
+): Promise<{ deleted: number; error: Error | null }> {
+  const { data, error } = await supabase.rpc('parent_clear_all_hidden_videos', {
+    p_device_id: deviceId,
+    p_pin: pin,
+  })
+  if (error) {
+    const msg = error.message
+    if (msg.includes('INVALID_PARENT_PIN')) return { deleted: 0, error: new Error('קוד הורה שגוי') }
+    return { deleted: 0, error: new Error(msg) }
+  }
+  return { deleted: typeof data === 'number' ? data : 0, error: null }
+}
+
+/** Local-parent device: remove all hidden videos — requires parent PIN */
+export async function clearAllHiddenVideosLocalParent(
+  accessToken: string,
+  pin: string
+): Promise<{ deleted: number; error: Error | null }> {
+  const { data, error } = await supabase.rpc('local_parent_clear_all_hidden_videos', {
+    p_access_token: accessToken,
+    p_pin: pin,
+  })
+  if (error) {
+    const msg = error.message
+    if (msg.includes('INVALID_PARENT_PIN')) return { deleted: 0, error: new Error('קוד הורה שגוי') }
+    return { deleted: 0, error: new Error(msg) }
+  }
+  return { deleted: typeof data === 'number' ? data : 0, error: null }
+}
