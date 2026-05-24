@@ -1,6 +1,7 @@
 import { useDeviceStore } from '../../stores/deviceStore'
 import { StatsGrid } from './StatsGrid'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
+import { ParentSingleVideoSearchSection } from './ParentSingleVideoSearchSection'
 
 export function ParentDashboard() {
   const devices = useDeviceStore((s) => s.devices)
@@ -13,6 +14,7 @@ export function ParentDashboard() {
       </header>
 
       <StatsGrid devices={devices} />
+      <ParentSingleVideoSearchSection />
       <DashboardDevicesSection />
     </div>
   )
