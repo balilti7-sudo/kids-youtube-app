@@ -5,6 +5,8 @@ import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
 import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
 import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
+import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
+import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList'
 import { KidPlaylistView } from '../components/kid/KidPlaylistView'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
 import { Input } from '../components/ui/Input'
@@ -1186,11 +1188,10 @@ export function KidModePage() {
                       </div>
                     ) : activeVideo ? (
                       <>
-                        <div className="relative w-full overflow-hidden rounded-none bg-black shadow-[0_0_0_1px_rgba(0,0,0,0.08)] transition-all duration-500 ease-in-out sm:rounded-xl">
+                        <div className="relative w-full overflow-hidden rounded-none bg-black lg:rounded-none">
                           <div className="relative pt-[56.25%]">
                             <div className="absolute inset-0 min-h-0">
                               <CleanPlayer
-                                key={activeVideo.videoId}
                                 videoId={activeVideo.videoId}
                                 title={activeVideo.title}
                                 channelTitle={activeChannel?.channel_name}
@@ -1203,26 +1204,27 @@ export function KidModePage() {
                             </div>
                           </div>
                         </div>
-                        <div className="mt-2 flex flex-col gap-2 px-0 sm:px-1">
-                          <h2 className="text-base font-bold leading-snug text-yt-text sm:text-lg">
-                            {activeVideo.title}
-                          </h2>
-                          <p className="text-sm text-slate-500 dark:text-zinc-500">מאושר — SafeTube</p>
-                          {accessToken ? (
-                            <AddToPlaylistButton
-                              mode="kid"
-                              userId={null}
-                              childAccessToken={accessToken}
-                              video={{
-                                youtube_video_id: activeVideo.videoId,
-                                title: activeVideo.title,
-                                thumbnail_url: activeVideo.thumbnail || null,
-                                youtube_channel_id: activeChannelId,
-                                channel_name: activeChannel?.channel_name ?? null,
-                              }}
-                            />
-                          ) : null}
-                        </div>
+                        <YoutubeWatchVideoDetails
+                          title={activeVideo.title}
+                          channelName={activeChannel?.channel_name ?? null}
+                          subtitle="מאושר — SafeTube"
+                          actions={
+                            accessToken ? (
+                              <AddToPlaylistButton
+                                mode="kid"
+                                userId={null}
+                                childAccessToken={accessToken}
+                                video={{
+                                  youtube_video_id: activeVideo.videoId,
+                                  title: activeVideo.title,
+                                  thumbnail_url: activeVideo.thumbnail || null,
+                                  youtube_channel_id: activeChannelId,
+                                  channel_name: activeChannel?.channel_name ?? null,
+                                }}
+                              />
+                            ) : null
+                          }
+                        />
                       </>
                     ) : channelVideos.length > 0 && videoSearch.trim() ? (
                       <div className="flex min-h-[min(50vh,320px)] flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-brand-200 bg-gradient-to-b from-white to-slate-50/90 px-5 py-10 text-center dark:border-brand-900/50 dark:from-zinc-900/80 dark:to-zinc-950/90">
@@ -1265,11 +1267,7 @@ export function KidModePage() {
                         channelLabel={activeChannel?.channel_name ?? null}
                         className="mb-3 hidden lg:block"
                       />
-                      <div className="mb-2 flex items-center gap-2">
-                        <Play className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" fill="currentColor" aria-hidden />
-                        <p className="text-sm font-bold text-slate-800 dark:text-zinc-200">הסרטונים של הערוץ</p>
-                      </div>
-                      <ul className="no-scrollbar flex flex-col gap-1">
+                      <YoutubeSuggestedList title="סרטונים מומלצים">
                         {filteredVideos.length > 0
                           ? filteredVideos.map((video) => {
                               const isCurrent = video.videoId === activeVideoId
@@ -1329,7 +1327,7 @@ export function KidModePage() {
                               )
                             })
                           : null}
-                      </ul>
+                      </YoutubeSuggestedList>
                       {!channelLoading && filteredVideos.length === 0 ? (
                         <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300/90 bg-white/40 px-3 py-6 text-center dark:border-zinc-600 dark:bg-zinc-900/40">
                           <p className="text-sm font-semibold leading-snug text-slate-700 dark:text-zinc-300">

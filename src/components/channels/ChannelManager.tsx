@@ -26,6 +26,8 @@ import { useHideVideoContext } from '../../hooks/useHideVideoContext'
 import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
+import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
+import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
 
@@ -426,71 +428,74 @@ export function ChannelManager() {
                   className="mt-2"
                   main={
                     <>
-                        <div className="relative w-full overflow-hidden rounded-xl bg-black pt-[56.25%] transition-all duration-500 ease-in-out">
-                        <div className="absolute inset-0 min-h-0">
-                          <CleanPlayer
-                            key={activePreviewVideo.videoId}
-                            videoId={activePreviewVideo.videoId}
-                            title={activePreviewVideo.title}
-                            channelTitle={previewChannel.channel_name}
-                            posterUrl={activePreviewVideo.thumbnail}
-                            onPreviousTrack={goPrevManagerPreview}
-                            onNextTrack={goNextManagerPreview}
-                            hasNextTrack={hasNextPreviewVideo}
-                            className="h-full w-full"
-                          />
+                      <div className="relative w-full overflow-hidden rounded-none bg-black lg:rounded-none">
+                        <div className="relative pt-[56.25%]">
+                          <div className="absolute inset-0 min-h-0">
+                            <CleanPlayer
+                              videoId={activePreviewVideo.videoId}
+                              title={activePreviewVideo.title}
+                              channelTitle={previewChannel.channel_name}
+                              posterUrl={activePreviewVideo.thumbnail}
+                              onPreviousTrack={goPrevManagerPreview}
+                              onNextTrack={goNextManagerPreview}
+                              hasNextTrack={hasNextPreviewVideo}
+                              className="h-full w-full"
+                            />
+                          </div>
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-col gap-2">
-                        <h3 className="text-base font-bold leading-snug text-yt-text sm:text-lg">
-                          {activePreviewVideo.title}
-                        </h3>
-                        <p className="text-sm text-yt-textMuted">{previewChannel.channel_name}</p>
-                        {hiddenVideoIds.size > 0 ? (
-                          <p className="text-xs">
-                            <Link
-                              to="/hidden-videos"
-                              className="font-semibold text-amber-400 underline"
-                            >
-                              {hiddenVideoIds.size} סרטונים חסומים — ניהול והחזרה
-                            </Link>
-                          </p>
-                        ) : null}
-                        <div className="flex flex-wrap gap-2">
-                          {(deviceId || localParent.localAccessToken) && (
-                            <HideVideoButton
-                              deviceId={deviceId}
-                              localAccessToken={localParent.localAccessToken}
-                              verifyPin={verifyChannelParentPin}
-                              action="hide"
-                              compact
-                              video={{
-                                youtube_video_id: activePreviewVideo.videoId,
-                                title: activePreviewVideo.title,
-                                thumbnail_url: activePreviewVideo.thumbnail,
-                                youtube_channel_id: previewChannel.youtube_channel_id,
-                                channel_name: previewChannel.channel_name,
-                              }}
-                              onSuccess={() => handleHidden(activePreviewVideo.videoId)}
-                            />
-                          )}
-                          {user?.id || localParent.localAccessToken ? (
-                            <AddToPlaylistButton
-                              mode={user?.id ? 'parent' : 'kid'}
-                              userId={user?.id ? (ownerUserId ?? user.id) : null}
-                              childAccessToken={user?.id ? null : localParent.localAccessToken}
-                              compact
-                              video={{
-                                youtube_video_id: activePreviewVideo.videoId,
-                                title: activePreviewVideo.title,
-                                thumbnail_url: activePreviewVideo.thumbnail,
-                                youtube_channel_id: previewChannel.youtube_channel_id,
-                                channel_name: previewChannel.channel_name,
-                              }}
-                            />
-                          ) : null}
-                        </div>
-                      </div>
+                      <YoutubeWatchVideoDetails
+                        title={activePreviewVideo.title}
+                        channelName={previewChannel.channel_name}
+                        actions={
+                          <>
+                            {hiddenVideoIds.size > 0 ? (
+                              <p className="w-full text-xs">
+                                <Link
+                                  to="/hidden-videos"
+                                  className="font-semibold text-amber-400 underline"
+                                >
+                                  {hiddenVideoIds.size} סרטונים חסומים — ניהול והחזרה
+                                </Link>
+                              </p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-2">
+                              {(deviceId || localParent.localAccessToken) && (
+                                <HideVideoButton
+                                  deviceId={deviceId}
+                                  localAccessToken={localParent.localAccessToken}
+                                  verifyPin={verifyChannelParentPin}
+                                  action="hide"
+                                  compact
+                                  video={{
+                                    youtube_video_id: activePreviewVideo.videoId,
+                                    title: activePreviewVideo.title,
+                                    thumbnail_url: activePreviewVideo.thumbnail,
+                                    youtube_channel_id: previewChannel.youtube_channel_id,
+                                    channel_name: previewChannel.channel_name,
+                                  }}
+                                  onSuccess={() => handleHidden(activePreviewVideo.videoId)}
+                                />
+                              )}
+                              {user?.id || localParent.localAccessToken ? (
+                                <AddToPlaylistButton
+                                  mode={user?.id ? 'parent' : 'kid'}
+                                  userId={user?.id ? (ownerUserId ?? user.id) : null}
+                                  childAccessToken={user?.id ? null : localParent.localAccessToken}
+                                  compact
+                                  video={{
+                                    youtube_video_id: activePreviewVideo.videoId,
+                                    title: activePreviewVideo.title,
+                                    thumbnail_url: activePreviewVideo.thumbnail,
+                                    youtube_channel_id: previewChannel.youtube_channel_id,
+                                    channel_name: previewChannel.channel_name,
+                                  }}
+                                />
+                              ) : null}
+                            </div>
+                          </>
+                        }
+                      />
                     </>
                   }
                   sidebar={
@@ -504,8 +509,7 @@ export function ChannelManager() {
                         channelLabel={previewChannel.channel_name}
                         className="mb-3"
                       />
-                      <p className="mb-2 text-sm font-bold text-yt-text">הסרטונים של הערוץ</p>
-                      <ul className="flex flex-col gap-1">
+                      <YoutubeSuggestedList title="סרטונים מומלצים">
                         {visiblePreviewVideos.map((v) => {
                           const isCurrent = v.videoId === activePreviewVideoId
                           return (
@@ -576,7 +580,7 @@ export function ChannelManager() {
                             </li>
                           )
                         })}
-                      </ul>
+                      </YoutubeSuggestedList>
                       {visiblePreviewVideos.length === 0 ? (
                         <p className="py-6 text-center text-sm text-yt-textMuted">
                           {previewVideoSearch.trim()

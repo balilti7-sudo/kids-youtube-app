@@ -28,12 +28,12 @@ function ThumbnailOverlays({
   return (
     <>
       {thumbnailAction ? (
-        <div className="pointer-events-auto absolute top-1.5 start-1.5 z-10 opacity-100 transition duration-200 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+        <div className="pointer-events-auto absolute top-1 start-1 z-10 opacity-100 transition duration-200 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
           {thumbnailAction}
         </div>
       ) : null}
       {active ? (
-        <span className="pointer-events-none absolute bottom-1 end-1 rounded-md bg-yt-red px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+        <span className="pointer-events-none absolute bottom-1 end-1 rounded-[2px] bg-yt-red px-1 py-0.5 text-[10px] font-bold leading-none text-white">
           {playingLabel}
         </span>
       ) : null}
@@ -41,6 +41,9 @@ function ThumbnailOverlays({
     </>
   )
 }
+
+const ROW_THUMB_CLASS =
+  'relative h-[94px] w-[168px] shrink-0 overflow-hidden rounded-[4px] bg-yt-surfaceHover'
 
 /**
  * Native YouTube-style video card — grid feed or compact sidebar row.
@@ -59,13 +62,17 @@ export function YoutubeVideoCard({
   className,
 }: YoutubeVideoCardProps) {
   const titleEl = (
-    <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-yt-text">{title}</h3>
+    <h3 className="line-clamp-2 text-sm font-bold leading-[1.35] text-yt-text">{title}</h3>
   )
 
   const metaEl = (
     <>
-      {channelName ? <p className="mt-1 truncate text-xs text-yt-textMuted">{channelName}</p> : null}
-      {metadata ? <p className="mt-0.5 truncate text-xs text-yt-textMuted">{metadata}</p> : null}
+      {channelName ? (
+        <p className="mt-1 line-clamp-1 text-xs text-yt-textMuted">{channelName}</p>
+      ) : null}
+      {metadata ? (
+        <p className="mt-0.5 line-clamp-1 text-xs text-yt-textMuted">{metadata}</p>
+      ) : null}
     </>
   )
 
@@ -74,7 +81,7 @@ export function YoutubeVideoCard({
       src={thumbnail}
       alt=""
       loading="lazy"
-      className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
+      className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
     />
   ) : (
     <div className="flex h-full w-full items-center justify-center text-xs font-medium text-yt-textMuted">
@@ -86,24 +93,26 @@ export function YoutubeVideoCard({
     return (
       <article
         className={cn(
-          'group flex w-full items-start gap-2 rounded-lg p-1 transition',
-          active ? 'bg-yt-surface ring-1 ring-yt-border' : 'hover:bg-yt-surface/80',
+          'group flex w-full items-start gap-2 rounded-sm py-1 transition-colors duration-150',
+          active ? 'bg-yt-surface/90' : 'hover:bg-yt-surface/70',
           className
         )}
       >
-        <div className="relative h-[94px] w-[168px] max-w-[42%] shrink-0 overflow-hidden rounded-xl bg-yt-surfaceHover sm:w-[168px]">
+        <div className={ROW_THUMB_CLASS}>
           <button type="button" onClick={onClick} className="block h-full w-full">
             {thumbImage}
           </button>
           <ThumbnailOverlays active={active} playingLabel={playingLabel} thumbnailAction={thumbnailAction} />
         </div>
-        <button type="button" onClick={onClick} className="min-w-0 flex-1 py-0.5 text-right">
-          {titleEl}
-          {metaEl}
-        </button>
-        {actionSlot ? (
-          <div className="flex shrink-0 flex-col justify-center gap-1 pt-1">{actionSlot}</div>
-        ) : null}
+        <div className="flex min-w-0 flex-1 items-start gap-1">
+          <button type="button" onClick={onClick} className="min-w-0 flex-1 py-0.5 text-start">
+            {titleEl}
+            {metaEl}
+          </button>
+          {actionSlot ? (
+            <div className="flex shrink-0 flex-col justify-start gap-1 pt-0.5">{actionSlot}</div>
+          ) : null}
+        </div>
       </article>
     )
   }
@@ -116,7 +125,7 @@ export function YoutubeVideoCard({
         </button>
         <ThumbnailOverlays active={active} playingLabel={playingLabel} thumbnailAction={thumbnailAction} />
       </div>
-      <button type="button" onClick={onClick} className="mt-3 w-full text-right">
+      <button type="button" onClick={onClick} className="mt-3 w-full text-start">
         {titleEl}
         {metaEl}
       </button>

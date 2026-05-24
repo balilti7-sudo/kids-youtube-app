@@ -9,7 +9,7 @@ export type YoutubeWatchLayoutProps = {
 }
 
 /**
- * YouTube desktop watch page — RTL: main column on the right (2/3), sidebar on the left (1/3).
+ * YouTube desktop watch page — RTL: main column on the right (~2/3), sidebar on the left (~402px).
  * Theater mode stacks sidebar below the player at full container width.
  */
 export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLayoutProps) {
@@ -29,15 +29,15 @@ export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLay
       <div
         dir="rtl"
         className={cn(
-          'grid grid-cols-1 gap-6 transition-[grid-template-columns,gap] duration-500 ease-in-out',
-          theaterMode ? 'lg:grid-cols-1' : 'lg:grid-cols-3',
+          'mx-auto flex w-full max-w-[1754px] flex-col gap-4 transition-all duration-500 ease-in-out',
+          theaterMode ? 'lg:flex-col' : 'lg:flex-row lg:items-start lg:gap-4',
           className
         )}
       >
         <div
           className={cn(
             'min-w-0 transition-all duration-500 ease-in-out',
-            theaterMode ? 'lg:col-span-1' : 'lg:col-span-2'
+            theaterMode ? 'w-full' : 'w-full lg:min-w-0 lg:flex-1'
           )}
         >
           {main}
@@ -46,8 +46,8 @@ export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLay
           className={cn(
             'min-w-0 transition-all duration-500 ease-in-out',
             theaterMode
-              ? 'lg:static lg:col-span-1 lg:max-h-none lg:overflow-visible lg:border-t lg:border-yt-border lg:pt-6'
-              : 'lg:col-span-1 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:border-s lg:border-yt-border lg:pb-6 lg:ps-3'
+              ? 'w-full border-t border-yt-border pt-4 lg:static lg:max-h-none lg:overflow-visible'
+              : 'w-full lg:w-[402px] lg:shrink-0 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:ps-1 lg:pe-0'
           )}
         >
           {sidebar}
