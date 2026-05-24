@@ -15,6 +15,14 @@ interface DeviceState {
   fetchLocalParentDeviceFromToken: (accessToken: string) => Promise<void>
   fetchDevices: (userId: string) => Promise<void>
   toggleBlock: (deviceId: string, isBlocked: boolean) => Promise<{ error: Error | null }>
+  updateParentalControls: (
+    deviceId: string,
+    patch: {
+      time_limit_minutes?: number | null
+      sleep_time_start?: string | null
+      is_remote_paused?: boolean
+    }
+  ) => Promise<{ error: Error | null }>
   addDevice: (payload: {
     userId: string
     name: string
@@ -54,6 +62,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       const withCount: Device = {
         ...d,
         channel_count: typeof d.channel_count === 'number' ? d.channel_count : Number(d.channel_count ?? 0),
+        is_remote_paused: d.is_remote_paused ?? false,
+        time_limit_minutes: d.time_limit_minutes ?? null,
+        sleep_time_start: d.sleep_time_start ?? null,
       }
       set({ devices: [withCount], loading: false })
     } catch (err) {
@@ -88,7 +99,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
             .from('device_whitelist')
             .select('*', { count: 'exact', head: true })
             .eq('device_id', d.id)
-          return { ...d, channel_count: count ?? 0 }
+          return {
+            ...d,
+            channel_count: count ?? 0,
+            is_remote_paused: d.is_remote_paused ?? false,
+            time_limit_minutes: d.time_limit_minutes ?? null,
+            sleep_time_start: d.sleep_time_start ?? null,
+          }
         })
       )
       set({ devices: withCounts, loading: false })
@@ -109,6 +126,18 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     }
     set({
       devices: get().devices.map((d) => (d.id === deviceId ? { ...d, is_blocked: isBlocked } : d)),
+    })
+    return { error: null }
+  },
+
+  updateParentalControls: async (deviceId, patch) => {
+    const { error } = await supabase.from('devices').update(patch).eq('id', deviceId)
+    if (error) {
+      console.error('[deviceStore.updateParentalControls]', error)
+      return { error: new Error(formatSupabaseError(error)) }
+    }
+    set({
+      devices: get().devices.map((d) => (d.id === deviceId ? { ...d, ...patch } : d)),
     })
     return { error: null }
   },

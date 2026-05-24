@@ -33,6 +33,8 @@ export type CleanPlayerProps = {
   hasNextTrack?: boolean
   /** Kid queue bar (next + loop). Default: true when `onNextTrack` is provided. */
   queueControls?: boolean
+  /** When true, playback is paused immediately (parental screen lock). */
+  forcePaused?: boolean
 }
 
 const END_OF_PLAYLIST_TOAST = 'הגעת לסוף הפלייליסט'
@@ -188,6 +190,7 @@ function CleanPlayerYoutubeIframe({
   onNextTrack,
   hasNextTrack = true,
   queueControls,
+  forcePaused = false,
 }: CleanPlayerProps) {
   const [loopEnabled, setLoopEnabled] = useState(false)
   const theater = useWatchTheaterMode()
@@ -242,6 +245,8 @@ function CleanPlayerYoutubeIframe({
         >
           <p>מזהה סרטון YouTube לא תקין.</p>
         </div>
+      ) : forcePaused ? (
+        <div className="absolute inset-0 z-10 bg-black" aria-hidden />
       ) : (
         <iframe
           key={src}
@@ -279,6 +284,7 @@ function CleanPlayerMediaBridge({
   onPreviousTrack,
   hasNextTrack = true,
   queueControls,
+  forcePaused = false,
 }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -617,6 +623,12 @@ function CleanPlayerMediaBridge({
       }
     }
   }, [phase.kind, videoId])
+
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el || !forcePaused) return
+    el.pause()
+  }, [forcePaused, phase.kind, videoId])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return

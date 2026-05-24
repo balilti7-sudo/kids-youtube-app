@@ -1,6 +1,7 @@
 import { useDeviceStore } from '../../stores/deviceStore'
 import { StatsGrid } from './StatsGrid'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
+import { DeviceTimeControlSection } from './DeviceTimeControlSection'
 import { ParentSingleVideoSearchSection } from './ParentSingleVideoSearchSection'
 
 export function ParentDashboard() {
@@ -14,6 +15,7 @@ export function ParentDashboard() {
       </header>
 
       <StatsGrid devices={devices} />
+      <DeviceTimeControlSection />
       <ParentSingleVideoSearchSection />
       <DashboardDevicesSection />
     </div>

@@ -39,6 +39,9 @@ import { lockManagementAppShell } from '../lib/lockParentApp'
 import { setParentEntryIntent } from '../lib/parentEntryIntent'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import type { ChannelVideoItem } from '../lib/youtube'
+import { evaluateKidScreenBreak } from '../lib/kidScreenControl'
+import { KidScreenBreakOverlay } from '../components/kid/KidScreenBreakOverlay'
+import { useKidWatchTimeReporter } from '../hooks/useKidWatchTimeReporter'
 import { CleanPlayer } from '../components/player/CleanPlayer'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
@@ -110,6 +113,7 @@ export function KidModePage() {
   const qrDecodeLockRef = useRef(false)
   const channelVideosRequestRef = useRef(0)
   const [videoSearchFocused, setVideoSearchFocused] = useState(false)
+  const [clockTick, setClockTick] = useState(0)
   const parentTabLongPressRef = useRef<number | null>(null)
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
@@ -354,15 +358,57 @@ export function KidModePage() {
     void boot()
   }, [])
 
+  const pollChildDeviceState = useCallback(async (token: string) => {
+    const [hbRes, stateRes] = await Promise.all([childHeartbeat(token), getChildDeviceState(token)])
+    if (stateRes.error) throw stateRes.error
+    if (stateRes.data) {
+      setDevice(stateRes.data)
+      return
+    }
+    if (hbRes.data) {
+      setDevice((prev) => (prev ? { ...prev, ...hbRes.data, is_online: true } : prev))
+    }
+  }, [])
+
   useEffect(() => {
     if (!accessToken) return
-    const id = window.setInterval(() => {
-      void Promise.all([childHeartbeat(accessToken), loadChildData(accessToken)]).catch((e) => {
+    const pollState = () => {
+      void pollChildDeviceState(accessToken).catch((e) => {
         setError(e instanceof Error ? e.message : 'עדכון מצב נכשל')
       })
-    }, 3_000)
+    }
+    pollState()
+    const stateId = window.setInterval(pollState, 3_000)
+    const channelsId = window.setInterval(() => {
+      void loadChildData(accessToken).catch((e) => {
+        setError(e instanceof Error ? e.message : 'עדכון ערוצים נכשל')
+      })
+    }, 30_000)
+    return () => {
+      window.clearInterval(stateId)
+      window.clearInterval(channelsId)
+    }
+  }, [accessToken, pollChildDeviceState, loadChildData])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setClockTick((t) => t + 1), 60_000)
     return () => window.clearInterval(id)
-  }, [accessToken, loadChildData])
+  }, [])
+
+  const screenBreak = useMemo(() => evaluateKidScreenBreak(device), [device, clockTick])
+  const screenLocked = screenBreak != null
+
+  const handleWatchSecondsToday = useCallback((seconds: number) => {
+    setDevice((prev) => (prev ? { ...prev, watch_seconds_today: seconds } : prev))
+  }, [])
+
+  const handleLocalWatchSecond = useCallback(() => {
+    setDevice((prev) =>
+      prev ? { ...prev, watch_seconds_today: prev.watch_seconds_today + 1 } : prev
+    )
+  }, [])
+
+  useKidWatchTimeReporter(accessToken, screenLocked, handleWatchSecondsToday, handleLocalWatchSecond)
 
   useEffect(() => {
     const yt = activeChannelId
@@ -1040,7 +1086,11 @@ export function KidModePage() {
           {kidWatchTab === 'playlist' ? (
             <div className="min-w-0 flex-1 lg:col-span-2">
               {accessToken ? (
-                <KidPlaylistView childAccessToken={accessToken} parentQuickBlock={parentQuickBlock} />
+                <KidPlaylistView
+                  childAccessToken={accessToken}
+                  parentQuickBlock={parentQuickBlock}
+                  forcePaused={screenLocked}
+                />
               ) : null}
             </div>
           ) : channels.length === 0 ? (
@@ -1199,6 +1249,7 @@ export function KidModePage() {
                                 onNextTrack={handlePlayerNextTrack}
                                 onPreviousTrack={handlePlayerPreviousTrack}
                                 hasNextTrack={hasNextChannelVideo}
+                                forcePaused={screenLocked}
                                 className="h-full w-full"
                               />
                             </div>
@@ -1442,6 +1493,8 @@ export function KidModePage() {
         />
         {pinError ? <p className="mt-2 text-sm text-danger-600">{pinError}</p> : null}
       </Modal>
+
+      {screenBreak ? <KidScreenBreakOverlay reason={screenBreak} /> : null}
     </div>
   )
 }
