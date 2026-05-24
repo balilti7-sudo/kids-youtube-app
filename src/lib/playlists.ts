@@ -32,7 +32,7 @@ function mapPlaylistRow(row: Record<string, unknown>): UserPlaylist | null {
   return {
     id,
     name,
-    video_count: Number(row.video_count ?? row.video_count ?? 0) || 0,
+    video_count: Number(row.video_count ?? 0) || 0,
     updated_at: row.updated_at != null ? String(row.updated_at) : '',
   }
 }
@@ -40,10 +40,12 @@ function mapPlaylistRow(row: Record<string, unknown>): UserPlaylist | null {
 function mapVideoRow(row: Record<string, unknown>): PlaylistVideo | null {
   const id = row.youtube_video_id
   const title = row.title
-  if (typeof id !== 'string' || typeof title !== 'string') return null
+  if (typeof id !== 'string' || id.trim() === '') return null
+  const resolvedTitle =
+    typeof title === 'string' && title.trim() !== '' ? title.trim() : id
   return {
     youtube_video_id: id,
-    title,
+    title: resolvedTitle,
     thumbnail_url: row.thumbnail_url != null ? String(row.thumbnail_url) : null,
     youtube_channel_id:
       row.youtube_channel_id != null && row.youtube_channel_id !== ''

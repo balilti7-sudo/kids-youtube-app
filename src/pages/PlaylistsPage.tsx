@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ListMusic, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
@@ -17,7 +17,11 @@ export function PlaylistsPage() {
   const { user } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
   const userId = ownerUserId ?? user?.id ?? null
-  const api = usePlaylists({ mode: 'parent', userId, childAccessToken: null })
+  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh } = usePlaylists({
+    mode: 'parent',
+    userId,
+    childAccessToken: null,
+  })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [videos, setVideos] = useState<PlaylistVideo[]>([])
@@ -25,47 +29,67 @@ export function PlaylistsPage() {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+  const loadRequestRef = useRef(0)
 
-  const selected = api.playlists.find((p) => p.id === selectedId) ?? null
+  const selected = playlists.find((p) => p.id === selectedId) ?? null
 
   const loadVideos = useCallback(
     async (playlistId: string) => {
+      const requestId = ++loadRequestRef.current
       setVideosLoading(true)
-      const { data, error } = await api.fetchVideos(playlistId)
-      setVideosLoading(false)
-      if (error) {
-        toast.error(error.message)
+      try {
+        const { data, error } = await fetchVideos(playlistId)
+        if (requestId !== loadRequestRef.current) return
+        if (error) {
+          toast.error(error.message)
+          setVideos([])
+          setActiveVideoId(null)
+          return
+        }
+        setVideos(data)
+        setActiveVideoId((prev) =>
+          prev && data.some((v) => v.youtube_video_id === prev)
+            ? prev
+            : data[0]?.youtube_video_id ?? null
+        )
+      } catch (e) {
+        if (requestId !== loadRequestRef.current) return
+        toast.error(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
         setVideos([])
-        return
+        setActiveVideoId(null)
+      } finally {
+        if (requestId === loadRequestRef.current) {
+          setVideosLoading(false)
+        }
       }
-      setVideos(data)
-      setActiveVideoId((prev) =>
-        prev && data.some((v) => v.youtube_video_id === prev) ? prev : data[0]?.youtube_video_id ?? null
-      )
     },
-    [api]
+    [fetchVideos]
   )
 
   useEffect(() => {
-    if (selectedId) void loadVideos(selectedId)
-    else {
+    if (!selectedId) {
       setVideos([])
       setActiveVideoId(null)
+      setVideosLoading(false)
+      return
     }
+    setVideos([])
+    setActiveVideoId(null)
+    void loadVideos(selectedId)
   }, [selectedId, loadVideos])
 
   const handleCreate = async () => {
     const name = newName.trim()
     if (!name || !userId) return
     setCreating(true)
-    const { data, error } = await api.createPlaylist(name)
+    const { data, error } = await createPlaylist(name)
     setCreating(false)
     if (error) {
       toast.error(error.message)
       return
     }
     setNewName('')
-    await api.refresh()
+    await refresh()
     if (data?.id) setSelectedId(data.id)
   }
 
@@ -77,7 +101,7 @@ export function PlaylistsPage() {
       return
     }
     if (selectedId === pl.id) setSelectedId(null)
-    await api.refresh()
+    await refresh()
   }
 
   const active = videos.find((v) => v.youtube_video_id === activeVideoId) ?? null
@@ -127,18 +151,18 @@ export function PlaylistsPage() {
         </Button>
       </div>
 
-      {api.loading && api.playlists.length === 0 ? (
+      {playlistsLoading && playlists.length === 0 ? (
         <div className="flex justify-center py-16">
           <LoadingSpinner className="h-9 w-9 border-2 border-brand-500 border-t-transparent" />
         </div>
-      ) : api.playlists.length === 0 ? (
+      ) : playlists.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
           אין עדיין פלייליסטים. צרו אחד למעלה, או הוסיפו סרטונים מלשונית ערוצים עם כפתור ➕.
         </p>
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row">
           <ul className="flex shrink-0 flex-col gap-2 lg:w-56">
-            {api.playlists.map((pl) => (
+            {playlists.map((pl) => (
               <li key={pl.id} className="flex gap-1">
                 <button
                   type="button"

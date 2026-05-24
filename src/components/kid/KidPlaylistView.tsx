@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ListMusic, Play, Plus } from 'lucide-react'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
@@ -14,52 +14,84 @@ type Props = {
 }
 
 export function KidPlaylistView({ childAccessToken }: Props) {
-  const api = usePlaylists({ mode: 'kid', userId: null, childAccessToken })
+  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos } = usePlaylists({
+    mode: 'kid',
+    userId: null,
+    childAccessToken,
+  })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [videos, setVideos] = useState<PlaylistVideo[]>([])
   const [videosLoading, setVideosLoading] = useState(false)
+  const [videosError, setVideosError] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+  const loadRequestRef = useRef(0)
 
-  const selected = api.playlists.find((p) => p.id === selectedId) ?? null
+  const selected = playlists.find((p) => p.id === selectedId) ?? null
 
   useEffect(() => {
-    if (api.playlists.length > 0 && !selectedId) {
-      setSelectedId(api.playlists[0].id)
+    if (playlists.length > 0 && !selectedId) {
+      setSelectedId(playlists[0].id)
     }
-  }, [api.playlists, selectedId])
+  }, [playlists, selectedId])
 
   const loadVideos = useCallback(
     async (playlistId: string) => {
+      const requestId = ++loadRequestRef.current
       setVideosLoading(true)
-      const { data, error } = await api.fetchVideos(playlistId)
-      setVideosLoading(false)
-      if (error) {
+      setVideosError(null)
+      try {
+        const { data, error } = await fetchVideos(playlistId)
+        if (requestId !== loadRequestRef.current) return
+        if (error) {
+          setVideos([])
+          setActiveVideoId(null)
+          setVideosError(error.message)
+          return
+        }
+        setVideos(data)
+        setActiveVideoId((prev) =>
+          prev && data.some((v) => v.youtube_video_id === prev)
+            ? prev
+            : data[0]?.youtube_video_id ?? null
+        )
+      } catch (e) {
+        if (requestId !== loadRequestRef.current) return
         setVideos([])
-        return
+        setActiveVideoId(null)
+        setVideosError(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
+      } finally {
+        if (requestId === loadRequestRef.current) {
+          setVideosLoading(false)
+        }
       }
-      setVideos(data)
-      setActiveVideoId((prev) =>
-        prev && data.some((v) => v.youtube_video_id === prev) ? prev : data[0]?.youtube_video_id ?? null
-      )
     },
-    [api]
+    [fetchVideos]
   )
 
+  const handleSelectVideo = useCallback((videoId: string) => {
+    setActiveVideoId(videoId)
+  }, [])
+
   useEffect(() => {
-    if (selectedId) void loadVideos(selectedId)
-    else {
+    if (!selectedId) {
       setVideos([])
       setActiveVideoId(null)
+      setVideosError(null)
+      setVideosLoading(false)
+      return
     }
+    setVideos([])
+    setActiveVideoId(null)
+    void loadVideos(selectedId)
   }, [selectedId, loadVideos])
 
   const handleCreate = async () => {
     const name = newName.trim()
     if (!name) return
     setCreating(true)
-    const { data, error } = await api.createPlaylist(name)
+    const { data, error } = await createPlaylist(name)
     setCreating(false)
     if (error) return
     setNewName('')
@@ -80,7 +112,7 @@ export function KidPlaylistView({ childAccessToken }: Props) {
     setActiveVideoId(videos[activeIndex - 1].youtube_video_id)
   }, [videos, activeIndex])
 
-  if (api.loading && api.playlists.length === 0) {
+  if (playlistsLoading && playlists.length === 0) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center gap-3 px-4">
         <LoadingSpinner className="h-9 w-9 border-2 border-brand-500 border-t-transparent" />
@@ -89,7 +121,7 @@ export function KidPlaylistView({ childAccessToken }: Props) {
     )
   }
 
-  if (api.playlists.length === 0) {
+  if (playlists.length === 0) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 px-4 py-12 text-center">
         <ListMusic className="h-16 w-16 text-brand-500 dark:text-brand-400" aria-hidden />
@@ -121,7 +153,7 @@ export function KidPlaylistView({ childAccessToken }: Props) {
       </div>
 
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-        {api.playlists.map((pl: UserPlaylist) => (
+        {playlists.map((pl: UserPlaylist) => (
           <button
             key={pl.id}
             type="button"
@@ -156,6 +188,18 @@ export function KidPlaylistView({ childAccessToken }: Props) {
         <div className="flex min-h-[40vh] items-center justify-center gap-3">
           <LoadingSpinner className="h-9 w-9 border-2 border-brand-500 border-t-transparent" />
           <span className="font-semibold text-slate-700 dark:text-zinc-200">טוען סרטונים…</span>
+        </div>
+      ) : videosError && videos.length === 0 ? (
+        <div className="mx-auto max-w-lg px-4 py-12 text-center">
+          <p className="text-sm font-semibold text-red-600 dark:text-red-400">{videosError}</p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-4"
+            onClick={() => selectedId && void loadVideos(selectedId)}
+          >
+            נסו שוב
+          </Button>
         </div>
       ) : videos.length === 0 ? (
         <div className="mx-auto max-w-lg px-4 py-12 text-center">
@@ -231,7 +275,7 @@ export function KidPlaylistView({ childAccessToken }: Props) {
                     >
                       <button
                         type="button"
-                        onClick={() => setActiveVideoId(video.youtube_video_id)}
+                        onClick={() => handleSelectVideo(video.youtube_video_id)}
                         className="flex min-w-0 flex-1 gap-2 text-right max-lg:flex-col lg:flex-row"
                       >
                         <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-slate-200 dark:bg-zinc-800 max-lg:max-h-[76px] lg:w-32 lg:min-w-[128px]">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PlaylistVideoPayload, UserPlaylist } from '../lib/playlists'
 import {
   addVideoToPlaylist,
@@ -118,14 +118,26 @@ export function usePlaylists(opts: {
     [mode, userId, childAccessToken]
   )
 
-  return {
-    playlists,
-    loading,
-    refresh,
-    createPlaylist,
-    fetchVideos,
-    addVideo,
-    removeVideo,
-    getPlaylistIdsForVideo,
-  }
+  return useMemo(
+    () => ({
+      playlists,
+      loading,
+      refresh,
+      createPlaylist,
+      fetchVideos,
+      addVideo,
+      removeVideo,
+      getPlaylistIdsForVideo,
+    }),
+    [
+      playlists,
+      loading,
+      refresh,
+      createPlaylist,
+      fetchVideos,
+      addVideo,
+      removeVideo,
+      getPlaylistIdsForVideo,
+    ]
+  )
 }
