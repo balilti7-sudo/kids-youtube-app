@@ -21,7 +21,6 @@ import { Modal } from '../ui/Modal'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
 import { QuickBlockButton } from './QuickBlockButton'
-import { HideVideoButton } from './HideVideoButton'
 import { useHideVideoContext } from '../../hooks/useHideVideoContext'
 import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
@@ -460,13 +459,8 @@ export function ChannelManager() {
                               </p>
                             ) : null}
                             <div className="flex flex-wrap gap-2">
-                              {(deviceId || localParent.localAccessToken) && (
-                                <HideVideoButton
-                                  deviceId={deviceId}
-                                  localAccessToken={localParent.localAccessToken}
-                                  verifyPin={verifyChannelParentPin}
-                                  action="hide"
-                                  compact
+                              {hideVideoCtx.canQuickBlock ? (
+                                <QuickBlockButton
                                   video={{
                                     youtube_video_id: activePreviewVideo.videoId,
                                     title: activePreviewVideo.title,
@@ -474,9 +468,13 @@ export function ChannelManager() {
                                     youtube_channel_id: previewChannel.youtube_channel_id,
                                     channel_name: previewChannel.channel_name,
                                   }}
+                                  deviceId={hideVideoCtx.deviceId}
+                                  localAccessToken={hideVideoCtx.localAccessToken}
+                                  cachedPin={hideVideoCtx.cachedPin}
+                                  verifyPin={hideVideoCtx.verifyPin}
                                   onSuccess={() => handleHidden(activePreviewVideo.videoId)}
                                 />
-                              )}
+                              ) : null}
                               {user?.id || localParent.localAccessToken ? (
                                 <AddToPlaylistButton
                                   mode={user?.id ? 'parent' : 'kid'}
@@ -541,40 +539,21 @@ export function ChannelManager() {
                                   ) : null
                                 }
                                 actionSlot={
-                                  <div className="flex shrink-0 flex-col gap-1">
-                                    {(deviceId || localParent.localAccessToken) && (
-                                      <HideVideoButton
-                                        deviceId={deviceId}
-                                        localAccessToken={localParent.localAccessToken}
-                                        verifyPin={verifyChannelParentPin}
-                                        action="hide"
-                                        compact
-                                        video={{
-                                          youtube_video_id: v.videoId,
-                                          title: v.title,
-                                          thumbnail_url: v.thumbnail,
-                                          youtube_channel_id: previewChannel.youtube_channel_id,
-                                          channel_name: previewChannel.channel_name,
-                                        }}
-                                        onSuccess={() => handleHidden(v.videoId)}
-                                      />
-                                    )}
-                                    {user?.id || localParent.localAccessToken ? (
-                                      <AddToPlaylistButton
-                                        mode={user?.id ? 'parent' : 'kid'}
-                                        userId={user?.id ? (ownerUserId ?? user.id) : null}
-                                        childAccessToken={user?.id ? null : localParent.localAccessToken}
-                                        compact
-                                        video={{
-                                          youtube_video_id: v.videoId,
-                                          title: v.title,
-                                          thumbnail_url: v.thumbnail,
-                                          youtube_channel_id: previewChannel.youtube_channel_id,
-                                          channel_name: previewChannel.channel_name,
-                                        }}
-                                      />
-                                    ) : null}
-                                  </div>
+                                  user?.id || localParent.localAccessToken ? (
+                                    <AddToPlaylistButton
+                                      mode={user?.id ? 'parent' : 'kid'}
+                                      userId={user?.id ? (ownerUserId ?? user.id) : null}
+                                      childAccessToken={user?.id ? null : localParent.localAccessToken}
+                                      compact
+                                      video={{
+                                        youtube_video_id: v.videoId,
+                                        title: v.title,
+                                        thumbnail_url: v.thumbnail,
+                                        youtube_channel_id: previewChannel.youtube_channel_id,
+                                        channel_name: previewChannel.channel_name,
+                                      }}
+                                    />
+                                  ) : null
                                 }
                               />
                             </li>

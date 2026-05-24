@@ -30,11 +30,13 @@ export function HiddenVideosPage() {
   const [items, setItems] = useState<HiddenVideoRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pinOpen, setPinOpen] = useState(true)
+  const [pinOpen, setPinOpen] = useState(false)
   const [accessGranted, setAccessGranted] = useState(false)
+  const [pinVerified, setPinVerified] = useState(false)
   const [unblockAllOpen, setUnblockAllOpen] = useState(false)
   const [unblockAllBusy, setUnblockAllBusy] = useState(false)
   const verifiedPinRef = useRef<string | null>(null)
+  const prevDeviceIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!deviceId && devices[0]?.id) setDeviceId(devices[0].id)
@@ -55,18 +57,20 @@ export function HiddenVideosPage() {
 
   const lockAccess = useCallback(() => {
     setAccessGranted(false)
+    setPinVerified(false)
     setItems([])
     setError(null)
     verifiedPinRef.current = null
-    setPinOpen(true)
+    setPinOpen(false)
   }, [])
 
   const loadList = useCallback(
     async (pin: string) => {
       setLoading(true)
       setError(null)
-      try {
-        if (localParent.isActive && localParent.localAccessToken) {
+
+      if (localParent.isActive && localParent.localAccessToken) {
+        try {
           const { data, error: listErr } = await listHiddenVideosLocalParent(
             localParent.localAccessToken,
             pin
@@ -75,24 +79,38 @@ export function HiddenVideosPage() {
             setItems([])
             setError(listErr.message)
             setAccessGranted(false)
+            setPinVerified(false)
+            verifiedPinRef.current = null
             return
           }
           setItems(data)
           verifiedPinRef.current = pin
           setAccessGranted(true)
-          return
+        } finally {
+          setLoading(false)
         }
+        return
+      }
 
-        if (!deviceId) {
-          setItems([])
-          return
-        }
+      if (!deviceId) {
+        if (devLoading) return
+        setItems([])
+        setError('לא נמצא מכשיר. הוסיפו מכשיר בהגדרות.')
+        setAccessGranted(false)
+        setPinVerified(false)
+        verifiedPinRef.current = null
+        setLoading(false)
+        return
+      }
 
+      try {
         const { data, error: listErr } = await listHiddenVideosAuthenticated(deviceId, pin)
         if (listErr) {
           setItems([])
           setError(listErr.message)
           setAccessGranted(false)
+          setPinVerified(false)
+          verifiedPinRef.current = null
           return
         }
         setItems(data)
@@ -102,16 +120,40 @@ export function HiddenVideosPage() {
         setLoading(false)
       }
     },
-    [deviceId, localParent.isActive, localParent.localAccessToken]
+    [deviceId, devLoading, localParent.isActive, localParent.localAccessToken]
   )
 
+  const prevLocalActiveRef = useRef<boolean | null>(null)
+
   useEffect(() => {
-    lockAccess()
-  }, [deviceId, localParent.isActive, localParent.localAccessToken, lockAccess])
+    const prev = prevLocalActiveRef.current
+    prevLocalActiveRef.current = localParent.isActive
+    if (prev !== null && prev !== localParent.isActive) {
+      lockAccess()
+    }
+  }, [localParent.isActive, lockAccess])
+
+  useEffect(() => {
+    const prev = prevDeviceIdRef.current
+    prevDeviceIdRef.current = deviceId
+    if (prev != null && deviceId != null && prev !== deviceId) {
+      lockAccess()
+    }
+  }, [deviceId, lockAccess])
+
+  useEffect(() => {
+    const pin = verifiedPinRef.current
+    if (!pin || !pinVerified || accessGranted || localParent.isActive) return
+    if (!deviceId || devLoading) return
+    void loadList(pin)
+  }, [pinVerified, accessGranted, localParent.isActive, deviceId, devLoading, loadList])
 
   const handlePinVerified = useCallback(
     (pin: string) => {
+      verifiedPinRef.current = pin
+      setPinVerified(true)
       setPinOpen(false)
+      setError(null)
       void loadList(pin)
     },
     [loadList]
@@ -173,7 +215,7 @@ export function HiddenVideosPage() {
         </p>
       </header>
 
-      {!accessGranted ? (
+      {!accessGranted && !pinVerified ? (
         <section className="flex min-h-[40vh] flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-amber-300/80 bg-amber-50/50 px-6 py-12 text-center dark:border-amber-800/60 dark:bg-amber-950/20">
           <Lock className="h-14 w-14 text-amber-600 dark:text-amber-400" aria-hidden />
           <p className="max-w-sm text-base font-semibold text-slate-800 dark:text-zinc-100">
@@ -182,10 +224,18 @@ export function HiddenVideosPage() {
           <p className="max-w-md text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
             רשימת הסרטונים החסומים ופעולות ההחזרה זמינות רק לאחר אימות קוד ההורה.
           </p>
+          {error ? (
+            <p className="max-w-md text-sm font-medium text-red-600 dark:text-red-400">{error}</p>
+          ) : null}
           <Button type="button" onClick={() => setPinOpen(true)}>
             הזינו קוד הורה
           </Button>
         </section>
+      ) : !accessGranted && pinVerified ? (
+        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 py-16">
+          <LoadingSpinner className="h-9 w-9 border-2 border-brand-500 border-t-transparent" />
+          <p className="text-sm font-medium text-slate-600 dark:text-zinc-400">טוען סרטונים חסומים…</p>
+        </div>
       ) : (
         <>
           {devices.length > 1 ? (
