@@ -5,6 +5,28 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --yt-bg: 248 250 252;
+    --yt-surface: 255 255 255;
+    --yt-surface-hover: 241 245 249;
+    --yt-border: 226 232 240;
+    --yt-input: 255 255 255;
+    --yt-search-btn: 241 245 249;
+    --yt-text: 15 23 42;
+    --yt-text-muted: 100 116 139;
+  }
+
+  .dark {
+    --yt-bg: 15 15 15;
+    --yt-surface: 33 33 33;
+    --yt-surface-hover: 39 39 39;
+    --yt-border: 48 48 48;
+    --yt-input: 18 18 18;
+    --yt-search-btn: 34 34 34;
+    --yt-text: 255 255 255;
+    --yt-text-muted: 170 170 170;
+  }
+
   html {
     @apply antialiased;
   }

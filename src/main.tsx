@@ -3,10 +3,12 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import { normalizePairingUrlInAddressBar } from './lib/pairingCodeFromQr'
 import { installAuthDiagnostics } from './lib/authDiagnostics'
+import { initTheme } from './lib/theme'
 import App from './App.tsx'
 
 normalizePairingUrlInAddressBar()
 installAuthDiagnostics()
+initTheme()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

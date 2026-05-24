@@ -36,6 +36,7 @@ import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { CleanPlayer } from '../components/player/CleanPlayer'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
+import { ThemeToggle } from '../components/theme/ThemeToggle'
 import type { Html5Qrcode } from 'html5-qrcode'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
@@ -866,11 +867,13 @@ export function KidModePage() {
               <p className="text-[11px] text-yt-textMuted">{KID_APP_DISPLAY_NAME}</p>
             </div>
           </div>
-          <div
-            className="flex shrink-0 items-center gap-0.5 rounded-full border border-yt-border bg-yt-input p-0.5"
-            role="tablist"
-            aria-label="מצב מסך"
-          >
+          <div className="flex shrink-0 items-center gap-1.5">
+            <ThemeToggle compact />
+            <div
+              className="flex shrink-0 items-center gap-0.5 rounded-full border border-yt-border bg-yt-input p-0.5"
+              role="tablist"
+              aria-label="מצב מסך"
+            >
             <button
               type="button"
               role="tab"
@@ -933,6 +936,7 @@ export function KidModePage() {
               <Users className="h-3.5 w-3.5" aria-hidden />
               הורים
             </button>
+            </div>
           </div>
         </div>
       </header>

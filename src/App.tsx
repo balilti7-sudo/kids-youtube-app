@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
-import { Toaster } from 'sonner'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
+import { ThemeAwareToaster } from './components/theme/ThemeAwareToaster'
 import { SplashScreen } from './components/branding/SplashScreen'
 import { AuthPage } from './pages/AuthPage'
 import AuthCallback from './pages/AuthCallback'
@@ -77,7 +77,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
-        <Toaster richColors position="top-center" dir="rtl" theme="dark" />
+        <ThemeAwareToaster />
         <WhatsAppFloatingButton />
         <Routes>
           <Route path="/" element={<SmartEntryRoute />} />

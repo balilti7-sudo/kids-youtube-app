@@ -16,6 +16,7 @@ import {
 import { ParentalManagementGate } from '../parental/ParentalManagementGate'
 import { BottomNav } from './BottomNav'
 import { LockAppButton } from './LockAppButton'
+import { ThemeToggle } from '../theme/ThemeToggle'
 import { PageBackBar } from './PageBackBar'
 import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
@@ -110,7 +111,10 @@ export function AppLayout() {
                     <PageBackBar flush />
                   </div>
                 </div>
-                <LockAppButton />
+                <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                  <ThemeToggle />
+                  <LockAppButton />
+                </div>
               </div>
             </header>
             <div className="mx-auto w-full max-w-5xl flex-1 px-3 py-4 sm:px-4">
