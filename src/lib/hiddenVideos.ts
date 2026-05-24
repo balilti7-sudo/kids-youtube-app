@@ -48,6 +48,26 @@ export async function listHiddenVideosForDevice(deviceId: string): Promise<{
   return { data: mapped, error: null }
 }
 
+/** Authenticated parent: list hidden videos — requires parent PIN */
+export async function listHiddenVideosAuthenticated(
+  deviceId: string,
+  pin: string
+): Promise<{ data: HiddenVideoRow[]; error: Error | null }> {
+  const { data, error } = await supabase.rpc('parent_hidden_videos_list_details', {
+    p_device_id: deviceId,
+    p_pin: pin,
+  })
+  if (error) {
+    const msg = error.message
+    if (msg.includes('INVALID_PARENT_PIN')) return { data: [], error: new Error('קוד הורה שגוי') }
+    return { data: [], error: new Error(msg) }
+  }
+  const mapped = ((data ?? []) as Record<string, unknown>[])
+    .map(mapHiddenRow)
+    .filter((r): r is HiddenVideoRow => r !== null)
+  return { data: mapped, error: null }
+}
+
 export async function listHiddenVideosLocalParent(
   accessToken: string,
   pin: string
