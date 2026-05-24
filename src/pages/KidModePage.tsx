@@ -923,7 +923,7 @@ export function KidModePage() {
   return (
     <div className="min-h-dvh bg-yt-bg text-yt-text">
       <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 pb-[env(safe-area-inset-top)] backdrop-blur-md">
-        <div className="mx-auto grid max-w-[1920px] grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-2 sm:px-3 sm:py-2">
+        <div className="mx-auto grid max-w-[1920px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 px-2 py-2 sm:gap-x-4 sm:px-3 sm:py-2">
           <div className="min-w-0 text-right">
             <p className="truncate text-sm font-bold text-yt-text">
               {kidSurface === 'parent'
@@ -934,9 +934,8 @@ export function KidModePage() {
             </p>
             <p className="text-[11px] text-yt-textMuted">{KID_APP_DISPLAY_NAME}</p>
           </div>
-          <SafeTubeBrandMark to="/kid" size="compact" />
-          <div className="flex items-center justify-end gap-1.5">
-            <ThemeToggle compact />
+          <SafeTubeBrandMark to="/kid" className="justify-self-center px-0.5" />
+          <div className="flex min-w-0 items-center justify-end gap-2 ps-2 pe-0.5 sm:gap-3 sm:pe-1">
             <div
               className="flex shrink-0 items-center gap-0.5 rounded-full border border-yt-border bg-yt-input p-0.5"
               role="tablist"
@@ -974,8 +973,7 @@ export function KidModePage() {
               }`}
             >
               <ListMusic className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="max-[360px]:hidden sm:inline">הפלייליסטים שלי</span>
-              <span className="sm:hidden">פלייליסטים</span>
+              פלייליסטים
             </button>
             <button
               type="button"
@@ -1005,6 +1003,7 @@ export function KidModePage() {
               הורים
             </button>
             </div>
+            <ThemeToggle compact className="shrink-0" />
           </div>
         </div>
       </header>

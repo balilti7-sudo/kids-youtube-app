@@ -37,8 +37,8 @@ export function SafeTubeBrandMark({
 
   const imgClass = cn(
     size === 'compact'
-      ? 'h-8 w-auto max-w-[5.5rem] object-contain sm:h-9 sm:max-w-[6.5rem]'
-      : 'h-9 w-auto max-w-[100px] object-contain sm:h-10 sm:max-w-[120px]',
+      ? 'h-9 w-auto max-w-[6.5rem] object-contain sm:h-10 sm:max-w-[7.5rem]'
+      : 'h-10 w-auto max-w-[7.5rem] object-contain sm:h-11 sm:max-w-[9rem]',
     'transition-transform duration-700 ease-in-out motion-reduce:duration-500',
     'group-hover:animate-logo-hover-pulse motion-reduce:group-hover:animate-none motion-reduce:group-hover:scale-105'
   )

@@ -15,7 +15,6 @@ import {
 } from '../../lib/parentalManagementGateStorage'
 import { ParentalManagementGate } from '../parental/ParentalManagementGate'
 import { BottomNav } from './BottomNav'
-import { LockAppButton } from './LockAppButton'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { PageBackBar } from './PageBackBar'
 import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
@@ -103,15 +102,14 @@ export function AppLayout() {
       {!showGate ? (
         <>
           <main className="safe-pb-nav flex flex-1 flex-col">
-            <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 px-3 py-2 backdrop-blur-md sm:px-4">
-              <div className="mx-auto grid max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-2">
-                <div className="flex min-w-0 items-center">
+            <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 px-2 py-2.5 backdrop-blur-md sm:px-3">
+              <div className="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 sm:gap-x-4">
+                <div className="flex min-w-0 items-center justify-self-stretch">
                   <PageBackBar flush />
                 </div>
-                <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} />
-                <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+                <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} className="justify-self-center px-0.5" />
+                <div className="flex items-center justify-self-stretch justify-end pe-0.5 sm:pe-1">
                   <ThemeToggle />
-                  <LockAppButton />
                 </div>
               </div>
             </header>

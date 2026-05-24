@@ -83,8 +83,7 @@ export function BottomNav() {
             }
           >
             <ListMusic className="h-6 w-6" aria-hidden />
-            <span className="max-[360px]:hidden sm:inline">הפלייליסטים שלי</span>
-            <span className="sm:hidden">פלייליסטים</span>
+            פלייליסטים
           </NavLink>
         )}
 
