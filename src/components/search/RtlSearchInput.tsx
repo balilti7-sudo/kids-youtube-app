@@ -63,9 +63,9 @@ export const RtlSearchInput = memo(function RtlSearchInput({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key !== 'Enter' || !onSubmit) return
+      if (e.key !== 'Enter') return
       e.preventDefault()
-      submitQuery()
+      if (onSubmit) submitQuery()
     },
     [onSubmit, submitQuery]
   )
