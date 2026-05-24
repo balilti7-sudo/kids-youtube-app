@@ -19,6 +19,8 @@ export type ParentChannelVideoSearchProps = {
   youtubeError?: string | null
   youtubeResults?: YouTubeVideoResult[]
   onYoutubeSearch: (query: string) => void
+  /** When set, global YouTube search runs only after parent approval (e.g. PIN modal). */
+  onRequestYoutubeSearch?: (query: string, proceed: () => void) => void
   youtubeResultsSlot?: (results: YouTubeVideoResult[]) => ReactNode
   className?: string
 }
@@ -44,25 +46,38 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
   youtubeError = null,
   youtubeResults = [],
   onYoutubeSearch,
+  onRequestYoutubeSearch,
   youtubeResultsSlot,
   className,
 }: ParentChannelVideoSearchProps) {
   const [debouncedYoutubeQuery, setDebouncedYoutubeQuery] = useState('')
 
+  const runYoutubeSearch = useCallback(
+    (raw: string) => {
+      const trimmed = raw.trim()
+      if (!trimmed) {
+        setDebouncedYoutubeQuery('')
+        onYoutubeSearch('')
+        return
+      }
+      const execute = () => {
+        setDebouncedYoutubeQuery(trimmed)
+        onYoutubeSearch(trimmed)
+      }
+      if (onRequestYoutubeSearch) {
+        onRequestYoutubeSearch(trimmed, execute)
+        return
+      }
+      execute()
+    },
+    [onRequestYoutubeSearch, onYoutubeSearch]
+  )
+
   useEffect(() => {
-    if (mode !== 'youtube') return
-    const trimmed = value.trim()
-    if (!trimmed) {
+    if (mode !== 'youtube') {
       setDebouncedYoutubeQuery('')
-      onYoutubeSearch('')
-      return
     }
-    const timer = window.setTimeout(() => {
-      setDebouncedYoutubeQuery(trimmed)
-      onYoutubeSearch(trimmed)
-    }, 400)
-    return () => window.clearTimeout(timer)
-  }, [mode, value, onYoutubeSearch])
+  }, [mode])
 
   const handleModeChange = useCallback(
     (next: ParentVideoSearchMode) => {
@@ -132,6 +147,7 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
         id={id}
         value={value}
         onChange={onChange}
+        onSubmit={mode === 'youtube' ? runYoutubeSearch : undefined}
         placeholder={placeholder}
         aria-label={mode === 'channel' ? 'חיפוש לפי שם סרטון בערוץ' : 'חיפוש סרטונים ב-YouTube'}
       />
@@ -148,7 +164,7 @@ export const ParentChannelVideoSearch = memo(function ParentChannelVideoSearch({
         <div className="mt-3 space-y-2" aria-live="polite">
           {!hasQuery ? (
             <p className="text-xs font-medium text-yt-textMuted sm:text-sm">
-              הקלידו מילות חיפוש כדי לחפש בכל YouTube
+              הקלידו מילות חיפוש ולחצו Enter או על כפתור החיפוש
             </p>
           ) : youtubeLoading ? (
             <div className="flex items-center justify-center gap-2 py-4 text-sm text-yt-textMuted">

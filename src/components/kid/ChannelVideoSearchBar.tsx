@@ -6,6 +6,8 @@ export type ChannelVideoSearchBarProps = {
   id?: string
   value: string
   onChange: (value: string) => void
+  /** Enter / search icon — global YouTube search (caller must PIN-gate in kid mode). */
+  onGlobalSearchSubmit?: (query: string) => void
   totalCount: number
   filteredCount: number
   channelLabel?: string | null
@@ -20,6 +22,7 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   id: idProp,
   value,
   onChange,
+  onGlobalSearchSubmit,
   totalCount,
   filteredCount,
   channelLabel,
@@ -49,6 +52,7 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
         id={idProp}
         value={value}
         onChange={onChange}
+        onSubmit={onGlobalSearchSubmit}
         onFocusChange={onFocusChange}
         placeholder="חפשו סרטון בערוץ…"
         aria-label="חיפוש לפי שם סרטון בערוץ הנבחר"

@@ -6,6 +6,8 @@ export type RtlSearchInputProps = {
   id?: string
   value: string
   onChange: (value: string) => void
+  /** Enter key or search icon — e.g. global YouTube search (must be gated in kid mode). */
+  onSubmit?: (query: string) => void
   placeholder?: string
   className?: string
   inputClassName?: string
@@ -23,6 +25,7 @@ export const RtlSearchInput = memo(function RtlSearchInput({
   placeholder = 'חיפוש…',
   className,
   inputClassName,
+  onSubmit,
   onFocusChange,
   'aria-label': ariaLabel,
 }: RtlSearchInputProps) {
@@ -51,6 +54,22 @@ export const RtlSearchInput = memo(function RtlSearchInput({
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [commitChange])
 
+  const submitQuery = useCallback(() => {
+    if (!onSubmit) return
+    const q = localValue.trim()
+    if (!q) return
+    onSubmit(q)
+  }, [localValue, onSubmit])
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== 'Enter' || !onSubmit) return
+      e.preventDefault()
+      submitQuery()
+    },
+    [onSubmit, submitQuery]
+  )
+
   return (
     <div
       dir="rtl"
@@ -73,6 +92,7 @@ export const RtlSearchInput = memo(function RtlSearchInput({
         onChange={(e) => commitChange(e.target.value)}
         onFocus={() => onFocusChange?.(true)}
         onBlur={() => onFocusChange?.(false)}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         autoComplete="off"
         autoCorrect="off"
@@ -99,12 +119,24 @@ export const RtlSearchInput = memo(function RtlSearchInput({
         </button>
       ) : null}
 
-      <span
-        className="me-1 flex h-9 w-11 shrink-0 items-center justify-center rounded-full bg-yt-searchBtn text-yt-text"
-        aria-hidden
-      >
-        <Search className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} />
-      </span>
+      {onSubmit ? (
+        <button
+          type="button"
+          className="me-1 flex h-9 w-11 shrink-0 items-center justify-center rounded-full bg-yt-searchBtn text-yt-text transition hover:bg-yt-surfaceHover"
+          onClick={submitQuery}
+          aria-label="חפש ב-YouTube"
+          title="חפש ב-YouTube (נדרש PIN הורה)"
+        >
+          <Search className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} aria-hidden />
+        </button>
+      ) : (
+        <span
+          className="me-1 flex h-9 w-11 shrink-0 items-center justify-center rounded-full bg-yt-searchBtn text-yt-text"
+          aria-hidden
+        >
+          <Search className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} />
+        </span>
+      )}
     </div>
   )
 })

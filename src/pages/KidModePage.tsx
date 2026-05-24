@@ -27,6 +27,7 @@ import {
   type ChildDeviceState,
 } from '../lib/childDevice'
 import { isLocalParentSessionValid, readLocalParentSession, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
+import { ParentalPinModal } from '../components/parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../lib/verifyParentManagementPin'
 import { QuickBlockButton } from '../components/channels/QuickBlockButton'
 import type { ParentQuickBlockConfig } from '../components/kid/KidPlaylistView'
@@ -39,6 +40,8 @@ import { lockManagementAppShell } from '../lib/lockParentApp'
 import { setParentEntryIntent } from '../lib/parentEntryIntent'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import type { ChannelVideoItem } from '../lib/youtube'
+import { searchYouTubeVideos } from '../lib/youtube'
+import type { YouTubeVideoResult } from '../types'
 import { evaluateKidScreenBreak } from '../lib/kidScreenControl'
 import { KidScreenBreakOverlay } from '../components/kid/KidScreenBreakOverlay'
 import { useKidWatchTimeReporter } from '../hooks/useKidWatchTimeReporter'
@@ -113,6 +116,12 @@ export function KidModePage() {
   const qrDecodeLockRef = useRef(false)
   const channelVideosRequestRef = useRef(0)
   const [videoSearchFocused, setVideoSearchFocused] = useState(false)
+  const [globalSearchPinOpen, setGlobalSearchPinOpen] = useState(false)
+  const [globalSearchQuery, setGlobalSearchQuery] = useState<string | null>(null)
+  const [globalSearchResults, setGlobalSearchResults] = useState<YouTubeVideoResult[]>([])
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false)
+  const [globalSearchError, setGlobalSearchError] = useState<string | null>(null)
+  const pendingGlobalSearchQueryRef = useRef<string | null>(null)
   const [clockTick, setClockTick] = useState(0)
   const parentTabLongPressRef = useRef<number | null>(null)
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
@@ -168,6 +177,74 @@ export function KidModePage() {
         ),
     }
   }, [parentModeUnlocked, accessToken])
+
+  const verifyKidGlobalSearchPin = useCallback(
+    (pin: string) => {
+      const session = isLocalParentSessionValid() ? readLocalParentSession() : null
+      return verifyParentManagementPin(
+        {
+          userId: undefined,
+          profile: null,
+          localParent: { isActive: Boolean(session), pin: session?.pin ?? null },
+        },
+        pin
+      )
+    },
+    []
+  )
+
+  const clearGlobalSearch = useCallback(() => {
+    pendingGlobalSearchQueryRef.current = null
+    setGlobalSearchQuery(null)
+    setGlobalSearchResults([])
+    setGlobalSearchError(null)
+    setGlobalSearchLoading(false)
+  }, [])
+
+  const runGlobalYoutubeSearch = useCallback(async (query: string) => {
+    const q = query.trim()
+    if (!q) return
+    setGlobalSearchLoading(true)
+    setGlobalSearchError(null)
+    setGlobalSearchQuery(q)
+    setGlobalSearchResults([])
+    const { data, error } = await searchYouTubeVideos(q)
+    setGlobalSearchLoading(false)
+    if (error) {
+      setGlobalSearchError(error.message)
+      return
+    }
+    setGlobalSearchResults(data ?? [])
+  }, [])
+
+  const handleGlobalSearchRequest = useCallback(
+    (query: string) => {
+      const q = query.trim()
+      if (!q) return
+      if (parentModeUnlocked) {
+        void runGlobalYoutubeSearch(q)
+        return
+      }
+      pendingGlobalSearchQueryRef.current = q
+      setGlobalSearchPinOpen(true)
+    },
+    [parentModeUnlocked, runGlobalYoutubeSearch]
+  )
+
+  const handleGlobalSearchPinVerified = useCallback(
+    (_pin: string) => {
+      const q = pendingGlobalSearchQueryRef.current
+      pendingGlobalSearchQueryRef.current = null
+      setGlobalSearchPinOpen(false)
+      if (q) void runGlobalYoutubeSearch(q)
+    },
+    [runGlobalYoutubeSearch]
+  )
+
+  const handleGlobalSearchPinClose = useCallback(() => {
+    pendingGlobalSearchQueryRef.current = null
+    setGlobalSearchPinOpen(false)
+  }, [])
 
   const activeVideo = useMemo(() => {
     if (!activeVideoId) return null
@@ -1141,6 +1218,7 @@ export function KidModePage() {
                         type="button"
                         onClick={() => {
                           setVideoSearch('')
+                          clearGlobalSearch()
                           setActiveChannelId(yt)
                           setChannelPickNonce((n) => n + 1)
                         }}
@@ -1187,6 +1265,7 @@ export function KidModePage() {
                           type="button"
                           onClick={() => {
                             setVideoSearch('')
+                            clearGlobalSearch()
                             setActiveChannelId(yt)
                             setChannelPickNonce((n) => n + 1)
                           }}
@@ -1220,11 +1299,63 @@ export function KidModePage() {
                     id="kid-channel-video-search-mobile"
                     value={videoSearch}
                     onChange={setVideoSearch}
+                    onGlobalSearchSubmit={handleGlobalSearchRequest}
                     onFocusChange={setVideoSearchFocused}
                     totalCount={channelVideos.length}
                     filteredCount={filteredVideos.length}
                     channelLabel={activeChannel?.channel_name ?? null}
                   />
+                  {globalSearchQuery || globalSearchLoading ? (
+                    <section className="mt-3 rounded-xl border border-yt-border bg-yt-surface/80 p-3" aria-live="polite">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-bold text-yt-text">
+                          חיפוש YouTube: &quot;{globalSearchQuery}&quot;
+                        </p>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="!min-h-8 !px-2 !py-1 text-xs"
+                          onClick={clearGlobalSearch}
+                        >
+                          סגור
+                        </Button>
+                      </div>
+                      {globalSearchLoading ? (
+                        <div className="flex items-center justify-center gap-2 py-3 text-sm text-yt-textMuted">
+                          <LoadingSpinner className="h-4 w-4 border-2 border-yt-textMuted border-t-transparent" />
+                          מחפש ב-YouTube…
+                        </div>
+                      ) : globalSearchError ? (
+                        <p className="text-sm text-yt-red">{globalSearchError}</p>
+                      ) : globalSearchResults.length === 0 ? (
+                        <p className="text-sm text-yt-textMuted">לא נמצאו סרטונים.</p>
+                      ) : (
+                        <div className="max-h-56 space-y-2 overflow-y-auto">
+                          {globalSearchResults.map((video) => (
+                            <div
+                              key={video.videoId}
+                              className="flex gap-2 rounded-lg border border-yt-border bg-yt-input/40 p-2"
+                            >
+                              {video.thumbnail ? (
+                                <img
+                                  src={video.thumbnail}
+                                  alt=""
+                                  className="h-12 w-20 shrink-0 rounded-md object-cover"
+                                  loading="lazy"
+                                />
+                              ) : null}
+                              <div className="min-w-0 flex-1 text-right">
+                                <p className="line-clamp-2 text-xs font-semibold text-yt-text">{video.title}</p>
+                                <p className="mt-0.5 truncate text-[10px] text-yt-textMuted">
+                                  {video.channelTitle || 'ערוץ לא ידוע'}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  ) : null}
                 </div>
 
                 <YoutubeWatchLayout
@@ -1293,7 +1424,10 @@ export function KidModePage() {
                           type="button"
                           variant="secondary"
                           className="min-h-[48px] min-w-[160px] rounded-2xl text-base font-semibold"
-                          onClick={() => setVideoSearch('')}
+                          onClick={() => {
+                            setVideoSearch('')
+                            clearGlobalSearch()
+                          }}
                         >
                           מחק חיפוש
                         </Button>
@@ -1311,12 +1445,88 @@ export function KidModePage() {
                         id="kid-channel-video-search"
                         value={videoSearch}
                         onChange={setVideoSearch}
+                        onGlobalSearchSubmit={handleGlobalSearchRequest}
                         onFocusChange={setVideoSearchFocused}
                         totalCount={channelVideos.length}
                         filteredCount={filteredVideos.length}
                         channelLabel={activeChannel?.channel_name ?? null}
                         className="mb-3 hidden lg:block"
                       />
+                      {globalSearchQuery || globalSearchLoading ? (
+                        <section
+                          className="mb-3 rounded-xl border border-yt-border bg-yt-surface/80 p-3"
+                          aria-live="polite"
+                          aria-label="תוצאות חיפוש YouTube"
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <p className="text-xs font-bold text-yt-text sm:text-sm">
+                              חיפוש YouTube: &quot;{globalSearchQuery}&quot;
+                            </p>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="!min-h-8 !px-2 !py-1 text-xs"
+                              onClick={clearGlobalSearch}
+                            >
+                              סגור
+                            </Button>
+                          </div>
+                          {globalSearchLoading ? (
+                            <div className="flex items-center justify-center gap-2 py-4 text-sm text-yt-textMuted">
+                              <LoadingSpinner className="h-4 w-4 border-2 border-yt-textMuted border-t-transparent" />
+                              מחפש ב-YouTube…
+                            </div>
+                          ) : globalSearchError ? (
+                            <p className="text-sm text-yt-red">{globalSearchError}</p>
+                          ) : globalSearchResults.length === 0 ? (
+                            <p className="text-sm text-yt-textMuted">לא נמצאו סרטונים.</p>
+                          ) : (
+                            <div className="max-h-72 space-y-2 overflow-y-auto">
+                              {globalSearchResults.map((video) => (
+                                <div
+                                  key={video.videoId}
+                                  className="flex gap-2 rounded-lg border border-yt-border bg-yt-input/40 p-2"
+                                >
+                                  {video.thumbnail ? (
+                                    <img
+                                      src={video.thumbnail}
+                                      alt=""
+                                      className="h-14 w-24 shrink-0 rounded-md object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : null}
+                                  <div className="min-w-0 flex-1 text-right">
+                                    <p className="line-clamp-2 text-xs font-semibold text-yt-text">{video.title}</p>
+                                    <p className="mt-0.5 truncate text-[10px] text-yt-textMuted">
+                                      {video.channelTitle || 'ערוץ לא ידוע'}
+                                    </p>
+                                    {parentModeUnlocked && accessToken ? (
+                                      <div className="mt-1.5">
+                                        <AddToPlaylistButton
+                                          mode="kid"
+                                          userId={null}
+                                          childAccessToken={accessToken}
+                                          compact
+                                          video={{
+                                            youtube_video_id: video.videoId,
+                                            title: video.title,
+                                            thumbnail_url: video.thumbnail,
+                                            channel_name: video.channelTitle || null,
+                                          }}
+                                        />
+                                      </div>
+                                    ) : (
+                                      <p className="mt-1 text-[10px] text-yt-textMuted">
+                                        צפייה — רק דרך ערוצים מאושרים
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </section>
+                      ) : null}
                       <YoutubeSuggestedList title="סרטונים מומלצים">
                         {filteredVideos.length > 0
                           ? filteredVideos.map((video) => {
@@ -1494,6 +1704,15 @@ export function KidModePage() {
       </Modal>
 
       {screenBreak ? <KidScreenBreakOverlay reason={screenBreak} /> : null}
+
+      <ParentalPinModal
+        open={globalSearchPinOpen}
+        onClose={handleGlobalSearchPinClose}
+        verifyPin={verifyKidGlobalSearchPin}
+        onVerified={handleGlobalSearchPinVerified}
+        title="אימות הורה — חיפוש YouTube"
+        description="חיפוש בכל YouTube דורש קוד הורה. הזינו PIN כדי להמשיך — אחרת החיפוש יבוטל."
+      />
     </div>
   )
 }
