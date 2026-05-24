@@ -27,11 +27,8 @@ import {
   type ChildAllowedChannel,
   type ChildDeviceState,
 } from '../lib/childDevice'
-import { isLocalParentSessionValid, readLocalParentSession, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
+import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { ParentalPinModal } from '../components/parental/ParentalPinModal'
-import { verifyParentManagementPin } from '../lib/verifyParentManagementPin'
-import { QuickBlockButton } from '../components/channels/QuickBlockButton'
-import type { ParentQuickBlockConfig } from '../components/kid/KidPlaylistView'
 import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
 import { requestPairingReminderEmail } from '../lib/requestPairingReminderEmail'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
@@ -134,6 +131,8 @@ export function KidModePage() {
   const { isAuthenticated } = useAuth()
   useEffect(() => {
     lockManagementAppShell()
+    setKidSurface('watch')
+    setKidWatchTab('channels')
   }, [])
 
   const clearParentTabLongPress = useCallback(() => {
@@ -163,25 +162,6 @@ export function KidModePage() {
     () => filterVideosByTitle(channelVideos, videoSearch),
     [channelVideos, videoSearch]
   )
-
-  const parentQuickBlock = useMemo((): ParentQuickBlockConfig | null => {
-    if (!parentModeUnlocked || !accessToken) return null
-    const session = isLocalParentSessionValid() ? readLocalParentSession() : null
-    return {
-      enabled: true,
-      localAccessToken: accessToken,
-      cachedPin: session?.pin ?? null,
-      verifyPin: (pin: string) =>
-        verifyParentManagementPin(
-          {
-            userId: undefined,
-            profile: null,
-            localParent: { isActive: true, pin: session?.pin ?? null },
-          },
-          pin
-        ),
-    }
-  }, [parentModeUnlocked, accessToken])
 
   const verifyKidGlobalSearchPin = useCallback(
     async (pin: string) => {
@@ -288,8 +268,6 @@ export function KidModePage() {
       loadingMore: globalSearchLoadingMore,
       onLoadMore: loadMoreGlobalYoutubeSearch,
       onClear: clearGlobalSearch,
-      parentModeUnlocked,
-      childAccessToken: accessToken,
     }),
     [
       globalSearchInput,
@@ -302,8 +280,6 @@ export function KidModePage() {
       globalSearchLoadingMore,
       loadMoreGlobalYoutubeSearch,
       clearGlobalSearch,
-      parentModeUnlocked,
-      accessToken,
     ]
   )
 
@@ -1066,16 +1042,13 @@ export function KidModePage() {
           onClose={() => setQrScanOpen(false)}
           scanCameraError={scanCameraError}
         />
-        <p className="mt-8 text-center text-[10px] text-slate-500 dark:text-zinc-500" dir="ltr">
-          מזהה מכשיר (דיבוג): לא מחובר
-        </p>
       </main>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-yt-bg text-yt-text">
-      <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 pb-[env(safe-area-inset-top)] backdrop-blur-md">
+    <div className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40">
+      <header className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 pb-[env(safe-area-inset-top)] backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90">
         <div className="mx-auto grid max-w-[1920px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 px-2 py-2 sm:gap-x-4 sm:px-3 sm:py-2">
           <div className="min-w-0 text-right">
             <p className="truncate text-sm font-bold text-yt-text">
@@ -1104,7 +1077,7 @@ export function KidModePage() {
               }}
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                 kidSurface === 'watch' && kidWatchTab === 'channels'
-                  ? 'bg-yt-surfaceHover text-yt-text shadow-sm'
+                  ? 'bg-sky-500 text-white shadow-sm dark:bg-sky-600'
                   : 'text-yt-textMuted hover:text-yt-text'
               }`}
             >
@@ -1121,7 +1094,7 @@ export function KidModePage() {
               }}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-semibold transition sm:px-3 ${
                 kidSurface === 'watch' && kidWatchTab === 'playlist'
-                  ? 'bg-yt-surfaceHover text-yt-text shadow-sm'
+                  ? 'bg-violet-500 text-white shadow-sm dark:bg-violet-600'
                   : 'text-yt-textMuted hover:text-yt-text'
               }`}
             >
@@ -1228,8 +1201,8 @@ export function KidModePage() {
                 נתק מכשיר
               </Button>
             </div>
-            <p className="mt-4 text-center text-[10px] leading-relaxed text-slate-500 dark:text-zinc-500" dir="ltr">
-              מזהה מכשיר (דיבוג): {device.device_id && device.device_id.length >= 4 ? `…${device.device_id.slice(-4)}` : '—'}
+            <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
+              לחזרה ללוח ההורה: החזיקו לחוץ על לשונית &quot;הורים&quot; למעלה והזינו PIN.
             </p>
           </section>
         </main>
@@ -1248,11 +1221,7 @@ export function KidModePage() {
           {kidWatchTab === 'playlist' ? (
             <div className="min-w-0 flex-1 lg:col-span-2">
               {accessToken ? (
-                <KidPlaylistView
-                  childAccessToken={accessToken}
-                  parentQuickBlock={parentQuickBlock}
-                  forcePaused={screenLocked}
-                />
+                <KidPlaylistView childAccessToken={accessToken} forcePaused={screenLocked} />
               ) : null}
             </div>
           ) : channels.length === 0 ? (
@@ -1345,7 +1314,7 @@ export function KidModePage() {
                 </div>
               </aside>
 
-              <div className="min-w-0 flex-1 bg-[#f3f3f3] dark:bg-[#0f0f0f] lg:pt-0">
+              <div className="min-w-0 flex-1 bg-gradient-to-b from-sky-50/80 via-white to-violet-50/60 dark:from-slate-950 dark:via-[#0f0f0f] dark:to-indigo-950/20 lg:pt-0">
                 <div className="border-b border-black/[0.06] bg-white px-1.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/90 lg:hidden">
                   <p className="mb-1 px-0.5 text-[11px] font-bold text-slate-500">ערוץ</p>
                   <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5">
@@ -1508,30 +1477,6 @@ export function KidModePage() {
                                     active={isCurrent}
                                     playingLabel="מנגן"
                                     onClick={() => handleSelectVideo(video.videoId)}
-                                    thumbnailAction={
-                                      parentQuickBlock ? (
-                                        <QuickBlockButton
-                                          video={{
-                                            youtube_video_id: video.videoId,
-                                            title: video.title,
-                                            thumbnail_url: video.thumbnail || null,
-                                            youtube_channel_id: activeChannelId,
-                                            channel_name: activeChannel?.channel_name ?? null,
-                                          }}
-                                          localAccessToken={parentQuickBlock.localAccessToken}
-                                          cachedPin={parentQuickBlock.cachedPin}
-                                          verifyPin={parentQuickBlock.verifyPin}
-                                          onSuccess={() => {
-                                            setChannelVideos((prev) =>
-                                              prev.filter((v) => v.videoId !== video.videoId)
-                                            )
-                                            if (activeVideoId === video.videoId) {
-                                              setActiveVideoId(null)
-                                            }
-                                          }}
-                                        />
-                                      ) : null
-                                    }
                                     actionSlot={
                                       accessToken ? (
                                         <AddToPlaylistButton
@@ -1561,7 +1506,7 @@ export function KidModePage() {
                             {videoSearch.trim()
                               ? 'אין סרטונים שמתאימים לחיפוש.'
                               : channelVideos.length === 0
-                                ? 'אין עדיין סרטונים במטמון. בקשו מההורה לרענן ערוץ בלשונית הורים.'
+                                ? 'אין עדיין סרטונים בערוץ הזה. בקשו מההורה להוסיף סרטונים.'
                                 : 'אין סרטונים.'}
                           </p>
                         </div>

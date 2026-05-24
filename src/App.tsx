@@ -69,6 +69,58 @@ function CatchAllRedirect() {
   return <Navigate to="/" replace />
 }
 
+function AppChrome() {
+  const location = useLocation()
+  const hideSupportFab = location.pathname === '/kid'
+
+  return (
+    <>
+      {hideSupportFab ? null : <WhatsAppFloatingButton />}
+      <Routes>
+        <Route path="/" element={<SmartEntryRoute />} />
+        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        {/** /kid = KidModePage — approved videos play via `CleanPlayer` (no alternate embed on this route). */}
+        <Route path="/kid" element={<KidModeRoute />} />
+        <Route
+          path="/onboarding"
+          element={
+            <ProtectedRoute>
+              <OnboardingPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/set-parent-pin"
+          element={
+            <ProtectedRoute>
+              <SetParentPinPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/channels" element={<ChannelsPage />} />
+          <Route path="/playlists" element={<PlaylistsPage />} />
+          <Route path="/hidden-videos" element={<HiddenVideosPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/devices" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/subscription" element={<SubscriptionPage />} />
+        </Route>
+        <Route path="*" element={<CatchAllRedirect />} />
+      </Routes>
+    </>
+  )
+}
+
 export default function App() {
   useEffect(() => {
     preWarmMediaBridge()
@@ -78,48 +130,7 @@ export default function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <ThemeAwareToaster />
-        <WhatsAppFloatingButton />
-        <Routes>
-          <Route path="/" element={<SmartEntryRoute />} />
-          <Route path="/auth" element={<AuthPage />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
-          {/** /kid = KidModePage — approved videos play via `CleanPlayer` (no alternate embed on this route). */}
-          <Route path="/kid" element={<KidModeRoute />} />
-          <Route
-            path="/onboarding"
-            element={
-              <ProtectedRoute>
-                <OnboardingPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/set-parent-pin"
-            element={
-              <ProtectedRoute>
-                <SetParentPinPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            element={
-              <ProtectedRoute>
-                <AppLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/channels" element={<ChannelsPage />} />
-            <Route path="/playlists" element={<PlaylistsPage />} />
-            <Route path="/hidden-videos" element={<HiddenVideosPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/devices" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/subscription" element={<SubscriptionPage />} />
-          </Route>
-          <Route path="*" element={<CatchAllRedirect />} />
-        </Routes>
+        <AppChrome />
       </BrowserRouter>
     </ErrorBoundary>
   )

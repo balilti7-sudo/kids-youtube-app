@@ -2,7 +2,6 @@ import { memo } from 'react'
 import type { YouTubeVideoResult } from '../../types'
 import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
-import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
 import { KidGlobalSearchBar } from './KidGlobalSearchBar'
 
 export type KidGlobalSearchSectionProps = {
@@ -18,8 +17,6 @@ export type KidGlobalSearchSectionProps = {
   loadingMore?: boolean
   onLoadMore?: () => void
   onClear: () => void
-  parentModeUnlocked: boolean
-  childAccessToken: string | null
   compact?: boolean
   className?: string
 }
@@ -37,8 +34,6 @@ export const KidGlobalSearchSection = memo(function KidGlobalSearchSection({
   loadingMore = false,
   onLoadMore,
   onClear,
-  parentModeUnlocked,
-  childAccessToken,
   compact = false,
   className,
 }: KidGlobalSearchSectionProps) {
@@ -107,26 +102,9 @@ export const KidGlobalSearchSection = memo(function KidGlobalSearchSection({
                       <p className={`truncate text-yt-textMuted ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
                         {video.channelTitle || 'ערוץ לא ידוע'}
                       </p>
-                      {parentModeUnlocked && childAccessToken ? (
-                        <div className="mt-1.5">
-                          <AddToPlaylistButton
-                            mode="kid"
-                            userId={null}
-                            childAccessToken={childAccessToken}
-                            compact
-                            video={{
-                              youtube_video_id: video.videoId,
-                              title: video.title,
-                              thumbnail_url: video.thumbnail,
-                              channel_name: video.channelTitle || null,
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <p className={`mt-1 text-yt-textMuted ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
-                          צפייה — רק דרך ערוצים מאושרים
-                        </p>
-                      )}
+                      <p className={`mt-1 text-yt-textMuted ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
+                        צפייה — רק דרך ערוצים מאושרים
+                      </p>
                     </div>
                   </div>
                 ))}

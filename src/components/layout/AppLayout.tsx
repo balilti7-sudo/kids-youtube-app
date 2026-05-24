@@ -19,6 +19,7 @@ import { ThemeToggle } from '../theme/ThemeToggle'
 import { PageBackBar } from './PageBackBar'
 import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
+import { ParentManagementBanner } from './ParentManagementBanner'
 
 export function AppLayout() {
   const location = useLocation()
@@ -102,7 +103,9 @@ export function AppLayout() {
       {!showGate ? (
         <>
           <main className="safe-pb-nav flex flex-1 flex-col">
-            <header className="sticky top-0 z-30 border-b border-yt-border bg-yt-bg/95 px-2 py-2.5 backdrop-blur-md sm:px-3">
+            <div className="sticky top-0 z-30">
+              <ParentManagementBanner />
+              <header className="border-b border-yt-border bg-yt-bg/95 px-2 py-2.5 backdrop-blur-md sm:px-3">
               <div className="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 sm:gap-x-4">
                 <div className="flex min-w-0 items-center justify-self-stretch">
                   <PageBackBar flush />
@@ -112,7 +115,8 @@ export function AppLayout() {
                   <ThemeToggle />
                 </div>
               </div>
-            </header>
+              </header>
+            </div>
             <div className="mx-auto w-full max-w-5xl flex-1 px-3 py-4 sm:px-4">
               <Outlet />
               <ParentAppFooter />
