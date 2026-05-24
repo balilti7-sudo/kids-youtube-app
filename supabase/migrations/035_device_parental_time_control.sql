@@ -1,4 +1,4 @@
--- Per-device parental time controls + daily watch tracking
+-- Production hotfix: time control columns + child RPC updates (safe to re-run)
 
 ALTER TABLE public.devices
   ADD COLUMN IF NOT EXISTS time_limit_minutes INT
@@ -43,6 +43,8 @@ AS $$
   );
 $$;
 
+DROP FUNCTION IF EXISTS public.child_get_device_state(UUID);
+
 CREATE OR REPLACE FUNCTION public.child_get_device_state(p_access_token UUID)
 RETURNS TABLE (
   device_id UUID,
@@ -73,6 +75,8 @@ AS $$
   WHERE d.child_access_token = p_access_token
   LIMIT 1;
 $$;
+
+DROP FUNCTION IF EXISTS public.child_heartbeat(UUID);
 
 CREATE OR REPLACE FUNCTION public.child_heartbeat(p_access_token UUID)
 RETURNS TABLE (
@@ -142,6 +146,8 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION IF EXISTS public.local_parent_device_summary(uuid);
+
 CREATE OR REPLACE FUNCTION public.local_parent_device_summary(p_access_token uuid)
 RETURNS TABLE (
   id uuid,
@@ -183,4 +189,9 @@ AS $$
   LIMIT 1;
 $$;
 
+GRANT EXECUTE ON FUNCTION public.child_get_device_state(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.child_heartbeat(UUID) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.child_report_watch_seconds(UUID, INT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.local_parent_device_summary(uuid) TO anon, authenticated;
+
+NOTIFY pgrst, 'reload schema';
