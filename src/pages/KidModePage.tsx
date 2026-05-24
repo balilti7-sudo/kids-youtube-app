@@ -121,7 +121,10 @@ export function KidModePage() {
   const [globalSearchPinOpen, setGlobalSearchPinOpen] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState<string | null>(null)
   const [globalSearchResults, setGlobalSearchResults] = useState<YouTubeVideoResult[]>([])
+  const [globalSearchContinuation, setGlobalSearchContinuation] = useState<string | null>(null)
+  const [globalSearchHasMore, setGlobalSearchHasMore] = useState(false)
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false)
+  const [globalSearchLoadingMore, setGlobalSearchLoadingMore] = useState(false)
   const [globalSearchError, setGlobalSearchError] = useState<string | null>(null)
   const pendingGlobalSearchQueryRef = useRef<string | null>(null)
   const [clockTick, setClockTick] = useState(0)
@@ -214,25 +217,55 @@ export function KidModePage() {
     setGlobalSearchInput('')
     setGlobalSearchQuery(null)
     setGlobalSearchResults([])
+    setGlobalSearchContinuation(null)
+    setGlobalSearchHasMore(false)
     setGlobalSearchError(null)
     setGlobalSearchLoading(false)
+    setGlobalSearchLoadingMore(false)
   }, [])
 
   const runGlobalYoutubeSearch = useCallback(async (query: string) => {
     const q = query.trim()
     if (!q) return
     setGlobalSearchLoading(true)
+    setGlobalSearchLoadingMore(false)
     setGlobalSearchError(null)
     setGlobalSearchQuery(q)
     setGlobalSearchResults([])
-    const { data, error } = await searchYouTubeVideos(q)
+    setGlobalSearchContinuation(null)
+    setGlobalSearchHasMore(false)
+    const { data, error, continuation, hasMore } = await searchYouTubeVideos(q)
     setGlobalSearchLoading(false)
     if (error) {
       setGlobalSearchError(error.message)
       return
     }
     setGlobalSearchResults(data ?? [])
+    setGlobalSearchContinuation(continuation)
+    setGlobalSearchHasMore(hasMore)
   }, [])
+
+  const loadMoreGlobalYoutubeSearch = useCallback(async () => {
+    const q = globalSearchQuery?.trim()
+    if (!q || !globalSearchContinuation || globalSearchLoadingMore) return
+    setGlobalSearchLoadingMore(true)
+    setGlobalSearchError(null)
+    const { data, error, continuation, hasMore } = await searchYouTubeVideos(q, {
+      continuation: globalSearchContinuation,
+    })
+    setGlobalSearchLoadingMore(false)
+    if (error) {
+      setGlobalSearchError(error.message)
+      return
+    }
+    setGlobalSearchResults((prev) => {
+      const seen = new Set(prev.map((v) => v.videoId))
+      const next = (data ?? []).filter((v) => !seen.has(v.videoId))
+      return [...prev, ...next]
+    })
+    setGlobalSearchContinuation(continuation)
+    setGlobalSearchHasMore(hasMore)
+  }, [globalSearchQuery, globalSearchContinuation, globalSearchLoadingMore])
 
   const handleGlobalSearchRequest = useCallback((query: string) => {
     const q = query.trim()
@@ -251,6 +284,9 @@ export function KidModePage() {
       loading: globalSearchLoading,
       error: globalSearchError,
       results: globalSearchResults,
+      hasMore: globalSearchHasMore,
+      loadingMore: globalSearchLoadingMore,
+      onLoadMore: loadMoreGlobalYoutubeSearch,
       onClear: clearGlobalSearch,
       parentModeUnlocked,
       childAccessToken: accessToken,
@@ -262,6 +298,9 @@ export function KidModePage() {
       globalSearchLoading,
       globalSearchError,
       globalSearchResults,
+      globalSearchHasMore,
+      globalSearchLoadingMore,
+      loadMoreGlobalYoutubeSearch,
       clearGlobalSearch,
       parentModeUnlocked,
       accessToken,

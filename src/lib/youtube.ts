@@ -1,4 +1,5 @@
 import type { YouTubeChannelResult, YouTubeVideoResult } from '../types'
+import { getStreamApiBaseUrl } from './streamApi'
 
 const YT_API = 'https://www.googleapis.com/youtube/v3'
 
@@ -35,15 +36,6 @@ type ChannelItem = {
     thumbnails?: { medium?: { url?: string }; default?: { url?: string } }
   }
   statistics?: { subscriberCount?: string; hiddenSubscriberCount?: boolean }
-}
-
-type VideoSearchItem = {
-  id?: { videoId?: string }
-  snippet?: {
-    title?: string
-    channelTitle?: string
-    thumbnails?: { medium?: { url?: string }; default?: { url?: string } }
-  }
 }
 
 type VideoItem = {
@@ -312,63 +304,67 @@ export function extractYouTubeVideoId(input: string): string | null {
   return null
 }
 
-export async function searchYouTubeVideos(query: string): Promise<{
+export type YouTubeVideoSearchResult = {
   data: YouTubeVideoResult[] | null
   error: Error | null
-}> {
+  continuation: string | null
+  hasMore: boolean
+}
+
+type BridgeSearchResponse = {
+  videos?: YouTubeVideoResult[]
+  continuation?: string | null
+  hasMore?: boolean
+  error?: string
+  detail?: string
+}
+
+function buildBridgeSearchUrl(query: string, continuation?: string | null): string {
+  const base = getStreamApiBaseUrl().replace(/\/+$/, '')
+  const url = new URL(`${base}/api/youtube/search`)
   const q = query.trim()
-  if (!q) return { data: [], error: null }
-  const key = getApiKey()
-  if (!key) {
-    return {
-      data: null,
-      error: new Error(
-        'חסר מפתח YouTube: הוסיפו VITE_YOUTUBE_API_KEY לקובץ .env.local והפעילו מחדש את שרת הפיתוח (npm run dev).'
-      ),
-    }
+  if (q) url.searchParams.set('q', q)
+  if (continuation) url.searchParams.set('continuation', continuation)
+  return url.toString()
+}
+
+export async function searchYouTubeVideos(
+  query: string,
+  options?: { continuation?: string | null }
+): Promise<YouTubeVideoSearchResult> {
+  const q = query.trim()
+  const continuation = options?.continuation?.trim() || null
+  if (!q && !continuation) {
+    return { data: [], error: null, continuation: null, hasMore: false }
   }
 
   try {
-    const searchUrl = new URL(`${YT_API}/search`)
-    searchUrl.searchParams.set('part', 'snippet')
-    searchUrl.searchParams.set('type', 'video')
-    // ברירת מחדל בלי videoEmbeddable — לא מסננים רק סרטונים embeddable (החמרה הייתה מצמצמת תוצאות)
-    searchUrl.searchParams.set('safeSearch', 'moderate')
-    searchUrl.searchParams.set('maxResults', '15')
-    searchUrl.searchParams.set('q', q)
-    searchUrl.searchParams.set('key', key)
-
-    const res = await fetch(searchUrl.toString())
-    const json = (await res.json()) as {
-      items?: VideoSearchItem[]
-      error?: { message?: string; errors?: { message?: string }[] }
-    }
+    const res = await fetch(buildBridgeSearchUrl(q, continuation), {
+      method: 'GET',
+      credentials: 'omit',
+      cache: 'no-store',
+    })
+    const json = (await res.json()) as BridgeSearchResponse
 
     if (!res.ok) {
-      const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
-      throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
+      const msg = json.detail || json.error || `שגיאת חיפוש (${res.status})`
+      throw new Error(msg)
     }
 
-    const items = json.items ?? []
-    const results: YouTubeVideoResult[] = items
-      .map((item) => {
-        const videoId = item.id?.videoId
-        if (!videoId) return null
-        return {
-          videoId,
-          title: item.snippet?.title ?? 'ללא כותרת',
-          thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
-          channelTitle: item.snippet?.channelTitle ?? '',
-        }
-      })
-      .filter(Boolean) as YouTubeVideoResult[]
-
-    return { data: results, error: null }
+    const videos = Array.isArray(json.videos) ? json.videos : []
+    return {
+      data: videos,
+      error: null,
+      continuation: json.continuation ?? null,
+      hasMore: Boolean(json.hasMore),
+    }
   } catch (e) {
     console.error('[youtube] searchYouTubeVideos', e)
     return {
       data: null,
       error: e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('חיפוש נכשל'),
+      continuation: null,
+      hasMore: false,
     }
   }
 }

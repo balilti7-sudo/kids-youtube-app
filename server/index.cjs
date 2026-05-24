@@ -23,6 +23,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 
 const potClient = require('./pot-client.cjs');
+const { searchYouTube } = require('./youtube-search.cjs');
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const PORT = Number(process.env.PORT || 3001);
@@ -491,6 +492,44 @@ app.get('/health', async (_req, res) => {
     clientChain: CLIENT_CHAIN,
     cookiesFile: resolveCookiesPath() || null,
   });
+});
+
+/** Scraped YouTube video search — no Data API quota. Supports cursor pagination via `continuation`. */
+app.get('/api/youtube/search', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const continuation =
+    typeof req.query.continuation === 'string' ? req.query.continuation.trim() : '';
+
+  if (!q && !continuation) {
+    return res.status(400).json({
+      error: 'missing_query',
+      detail: 'Provide q= search text or continuation= from a previous response.',
+    });
+  }
+
+  if (q.length > 200) {
+    return res.status(400).json({
+      error: 'query_too_long',
+      detail: 'Search query must be 200 characters or fewer.',
+    });
+  }
+
+  try {
+    const result = await searchYouTube(q, continuation || null);
+    res.json({
+      query: q || null,
+      videos: result.videos,
+      continuation: result.continuation,
+      hasMore: result.hasMore,
+      source: 'scrape',
+    });
+  } catch (err) {
+    console.error('[/api/youtube/search] failed:', err?.message || err);
+    res.status(502).json({
+      error: 'search_failed',
+      detail: err?.message || 'YouTube search failed',
+    });
+  }
 });
 
 app.get('/api/stream/:videoId', async (req, res) => {
