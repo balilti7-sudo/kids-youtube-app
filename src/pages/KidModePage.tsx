@@ -179,18 +179,32 @@ export function KidModePage() {
   }, [parentModeUnlocked, accessToken])
 
   const verifyKidGlobalSearchPin = useCallback(
-    (pin: string) => {
-      const session = isLocalParentSessionValid() ? readLocalParentSession() : null
-      return verifyParentManagementPin(
-        {
-          userId: undefined,
-          profile: null,
-          localParent: { isActive: Boolean(session), pin: session?.pin ?? null },
-        },
-        pin
-      )
+    async (pin: string) => {
+      const token = accessToken ?? getSavedChildAccessToken()
+      if (!token) {
+        return { ok: false, errorMessage: 'המכשיר לא מחובר' } as const
+      }
+      const pinForServer = pin.replace(/\s+/g, '').trim()
+      if (pinForServer.length < 4) {
+        return { ok: false, errorMessage: 'קוד שגוי' } as const
+      }
+      const { data, error } = await supabase.rpc('local_parent_bootstrap', {
+        p_access_token: token,
+        p_pin: pinForServer,
+      })
+      const row = Array.isArray(data) ? data[0] : null
+      if (error || !row?.device_id) {
+        return { ok: false, errorMessage: 'קוד שגוי' } as const
+      }
+      writeLocalParentSession({
+        deviceId: String(row.device_id),
+        ownerUserId: String(row.owner_user_id),
+        accessToken: token,
+        pin: pinForServer,
+      })
+      return { ok: true as const }
     },
-    []
+    [accessToken]
   )
 
   const clearGlobalSearch = useCallback(() => {
@@ -217,19 +231,12 @@ export function KidModePage() {
     setGlobalSearchResults(data ?? [])
   }, [])
 
-  const handleGlobalSearchRequest = useCallback(
-    (query: string) => {
-      const q = query.trim()
-      if (!q) return
-      if (parentModeUnlocked) {
-        void runGlobalYoutubeSearch(q)
-        return
-      }
-      pendingGlobalSearchQueryRef.current = q
-      setGlobalSearchPinOpen(true)
-    },
-    [parentModeUnlocked, runGlobalYoutubeSearch]
-  )
+  const handleGlobalSearchRequest = useCallback((query: string) => {
+    const q = query.trim()
+    if (!q) return
+    pendingGlobalSearchQueryRef.current = q
+    setGlobalSearchPinOpen(true)
+  }, [])
 
   const handleGlobalSearchPinVerified = useCallback(
     (_pin: string) => {
