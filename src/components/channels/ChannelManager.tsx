@@ -27,7 +27,6 @@ import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
-import { ParentSingleVideoSearchSection } from '../dashboard/ParentSingleVideoSearchSection'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
 
@@ -383,8 +382,6 @@ export function ChannelManager() {
           </Button>
         </div>
       </header>
-
-      <ParentSingleVideoSearchSection />
 
       {devLoading || listLoading ? (
         <Skeleton className="h-32 w-full" />
