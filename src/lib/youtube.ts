@@ -319,6 +319,35 @@ type BridgeSearchResponse = {
   detail?: string
 }
 
+function previewResponseBody(body: string): string {
+  return body.replace(/\s+/g, ' ').trim().slice(0, 300)
+}
+
+function parseBridgeSearchJson(text: string, url: string, status: number, contentType: string): BridgeSearchResponse {
+  const trimmed = text.trim()
+  if (!trimmed) return {}
+  try {
+    return JSON.parse(trimmed) as BridgeSearchResponse
+  } catch (e) {
+    const bodyPreview = previewResponseBody(trimmed)
+    console.error('[youtube] non-JSON bridge search response', {
+      url,
+      status,
+      contentType,
+      bodyPreview,
+      parseError: e instanceof Error ? e.message : e,
+    })
+    const looksHtml =
+      contentType.toLowerCase().includes('text/html') ||
+      trimmed.startsWith('<!DOCTYPE') ||
+      trimmed.startsWith('<html')
+    const hint = looksHtml
+      ? 'שרת החיפוש החזיר HTML במקום JSON. בדקו ש-VITE_STREAM_API_BASE מצביע ל-Media Bridge ולא לאתר ה-frontend.'
+      : 'שרת החיפוש החזיר תשובה לא תקינה.'
+    throw new Error(`${hint} (${status})`)
+  }
+}
+
 function buildBridgeSearchUrl(query: string, continuation?: string | null): string {
   const base = getStreamApiBaseUrl().replace(/\/+$/, '')
   const url = new URL(`${base}/api/youtube/search`)
@@ -339,14 +368,24 @@ export async function searchYouTubeVideos(
   }
 
   try {
-    const res = await fetch(buildBridgeSearchUrl(q, continuation), {
+    const url = buildBridgeSearchUrl(q, continuation)
+    const res = await fetch(url, {
       method: 'GET',
       credentials: 'omit',
       cache: 'no-store',
     })
-    const json = (await res.json()) as BridgeSearchResponse
+    const contentType = res.headers.get('content-type') ?? ''
+    const text = await res.text()
+    const json = parseBridgeSearchJson(text, url, res.status, contentType)
 
     if (!res.ok) {
+      if (contentType.toLowerCase().includes('text/html')) {
+        console.error('[youtube] bridge search failed with HTML body', {
+          url,
+          status: res.status,
+          bodyPreview: previewResponseBody(text),
+        })
+      }
       const msg = json.detail || json.error || `שגיאת חיפוש (${res.status})`
       throw new Error(msg)
     }

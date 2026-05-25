@@ -96,11 +96,11 @@ export function DashboardDevicesSection() {
   return (
     <section
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
-      aria-labelledby="devices-section-title"
+      aria-labelledby="profiles-section-title"
     >
       <div className="mb-2 flex flex-col gap-1.5">
         <div>
-          <h2 id="devices-section-title" className="text-lg font-bold text-zinc-50">
+          <h2 id="profiles-section-title" className="text-lg font-bold text-zinc-50">
             פרופילים
           </h2>
           <p className="text-xs text-zinc-500">פרופילים מקושרים: {devices.length} / {max}</p>
@@ -109,7 +109,7 @@ export function DashboardDevicesSection() {
         <div className="rounded-2xl border border-zinc-700/90 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80">
           <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">פרופילי ילדים</p>
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
-            מוסיפים פרופיל כאן; צימוד והרשאות נעשים ממסך הילד בהתאם להגדרות המערכת.
+            מוסיפים פרופיל כאן; הוא משמש לצימוד מסך הילד ולהגדרת ההרשאות.
           </p>
           <div className="flex flex-col gap-1">
             <Button

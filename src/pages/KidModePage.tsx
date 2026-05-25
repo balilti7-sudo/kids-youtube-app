@@ -898,7 +898,7 @@ export function KidModePage() {
       <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
         <LoadingSpinner className="h-10 w-10 border-brand-500 border-t-transparent" />
         <p className="text-sm text-slate-600 dark:text-zinc-400">
-          {pendingUrlPairCode ? 'מחברים את המכשיר אחרי הסריקה…' : 'טוען…'}
+          {pendingUrlPairCode ? 'מחברים לפרופיל אחרי הסריקה…' : 'טוען…'}
         </p>
       </div>
     )
@@ -910,7 +910,7 @@ export function KidModePage() {
         <div className="text-center">
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">{KID_APP_DISPLAY_NAME}</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-            <strong className="text-slate-800 dark:text-zinc-200">ההתקנה העיקרית כאן:</strong> התחברו כהורה באותו דפדפן (אימייל וסיסמה), צרו מכשיר בלוח הבקרה, והזינו למטה את <strong>קוד הצימוד בן 6 הספרות</strong> — החיבור נשמר במכשיר ולא יבקשו שוב התחברות הורה.
+            <strong className="text-slate-800 dark:text-zinc-200">ההתקנה העיקרית כאן:</strong> התחברו כהורה באותו דפדפן (אימייל וסיסמה), צרו פרופיל בלוח הבקרה, והזינו למטה את <strong>קוד הצימוד בן 6 הספרות</strong> — החיבור נשמר במכשיר ולא יבקשו שוב התחברות הורה.
           </p>
           <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-zinc-500">
             קוד ה־QR בלוח ההורה מיועד ל<strong className="font-semibold text-slate-700 dark:text-zinc-300">טלפון נוסף</strong> של ההורה (צפייה / ניטור) — לא חובה להגדרה על המכשיר הזה.
@@ -1019,7 +1019,7 @@ export function KidModePage() {
             {error ? <p className="mt-2 text-sm text-danger-600">{error}</p> : null}
             <Button className="mt-4 w-full" disabled={submitting} onClick={() => void handlePair()}>
               {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-              {submitting ? 'מתחבר...' : 'חבר מכשיר'}
+              {submitting ? 'מתחבר...' : 'חבר פרופיל'}
             </Button>
             <button
               type="button"
@@ -1227,9 +1227,9 @@ export function KidModePage() {
           ) : channels.length === 0 ? (
             <div className="px-3 py-4 sm:px-4 lg:col-span-2">
               <div className="rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-5 text-sm leading-relaxed text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/35 dark:text-amber-100">
-                <p className="font-semibold">אין ערוצים שמקושרים למכשיר הזה</p>
+                <p className="font-semibold">אין ערוצים שמקושרים לפרופיל הזה</p>
                 <p className="mt-2 text-amber-900/95 dark:text-amber-200/90">
-                  בלשונית <strong className="font-bold">הורים</strong> — ניהול ערוצים, ובחרו את המכשיר &quot;{device.device_name}
+                  בלשונית <strong className="font-bold">הורים</strong> — ניהול ערוצים, ובחרו את הפרופיל &quot;{device.device_name}
                   &quot;.
                 </p>
                 <p className="mt-2 text-[11px] text-amber-900/90 dark:text-amber-200/85">
