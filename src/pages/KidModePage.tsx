@@ -1448,7 +1448,6 @@ export function KidModePage() {
                                     layout="row"
                                     title={video.title}
                                     thumbnail={video.thumbnail}
-                                    channelName={activeChannel?.channel_name ?? undefined}
                                     active={isCurrent}
                                     playingLabel="מנגן"
                                     onClick={() => handleSelectVideo(video.videoId)}

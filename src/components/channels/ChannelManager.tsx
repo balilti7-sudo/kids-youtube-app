@@ -525,7 +525,6 @@ export function ChannelManager() {
                                 layout="row"
                                 title={v.title}
                                 thumbnail={v.thumbnail}
-                                channelName={previewChannel.channel_name}
                                 active={isCurrent}
                                 playingLabel="מנגן"
                                 onClick={() => handlePickPreviewVideo(v.videoId)}

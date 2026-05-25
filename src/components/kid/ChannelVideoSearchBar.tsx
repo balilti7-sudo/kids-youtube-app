@@ -20,16 +20,10 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   id: idProp,
   value,
   onChange,
-  totalCount,
-  filteredCount,
   channelLabel,
   className,
   onFocusChange,
 }: ChannelVideoSearchBarProps) {
-  const trimmed = value.trim()
-  const hasQuery = trimmed.length > 0
-  const showingAll = !hasQuery || filteredCount === totalCount
-
   return (
     <section className={cn('w-full', className)} aria-label="חיפוש סרטונים בערוץ">
       <div className="mb-2.5 text-right">
@@ -53,14 +47,6 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
         placeholder="חפשו סרטון בערוץ…"
         aria-label="חיפוש לפי שם סרטון בערוץ הנבחר"
       />
-
-      <p className="mt-2 text-xs font-medium text-yt-textMuted sm:text-sm" aria-live="polite">
-        {totalCount === 0
-          ? 'אין עדיין סרטונים ברשימה'
-          : showingAll
-            ? `${totalCount} סרטונים בערוץ`
-            : `מוצגים ${filteredCount} מתוך ${totalCount} סרטונים`}
-      </p>
     </section>
   )
 })
