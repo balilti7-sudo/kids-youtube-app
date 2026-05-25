@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ListMusic, Plus } from 'lucide-react'
+import { ListMusic, Plus, X } from 'lucide-react'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { Button } from '../ui/Button'
@@ -39,6 +39,7 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
   const [videosError, setVideosError] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const loadRequestRef = useRef(0)
 
@@ -109,7 +110,14 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
     setCreating(false)
     if (error) return
     setNewName('')
+    setCreateOpen(false)
     if (data?.id) setSelectedId(data.id)
+  }
+
+  const cancelCreate = () => {
+    if (creating) return
+    setNewName('')
+    setCreateOpen(false)
   }
 
   const active = videos.find((v) => v.youtube_video_id === activeVideoId) ?? null
@@ -143,28 +151,88 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
         <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
           צרו פלייליסט ראשון למטה, או הוסיפו סרטונים מלשונית <strong>צפייה</strong> עם ➕.
         </p>
-        <div className="flex w-full max-w-sm gap-2">
-          <Input
-            placeholder="שם הפלייליסט"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            className="flex-1"
-          />
-          <Button type="button" onClick={() => void handleCreate()} disabled={creating || !newName.trim()}>
-            {creating ? <LoadingSpinner className="h-4 w-4" /> : <Plus className="h-4 w-4" aria-hidden />}
-            צור
+        {!createOpen ? (
+          <Button
+            type="button"
+            className="min-h-12 rounded-2xl px-5 font-bold"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="h-5 w-5" aria-hidden />
+            יצירת פלייליסט חדש
           </Button>
-        </div>
+        ) : (
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-950/70 p-3">
+            <Input
+              placeholder="שם הפלייליסט"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="h-12 rounded-2xl"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && void handleCreate()}
+            />
+            <div className="mt-2 flex gap-2">
+              <Button
+                type="button"
+                className="min-h-11 flex-1 rounded-2xl font-bold"
+                onClick={() => void handleCreate()}
+                disabled={creating || !newName.trim()}
+              >
+                {creating ? <LoadingSpinner className="h-4 w-4" /> : null}
+                שמור
+              </Button>
+              <Button type="button" variant="secondary" className="min-h-11 flex-1 rounded-2xl" onClick={cancelCreate} disabled={creating}>
+                <X className="h-4 w-4" aria-hidden />
+                ביטול
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
 
   return (
     <div className="mx-auto max-w-[1600px] px-1.5 pb-4 pt-2 sm:px-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2 px-0.5">
-        <ListMusic className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
-        <p className="text-base font-bold text-slate-900 dark:text-zinc-50">הפלייליסטים שלי</p>
+      <div className="mb-3 flex flex-col gap-3 rounded-3xl border border-zinc-800 bg-zinc-950/80 p-3 shadow-xl shadow-black/10 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/25">
+            <ListMusic className="h-6 w-6" aria-hidden />
+          </span>
+          <p className="text-base font-bold text-slate-900 dark:text-zinc-50">הפלייליסטים שלי</p>
+        </div>
+        <Button
+          type="button"
+          className="min-h-11 rounded-2xl px-5 font-bold"
+          onClick={() => setCreateOpen((open) => !open)}
+        >
+          <Plus className="h-5 w-5" aria-hidden />
+          יצירת פלייליסט חדש
+        </Button>
       </div>
+
+      {createOpen ? (
+        <div className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-3">
+          <label className="mb-2 block text-sm font-semibold text-zinc-200">שם הפלייליסט החדש</label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              placeholder="למשל: ילדים"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="h-12 max-w-sm flex-1 rounded-2xl"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && void handleCreate()}
+            />
+            <Button type="button" className="min-h-12 rounded-2xl px-5 font-bold" onClick={() => void handleCreate()} disabled={creating || !newName.trim()}>
+              {creating ? <LoadingSpinner className="h-4 w-4" /> : null}
+              שמור
+            </Button>
+            <Button type="button" variant="secondary" className="min-h-12 rounded-2xl px-5" onClick={cancelCreate} disabled={creating}>
+              <X className="h-4 w-4" aria-hidden />
+              ביטול
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
         {playlists.map((pl: UserPlaylist) => (
@@ -173,29 +241,16 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
             type="button"
             onClick={() => setSelectedId(pl.id)}
             className={cn(
-              'shrink-0 rounded-full border-2 px-4 py-2 text-sm font-semibold transition',
+              'shrink-0 rounded-2xl border px-4 py-2 text-sm font-semibold shadow-sm transition',
               selectedId === pl.id
-                ? 'border-brand-500 bg-brand-50 text-brand-900 dark:bg-brand-950/50 dark:text-brand-100'
-                : 'border-slate-200 bg-white dark:border-zinc-700 dark:bg-zinc-900'
+                ? 'border-brand-500/70 bg-brand-950/50 text-brand-100 ring-1 ring-brand-500/20'
+                : 'border-zinc-800 bg-zinc-950/70 text-zinc-200 hover:border-zinc-700 hover:bg-zinc-900'
             )}
           >
             {pl.name}
             <span className="mr-1 text-xs opacity-70">({pl.video_count})</span>
           </button>
         ))}
-      </div>
-
-      <div className="mb-4 flex gap-2 px-0.5">
-        <Input
-          placeholder="פלייליסט חדש"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          className="max-w-xs flex-1"
-        />
-        <Button type="button" variant="secondary" onClick={() => void handleCreate()} disabled={creating || !newName.trim()}>
-          <Plus className="h-4 w-4" aria-hidden />
-          חדש
-        </Button>
       </div>
 
       {videosLoading && videos.length === 0 ? (

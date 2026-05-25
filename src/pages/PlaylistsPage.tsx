@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ListMusic, Plus, Trash2 } from 'lucide-react'
+import { ListMusic, Plus, Trash2, X } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { usePlaylists } from '../hooks/usePlaylists'
@@ -31,6 +31,7 @@ export function PlaylistsPage() {
   const [videosLoading, setVideosLoading] = useState(false)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const loadRequestRef = useRef(0)
   const hideVideoCtx = useHideVideoContext()
@@ -93,8 +94,15 @@ export function PlaylistsPage() {
       return
     }
     setNewName('')
+    setCreateOpen(false)
     await refresh()
     if (data?.id) setSelectedId(data.id)
+  }
+
+  const cancelCreate = () => {
+    if (creating) return
+    setNewName('')
+    setCreateOpen(false)
   }
 
   const handleDelete = async (pl: UserPlaylist) => {
@@ -131,60 +139,102 @@ export function PlaylistsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-3 pb-28 pt-4 sm:px-4">
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-zinc-50">
-          <ListMusic className="h-7 w-7 text-brand-600" aria-hidden />
-          הפלייליסטים שלי
-        </h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
-          צרו פלייליסטים ושמרו סרטונים מערוצים מאושרים. הילדים רואים את אותם הפלייליסטים במכשיר הצפייה.
-        </p>
-      </header>
+    <div className="mx-auto max-w-5xl px-3 pb-28 pt-4 sm:px-4">
+      <section className="mb-4 rounded-3xl border border-zinc-800 bg-gradient-to-b from-zinc-900/95 to-zinc-950 p-4 shadow-2xl shadow-black/20 ring-1 ring-zinc-900 sm:p-5">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="flex items-center gap-2 text-xl font-bold text-zinc-50">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/25">
+                <ListMusic className="h-6 w-6" aria-hidden />
+              </span>
+              הפלייליסטים שלי
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+              צרו פלייליסטים ושמרו סרטונים מערוצים מאושרים. הילדים רואים את אותם הפלייליסטים במכשיר הצפייה.
+            </p>
+          </div>
+          <Button
+            type="button"
+            className="min-h-12 rounded-2xl bg-zinc-100 px-5 font-bold text-zinc-950 shadow-lg shadow-black/25 hover:bg-white"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="h-5 w-5" aria-hidden />
+            יצירת פלייליסט חדש
+          </Button>
+        </header>
 
-      <div className="mb-4 flex gap-2">
-        <Input
-          placeholder="שם פלייליסט חדש"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          className="flex-1"
-        />
-        <Button type="button" onClick={() => void handleCreate()} disabled={creating || !newName.trim()}>
-          {creating ? <LoadingSpinner className="h-4 w-4" /> : <Plus className="h-4 w-4" aria-hidden />}
-          חדש
-        </Button>
-      </div>
+        {createOpen ? (
+          <div className="mt-4 rounded-2xl border border-zinc-800 bg-black/25 p-3">
+            <label className="mb-2 block text-sm font-semibold text-zinc-200">שם הפלייליסט החדש</label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                placeholder="למשל: ילדים"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="h-12 flex-1 rounded-2xl border-zinc-700 bg-zinc-900/90 text-zinc-50 focus:border-brand-400/70 focus:ring-brand-500/20"
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && void handleCreate()}
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  className="min-h-12 flex-1 rounded-2xl px-5 font-bold sm:flex-none"
+                  onClick={() => void handleCreate()}
+                  disabled={creating || !newName.trim()}
+                >
+                  {creating ? <LoadingSpinner className="h-4 w-4" /> : null}
+                  שמור
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-12 flex-1 rounded-2xl border-zinc-700 bg-zinc-900/70 px-5 text-zinc-100 hover:bg-zinc-800 sm:flex-none"
+                  onClick={cancelCreate}
+                  disabled={creating}
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                  ביטול
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       {playlistsLoading && playlists.length === 0 ? (
         <div className="flex justify-center py-16">
           <LoadingSpinner className="h-9 w-9 border-2 border-brand-500 border-t-transparent" />
         </div>
       ) : playlists.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
-          אין עדיין פלייליסטים. צרו אחד למעלה, או הוסיפו סרטונים מלשונית ערוצים עם כפתור ➕.
-        </p>
+        <div className="rounded-3xl border border-dashed border-zinc-700 bg-zinc-950/50 px-4 py-10 text-center">
+          <ListMusic className="mx-auto mb-3 h-12 w-12 text-zinc-600" aria-hidden />
+          <p className="text-sm font-semibold text-zinc-300">אין עדיין פלייליסטים</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-zinc-500">
+            לחצו על יצירת פלייליסט חדש והוסיפו אליו סרטונים מלשונית ערוצים.
+          </p>
+        </div>
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row">
-          <ul className="flex shrink-0 flex-col gap-2 lg:w-56">
+          <ul className="flex shrink-0 flex-col gap-2 lg:w-64">
             {playlists.map((pl) => (
-              <li key={pl.id} className="flex gap-1">
+              <li key={pl.id} className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setSelectedId(pl.id)}
                   className={cn(
-                    'min-w-0 flex-1 rounded-xl border-2 px-3 py-2.5 text-right transition',
+                    'min-w-0 flex-1 rounded-2xl border px-4 py-3 text-right shadow-sm transition',
                     selectedId === pl.id
-                      ? 'border-brand-500 bg-brand-50 dark:border-brand-600 dark:bg-brand-950/40'
-                      : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900'
+                      ? 'border-brand-500/70 bg-brand-950/40 ring-1 ring-brand-500/20'
+                      : 'border-zinc-800 bg-zinc-950/70 hover:border-zinc-700 hover:bg-zinc-900'
                   )}
                 >
-                  <span className="block truncate font-semibold text-slate-900 dark:text-zinc-100">{pl.name}</span>
-                  <span className="text-xs text-slate-500">{pl.video_count} סרטונים</span>
+                  <span className="block truncate font-bold text-zinc-100">{pl.name}</span>
+                  <span className="mt-1 block text-xs text-zinc-500">{pl.video_count} סרטונים</span>
                 </button>
                 <button
                   type="button"
                   aria-label={`מחק ${pl.name}`}
-                  className="rounded-xl border border-slate-200 px-2 text-slate-500 hover:bg-red-50 hover:text-red-700 dark:border-zinc-700 dark:hover:bg-red-950/40"
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 text-zinc-500 transition hover:border-red-500/50 hover:bg-red-950/40 hover:text-red-300"
                   onClick={() => void handleDelete(pl)}
                 >
                   <Trash2 className="h-4 w-4" aria-hidden />
