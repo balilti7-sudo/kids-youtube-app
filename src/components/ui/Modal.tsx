@@ -2,6 +2,7 @@ import { useId, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { Button } from './Button'
+import { cn } from '../../lib/utils'
 
 type ModalSize = 'md' | 'lg' | 'xl' | 'full'
 
@@ -20,6 +21,9 @@ export function Modal({
   footer,
   size = 'md',
   bodyClassName,
+  panelClassName,
+  headerClassName,
+  footerClassName,
 }: {
   open: boolean
   onClose: () => void
@@ -28,6 +32,9 @@ export function Modal({
   footer?: ReactNode
   size?: ModalSize
   bodyClassName?: string
+  panelClassName?: string
+  headerClassName?: string
+  footerClassName?: string
 }) {
   const titleId = useId()
   if (!open) return null
@@ -47,9 +54,13 @@ export function Modal({
         onClick={onClose}
       />
       <div
-        className={`relative z-10 w-full ${SIZE_CLASS[size]} rounded-t-3xl bg-yt-surface p-4 shadow-2xl ring-1 ring-yt-border sm:rounded-3xl sm:p-6`}
+        className={cn(
+          'relative z-10 w-full rounded-t-3xl bg-yt-surface p-4 shadow-2xl ring-1 ring-yt-border sm:rounded-3xl sm:p-6',
+          SIZE_CLASS[size],
+          panelClassName
+        )}
       >
-        <div className="mb-4 flex items-start justify-between gap-2">
+        <div className={cn('mb-4 flex items-start justify-between gap-2', headerClassName)}>
           <h2 id={titleId} className="text-lg font-bold text-yt-text">
             {title}
           </h2>
@@ -59,7 +70,7 @@ export function Modal({
         </div>
         <div className={bodyClassName ?? 'max-h-[70vh] overflow-y-auto'}>{children}</div>
         {footer ? (
-          <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-yt-border pt-4">
+          <div className={cn('mt-4 flex flex-wrap justify-end gap-2 border-t border-yt-border pt-4', footerClassName)}>
             {footer}
           </div>
         ) : null}

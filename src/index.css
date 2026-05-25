@@ -66,4 +66,24 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+  .premium-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(82 82 91 / 0.8) transparent;
+  }
+  .premium-scrollbar::-webkit-scrollbar {
+    width: 10px;
+  }
+  .premium-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .premium-scrollbar::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: rgb(82 82 91 / 0.8);
+    background-clip: content-box;
+  }
+  .premium-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgb(113 113 122 / 0.95);
+    background-clip: content-box;
+  }
 }

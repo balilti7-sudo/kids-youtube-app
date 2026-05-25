@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Plus, Smartphone, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Settings2, Smartphone, Trash2 } from 'lucide-react'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useSubscription } from '../../hooks/useSubscription'
@@ -17,6 +18,7 @@ function randomSixDigits() {
 }
 
 export function DashboardDevicesSection() {
+  const navigate = useNavigate()
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
@@ -93,6 +95,10 @@ export function DashboardDevicesSection() {
     await refetch()
   }
 
+  const openChannelManagement = (id: string) => {
+    navigate(`/channels?device=${encodeURIComponent(id)}`)
+  }
+
   return (
     <section
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
@@ -159,7 +165,17 @@ export function DashboardDevicesSection() {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-zinc-100">{d.name}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="!px-3 !py-2 text-xs font-bold"
+                  onClick={() => openChannelManagement(d.id)}
+                  aria-label={`ניהול ערוצים עבור ${d.name}`}
+                >
+                  <Settings2 className="h-4 w-4" />
+                  ניהול ערוצים
+                </Button>
                 <Button
                   type="button"
                   variant="danger"

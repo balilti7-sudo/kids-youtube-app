@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -39,6 +39,7 @@ type PendingPinAction =
 
 export function ChannelManager() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user, profile } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
   const localParent = useLocalParentManagement()
@@ -64,6 +65,7 @@ export function ChannelManager() {
   const [previewVideoSearch, setPreviewVideoSearch] = useState('')
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
+  const requestedDeviceId = searchParams.get('device')
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
 
@@ -84,8 +86,30 @@ export function ChannelManager() {
   })
 
   useEffect(() => {
-    if (!deviceId && devices[0]?.id) setDeviceId(devices[0].id)
-  }, [devices, deviceId])
+    if (devices.length === 0) return
+    if (requestedDeviceId && devices.some((d) => d.id === requestedDeviceId)) {
+      if (deviceId !== requestedDeviceId) setDeviceId(requestedDeviceId)
+      return
+    }
+    if (!deviceId || !devices.some((d) => d.id === deviceId)) {
+      setDeviceId(devices[0].id)
+    }
+  }, [devices, deviceId, requestedDeviceId])
+
+  const handleDeviceChange = useCallback(
+    (nextDeviceId: string) => {
+      setDeviceId(nextDeviceId)
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.set('device', nextDeviceId)
+          return next
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
+  )
 
   useEffect(() => {
     if (localParent.isActive) {
@@ -360,7 +384,7 @@ export function ChannelManager() {
           <select
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
             value={deviceId ?? ''}
-            onChange={(e) => setDeviceId(e.target.value)}
+            onChange={(e) => handleDeviceChange(e.target.value)}
           >
             {devices.map((d) => (
               <option key={d.id} value={d.id}>
