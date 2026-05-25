@@ -6,7 +6,7 @@ export function StatsGrid({ devices }: { devices: Device[] }) {
   const channels = devices.reduce((acc, d) => acc + (d.channel_count ?? 0), 0)
 
   const items = [
-    { label: 'מכשירים', value: total },
+    { label: 'פרופילים', value: total },
     { label: 'חסומים', value: blocked },
     { label: 'ערוצים (סה״כ)', value: channels },
   ]

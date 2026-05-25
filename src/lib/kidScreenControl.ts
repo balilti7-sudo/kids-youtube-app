@@ -1,6 +1,6 @@
 import type { ChildDeviceState } from './childDevice'
 
-export type KidScreenBreakReason = 'remote_pause' | 'time_limit' | 'bedtime'
+export type KidScreenBreakReason = 'time_limit' | 'bedtime'
 
 export function parseSleepTimeStart(value: string | null | undefined): { hours: number; minutes: number } | null {
   if (!value || !/^\d{2}:\d{2}$/.test(value)) return null
@@ -30,7 +30,6 @@ export function evaluateKidScreenBreak(
   now = new Date()
 ): KidScreenBreakReason | null {
   if (!device || device.is_blocked) return null
-  if (device.is_remote_paused) return 'remote_pause'
   if (isOverTimeLimit(device.time_limit_minutes, device.watch_seconds_today)) return 'time_limit'
   if (isPastBedtime(device.sleep_time_start, now)) return 'bedtime'
   return null

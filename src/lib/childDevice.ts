@@ -81,7 +81,7 @@ export async function pairChildDevice(pairingCode: string): Promise<{
         accessToken: null,
         deviceName: null,
         error: new Error(
-          'המכשיר כבר מחובר אצל ההורה עם הקוד הזה — החיבור כבר בוצע והקוד אינו פעיל יותר. אין צורך לחבר שוב. אם מדובר בטאבלט אחר או בתיקון, בקשו מההורה קוד חדש ממסך המכשירים.'
+          'הפרופיל כבר מחובר אצל ההורה עם הקוד הזה — החיבור כבר בוצע והקוד אינו פעיל יותר. אין צורך לחבר שוב. אם מדובר בתיקון, בקשו מההורה קוד חדש ממסך הפרופילים.'
         ),
       }
     }
@@ -93,7 +93,7 @@ export async function pairChildDevice(pairingCode: string): Promise<{
       accessToken: null,
       deviceName: null,
       error: new Error(
-        'לא מצאנו את הקוד. בדקו שההקלדה נכונה, או בקשו מההורה קוד עדכני מהמסך של המכשירים.'
+        'לא מצאנו את הקוד. בדקו שההקלדה נכונה, או בקשו מההורה קוד עדכני ממסך הפרופילים.'
       ),
     }
   }

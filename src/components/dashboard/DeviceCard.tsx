@@ -22,7 +22,7 @@ export function DeviceCard({ device, onOpen }: { device: Device; onOpen: (d: Dev
           {device.channel_count ?? 0} ערוצים מאושרים
         </p>
       </div>
-      <DeviceStatusBadge isOnline={device.is_online} isBlocked={device.is_blocked} />
+      <DeviceStatusBadge isBlocked={device.is_blocked} />
     </button>
   )
 }

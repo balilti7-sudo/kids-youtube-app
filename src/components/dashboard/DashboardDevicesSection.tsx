@@ -31,7 +31,7 @@ export function DashboardDevicesSection() {
   const atLimit = devices.length >= max
 
   const openModal = () => {
-    setDeviceName("טאבלט הבן")
+    setDeviceName('פרופיל הילד')
     setModalOpen(true)
   }
 
@@ -42,15 +42,15 @@ export function DashboardDevicesSection() {
   const handleAdd = async () => {
     const name = deviceName.trim()
     if (!name) {
-      toast.error('נא להזין שם למכשיר')
+      toast.error('נא להזין שם לפרופיל')
       return
     }
     if (!ownerUserId) {
-      toast.error('חסר מזהה משתמש לשמירת מכשיר')
+      toast.error('חסר מזהה משתמש לשמירת פרופיל')
       return
     }
     if (atLimit) {
-      toast.error(`הגעת למגבלה (${max} מכשירים)`)
+      toast.error(`הגעת למגבלה (${max} פרופילים)`)
       return
     }
 
@@ -69,7 +69,7 @@ export function DashboardDevicesSection() {
         return
       }
       if (data) {
-        toast.success('המכשיר נוסף', { description: 'המכשיר זמין בהגדרות ובמסך הילד.' })
+        toast.success('הפרופיל נוסף', { description: 'הפרופיל זמין בהגדרות ובמסך הילד.' })
         await refetch()
         setModalOpen(false)
         setDeviceName('')
@@ -89,7 +89,7 @@ export function DashboardDevicesSection() {
       toast.error('מחיקה נכשלה', { description: err.message })
       return
     }
-    toast.success('המכשיר הוסר')
+    toast.success('הפרופיל הוסר')
     await refetch()
   }
 
@@ -101,15 +101,15 @@ export function DashboardDevicesSection() {
       <div className="mb-2 flex flex-col gap-1.5">
         <div>
           <h2 id="devices-section-title" className="text-lg font-bold text-zinc-50">
-            מכשירים
+            פרופילים
           </h2>
-          <p className="text-xs text-zinc-500">מכשירים מקושרים: {devices.length} / {max}</p>
+          <p className="text-xs text-zinc-500">פרופילים מקושרים: {devices.length} / {max}</p>
         </div>
 
         <div className="rounded-2xl border border-zinc-700/90 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80">
-          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">מכשירי ילדים</p>
+          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">פרופילי ילדים</p>
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
-            מוסיפים מכשיר כאן; צימוד והרשאות נעשים ממסך הילד בהתאם להגדרות המערכת.
+            מוסיפים פרופיל כאן; צימוד והרשאות נעשים ממסך הילד בהתאם להגדרות המערכת.
           </p>
           <div className="flex flex-col gap-1">
             <Button
@@ -119,7 +119,7 @@ export function DashboardDevicesSection() {
               disabled={atLimit || !ownerUserId}
             >
               <Plus className="h-5 w-5" />
-              צור מכשיר חדש
+              צור פרופיל חדש
             </Button>
           </div>
         </div>
@@ -133,7 +133,7 @@ export function DashboardDevicesSection() {
         </p>
       ) : null}
       {atLimit ? (
-        <p className="mb-3 text-xs text-amber-400/90">הגעתם למגבלת המכשירים בתוכנית הנוכחית.</p>
+        <p className="mb-3 text-xs text-amber-400/90">הגעתם למגבלת הפרופילים בתוכנית הנוכחית.</p>
       ) : null}
 
       {loading ? (
@@ -146,8 +146,8 @@ export function DashboardDevicesSection() {
       ) : devices.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-5 text-center">
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
-          <p className="text-sm font-medium text-zinc-300">אין מכשירים עדיין</p>
-          <p className="max-w-xs text-xs text-zinc-500">צרו מכשיר חדש והמשיכו בהגדרת מסך הילד.</p>
+          <p className="text-sm font-medium text-zinc-300">אין פרופילים עדיין</p>
+          <p className="max-w-xs text-xs text-zinc-500">צרו פרופיל חדש והמשיכו בהגדרת מסך הילד.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-1">
@@ -160,21 +160,12 @@ export function DashboardDevicesSection() {
                 <p className="truncate font-semibold text-zinc-100">{d.name}</p>
               </div>
               <div className="flex items-center gap-2">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                    d.is_online
-                      ? 'bg-brand-950/80 text-brand-200 ring-1 ring-brand-800/80'
-                      : 'bg-zinc-800 text-zinc-400 ring-1 ring-zinc-700'
-                  }`}
-                >
-                  {d.is_online ? 'מקוון' : 'לא מקוון'}
-                </span>
                 <Button
                   type="button"
                   variant="danger"
                   className="!px-3 !py-2 text-xs"
                   onClick={() => void handleDelete(d.id)}
-                  aria-label={`מחק ${d.name}`}
+                  aria-label={`מחק פרופיל ${d.name}`}
                 >
                   <Trash2 className="h-4 w-4" />
                   מחק
@@ -188,7 +179,7 @@ export function DashboardDevicesSection() {
       <Modal
         open={modalOpen}
         onClose={closeModal}
-        title="מכשיר חדש"
+        title="פרופיל חדש"
         footer={
           <>
             <Button type="button" variant="secondary" onClick={closeModal} disabled={saving}>
@@ -201,12 +192,12 @@ export function DashboardDevicesSection() {
           </>
         }
       >
-        <p className="mb-3 text-sm text-zinc-400">שם ידידותי למכשיר (למשל: טאבלט הבן).</p>
-        <label className="mb-1 block text-sm font-medium text-zinc-300">שם המכשיר</label>
+        <p className="mb-3 text-sm text-zinc-400">שם ידידותי לפרופיל (למשל: פרופיל הילד).</p>
+        <label className="mb-1 block text-sm font-medium text-zinc-300">שם הפרופיל</label>
         <Input
           value={deviceName}
           onChange={(e) => setDeviceName(e.target.value)}
-          placeholder="למשל: טאבלט הבן"
+          placeholder="למשל: פרופיל הילד"
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && void handleAdd()}
         />

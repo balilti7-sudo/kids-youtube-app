@@ -37,7 +37,7 @@ export function SubscriptionStatus({
       {subscription.plan === 'trial' && trialDays !== null ? (
         <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">נותרו {trialDays} ימים בניסיון</p>
       ) : null}
-      <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">עד {subscription.max_devices} מכשירים</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">עד {subscription.max_devices} פרופילים</p>
     </div>
   )
 }

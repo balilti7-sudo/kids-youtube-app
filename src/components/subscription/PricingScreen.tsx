@@ -24,14 +24,14 @@ export function PricingScreen() {
       <PlanCard
         title="חודשי"
         price="₪29 / חודש"
-        features={['עד 5 מכשירים', 'ניהול ערוצים', 'תמיכה במייל']}
+        features={['עד 5 פרופילים', 'ניהול ערוצים', 'תמיכה במייל']}
         onSelect={() => void checkout('monthly')}
         loading={loading === 'monthly'}
       />
       <PlanCard
         title="שנתי"
         price="₪249 / שנה"
-        features={['עד 10 מכשירים', 'חיסכון לשנה', 'עדכונים שוטפים']}
+        features={['עד 10 פרופילים', 'חיסכון לשנה', 'עדכונים שוטפים']}
         highlighted
         onSelect={() => void checkout('yearly')}
         loading={loading === 'yearly'}

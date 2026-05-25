@@ -20,8 +20,8 @@ export function ParentAppFooter() {
 
   const primaryDeviceId = devices[0]?.id ?? null
   const debugLabel = primaryDeviceId
-    ? `מזהה מכשיר (דיבוג · מכשיר ראשון ברשימה): …${tailId(primaryDeviceId)}`
-    : `מזהה מכשיר (דיבוג): אין מכשירים עדיין · משתמש …${tailId(user?.id ?? null)}`
+    ? `מזהה פרופיל (דיבוג · פרופיל ראשון ברשימה): …${tailId(primaryDeviceId)}`
+    : `מזהה פרופיל (דיבוג): אין פרופילים עדיין · משתמש …${tailId(user?.id ?? null)}`
 
   const handleClearAll = async () => {
     await signOutClearEverything()

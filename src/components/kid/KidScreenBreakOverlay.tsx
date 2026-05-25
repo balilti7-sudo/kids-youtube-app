@@ -6,7 +6,6 @@ type KidScreenBreakOverlayProps = {
 }
 
 const REASON_HINT: Record<KidScreenBreakReason, string> = {
-  remote_pause: 'ההורה הקפיא את המסך מרחוק.',
   time_limit: 'הגעתם לזמן הצפייה היומי.',
   bedtime: 'הגיע זמן השינה.',
 }

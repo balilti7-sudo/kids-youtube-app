@@ -627,7 +627,7 @@ export function KidModePage() {
         }
         if (result.ok && 'sent' in result && result.sent) {
           if (result.deviceCount === 0) {
-            setForgotInfo('נשלח מייל. אם אין כרגע קוד צימוד פעיל, צרו מכשיר חדש בלוח ההורה.')
+            setForgotInfo('נשלח מייל. אם אין כרגע קוד צימוד פעיל, צרו פרופיל חדש בלוח ההורה.')
           } else {
             setForgotInfo(`נשלח מייל עם ${result.deviceCount} קוד/י צימוד פעיל/ים. בדקו את תיבת הדואר.`)
           }

@@ -23,11 +23,11 @@ export function DeviceList({
               {d.pairing_code ? `קוד: ${d.pairing_code}` : '—'}
             </p>
           </div>
-          <DeviceStatusBadge isOnline={d.is_online} isBlocked={d.is_blocked} />
+          <DeviceStatusBadge isBlocked={d.is_blocked} />
           <Button
             variant="ghost"
             className="!p-2 text-red-600"
-            aria-label="מחק מכשיר"
+            aria-label="מחק פרופיל"
             onClick={() => onDelete(d.id)}
           >
             <Trash2 className="h-5 w-5" />

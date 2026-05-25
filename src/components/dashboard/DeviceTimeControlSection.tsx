@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Clock, Moon, PauseCircle } from 'lucide-react'
+import { Clock, Moon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDeviceStore } from '../../stores/deviceStore'
 import type { Device } from '../../types'
 import { formatWatchMinutes } from '../../lib/kidScreenControl'
-import { Button } from '../ui/Button'
-import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { Skeleton } from '../ui/Skeleton'
-import { cn } from '../../lib/utils'
 
 const SESSION_LIMIT_OPTIONS: { label: string; value: number | null }[] = [
   { label: 'כבוי', value: null },
@@ -24,7 +21,6 @@ const SESSION_LIMIT_OPTIONS: { label: string; value: number | null }[] = [
 type ParentalControlsPatch = {
   time_limit_minutes?: number | null
   sleep_time_start?: string | null
-  is_remote_paused?: boolean
 }
 
 function DeviceTimeControlPanel({ device }: { device: Device }) {
@@ -53,21 +49,8 @@ function DeviceTimeControlPanel({ device }: { device: Device }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="font-semibold text-zinc-100">{device.name}</p>
-          <p className="text-xs text-zinc-500">
-            {device.is_online ? 'מקוון עכשיו' : 'לא מקוון'}
-            {device.is_remote_paused ? ' · מסך מוקפא' : ''}
-          </p>
+          <p className="text-xs text-zinc-500">בקרת צפייה לפרופיל הילד</p>
         </div>
-        <span
-          className={cn(
-            'rounded-full px-2.5 py-1 text-xs font-semibold ring-1',
-            device.is_online
-              ? 'bg-brand-950/80 text-brand-200 ring-brand-800/80'
-              : 'bg-zinc-800 text-zinc-400 ring-zinc-700'
-          )}
-        >
-          {device.is_online ? 'פעיל' : 'כבוי'}
-        </span>
       </div>
 
       <div className="space-y-4">
@@ -114,28 +97,6 @@ function DeviceTimeControlPanel({ device }: { device: Device }) {
           />
           <p className="mt-1 text-xs text-zinc-500">אחרי השעה הזו — מסך הילד ננעל עד למחר.</p>
         </div>
-
-        <div>
-          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-zinc-300">
-            <PauseCircle className="h-4 w-4 text-red-400" aria-hidden />
-            הקפאת מסך מרחוק
-          </p>
-          <Button
-            type="button"
-            variant={device.is_remote_paused ? 'secondary' : 'danger'}
-            className={cn(
-              'w-full py-3 text-base font-bold',
-              !device.is_remote_paused && 'shadow-lg shadow-red-950/40'
-            )}
-            disabled={busyField === 'pause'}
-            onClick={() => void applyPatch('pause', { is_remote_paused: !device.is_remote_paused })}
-          >
-            {busyField === 'pause' ? (
-              <LoadingSpinner className="h-5 w-5 border-2 border-current border-t-transparent" />
-            ) : null}
-            {device.is_remote_paused ? 'בטל הקפאת מסך' : 'הקפא מסך מרחוק'}
-          </Button>
-        </div>
       </div>
     </div>
   )
@@ -165,7 +126,7 @@ export function DeviceTimeControlSection() {
           בקרת זמן ומסכים
         </h2>
         <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-          הגדירו מגבלת צפייה, שעת שינה, או הקפיאו את מסך הילד מיידית — השינויים נכנסים לתוקף בזמן אמת.
+          הגדירו מגבלת צפייה ושעת שינה לפרופיל הילד — השינויים נכנסים לתוקף בזמן אמת.
         </p>
       </header>
 
@@ -175,7 +136,7 @@ export function DeviceTimeControlSection() {
         <p className="text-sm text-red-400">{error}</p>
       ) : devices.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-700 px-4 py-6 text-center text-sm text-zinc-400">
-          הוסיפו מכשיר ילד כדי לנהל בקרת זמן.
+          הוסיפו פרופיל ילד כדי לנהל בקרת זמן.
         </p>
       ) : (
         <div className="space-y-3">
