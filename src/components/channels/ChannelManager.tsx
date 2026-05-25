@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -27,6 +27,7 @@ import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
+import { ParentSingleVideoSearchSection } from '../dashboard/ParentSingleVideoSearchSection'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
 
@@ -293,7 +294,7 @@ export function ChannelManager() {
     [previewVideos, hiddenVideoIds]
   )
 
-  /** Visible to parent in channel preview — hidden videos live only on /hidden-videos */
+  /** Visible to parent in channel preview; hidden videos are omitted from this playback list. */
   const visiblePreviewVideos = useMemo(
     () => filteredPreviewVideos.filter((v) => !hiddenVideoIds.has(v.videoId)),
     [filteredPreviewVideos, hiddenVideoIds]
@@ -383,6 +384,8 @@ export function ChannelManager() {
         </div>
       </header>
 
+      <ParentSingleVideoSearchSection />
+
       {devLoading || listLoading ? (
         <Skeleton className="h-32 w-full" />
       ) : devices.length === 0 ? (
@@ -416,12 +419,7 @@ export function ChannelManager() {
               ) : previewError ? (
                 <p className="text-sm text-danger-600">{previewError}</p>
               ) : previewVideos.length > 0 && visiblePreviewVideos.length === 0 ? (
-                <p className="text-sm text-slate-600 dark:text-zinc-400">
-                  כל הסרטונים בערוץ הזה חסומים.{' '}
-                  <Link to="/hidden-videos" className="font-semibold text-amber-800 underline dark:text-amber-300">
-                    ניהול סרטונים חסומים
-                  </Link>
-                </p>
+                <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים זמינים להצגה בערוץ הזה.</p>
               ) : activePreviewVideo ? (
                 <YoutubeWatchLayout
                   className="mt-2"
@@ -448,16 +446,6 @@ export function ChannelManager() {
                         channelName={previewChannel.channel_name}
                         actions={
                           <>
-                            {hiddenVideoIds.size > 0 ? (
-                              <p className="w-full text-xs">
-                                <Link
-                                  to="/hidden-videos"
-                                  className="font-semibold text-amber-400 underline"
-                                >
-                                  {hiddenVideoIds.size} סרטונים חסומים — ניהול והחזרה
-                                </Link>
-                              </p>
-                            ) : null}
                             <div className="flex flex-wrap gap-2">
                               {hideVideoCtx.canQuickBlock ? (
                                 <QuickBlockButton
