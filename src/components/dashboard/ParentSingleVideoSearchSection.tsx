@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { searchYouTubeVideos } from '../../lib/youtube'
 import type { YouTubeVideoResult } from '../../types'
@@ -14,28 +14,25 @@ export function ParentSingleVideoSearchSection() {
   const userId = ownerUserId ?? user?.id ?? null
 
   const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
   const [results, setResults] = useState<YouTubeVideoResult[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const trimmed = query.trim()
-    if (!trimmed) {
-      setDebouncedQuery('')
-      setResults([])
-      setError(null)
+  const runSearch = useCallback(async (raw: string) => {
+    const q = raw.trim()
+    setSubmittedQuery(q)
+    setResults([])
+    setError(null)
+
+    if (!q) {
       return
     }
-    const timer = window.setTimeout(() => setDebouncedQuery(trimmed), 400)
-    return () => window.clearTimeout(timer)
-  }, [query])
 
-  const runSearch = useCallback(async (q: string) => {
     setLoading(true)
-    setError(null)
     const { data, error: searchErr } = await searchYouTubeVideos(q)
     setLoading(false)
+
     if (searchErr) {
       setError(searchErr.message)
       setResults([])
@@ -43,11 +40,6 @@ export function ParentSingleVideoSearchSection() {
     }
     setResults(data ?? [])
   }, [])
-
-  useEffect(() => {
-    if (!debouncedQuery) return
-    void runSearch(debouncedQuery)
-  }, [debouncedQuery, runSearch])
 
   if (!userId) {
     return (
@@ -60,12 +52,12 @@ export function ParentSingleVideoSearchSection() {
   return (
     <section
       className="rounded-2xl border border-yt-border bg-yt-surface/80 p-4 shadow-sm sm:p-5"
-      aria-label="חיפוש והוספת סרטונים בודדים"
+      aria-label="חיפוש והוספת סרטונים"
     >
       <header className="mb-4 text-right">
-        <h2 className="text-base font-bold text-yt-text sm:text-lg">חיפוש והוספת סרטונים בודדים</h2>
+        <h2 className="text-base font-bold text-yt-text sm:text-lg">חיפוש והוספת סרטונים</h2>
         <p className="mt-1 text-xs text-yt-textMuted sm:text-sm">
-          חפשו ב-YouTube והוסיפו סרטונים לפלייליסט של הילד — בלי לפתוח חיפוש כללי במצב ילד.
+          חפשו לפי מילים או שם סרטון, ואז הוסיפו לפלייליסט של הילד.
         </p>
       </header>
 
@@ -73,13 +65,14 @@ export function ParentSingleVideoSearchSection() {
         id="parent-single-video-search"
         value={query}
         onChange={setQuery}
+        onSubmit={runSearch}
         placeholder="חפשו סרטון ב-YouTube…"
         aria-label="חיפוש סרטונים ב-YouTube"
       />
 
       <div className="mt-4" aria-live="polite">
-        {!query.trim() ? (
-          <p className="text-sm text-yt-textMuted">הקלידו מילות חיפוש כדי למצוא סרטונים.</p>
+        {!submittedQuery ? (
+          <p className="text-sm text-yt-textMuted">הקלידו מילות חיפוש ולחצו Enter או על כפתור החיפוש.</p>
         ) : loading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-yt-textMuted">
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
@@ -87,9 +80,9 @@ export function ParentSingleVideoSearchSection() {
           </div>
         ) : error ? (
           <p className="text-sm text-yt-red">{error}</p>
-        ) : results.length === 0 && debouncedQuery ? (
+        ) : results.length === 0 ? (
           <p className="text-sm text-yt-textMuted">
-            לא נמצאו סרטונים עבור &quot;{debouncedQuery}&quot;
+            לא נמצאו סרטונים עבור &quot;{submittedQuery}&quot;
           </p>
         ) : results.length > 0 ? (
           <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 xl:grid-cols-3">

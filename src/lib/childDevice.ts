@@ -10,10 +10,6 @@ export interface ChildDeviceState {
   is_blocked: boolean
   is_online: boolean
   last_seen_at: string | null
-  time_limit_minutes: number | null
-  sleep_time_start: string | null
-  is_remote_paused: boolean
-  watch_seconds_today: number
 }
 
 export interface ChildAllowedVideo {
@@ -119,34 +115,7 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
       is_blocked: Boolean(r.is_blocked),
       is_online: Boolean(r.is_online),
       last_seen_at: r.last_seen_at != null ? String(r.last_seen_at) : null,
-      time_limit_minutes:
-        r.time_limit_minutes != null && r.time_limit_minutes !== ''
-          ? Number(r.time_limit_minutes)
-          : null,
-      sleep_time_start:
-        r.sleep_time_start != null && String(r.sleep_time_start).trim() !== ''
-          ? String(r.sleep_time_start).slice(0, 5)
-          : null,
-      is_remote_paused: Boolean(r.is_remote_paused),
-      watch_seconds_today: Number(r.watch_seconds_today ?? 0),
     },
-    error: null,
-  }
-}
-
-export async function reportChildWatchSeconds(
-  accessToken: string,
-  seconds: number
-): Promise<{ watchSecondsToday: number | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('child_report_watch_seconds', {
-    p_access_token: accessToken,
-    p_seconds: seconds,
-  })
-  if (error) return { watchSecondsToday: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  const total = row?.watch_seconds_today
-  return {
-    watchSecondsToday: total != null ? Number(total) : null,
     error: null,
   }
 }
@@ -155,16 +124,6 @@ export function mapHeartbeatRow(row: Record<string, unknown>): Partial<ChildDevi
   return {
     is_blocked: Boolean(row.is_blocked),
     last_seen_at: row.last_seen_at != null ? String(row.last_seen_at) : null,
-    time_limit_minutes:
-      row.time_limit_minutes != null && row.time_limit_minutes !== ''
-        ? Number(row.time_limit_minutes)
-        : null,
-    sleep_time_start:
-      row.sleep_time_start != null && String(row.sleep_time_start).trim() !== ''
-        ? String(row.sleep_time_start).slice(0, 5)
-        : null,
-    is_remote_paused: Boolean(row.is_remote_paused),
-    watch_seconds_today: Number(row.watch_seconds_today ?? 0),
   }
 }
 

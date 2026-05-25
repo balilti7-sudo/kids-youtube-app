@@ -25,10 +25,9 @@ export type ParentQuickBlockConfig = {
 type Props = {
   childAccessToken: string
   parentQuickBlock?: ParentQuickBlockConfig | null
-  forcePaused?: boolean
 }
 
-export function KidPlaylistView({ childAccessToken, parentQuickBlock, forcePaused = false }: Props) {
+export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
   const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos } = usePlaylists({
     mode: 'kid',
     userId: null,
@@ -238,7 +237,6 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock, forcePause
                         onNextTrack={goNext}
                         onPreviousTrack={goPrev}
                         hasNextTrack={hasNextPlaylistVideo}
-                        forcePaused={forcePaused}
                         className="h-full w-full"
                       />
                     </div>

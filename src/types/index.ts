@@ -21,9 +21,6 @@ export interface Device {
   is_online: boolean
   is_blocked: boolean
   last_seen_at: string | null
-  time_limit_minutes?: number | null
-  sleep_time_start?: string | null
-  is_remote_paused?: boolean
   created_at: string
   updated_at: string
   channel_count?: number
