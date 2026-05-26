@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowRight, Tv } from 'lucide-react'
+import { ArrowRight, Check, ListMusic, Plus, Tv } from 'lucide-react'
 import { useChannels } from '../hooks/useChannels'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { useDevices } from '../hooks/useDevices'
@@ -22,6 +22,40 @@ type ChannelVideoRow = {
   thumbnail_url: string | null
 }
 
+const CHILD_PERSONAL_PLAYLIST_KEY = 'safetube_child_personal_playlist_v1'
+
+function readChildPlaylistStorage(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(CHILD_PERSONAL_PLAYLIST_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out: Record<string, string[]> = {}
+    for (const [deviceId, ids] of Object.entries(parsed)) {
+      if (!Array.isArray(ids)) continue
+      out[deviceId] = ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function getSavedPlaylistIds(deviceId: string | null): Set<string> {
+  if (!deviceId) return new Set()
+  return new Set(readChildPlaylistStorage()[deviceId] ?? [])
+}
+
+function savePlaylistIds(deviceId: string, ids: Set<string>) {
+  try {
+    const all = readChildPlaylistStorage()
+    all[deviceId] = Array.from(ids)
+    localStorage.setItem(CHILD_PERSONAL_PLAYLIST_KEY, JSON.stringify(all))
+  } catch {
+    /* ignore localStorage failures */
+  }
+}
+
 export function ChannelsPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -35,6 +69,8 @@ export function ChannelsPage() {
   const [videosError, setVideosError] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [videoSearch, setVideoSearch] = useState('')
+  const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
+  const [showMyPlaylist, setShowMyPlaylist] = useState(false)
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -53,6 +89,11 @@ export function ChannelsPage() {
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const { whitelist, loading } = useChannels(deviceId ?? undefined, ownerUserId)
 
+  useEffect(() => {
+    setSavedPlaylistIds(getSavedPlaylistIds(deviceId))
+    setShowMyPlaylist(false)
+  }, [deviceId])
+
   const visibleChannels = useMemo(() => whitelist.filter((c) => c.youtube_channel_id), [whitelist])
   const selectedChannel = useMemo(
     () =>
@@ -69,6 +110,7 @@ export function ChannelsPage() {
       setVideosLoading(false)
       setActiveVideoId(null)
       setVideoSearch('')
+      setShowMyPlaylist(false)
       return
     }
 
@@ -78,6 +120,7 @@ export function ChannelsPage() {
     setVideos([])
     setActiveVideoId(null)
     setVideoSearch('')
+    setShowMyPlaylist(false)
 
     void (async () => {
       const { data, error } = await supabase
@@ -112,7 +155,17 @@ export function ChannelsPage() {
     )
   }, [videos])
 
-  const filteredVideos = useMemo(() => filterVideosByTitle(videos, videoSearch), [videos, videoSearch])
+  const playlistSourceVideos = useMemo(
+    () =>
+      showMyPlaylist
+        ? videos.filter((video) => savedPlaylistIds.has(video.youtube_video_id))
+        : videos,
+    [showMyPlaylist, videos, savedPlaylistIds]
+  )
+  const filteredVideos = useMemo(
+    () => filterVideosByTitle(playlistSourceVideos, videoSearch),
+    [playlistSourceVideos, videoSearch]
+  )
   const activeVideo = useMemo(
     () => videos.find((video) => video.youtube_video_id === activeVideoId) ?? null,
     [videos, activeVideoId]
@@ -126,6 +179,21 @@ export function ChannelsPage() {
     () => filteredVideos.filter((video) => video.youtube_video_id !== activeVideoId),
     [filteredVideos, activeVideoId]
   )
+  const playlistCountInChannel = useMemo(
+    () => videos.filter((video) => savedPlaylistIds.has(video.youtube_video_id)).length,
+    [videos, savedPlaylistIds]
+  )
+
+  const togglePlaylistVideo = (videoId: string) => {
+    if (!deviceId) return
+    setSavedPlaylistIds((current) => {
+      const next = new Set(current)
+      if (next.has(videoId)) next.delete(videoId)
+      else next.add(videoId)
+      savePlaylistIds(deviceId, next)
+      return next
+    })
+  }
 
   const goNextVideo = () => {
     if (!hasNextVideo) return
@@ -249,21 +317,54 @@ export function ChannelsPage() {
                     title={activeVideo.title}
                     channelName={selectedChannel.channel_name}
                     subtitle={`${videos.length} סרטונים מאושרים בערוץ`}
+                    actions={
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="gap-2 rounded-full !px-4 !py-2 text-xs font-black"
+                        onClick={() => togglePlaylistVideo(activeVideo.youtube_video_id)}
+                      >
+                        {savedPlaylistIds.has(activeVideo.youtube_video_id) ? (
+                          <Check className="h-4 w-4" aria-hidden />
+                        ) : (
+                          <Plus className="h-4 w-4" aria-hidden />
+                        )}
+                        {savedPlaylistIds.has(activeVideo.youtube_video_id) ? 'בפלייליסט שלי' : 'הוסף לפלייליסט'}
+                      </Button>
+                    }
                   />
                 </>
               }
               sidebar={
                 <>
+                  <div className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowMyPlaylist((current) => !current)}
+                      aria-pressed={showMyPlaylist}
+                      className={`flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl px-3 text-sm font-black transition ${
+                        showMyPlaylist
+                          ? 'bg-sky-500 text-white shadow-md shadow-sky-950/30'
+                          : 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700'
+                      }`}
+                    >
+                      <ListMusic className="h-4 w-4" aria-hidden />
+                      הפלייליסט שלי
+                      <span className="rounded-full bg-black/20 px-2 py-0.5 text-[11px]">
+                        {playlistCountInChannel}
+                      </span>
+                    </button>
+                  </div>
                   <ChannelVideoSearchBar
                     id="child-channel-watch-search"
                     value={videoSearch}
                     onChange={setVideoSearch}
-                    totalCount={videos.length}
+                    totalCount={playlistSourceVideos.length}
                     filteredCount={filteredVideos.length}
                     channelLabel={selectedChannel.channel_name}
                     className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-3"
                   />
-                  <YoutubeSuggestedList title="עוד סרטונים בערוץ">
+                  <YoutubeSuggestedList title={showMyPlaylist ? 'הסרטונים ששמרתי' : 'עוד סרטונים בערוץ'}>
                     {sidebarVideos.map((video) => (
                       <li key={video.youtube_video_id} className="w-full">
                         <YoutubeVideoCard
@@ -272,13 +373,49 @@ export function ChannelsPage() {
                           thumbnail={video.thumbnail_url}
                           active={false}
                           onClick={() => setActiveVideoId(video.youtube_video_id)}
+                          actionSlot={
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                togglePlaylistVideo(video.youtube_video_id)
+                              }}
+                              className={`inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs transition ${
+                                savedPlaylistIds.has(video.youtube_video_id)
+                                  ? 'border-sky-400/60 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
+                                  : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
+                              }`}
+                              title={
+                                savedPlaylistIds.has(video.youtube_video_id)
+                                  ? 'הסר מהפלייליסט שלי'
+                                  : 'הוסף לפלייליסט'
+                              }
+                              aria-label={
+                                savedPlaylistIds.has(video.youtube_video_id)
+                                  ? `הסר את ${video.title} מהפלייליסט שלי`
+                                  : `הוסף את ${video.title} לפלייליסט שלי`
+                              }
+                            >
+                              {savedPlaylistIds.has(video.youtube_video_id) ? (
+                                <Check className="h-4 w-4" aria-hidden />
+                              ) : (
+                                <Plus className="h-4 w-4" aria-hidden />
+                              )}
+                            </button>
+                          }
                         />
                       </li>
                     ))}
                   </YoutubeSuggestedList>
                   {sidebarVideos.length === 0 ? (
                     <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-                      {videoSearch.trim() ? 'אין עוד סרטונים שמתאימים לחיפוש.' : 'אין עוד סרטונים בערוץ.'}
+                      {showMyPlaylist
+                        ? videoSearch.trim()
+                          ? 'אין סרטונים שמורים שמתאימים לחיפוש.'
+                          : 'הפלייליסט שלך עדיין ריק בערוץ הזה.'
+                        : videoSearch.trim()
+                          ? 'אין עוד סרטונים שמתאימים לחיפוש.'
+                          : 'אין עוד סרטונים בערוץ.'}
                     </p>
                   ) : null}
                 </>
