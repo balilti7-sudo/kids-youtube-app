@@ -39,12 +39,13 @@ export function SafeTubeBrandMark({
     size === 'compact'
       ? 'h-9 w-auto max-w-[6.5rem] object-contain sm:h-10 sm:max-w-[7.5rem]'
       : 'h-10 w-auto max-w-[7.5rem] object-contain sm:h-11 sm:max-w-[9rem]',
+    'bg-transparent border-0 shadow-none outline-none ring-0',
     'transition-transform duration-700 ease-in-out motion-reduce:duration-500',
     'group-hover:animate-logo-hover-pulse motion-reduce:group-hover:animate-none motion-reduce:group-hover:scale-105'
   )
 
   const baseRing =
-    'group inline-flex shrink-0 items-center rounded-md outline-none ring-0 focus-visible:ring-2 focus-visible:ring-brand-500/50'
+    'group inline-flex shrink-0 items-center rounded-md bg-transparent outline-none ring-0 focus-visible:ring-2 focus-visible:ring-brand-500/50'
 
   if (discreetParentNav) {
     return (

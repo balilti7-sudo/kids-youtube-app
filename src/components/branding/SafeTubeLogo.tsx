@@ -2,7 +2,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { cn } from '../../lib/utils'
 
 /** Cache-bust when replacing `public/logo.png`. */
-export const SAFETUBE_LOGO_SRC = '/logo.png?v=4'
+export const SAFETUBE_LOGO_SRC = '/logo.png?v=5'
 
 type Props = {
   size?: 'sm' | 'md' | 'lg'
@@ -20,14 +20,13 @@ const sizeWidths = {
 const ENTRANCE_DURATION_S = 4
 
 /**
- * לוגו מ-`public/logo.png` — רינדור ישיר, ללא mix-blend / filters / רקע על ה-img.
- * רקע שחור: עוטפים ב-`bg-black` בדף (למשל Auth).
+ * לוגו מ-`public/logo.png` — רינדור ישיר ושקוף, ללא mix-blend / filters / רקע על ה-img.
  */
 export function SafeTubeLogo({ size = 'lg', className, entranceAnimation = false }: Props) {
   const prefersReduced = useReducedMotion()
 
   const imgClass = cn(
-    'mx-auto block h-auto max-w-full border-0 object-contain shadow-none outline-none ring-0',
+    'mx-auto block h-auto max-w-full border-0 bg-transparent object-contain shadow-none outline-none ring-0',
     sizeWidths[size]
   )
 
