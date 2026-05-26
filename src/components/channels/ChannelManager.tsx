@@ -28,6 +28,7 @@ import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
+import { isParentalManagementGateUnlocked } from '../../lib/parentalManagementGateStorage'
 
 type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
 
@@ -207,14 +208,26 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   }
 
   const requestOpenChannelSearch = () => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      setSearchOpen(true)
+      return
+    }
     beginPinGate({ kind: 'openSearch' })
   }
 
   const requestAddChannel = (c: YouTubeChannelResult) => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      void handleAdd(c)
+      return
+    }
     beginPinGate({ kind: 'add', channel: c })
   }
 
   const requestRemoveChannel = (c: WhitelistedChannel) => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      setRemoveTarget(c)
+      return
+    }
     beginPinGate({ kind: 'remove', channel: c })
   }
 

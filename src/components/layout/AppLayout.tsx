@@ -7,9 +7,14 @@ import { LOCK_MANAGEMENT_APP_EVENT, lockManagementAppShell } from '../../lib/loc
 import { consumeParentEntryIntent } from '../../lib/parentEntryIntent'
 import { isParentManagementLockedPath } from '../../lib/parentManagementPaths'
 import { isMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
-import { isParentalGateIdleExceeded, touchParentalGateActivity } from '../../lib/parentalGateActivity'
+import {
+  clearParentalGateActivity,
+  isParentalGateIdleExceeded,
+  touchParentalGateActivity,
+} from '../../lib/parentalGateActivity'
 import { consumeSkipParentalManagementGateOnce } from '../../lib/parentalGateSkipOnce'
 import {
+  clearParentalManagementGate,
   isParentalManagementGateUnlocked,
   setParentalManagementGateUnlocked,
 } from '../../lib/parentalManagementGateStorage'
@@ -50,6 +55,13 @@ export function AppLayout() {
   useEffect(() => {
     if (BYPASS_AUTH) setManagementUnlocked(true)
   }, [])
+
+  useEffect(() => {
+    if (BYPASS_AUTH || isParentManagementLockedPath(location.pathname)) return
+    clearParentalManagementGate()
+    clearParentalGateActivity()
+    setManagementUnlocked(false)
+  }, [location.pathname])
 
   useEffect(() => {
     const onLock = () => {
