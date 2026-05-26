@@ -746,9 +746,9 @@ export function KidModePage() {
     await handleDisconnect()
   }
 
-  const runParentAction = (action: 'home' | 'channels') => {
+  const runParentAction = (_action: 'home' | 'channels') => {
     setParentEntryIntent()
-    const target = action === 'home' ? '/dashboard' : '/channels'
+    const target = '/dashboard'
     if (isAuthenticated) {
       navigate(target)
       return

@@ -37,7 +37,12 @@ type PendingPinAction =
   | { kind: 'add'; channel: YouTubeChannelResult }
   | { kind: 'remove'; channel: WhitelistedChannel }
 
-export function ChannelManager() {
+type ChannelManagerProps = {
+  managedDeviceId?: string | null
+  embedded?: boolean
+}
+
+export function ChannelManager({ managedDeviceId = null, embedded = false }: ChannelManagerProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, profile } = useAuth()
@@ -65,7 +70,7 @@ export function ChannelManager() {
   const [previewVideoSearch, setPreviewVideoSearch] = useState('')
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
-  const requestedDeviceId = searchParams.get('device')
+  const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
 
@@ -99,16 +104,18 @@ export function ChannelManager() {
   const handleDeviceChange = useCallback(
     (nextDeviceId: string) => {
       setDeviceId(nextDeviceId)
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev)
-          next.set('device', nextDeviceId)
-          return next
-        },
-        { replace: true }
-      )
+      if (!embedded) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev)
+            next.set('device', nextDeviceId)
+            return next
+          },
+          { replace: true }
+        )
+      }
     },
-    [setSearchParams]
+    [embedded, setSearchParams]
   )
 
   useEffect(() => {
@@ -369,18 +376,22 @@ export function ChannelManager() {
   }, [])
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 pb-3">
+    <div className={embedded ? 'flex w-full flex-col gap-2 pb-1' : 'mx-auto flex w-full max-w-5xl flex-col gap-2 pb-3'}>
       <header className="flex flex-col gap-1.5">
-        <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ערוצים</h1>
-        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
-          פתיחת חיפוש ערוץ, הוספת ערוץ או הסרת ערוץ דורשים הזנת קוד ההורה מהחשבון.
-        </p>
+        {!embedded ? (
+          <>
+            <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ניהול ערוצים</h1>
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
+              פתיחת חיפוש ערוץ, הוספת ערוץ או הסרת ערוץ דורשים הזנת קוד ההורה מהחשבון.
+            </p>
+          </>
+        ) : null}
         {selectedDevice ? (
           <p className="text-xs text-slate-500 dark:text-zinc-400">
             המכשיר הפעיל כעת: <span className="font-semibold text-slate-700 dark:text-zinc-200">{selectedDevice.name}</span>
           </p>
         ) : null}
-        {devices.length > 1 ? (
+        {!embedded && devices.length > 1 ? (
           <select
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
             value={deviceId ?? ''}
@@ -670,16 +681,20 @@ export function ChannelManager() {
                 setAddSuccessModalOpen(false)
                 setSearchOpen(false)
                 setAddedSearchChannelIds(new Set())
-                navigate('/channels')
+                if (embedded) {
+                  setPreviewChannel(null)
+                  return
+                }
+                navigate('/dashboard')
               }}
             >
-              מעבר לערוצים שלי
+              {embedded ? 'סיום' : 'חזרה לבקרת הורים'}
             </Button>
           </div>
         }
       >
         <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-300">
-          האם תרצה להוסיף ערוצים נוספים או לעבור לרשימת הערוצים שלך?
+          האם תרצה להוסיף ערוצים נוספים או לחזור לבקרת ההורים?
         </p>
       </Modal>
     </div>

@@ -271,11 +271,11 @@ export function HiddenVideosPage() {
             <div className="rounded-xl border border-dashed border-slate-300 px-4 py-12 text-center dark:border-zinc-700">
               <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים חסומים למכשיר הזה.</p>
               <Link
-                to="/channels"
+                to="/dashboard"
                 className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 dark:text-brand-400"
               >
                 <LinkIcon className="h-4 w-4" aria-hidden />
-                לניהול ערוצים
+                לבקרת הורים
               </Link>
             </div>
           ) : (

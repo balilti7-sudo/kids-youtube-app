@@ -95,7 +95,9 @@ export function AppLayout() {
     return () => window.clearInterval(id)
   }, [managementUnlocked, navigate])
 
-  const showGate = !BYPASS_AUTH && !managementUnlocked
+  const pathRequiresParentUnlock = isParentManagementLockedPath(location.pathname)
+  const showGate = !BYPASS_AUTH && !managementUnlocked && pathRequiresParentUnlock
+  const showParentManagementChrome = pathRequiresParentUnlock
 
   return (
     <div className="relative flex min-h-dvh flex-col bg-yt-bg">
@@ -104,7 +106,7 @@ export function AppLayout() {
         <>
           <main className="safe-pb-nav flex flex-1 flex-col">
             <div className="sticky top-0 z-30">
-              <ParentManagementBanner />
+              {showParentManagementChrome ? <ParentManagementBanner /> : null}
               <header className="border-b border-yt-border bg-yt-bg/95 px-2 py-2.5 backdrop-blur-md sm:px-3">
               <div className="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 sm:gap-x-4">
                 <div className="flex min-w-0 items-center justify-self-stretch">

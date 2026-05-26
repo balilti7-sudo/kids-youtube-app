@@ -16,7 +16,7 @@ type Props = {
 export function PageBackBar({ fallback = '/dashboard', className, flush }: Props) {
   const navigate = useNavigate()
 
-  const fallbackLabel = fallback === '/dashboard' ? 'דף הבית' : fallback === '/auth' ? 'התחברות' : 'מסך ראשי'
+  const fallbackLabel = fallback === '/dashboard' ? 'בקרת הורים' : fallback === '/auth' ? 'התחברות' : 'מסך ראשי'
 
   return (
     <div className={cn('flex flex-wrap items-center gap-3', !flush && 'mb-3 sm:mb-4', className)}>

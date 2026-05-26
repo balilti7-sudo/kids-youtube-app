@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Home, Tv, ListMusic, Settings, Tablet } from 'lucide-react'
+import { ShieldCheck, Tv, ListMusic, Settings, Tablet } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
 import { LongPressNavButton } from './LongPressNavButton'
@@ -17,7 +17,7 @@ export function BottomNav() {
     >
       <div className="mx-auto flex max-w-lg items-stretch justify-around">
         {parentNavDiscreet ? (
-          <LongPressNavButton to="/dashboard" label="בית" icon={Home} isActive={pathname === '/dashboard'} />
+          <LongPressNavButton to="/dashboard" label="בקרת הורים" icon={ShieldCheck} isActive={pathname === '/dashboard'} />
         ) : (
           <NavLink
             to="/dashboard"
@@ -33,32 +33,28 @@ export function BottomNav() {
               )
             }
           >
-            <Home className="h-6 w-6" aria-hidden />
-            בית
+            <ShieldCheck className="h-6 w-6" aria-hidden />
+            בקרת הורים
           </NavLink>
         )}
 
-        {parentNavDiscreet ? (
-          <LongPressNavButton to="/channels" label="ערוצים" icon={Tv} isActive={pathname === '/channels'} />
-        ) : (
-          <NavLink
-            to="/channels"
-            onClick={(e) => {
-              if (pathname === '/channels') {
-                e.preventDefault()
-              }
-            }}
-            className={({ isActive }) =>
-              cn(
-                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
-                isActive ? 'text-yt-text' : 'text-yt-textMuted'
-              )
+        <NavLink
+          to="/channels"
+          onClick={(e) => {
+            if (pathname === '/channels') {
+              e.preventDefault()
             }
-          >
-            <Tv className="h-6 w-6" aria-hidden />
-            ערוצים
-          </NavLink>
-        )}
+          }}
+          className={({ isActive }) =>
+            cn(
+              'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+              isActive ? 'text-yt-text' : 'text-yt-textMuted'
+            )
+          }
+        >
+          <Tv className="h-6 w-6" aria-hidden />
+          ערוצים
+        </NavLink>
 
         {parentNavDiscreet ? (
           <LongPressNavButton

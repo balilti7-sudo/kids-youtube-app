@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Plus, Settings2, Smartphone, Trash2 } from 'lucide-react'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -17,8 +16,13 @@ function randomSixDigits() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
-export function DashboardDevicesSection() {
-  const navigate = useNavigate()
+export function DashboardDevicesSection({
+  activeManagementDeviceId,
+  onManageChannels,
+}: {
+  activeManagementDeviceId?: string | null
+  onManageChannels: (deviceId: string) => void
+}) {
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
@@ -95,10 +99,6 @@ export function DashboardDevicesSection() {
     await refetch()
   }
 
-  const openChannelManagement = (id: string) => {
-    navigate(`/channels?device=${encodeURIComponent(id)}`)
-  }
-
   return (
     <section
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
@@ -125,7 +125,7 @@ export function DashboardDevicesSection() {
               disabled={atLimit || !ownerUserId}
             >
               <Plus className="h-5 w-5" />
-              צור פרופיל חדש
+              הוספת פרופיל
             </Button>
           </div>
         </div>
@@ -169,8 +169,12 @@ export function DashboardDevicesSection() {
                 <Button
                   type="button"
                   variant="secondary"
-                  className="!px-3 !py-2 text-xs font-bold"
-                  onClick={() => openChannelManagement(d.id)}
+                  className={
+                    activeManagementDeviceId === d.id
+                      ? '!border-brand-500/60 !bg-brand-950/50 !px-3 !py-2 text-xs font-bold !text-brand-100'
+                      : '!px-3 !py-2 text-xs font-bold'
+                  }
+                  onClick={() => onManageChannels(d.id)}
                   aria-label={`ניהול ערוצים עבור ${d.name}`}
                 >
                   <Settings2 className="h-4 w-4" />

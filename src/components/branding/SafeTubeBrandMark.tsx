@@ -51,8 +51,8 @@ export function SafeTubeBrandMark({
       <button
         type="button"
         className={cn(baseRing, 'touch-manipulation select-none opacity-90', className)}
-        aria-label={`SafeTube — לחיצה ארוכה לדף הבית (${DISCREET_LOGO_MS / 1000} שנ׳)`}
-        title={`החזיקו לחוץ לדף הבית (${DISCREET_LOGO_MS / 1000} שנ׳)`}
+        aria-label={`SafeTube — לחיצה ארוכה לבקרת הורים (${DISCREET_LOGO_MS / 1000} שנ׳)`}
+        title={`החזיקו לחוץ לבקרת הורים (${DISCREET_LOGO_MS / 1000} שנ׳)`}
         onPointerDown={() => {
           clearTimer()
           timerRef.current = window.setTimeout(() => {

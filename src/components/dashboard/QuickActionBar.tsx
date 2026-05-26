@@ -8,9 +8,9 @@ const primaryLink =
 export function QuickActionBar() {
   return (
     <div className="flex flex-col gap-2">
-      <Link to="/channels" className={cn(primaryLink)}>
+      <Link to="/dashboard" className={cn(primaryLink)}>
         <Plus className="h-5 w-5 shrink-0" aria-hidden />
-        הוספת ערוץ למכשיר הילד
+        מעבר לבקרת הורים
       </Link>
     </div>
   )

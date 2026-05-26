@@ -190,7 +190,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
           <div className="space-y-5 px-5 py-6">
             <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-              כדי לגשת לדף הבית, לערוצים ולהגדרות — הזינו את קוד ההורה (4–6 ספרות) מהפרופיל. כשאתם מחוברים, הקוד נבדק מול מסד הנתונים (שדה parent_pin).
+              כדי לגשת לבקרת ההורים ולהגדרות — הזינו את קוד ההורה (4–6 ספרות) מהפרופיל. כשאתם מחוברים, הקוד נבדק מול מסד הנתונים (שדה parent_pin).
             </p>
 
             <div dir="ltr" className="flex flex-wrap justify-center gap-2" onPaste={handlePaste}>
