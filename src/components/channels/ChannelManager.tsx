@@ -70,6 +70,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
+  const showParentCacheRefresh = embedded && isParentalManagementGateUnlocked()
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
 
@@ -232,6 +233,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   }
 
   useEffect(() => {
+    if (!showParentCacheRefresh) return
     if (whitelist.length === 0 || refreshingChannelId) return
     const stale = whitelist.find((c) => {
       if (!c.last_videos_refresh_at) return true
@@ -240,7 +242,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     if (!stale) return
     void handleRefreshChannelVideos(stale.id, stale.youtube_channel_id, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [whitelist])
+  }, [whitelist, showParentCacheRefresh])
 
   useEffect(() => {
     const channel = previewChannel
@@ -602,7 +604,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
               )}
             </section>
           ) : null}
-          {whitelist.length > 0 ? (
+          {showParentCacheRefresh && whitelist.length > 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
               <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">רענון סרטוני ערוץ (Cache)</p>
               <div className="grid gap-2">
