@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowRight, PlayCircle, Tv } from 'lucide-react'
+import { ArrowRight, Tv } from 'lucide-react'
 import { useChannels } from '../hooks/useChannels'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { useDevices } from '../hooks/useDevices'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Button } from '../components/ui/Button'
+import { CleanPlayer } from '../components/player/CleanPlayer'
+import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
+import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList'
+import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
+import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
+import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
+import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
 
@@ -26,6 +33,8 @@ export function ChannelsPage() {
   const [videos, setVideos] = useState<ChannelVideoRow[]>([])
   const [videosLoading, setVideosLoading] = useState(false)
   const [videosError, setVideosError] = useState<string | null>(null)
+  const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
+  const [videoSearch, setVideoSearch] = useState('')
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -58,6 +67,8 @@ export function ChannelsPage() {
       setVideos([])
       setVideosError(null)
       setVideosLoading(false)
+      setActiveVideoId(null)
+      setVideoSearch('')
       return
     }
 
@@ -65,6 +76,8 @@ export function ChannelsPage() {
     setVideosLoading(true)
     setVideosError(null)
     setVideos([])
+    setActiveVideoId(null)
+    setVideoSearch('')
 
     void (async () => {
       const { data, error } = await supabase
@@ -87,6 +100,43 @@ export function ChannelsPage() {
     }
   }, [selectedChannel])
 
+  useEffect(() => {
+    if (videos.length === 0) {
+      setActiveVideoId(null)
+      return
+    }
+    setActiveVideoId((current) =>
+      current && videos.some((video) => video.youtube_video_id === current)
+        ? current
+        : videos[0].youtube_video_id
+    )
+  }, [videos])
+
+  const filteredVideos = useMemo(() => filterVideosByTitle(videos, videoSearch), [videos, videoSearch])
+  const activeVideo = useMemo(
+    () => videos.find((video) => video.youtube_video_id === activeVideoId) ?? null,
+    [videos, activeVideoId]
+  )
+  const activeQueueIndex = useMemo(
+    () => filteredVideos.findIndex((video) => video.youtube_video_id === activeVideoId),
+    [filteredVideos, activeVideoId]
+  )
+  const hasNextVideo = activeQueueIndex >= 0 && activeQueueIndex < filteredVideos.length - 1
+  const sidebarVideos = useMemo(
+    () => filteredVideos.filter((video) => video.youtube_video_id !== activeVideoId),
+    [filteredVideos, activeVideoId]
+  )
+
+  const goNextVideo = () => {
+    if (!hasNextVideo) return
+    setActiveVideoId(filteredVideos[activeQueueIndex + 1].youtube_video_id)
+  }
+
+  const goPreviousVideo = () => {
+    if (activeQueueIndex <= 0) return
+    setActiveVideoId(filteredVideos[activeQueueIndex - 1].youtube_video_id)
+  }
+
   const openChannel = (youtubeChannelId: string) => {
     if (deviceId) saveActiveChildProfileId(deviceId)
     const next = new URLSearchParams(searchParams)
@@ -102,7 +152,7 @@ export function ChannelsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-4">
+    <div className={`mx-auto flex w-full flex-col gap-4 pb-4 ${selectedChannel ? 'max-w-[1754px]' : 'max-w-5xl'}`}>
       <header className="rounded-3xl border border-zinc-800 bg-gradient-to-b from-zinc-900/95 to-zinc-950 p-4 shadow-2xl shadow-black/15 sm:p-5">
         <div className="flex items-center gap-3">
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25">
@@ -174,28 +224,69 @@ export function ChannelsPage() {
             <div className="rounded-2xl border border-dashed border-zinc-700 px-4 py-10 text-center text-sm text-zinc-500">
               אין סרטונים זמינים בערוץ הזה כרגע.
             </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {videos.map((video) => (
-                <article key={video.youtube_video_id} className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/70">
-                  <div className="aspect-video bg-zinc-950">
-                    {video.thumbnail_url ? (
-                      <img
-                        src={video.thumbnail_url}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-zinc-600">
-                        <PlayCircle className="h-10 w-10" aria-hidden />
+          ) : activeVideo ? (
+            <YoutubeWatchLayout
+              className="px-0 pb-2"
+              main={
+                <>
+                  <div className="relative w-full overflow-hidden bg-black lg:rounded-none">
+                    <div className="relative pt-[56.25%]">
+                      <div className="absolute inset-0 min-h-0">
+                        <CleanPlayer
+                          videoId={activeVideo.youtube_video_id}
+                          title={activeVideo.title}
+                          channelTitle={selectedChannel.channel_name}
+                          posterUrl={activeVideo.thumbnail_url}
+                          onPreviousTrack={goPreviousVideo}
+                          onNextTrack={goNextVideo}
+                          hasNextTrack={hasNextVideo}
+                          className="h-full w-full"
+                        />
                       </div>
-                    )}
+                    </div>
                   </div>
-                  <h3 className="line-clamp-2 p-3 text-sm font-bold leading-snug text-zinc-100">{video.title}</h3>
-                </article>
-              ))}
+                  <YoutubeWatchVideoDetails
+                    title={activeVideo.title}
+                    channelName={selectedChannel.channel_name}
+                    subtitle={`${videos.length} סרטונים מאושרים בערוץ`}
+                  />
+                </>
+              }
+              sidebar={
+                <>
+                  <ChannelVideoSearchBar
+                    id="child-channel-watch-search"
+                    value={videoSearch}
+                    onChange={setVideoSearch}
+                    totalCount={videos.length}
+                    filteredCount={filteredVideos.length}
+                    channelLabel={selectedChannel.channel_name}
+                    className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-3"
+                  />
+                  <YoutubeSuggestedList title="עוד סרטונים בערוץ">
+                    {sidebarVideos.map((video) => (
+                      <li key={video.youtube_video_id} className="w-full">
+                        <YoutubeVideoCard
+                          layout="row"
+                          title={video.title}
+                          thumbnail={video.thumbnail_url}
+                          active={false}
+                          onClick={() => setActiveVideoId(video.youtube_video_id)}
+                        />
+                      </li>
+                    ))}
+                  </YoutubeSuggestedList>
+                  {sidebarVideos.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+                      {videoSearch.trim() ? 'אין עוד סרטונים שמתאימים לחיפוש.' : 'אין עוד סרטונים בערוץ.'}
+                    </p>
+                  ) : null}
+                </>
+              }
+            />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-zinc-700 px-4 py-10 text-center text-sm text-zinc-500">
+              אין סרטון פעיל להצגה.
             </div>
           )}
         </section>
