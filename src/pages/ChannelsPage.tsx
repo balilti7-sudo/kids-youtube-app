@@ -220,7 +220,11 @@ export function ChannelsPage() {
   }
 
   return (
-    <div className={`mx-auto flex w-full flex-col gap-4 pb-4 ${selectedChannel ? 'max-w-[1754px]' : 'max-w-5xl'}`}>
+    <div
+      className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
+        selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
+      }`}
+    >
       <header className="rounded-3xl border border-zinc-800 bg-gradient-to-b from-zinc-900/95 to-zinc-950 p-4 shadow-2xl shadow-black/15 sm:p-5">
         <div className="flex items-center gap-3">
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25">
@@ -252,7 +256,7 @@ export function ChannelsPage() {
           <p className="mt-1 text-sm text-zinc-500">ההורה יכול להוסיף ערוצים מתוך בקרת הורים.</p>
         </div>
       ) : selectedChannel ? (
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-950/70 p-3 shadow-xl shadow-black/10 sm:p-4">
+        <section className="max-w-full overflow-x-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70 p-3 shadow-xl shadow-black/10 sm:p-4">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <button
@@ -297,7 +301,7 @@ export function ChannelsPage() {
               className="px-0 pb-2"
               main={
                 <>
-                  <div className="relative w-full overflow-hidden bg-black lg:rounded-none">
+                  <div className="relative w-full max-w-full overflow-hidden bg-black lg:rounded-none">
                     <div className="relative pt-[56.25%]">
                       <div className="absolute inset-0 min-h-0">
                         <CleanPlayer
