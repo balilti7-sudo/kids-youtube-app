@@ -6,7 +6,6 @@ import { useSubscription } from '../../hooks/useSubscription'
 import { supabase } from '../../lib/supabase'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
-import { BridgeStatusBadge } from './BridgeStatusBadge'
 import { ParentPinSettingsCard } from './ParentPinSettingsCard'
 import { toast } from 'sonner'
 
@@ -140,8 +139,6 @@ export function SettingsPanel() {
           </div>
         </div>
       </Modal>
-
-      <BridgeStatusBadge />
 
       {showDevTools ? (
         <section className="rounded-2xl border border-amber-300/80 bg-amber-50 p-4 dark:border-amber-700/50 dark:bg-amber-950/30">

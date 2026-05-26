@@ -36,13 +36,13 @@ export function ProfileSwitcher() {
   }
 
   return (
-    <label className="inline-flex min-w-0 items-center gap-2 rounded-2xl border border-zinc-700/80 bg-zinc-900/90 px-2.5 py-2 text-xs font-bold text-zinc-100 shadow-sm shadow-black/20">
+    <label className="inline-flex min-w-0 items-center gap-2 rounded-2xl border border-zinc-700/80 bg-zinc-800 px-3 py-2 text-xs font-black text-zinc-50 shadow-md shadow-black/25 ring-1 ring-white/10 transition hover:bg-zinc-700">
       <UsersRound className="h-4 w-4 shrink-0 text-sky-300" aria-hidden />
-      <span className="hidden whitespace-nowrap sm:inline">החלף פרופיל</span>
+      <span className="whitespace-nowrap">החלף פרופיל</span>
       <select
         value={activeId}
         onChange={(e) => handleChange(e.target.value)}
-        className="max-w-[7.5rem] bg-transparent text-xs font-semibold text-zinc-100 outline-none sm:max-w-[10rem]"
+        className="max-w-[5.75rem] bg-transparent text-xs font-semibold text-zinc-100 outline-none sm:max-w-[10rem]"
         aria-label="החלף פרופיל"
       >
         {devices.map((device) => (
