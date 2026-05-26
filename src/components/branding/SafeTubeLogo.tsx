@@ -2,7 +2,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { cn } from '../../lib/utils'
 
 /** Cache-bust when replacing `public/logo.png`. */
-export const SAFETUBE_LOGO_SRC = '/logo.png?v=3'
+export const SAFETUBE_LOGO_SRC = '/logo.png?v=4'
 
 type Props = {
   size?: 'sm' | 'md' | 'lg'
