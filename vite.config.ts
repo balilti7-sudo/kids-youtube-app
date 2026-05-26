@@ -9,6 +9,15 @@ export default defineConfig({
   plugins: [react()],
   // Load `.env`, `.env.local`, etc. from the repo root (next to this file).
   envDir: projectRoot,
+  build: {
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/[name].[hash].js',
+        chunkFileNames: 'assets/[name].[hash].js',
+        assetFileNames: 'assets/[name].[hash][extname]',
+      },
+    },
+  },
   server: {
     port: 5174,
     strictPort: true,
