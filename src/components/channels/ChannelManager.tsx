@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, RefreshCcw } from 'lucide-react'
+import { RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
@@ -12,7 +12,6 @@ import { ChannelSearch } from './ChannelSearch'
 import { RemoveChannelModal } from './RemoveChannelModal'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { Button } from '../ui/Button'
-import { Input } from '../ui/Input'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { toast } from 'sonner'
@@ -57,7 +56,6 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [addedSearchChannelIds, setAddedSearchChannelIds] = useState<Set<string>>(new Set())
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
-  const [channelCategory, setChannelCategory] = useState('')
   const [removeLoading, setRemoveLoading] = useState(false)
   const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
   const [pinModalOpen, setPinModalOpen] = useState(false)
@@ -135,7 +133,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     }
     setAddingId(c.channelId)
     try {
-      const { error } = await addToWhitelist(c, channelCategory.trim() || null)
+      const { error } = await addToWhitelist(c, null)
       if (error) {
         console.error('[ChannelManager] addToWhitelist failed', error.message, c.channelId)
         toast.error(error.message)
@@ -404,15 +402,12 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             ))}
           </select>
         ) : null}
-        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-          <Input
-            placeholder="קטגוריה לערוץ (אופציונלי)"
-            value={channelCategory}
-            onChange={(e) => setChannelCategory(e.target.value)}
-            className="mb-2"
-          />
-          <Button type="button" className="min-h-[48px] w-full gap-2 text-sm font-bold sm:text-base" onClick={requestOpenChannelSearch}>
-            <Plus className="h-5 w-5 shrink-0" />
+        <div className="rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-3 shadow-inner ring-1 ring-zinc-800/80">
+          <Button
+            type="button"
+            className="min-h-[52px] w-full justify-center rounded-2xl bg-gradient-to-l from-sky-500 to-brand-600 px-5 text-center text-base font-black tracking-tight text-white shadow-lg shadow-sky-950/30 ring-1 ring-white/10 transition hover:from-sky-400 hover:to-brand-500 focus-visible:ring-2 focus-visible:ring-sky-300"
+            onClick={requestOpenChannelSearch}
+          >
             חיפוש ערוץ
           </Button>
         </div>
