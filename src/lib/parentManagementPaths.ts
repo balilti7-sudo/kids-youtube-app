@@ -1,7 +1,6 @@
 /** נתיבים שדורשים אימות הורה (שער) — לא זמינים לילד בלי כוונה מפורשת. */
 export const PARENT_MANAGEMENT_PATHS = new Set([
   '/dashboard',
-  '/playlists',
   '/hidden-videos',
   '/settings',
   '/profile',
