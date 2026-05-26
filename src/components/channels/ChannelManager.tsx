@@ -405,7 +405,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         <div className="rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-3 shadow-inner ring-1 ring-zinc-800/80">
           <Button
             type="button"
-            className="min-h-[52px] w-full justify-center rounded-2xl bg-gradient-to-l from-sky-500 to-brand-600 px-5 text-center text-base font-black tracking-tight text-white shadow-lg shadow-sky-950/30 ring-1 ring-white/10 transition hover:from-sky-400 hover:to-brand-500 focus-visible:ring-2 focus-visible:ring-sky-300"
+            className="min-h-[52px] w-full justify-center rounded-2xl bg-zinc-800 px-5 text-center text-base font-black tracking-tight text-zinc-50 shadow-lg shadow-black/25 ring-1 ring-white/10 transition hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400"
             onClick={requestOpenChannelSearch}
           >
             חיפוש ערוץ

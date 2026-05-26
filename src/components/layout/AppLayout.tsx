@@ -20,6 +20,7 @@ import { PageBackBar } from './PageBackBar'
 import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
 import { ParentManagementBanner } from './ParentManagementBanner'
+import { ProfileSwitcher } from './ProfileSwitcher'
 
 export function AppLayout() {
   const location = useLocation()
@@ -113,7 +114,8 @@ export function AppLayout() {
                   <PageBackBar flush />
                 </div>
                 <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} className="justify-self-center px-0.5" />
-                <div className="flex items-center justify-self-stretch justify-end pe-0.5 sm:pe-1">
+                <div className="flex items-center justify-self-stretch justify-end gap-2 pe-0.5 sm:pe-1">
+                  <ProfileSwitcher />
                   <ThemeToggle />
                 </div>
               </div>
