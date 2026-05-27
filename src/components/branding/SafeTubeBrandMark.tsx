@@ -1,10 +1,8 @@
-import { useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '../../lib/utils'
 import { setParentEntryIntent } from '../../lib/parentEntryIntent'
 import { SAFETUBE_LOGO_SRC } from './SafeTubeLogo'
-
-const DISCREET_LOGO_MS = 650
+import { ChildProofLongPressControl } from '../kid/ChildProofLongPressControl'
 
 type Props = {
   /** ברירת מחדל: דשבורד הורה */
@@ -26,14 +24,6 @@ export function SafeTubeBrandMark({
   discreetParentNav = false,
 }: Props) {
   const navigate = useNavigate()
-  const timerRef = useRef<number | null>(null)
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current != null) {
-      window.clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
-  }, [])
 
   const imgClass = cn(
     size === 'compact'
@@ -49,27 +39,18 @@ export function SafeTubeBrandMark({
 
   if (discreetParentNav) {
     return (
-      <button
-        type="button"
-        className={cn(baseRing, 'touch-manipulation select-none opacity-90', className)}
-        aria-label={`SafeTube — לחיצה ארוכה לבקרת הורים (${DISCREET_LOGO_MS / 1000} שנ׳)`}
-        title={`החזיקו לחוץ לבקרת הורים (${DISCREET_LOGO_MS / 1000} שנ׳)`}
-        onPointerDown={() => {
-          clearTimer()
-          timerRef.current = window.setTimeout(() => {
-            timerRef.current = null
-            setParentEntryIntent()
-            navigate(to)
-          }, DISCREET_LOGO_MS)
+      <ChildProofLongPressControl
+        onComplete={() => {
+          setParentEntryIntent()
+          navigate(to)
         }}
-        onPointerUp={clearTimer}
-        onPointerLeave={clearTimer}
-        onPointerCancel={clearTimer}
-        onContextMenu={(e) => e.preventDefault()}
-        onClick={(e) => e.preventDefault()}
+        progressStyle="ring"
+        className={cn(baseRing, 'opacity-90', className)}
+        ariaLabel="SafeTube — לחיצה ארוכה 3 שניות לבקרת הורים"
+        title="החזיקו לחוץ 3 שנ׳ לבקרת הורים"
       >
         <img src={SAFETUBE_LOGO_SRC} alt="" className={imgClass} decoding="async" />
-      </button>
+      </ChildProofLongPressControl>
     )
   }
 
