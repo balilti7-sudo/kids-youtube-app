@@ -3,6 +3,43 @@ import type { WhitelistedChannel, WhitelistedVideo, YouTubeChannelResult, YouTub
 import { childAllowedChannelToWhitelist, getChildAllowedChannels } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 
+function channelFromSearchResult(
+  channelId: string,
+  yt: YouTubeChannelResult,
+  category?: string | null
+): WhitelistedChannel {
+  const normalizedCategory = category?.trim() ? category.trim() : null
+  return {
+    id: channelId,
+    youtube_channel_id: yt.channelId,
+    channel_name: yt.title,
+    category: normalizedCategory,
+    channel_thumbnail: yt.thumbnail || null,
+    subscriber_count: yt.subscriberCount || null,
+    description: yt.description || null,
+    last_videos_refresh_at: null,
+    created_at: new Date().toISOString(),
+  }
+}
+
+function upsertWhitelistChannel(
+  set: (partial: Partial<ChannelState>) => void,
+  get: () => ChannelState,
+  channel: WhitelistedChannel
+) {
+  const list = get().whitelist
+  const idx = list.findIndex(
+    (c) => c.id === channel.id || c.youtube_channel_id === channel.youtube_channel_id
+  )
+  if (idx >= 0) {
+    const next = [...list]
+    next[idx] = { ...next[idx], ...channel }
+    set({ whitelist: next })
+    return
+  }
+  set({ whitelist: [...list, channel] })
+}
+
 interface ChannelState {
   whitelist: WhitelistedChannel[]
   approvedVideos: WhitelistedVideo[]
@@ -153,11 +190,16 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       added_by: userId,
     })
     if (link.error) {
-      if (link.error.code === '23505') return { error: null }
+      if (link.error.code === '23505') {
+        upsertWhitelistChannel(set, get, channelFromSearchResult(channelId, yt, category))
+        void get().fetchWhitelistForDevice(deviceId)
+        return { error: null }
+      }
       return { error: new Error(link.error.message) }
     }
 
-    await get().fetchWhitelistForDevice(deviceId)
+    upsertWhitelistChannel(set, get, channelFromSearchResult(channelId, yt, category))
+    void get().fetchWhitelistForDevice(deviceId)
     return { error: null }
   },
 
@@ -272,12 +314,15 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       p_category: normalizedCategory ?? '',
     })
     if (error) return { error: new Error(error.message) }
-    const row = data as { ok?: boolean; error?: string } | null
+    const row = data as { ok?: boolean; error?: string; channel_id?: string } | null
     if (!row?.ok) {
       const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה בהוספת ערוץ'
       return { error: new Error(msg) }
     }
-    await get().fetchWhitelistForLocalParent(accessToken)
+    if (row.channel_id) {
+      upsertWhitelistChannel(set, get, channelFromSearchResult(row.channel_id, yt, category))
+    }
+    void get().fetchWhitelistForLocalParent(accessToken)
     return { error: null }
   },
 

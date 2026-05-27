@@ -210,6 +210,17 @@ export function useChannels(
     [deviceId, userId, addVideoToDevice]
   )
 
+  const scheduleChannelVideosCacheRefresh = useCallback(
+    (channelDbId: string, youtubeChannelId: string) => {
+      void refreshChannelVideosCache(channelDbId, youtubeChannelId, true).then((result) => {
+        if (result.error) {
+          console.warn('[useChannels] background cache refresh failed', result.error.message, youtubeChannelId)
+        }
+      })
+    },
+    [refreshChannelVideosCache]
+  )
+
   const addToWhitelist = useCallback(
     async (yt: import('../types').YouTubeChannelResult, category?: string | null) => {
       if (localAccessToken) {
@@ -217,21 +228,14 @@ export function useChannels(
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
         if (res.error) return res
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-        if (ch?.id) {
-          const ref = await refreshChannelVideosCache(ch.id, yt.channelId, true)
-          if (ref.error) return ref
-        }
+        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
         return { error: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       const res = await addChannelToDevice({ deviceId, userId, yt, category })
       if (res.error) return res
-      await fetchWhitelistForDevice(deviceId)
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-      if (ch?.id) {
-        const ref = await refreshChannelVideosCache(ch.id, yt.channelId, true)
-        if (ref.error) return ref
-      }
+      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
       return { error: null }
     },
     [
@@ -241,8 +245,7 @@ export function useChannels(
       getLocalParentPin,
       addChannelLocalParent,
       addChannelToDevice,
-      fetchWhitelistForDevice,
-      refreshChannelVideosCache,
+      scheduleChannelVideosCacheRefresh,
     ]
   )
 
@@ -255,21 +258,14 @@ export function useChannels(
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt: data, category })
         if (res.error) return res
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-        if (ch?.id) {
-          const ref = await refreshChannelVideosCache(ch.id, data.channelId, true)
-          if (ref.error) return ref
-        }
+        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
         return { error: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
       const res = await addChannelToDevice({ deviceId, userId, yt: data, category })
       if (res.error) return res
-      await fetchWhitelistForDevice(deviceId)
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-      if (ch?.id) {
-        const ref = await refreshChannelVideosCache(ch.id, data.channelId, true)
-        if (ref.error) return ref
-      }
+      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
       return { error: null }
     },
     [
@@ -279,8 +275,7 @@ export function useChannels(
       getLocalParentPin,
       addChannelLocalParent,
       addChannelToDevice,
-      fetchWhitelistForDevice,
-      refreshChannelVideosCache,
+      scheduleChannelVideosCacheRefresh,
     ]
   )
 
