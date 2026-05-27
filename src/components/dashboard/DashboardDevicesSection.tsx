@@ -101,22 +101,20 @@ export function DashboardDevicesSection({
           <p className="text-xs text-zinc-500">פרופילים מקושרים: {devices.length} / {max}</p>
         </div>
 
-        <div className="rounded-2xl border border-zinc-700/90 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80">
-          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">פרופילי ילדים</p>
+        <div className="rounded-xl border border-zinc-700/50 bg-zinc-950/40 px-3 py-3">
+          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">פרופילי ילדים</p>
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
             מוסיפים פרופיל כאן; הוא משמש לצימוד מסך הילד ולהגדרת ההרשאות.
           </p>
-          <div className="flex flex-col gap-1">
-            <Button
-              type="button"
-              className="w-full justify-center py-3 text-[15px] font-bold shadow-md shadow-black/20"
-              onClick={openModal}
-              disabled={atLimit || !ownerUserId}
-            >
-              <Plus className="h-5 w-5" />
-              הוספת פרופיל
-            </Button>
-          </div>
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-[15px] font-bold text-zinc-900 shadow-md shadow-black/25 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={openModal}
+            disabled={atLimit || !ownerUserId}
+          >
+            <Plus className="h-5 w-5 shrink-0" aria-hidden />
+            הוספת פרופיל
+          </button>
         </div>
       </div>
 
@@ -132,9 +130,9 @@ export function DashboardDevicesSection({
       ) : null}
 
       {loading ? (
-        <div className="flex flex-col gap-1">
-          <Skeleton className="h-16 w-full rounded-xl" />
-          <Skeleton className="h-16 w-full rounded-xl" />
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-14 w-full rounded-xl" />
+          <Skeleton className="h-14 w-full rounded-xl" />
         </div>
       ) : error ? (
         <ErrorState message={error} onRetry={() => void refetch()} />
@@ -149,29 +147,32 @@ export function DashboardDevicesSection({
           {devices.map((d) => (
             <li
               key={d.id}
-              className="overflow-hidden rounded-2xl border border-zinc-700/90 bg-zinc-950/70 ring-1 ring-zinc-800/80"
+              className="flex flex-row items-center justify-between gap-3 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60"
             >
-              <div className="border-b border-zinc-800/80 px-3 py-3 text-center">
-                <Smartphone className="mx-auto mb-1.5 h-8 w-8 text-zinc-500" aria-hidden />
-                <p className="truncate text-base font-bold text-zinc-50">{d.name}</p>
-              </div>
-              <div className="p-3">
-                <Button
-                  type="button"
-                  variant="primary"
-                  className={cn(
-                    'w-full justify-center gap-2.5 py-3.5 text-[15px] font-bold shadow-md shadow-black/25',
-                    activeManagementDeviceId === d.id &&
-                      'ring-2 ring-brand-300/90 ring-offset-2 ring-offset-zinc-950'
-                  )}
-                  onClick={() => onManageChannels(d.id)}
-                  aria-label={`ניהול ערוצים עבור ${d.name}`}
-                  aria-current={activeManagementDeviceId === d.id ? 'true' : undefined}
+              <div className="flex min-w-0 flex-1 items-center gap-3 text-start">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800/90 text-zinc-400 ring-1 ring-zinc-700/80"
+                  aria-hidden
                 >
-                  <Settings2 className="h-5 w-5 shrink-0" aria-hidden />
-                  ניהול ערוצים
-                </Button>
+                  <Smartphone className="h-5 w-5" />
+                </span>
+                <p className="truncate text-sm font-semibold text-zinc-100 sm:text-base">{d.name}</p>
               </div>
+              <Button
+                type="button"
+                variant="primary"
+                className={cn(
+                  'h-9 shrink-0 justify-center gap-1.5 rounded-lg !px-4 !py-2 text-xs font-semibold sm:text-sm',
+                  activeManagementDeviceId === d.id &&
+                    'ring-2 ring-brand-300/80 ring-offset-1 ring-offset-zinc-950'
+                )}
+                onClick={() => onManageChannels(d.id)}
+                aria-label={`ניהול ערוצים עבור ${d.name}`}
+                aria-current={activeManagementDeviceId === d.id ? 'true' : undefined}
+              >
+                <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="whitespace-nowrap">ניהול ערוצים</span>
+              </Button>
             </li>
           ))}
         </ul>
