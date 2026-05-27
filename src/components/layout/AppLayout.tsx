@@ -125,7 +125,11 @@ export function AppLayout() {
                 <div className="order-1 flex min-w-0 flex-1 items-center sm:order-none">
                   <PageBackBar flush />
                 </div>
-                <SafeTubeBrandMark discreetParentNav={hasKidDeviceToken} className="order-3 mx-auto px-0.5 sm:order-none sm:mx-0" />
+                <SafeTubeBrandMark
+                  discreetParentNav={hasKidDeviceToken}
+                  size={showParentManagementChrome ? 'prominent' : 'default'}
+                  className="order-3 mx-auto px-0.5 sm:order-none sm:mx-0"
+                />
                 <div className="order-2 flex min-w-0 flex-1 items-center justify-end gap-1.5 pe-0.5 sm:order-none sm:gap-2 sm:pe-1">
                   <ProfileSwitcher />
                   <ThemeToggle />

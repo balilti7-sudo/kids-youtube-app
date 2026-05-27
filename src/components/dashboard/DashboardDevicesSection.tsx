@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Settings2, Smartphone, Trash2 } from 'lucide-react'
+import { Plus, Settings2, Smartphone } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -28,7 +28,6 @@ export function DashboardDevicesSection({
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
   const addDevice = useDeviceStore((s) => s.addDevice)
-  const removeDevice = useDeviceStore((s) => s.removeDevice)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [deviceName, setDeviceName] = useState('')
@@ -89,17 +88,6 @@ export function DashboardDevicesSection({
     }
   }
 
-  const handleDelete = async (id: string) => {
-    const { error: err } = await removeDevice(id)
-    if (err) {
-      console.error('Connection Error:', err)
-      toast.error('מחיקה נכשלה', { description: err.message })
-      return
-    }
-    toast.success('הפרופיל הוסר')
-    await refetch()
-  }
-
   return (
     <section
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
@@ -157,19 +145,22 @@ export function DashboardDevicesSection({
           <p className="max-w-xs text-xs text-zinc-500">צרו פרופיל חדש והמשיכו בהגדרת מסך הילד.</p>
         </div>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-2">
           {devices.map((d) => (
             <li
               key={d.id}
-              className="flex flex-col gap-3 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-3"
+              className="overflow-hidden rounded-2xl border border-zinc-700/90 bg-zinc-950/70 ring-1 ring-zinc-800/80"
             >
-              <p className="truncate font-semibold text-zinc-100">{d.name}</p>
-              <div className="flex w-full min-w-0 items-stretch gap-2">
+              <div className="border-b border-zinc-800/80 px-3 py-3 text-center">
+                <Smartphone className="mx-auto mb-1.5 h-8 w-8 text-zinc-500" aria-hidden />
+                <p className="truncate text-base font-bold text-zinc-50">{d.name}</p>
+              </div>
+              <div className="p-3">
                 <Button
                   type="button"
                   variant="primary"
                   className={cn(
-                    'min-h-[3.25rem] w-full flex-1 justify-center gap-2.5 px-5 py-3.5 text-[15px] font-bold shadow-md shadow-black/25 sm:min-h-[3.5rem] sm:text-base',
+                    'w-full justify-center gap-2.5 py-3.5 text-[15px] font-bold shadow-md shadow-black/25',
                     activeManagementDeviceId === d.id &&
                       'ring-2 ring-brand-300/90 ring-offset-2 ring-offset-zinc-950'
                   )}
@@ -179,17 +170,6 @@ export function DashboardDevicesSection({
                 >
                   <Settings2 className="h-5 w-5 shrink-0" aria-hidden />
                   ניהול ערוצים
-                </Button>
-                <Button
-                  type="button"
-                  variant="danger"
-                  className="h-auto shrink-0 self-center !min-w-[2.75rem] !rounded-lg !px-2 !py-2 text-[11px] font-semibold shadow-none"
-                  onClick={() => void handleDelete(d.id)}
-                  aria-label={`מחק פרופיל ${d.name}`}
-                  title="מחק פרופיל"
-                >
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                  מחק
                 </Button>
               </div>
             </li>

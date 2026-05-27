@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { YoutubeShortCard } from '../youtube/YoutubeShortCard'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import type { WatchableVideoBase } from '../../lib/videoFormatClassification'
-import { partitionVideosByFormat } from '../../lib/videoFormatClassification'
+import { partitionVideosForBrowse } from '../../lib/videoFormatClassification'
+import { usePortraitVideoThumbnailIds } from '../../hooks/usePortraitVideoThumbnailIds'
 
 type Props = {
   videos: WatchableVideoBase[]
@@ -12,8 +13,11 @@ type Props = {
 }
 
 export function ChannelVideoBrowseRows({ videos, activeVideoId, onSelectVideo, renderAction }: Props) {
-  // Strict partition: suspected Shorts never appear in the long-form "סרטונים" row.
-  const { longForm, shorts } = partitionVideosByFormat(videos)
+  const portraitThumbnailIds = usePortraitVideoThumbnailIds(videos)
+  const { longForm, shorts } = useMemo(
+    () => partitionVideosForBrowse(videos, portraitThumbnailIds),
+    [videos, portraitThumbnailIds]
+  )
 
   return (
     <div className="flex flex-col gap-5 px-1 pb-2 sm:px-0">

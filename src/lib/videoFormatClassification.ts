@@ -21,12 +21,26 @@ export function titleSuggestsYoutubeShort(title: string | null | undefined): boo
 export function thumbnailSuggestsYoutubeShort(thumbnailUrl: string | null | undefined): boolean {
   const u = (thumbnailUrl ?? '').trim().toLowerCase()
   if (!u) return false
-  return (
+  if (
     u.includes('/shorts/') ||
     u.includes('oardefault') ||
     u.includes('oar2') ||
+    u.includes('ardefault') ||
+    u.includes('hq720') ||
     (u.includes('ytimg.com') && u.includes('vi_webp') && u.includes('oar'))
-  )
+  ) {
+    return true
+  }
+
+  const wMatch = u.match(/(?:[?&](?:width|w)=)(\d+)/)
+  const hMatch = u.match(/(?:[?&](?:height|h)=)(\d+)/)
+  if (wMatch && hMatch) {
+    const w = Number(wMatch[1])
+    const h = Number(hMatch[1])
+    if (w > 0 && h > 0 && h / w >= 1.12) return true
+  }
+
+  return false
 }
 
 /** Classify as Short when duration ≤ 90s or URL contains /shorts/. */
@@ -127,12 +141,22 @@ export async function enrichVideosWithFormat(
   })
 }
 
-export function partitionVideosByFormat<T extends WatchableVideoBase>(videos: T[]) {
+export function partitionVideosForBrowse<T extends WatchableVideoBase>(
+  videos: T[],
+  portraitThumbnailIds?: ReadonlySet<string>
+) {
   const longForm: T[] = []
   const shorts: T[] = []
   for (const video of videos) {
-    if (isVideoShortOrSuspected(video)) shorts.push(video)
-    else longForm.push(video)
+    if (isVideoShortOrSuspected(video) || portraitThumbnailIds?.has(video.youtube_video_id)) {
+      shorts.push(video)
+    } else {
+      longForm.push(video)
+    }
   }
   return { longForm, shorts }
+}
+
+export function partitionVideosByFormat<T extends WatchableVideoBase>(videos: T[]) {
+  return partitionVideosForBrowse(videos)
 }

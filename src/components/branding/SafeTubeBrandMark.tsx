@@ -9,7 +9,7 @@ type Props = {
   to?: string
   className?: string
   /** במסך ילדים — עוד יותר צר */
-  size?: 'default' | 'compact'
+  size?: 'default' | 'compact' | 'prominent'
   /** במכשיר עם טוקן ילד — מעבר לדשבורד רק בלחיצה ארוכה (מניעת לחיצות מקריות) */
   discreetParentNav?: boolean
 }
@@ -28,7 +28,9 @@ export function SafeTubeBrandMark({
   const imgClass = cn(
     size === 'compact'
       ? 'h-11 w-auto max-w-[8.25rem] object-contain sm:h-12 sm:max-w-[10rem]'
-      : 'h-[50px] w-auto max-w-[9.5rem] object-contain sm:h-[60px] sm:max-w-[13rem]',
+      : size === 'prominent'
+        ? 'h-14 w-auto max-w-[11rem] object-contain sm:h-[4.25rem] sm:max-w-[14.5rem]'
+        : 'h-[50px] w-auto max-w-[9.5rem] object-contain sm:h-[60px] sm:max-w-[13rem]',
     'bg-transparent border-0 shadow-none outline-none ring-0',
     'transition-transform duration-700 ease-in-out motion-reduce:duration-500',
     'group-hover:animate-logo-hover-pulse motion-reduce:group-hover:animate-none motion-reduce:group-hover:scale-105'
