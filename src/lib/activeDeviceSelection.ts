@@ -18,3 +18,14 @@ export function saveActiveChildProfileId(deviceId: string) {
     /* ignore storage errors */
   }
 }
+
+export function clearActiveChildProfileIdIfMatches(deviceId: string) {
+  try {
+    if (getSavedActiveChildProfileId() === deviceId) {
+      localStorage.removeItem(ACTIVE_CHILD_PROFILE_ID_KEY)
+      window.dispatchEvent(new CustomEvent(ACTIVE_CHILD_PROFILE_CHANGED_EVENT, { detail: { deviceId: null } }))
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+}

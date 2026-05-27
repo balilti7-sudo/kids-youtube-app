@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useDeviceStore } from '../../stores/deviceStore'
+import { clearActiveChildProfileIdIfMatches } from '../../lib/activeDeviceSelection'
 import { StatsGrid } from './StatsGrid'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ChannelManager } from '../channels/ChannelManager'
@@ -7,8 +9,29 @@ import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
 
 export function ParentDashboard() {
   const devices = useDeviceStore((s) => s.devices)
+  const removeDevice = useDeviceStore((s) => s.removeDevice)
   const [managedDeviceId, setManagedDeviceId] = useState<string | null>(null)
+  const [deletingProfile, setDeletingProfile] = useState(false)
   const managedDevice = devices.find((d) => d.id === managedDeviceId) ?? null
+
+  const handleDeleteManagedProfile = async () => {
+    if (!managedDeviceId || deletingProfile) return
+    const confirmed = window.confirm('האם אתה בטוח שברצונך למחוק פרופיל זה לצמיתות?')
+    if (!confirmed) return
+
+    setDeletingProfile(true)
+    const { error } = await removeDevice(managedDeviceId)
+    setDeletingProfile(false)
+
+    if (error) {
+      toast.error('מחיקה נכשלה', { description: error.message })
+      return
+    }
+
+    clearActiveChildProfileIdIfMatches(managedDeviceId)
+    toast.success('הפרופיל הוסר')
+    setManagedDeviceId(null)
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 pb-3">
@@ -40,6 +63,16 @@ export function ParentDashboard() {
             </button>
           </div>
           <ChannelManager managedDeviceId={managedDeviceId} embedded />
+          <footer className="mt-4 flex justify-end border-t border-zinc-800/90 pt-3">
+            <button
+              type="button"
+              disabled={deletingProfile}
+              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-950/40 hover:text-red-300 disabled:opacity-50"
+              onClick={() => void handleDeleteManagedProfile()}
+            >
+              {deletingProfile ? 'מוחק…' : 'מחק פרופיל מכשיר זה'}
+            </button>
+          </footer>
         </section>
       ) : null}
     </div>
