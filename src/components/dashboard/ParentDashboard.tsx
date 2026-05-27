@@ -37,7 +37,7 @@ export function ParentDashboard() {
               סגור
             </button>
           </div>
-          <ChannelManager managedDeviceId={managedDeviceId} embedded />
+          <ChannelManager managedDeviceId={managedDeviceId} embedded showAdminCacheTools />
         </section>
       ) : null}
     </div>

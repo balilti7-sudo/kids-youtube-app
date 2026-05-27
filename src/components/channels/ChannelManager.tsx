@@ -40,9 +40,15 @@ type PendingPinAction =
 type ChannelManagerProps = {
   managedDeviceId?: string | null
   embedded?: boolean
+  /** Technical cache refresh UI — only for parent dashboard embed, never child/public views */
+  showAdminCacheTools?: boolean
 }
 
-export function ChannelManager({ managedDeviceId = null, embedded = false }: ChannelManagerProps) {
+export function ChannelManager({
+  managedDeviceId = null,
+  embedded = false,
+  showAdminCacheTools = false,
+}: ChannelManagerProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, profile } = useAuth()
@@ -70,7 +76,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
-  const showParentCacheRefresh = embedded && isParentalManagementGateUnlocked()
+  const showParentCacheRefresh = showAdminCacheTools
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
 
