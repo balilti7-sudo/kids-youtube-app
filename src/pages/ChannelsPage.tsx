@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Check, ListMusic, Plus, Tv } from 'lucide-react'
 import { ChildChannelsNavCarousel } from '../components/kid/ChildChannelsNavCarousel'
@@ -7,7 +7,7 @@ import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { useDevices } from '../hooks/useDevices'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Button } from '../components/ui/Button'
-import { CleanPlayer } from '../components/player/CleanPlayer'
+import { ChildWatchPlayerShell } from '../components/kid/ChildWatchPlayerShell'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
 import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList'
 import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
@@ -20,6 +20,7 @@ import { buildDiverseVideoMix, buildWatchRecommendationQueue } from '../lib/buil
 import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
+import { prefetchStreamInfo } from '../lib/streamApi'
 import {
   enrichVideosWithFormat,
   toWatchableVideo,
@@ -81,6 +82,8 @@ export function ChannelsPage() {
   const [videosLoading, setVideosLoading] = useState(false)
   const [videosError, setVideosError] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
+  /** Snapshot at tap time so the player mounts before discovery/metadata catches up. */
+  const [playingVideo, setPlayingVideo] = useState<ChannelWatchVideo | null>(null)
   const [videoSearch, setVideoSearch] = useState('')
   const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
@@ -124,6 +127,7 @@ export function ChannelsPage() {
       setVideosError(null)
       setVideosLoading(false)
       setActiveVideoId(null)
+      setPlayingVideo(null)
       setVideoSearch('')
       setShowMyPlaylist(false)
       setWatchStarted(false)
@@ -135,11 +139,29 @@ export function ChannelsPage() {
     setVideosError(null)
     setVideos([])
     setActiveVideoId(null)
+    setPlayingVideo(null)
     setVideoSearch('')
     setShowMyPlaylist(false)
     setWatchStarted(false)
 
     void (async () => {
+      const mapRows = (
+        rows: Array<{
+          youtube_video_id: string
+          title: string
+          thumbnail_url: string | null
+          duration_seconds?: number | null
+        }>
+      ) =>
+        rows.map((row) =>
+          toWatchableVideo({
+            youtube_video_id: row.youtube_video_id,
+            title: row.title,
+            thumbnail_url: row.thumbnail_url,
+            duration_seconds: row.duration_seconds ?? null,
+          })
+        )
+
       const kidToken = getSavedChildAccessToken()
       if (kidToken) {
         const { data, error } = await getChildCachedChannelVideos(kidToken, selectedChannel.youtube_channel_id)
@@ -149,17 +171,25 @@ export function ChannelsPage() {
           setVideosError(error.message)
           return
         }
-        const enriched = await enrichVideosWithFormat(
-          (data ?? []).map((row) => ({
+        const rows = (data ?? []).map((row) => ({
+          youtube_video_id: row.youtube_video_id,
+          title: row.title,
+          thumbnail_url: row.thumbnail_url,
+          duration_seconds: row.duration_seconds ?? null,
+        }))
+        const fast = mapRows(rows)
+        setVideos(fast)
+        setVideosLoading(false)
+        void enrichVideosWithFormat(
+          rows.map((row) => ({
             youtube_video_id: row.youtube_video_id,
             title: row.title,
             thumbnail_url: row.thumbnail_url,
             durationSeconds: row.duration_seconds ?? null,
           }))
-        )
-        if (cancelled) return
-        setVideos(enriched)
-        setVideosLoading(false)
+        ).then((enriched) => {
+          if (!cancelled) setVideos(enriched)
+        })
         return
       }
 
@@ -175,31 +205,33 @@ export function ChannelsPage() {
         setVideosError(error.message)
         return
       }
-      const raw = (data ?? []).map((row) => {
+      const rows = (data ?? []).map((row) => {
         const r = row as {
           youtube_video_id: string
           title: string
           thumbnail_url: string | null
           duration_seconds?: number | null
         }
-        return toWatchableVideo({
+        return {
           youtube_video_id: r.youtube_video_id,
           title: r.title,
           thumbnail_url: r.thumbnail_url,
           duration_seconds: r.duration_seconds ?? null,
-        })
+        }
       })
-      const enriched = await enrichVideosWithFormat(
-        raw.map((v) => ({
-          youtube_video_id: v.youtube_video_id,
-          title: v.title,
-          thumbnail_url: v.thumbnail_url,
-          durationSeconds: v.durationSeconds,
-        }))
-      )
-      if (cancelled) return
-      setVideos(enriched)
+      const fast = mapRows(rows)
+      setVideos(fast)
       setVideosLoading(false)
+      void enrichVideosWithFormat(
+        rows.map((row) => ({
+          youtube_video_id: row.youtube_video_id,
+          title: row.title,
+          thumbnail_url: row.thumbnail_url,
+          durationSeconds: row.duration_seconds ?? null,
+        }))
+      ).then((enriched) => {
+        if (!cancelled) setVideos(enriched)
+      })
     })()
 
     return () => {
@@ -208,9 +240,11 @@ export function ChannelsPage() {
   }, [selectedChannel])
 
   useEffect(() => {
-    if (!selectedChannel || visibleChannels.length === 0) {
-      setDiscoveryVideos([])
-      setDiscoveryLoading(false)
+    if (!watchStarted || !selectedChannel || visibleChannels.length === 0) {
+      if (!watchStarted) {
+        setDiscoveryVideos([])
+        setDiscoveryLoading(false)
+      }
       return
     }
 
@@ -233,15 +267,7 @@ export function ChannelsPage() {
                 duration_seconds: row.duration_seconds ?? null,
               })
             )
-            const enriched = await enrichVideosWithFormat(
-              raw.map((v) => ({
-                youtube_video_id: v.youtube_video_id,
-                title: v.title,
-                thumbnail_url: v.thumbnail_url,
-                durationSeconds: v.durationSeconds,
-              }))
-            )
-            return enriched.map((row) => ({
+            return raw.map((row) => ({
               ...row,
               channelId: channel.id,
               youtubeChannelId: channel.youtube_channel_id,
@@ -270,15 +296,7 @@ export function ChannelsPage() {
               duration_seconds: r.duration_seconds ?? null,
             })
           })
-          const enriched = await enrichVideosWithFormat(
-            raw.map((v) => ({
-              youtube_video_id: v.youtube_video_id,
-              title: v.title,
-              thumbnail_url: v.thumbnail_url,
-              durationSeconds: v.durationSeconds,
-            }))
-          )
-          return enriched.map((row) => ({
+          return raw.map((row) => ({
             ...row,
             channelId: channel.id,
             youtubeChannelId: channel.youtube_channel_id,
@@ -288,14 +306,38 @@ export function ChannelsPage() {
       )
 
       if (cancelled) return
-      setDiscoveryVideos(buildDiverseVideoMix(perChannel.flat()) as ChannelWatchVideo[])
+      const mixed = buildDiverseVideoMix(perChannel.flat()) as ChannelWatchVideo[]
+      setDiscoveryVideos(mixed)
+      void enrichVideosWithFormat(
+        mixed.map((v) => ({
+          youtube_video_id: v.youtube_video_id,
+          title: v.title,
+          thumbnail_url: v.thumbnail_url,
+          durationSeconds: v.durationSeconds,
+        }))
+      ).then((enriched) => {
+        if (cancelled) return
+        const byId = new Map(enriched.map((v) => [v.youtube_video_id, v]))
+        setDiscoveryVideos(
+          mixed.map((row) => {
+            const next = byId.get(row.youtube_video_id)
+            if (!next) return row
+            return {
+              ...row,
+              durationSeconds: next.durationSeconds,
+              watchUrl: next.watchUrl,
+              format: next.format,
+            }
+          })
+        )
+      })
       setDiscoveryLoading(false)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [selectedChannel, visibleChannels])
+  }, [watchStarted, selectedChannel, visibleChannels])
 
   const channelScopedVideos = useMemo((): ChannelWatchVideo[] => {
     if (!selectedChannel) return []
@@ -323,10 +365,13 @@ export function ChannelsPage() {
     () => filterVideosByTitle(playlistSourceVideos, videoSearch),
     [playlistSourceVideos, videoSearch]
   )
-  const activeVideo = useMemo(
-    () => watchSourceVideos.find((video) => video.youtube_video_id === activeVideoId) ?? null,
-    [watchSourceVideos, activeVideoId]
-  )
+  const activeVideo = useMemo(() => {
+    if (!activeVideoId) return null
+    const fromSource = watchSourceVideos.find((video) => video.youtube_video_id === activeVideoId)
+    if (fromSource) return fromSource
+    if (playingVideo?.youtube_video_id === activeVideoId) return playingVideo
+    return null
+  }, [watchSourceVideos, activeVideoId, playingVideo])
   const activeQueueIndex = useMemo(
     () => filteredVideos.findIndex((video) => video.youtube_video_id === activeVideoId),
     [filteredVideos, activeVideoId]
@@ -342,11 +387,44 @@ export function ChannelsPage() {
     [watchSourceVideos, savedPlaylistIds]
   )
 
-  const selectWatchVideo = (videoId: string) => {
-    setWatchStarted(true)
-    setActiveVideoId(videoId)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
+  const toChannelWatchVideo = useCallback(
+    (video: WatchableVideoBase): ChannelWatchVideo | null => {
+      if (!selectedChannel) return null
+      return {
+        ...video,
+        channelId: selectedChannel.id,
+        youtubeChannelId: selectedChannel.youtube_channel_id,
+        channelName: selectedChannel.channel_name,
+      }
+    },
+    [selectedChannel]
+  )
+
+  const selectWatchVideo = useCallback(
+    (input: string | WatchableVideoBase | ChannelWatchVideo) => {
+      let videoId: string
+      let snapshot: ChannelWatchVideo | null = null
+
+      if (typeof input === 'string') {
+        videoId = input
+        const base = videos.find((video) => video.youtube_video_id === videoId) ?? null
+        if (base) snapshot = toChannelWatchVideo(base)
+      } else if ('channelName' in input) {
+        videoId = input.youtube_video_id
+        snapshot = input
+      } else {
+        videoId = input.youtube_video_id
+        snapshot = toChannelWatchVideo(input)
+      }
+
+      if (snapshot) setPlayingVideo(snapshot)
+      prefetchStreamInfo(videoId)
+      setWatchStarted(true)
+      setActiveVideoId(videoId)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    },
+    [videos, toChannelWatchVideo]
+  )
 
   const togglePlaylistVideo = (videoId: string) => {
     if (!deviceId) return
@@ -380,15 +458,15 @@ export function ChannelsPage() {
     </button>
   )
 
-  const goNextVideo = () => {
+  const goNextVideo = useCallback(() => {
     if (!hasNextVideo) return
-    selectWatchVideo(filteredVideos[activeQueueIndex + 1].youtube_video_id)
-  }
+    selectWatchVideo(filteredVideos[activeQueueIndex + 1])
+  }, [hasNextVideo, filteredVideos, activeQueueIndex, selectWatchVideo])
 
-  const goPreviousVideo = () => {
+  const goPreviousVideo = useCallback(() => {
     if (activeQueueIndex <= 0) return
-    selectWatchVideo(filteredVideos[activeQueueIndex - 1].youtube_video_id)
-  }
+    selectWatchVideo(filteredVideos[activeQueueIndex - 1])
+  }, [activeQueueIndex, filteredVideos, selectWatchVideo])
 
   const openChannel = (youtubeChannelId: string) => {
     if (deviceId) saveActiveChildProfileId(deviceId)
@@ -483,39 +561,27 @@ export function ChannelsPage() {
               onSelectVideo={selectWatchVideo}
               renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
             />
-          ) : activeVideo ? (
+          ) : watchStarted && activeVideoId ? (
             <YoutubeWatchLayout
               className="px-0 pb-2"
               main={
                 <div className="flex w-full min-w-0 flex-col">
-                  <div
-                    className={
-                      activeVideo.format === 'short'
-                        ? 'relative mx-auto w-full max-w-[min(100%,420px)] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:max-w-[420px]'
-                        : 'relative w-screen max-w-[100vw] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full'
-                    }
-                  >
-                    <div
-                      className={`relative w-full ${activeVideo.format === 'short' ? 'pt-[177.78%]' : 'pt-[56.25%]'}`}
-                    >
-                      <div className="absolute inset-0 min-h-0">
-                        <CleanPlayer
-                          videoId={activeVideo.youtube_video_id}
-                          title={activeVideo.title}
-                          channelTitle={activeVideo.channelName}
-                          posterUrl={activeVideo.thumbnail_url}
-                          onPreviousTrack={goPreviousVideo}
-                          onNextTrack={goNextVideo}
-                          hasNextTrack={hasNextVideo}
-                          className="h-full w-full"
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  <ChildWatchPlayerShell
+                    videoId={activeVideoId}
+                    title={activeVideo?.title ?? playingVideo?.title ?? 'טוען…'}
+                    channelTitle={activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name}
+                    posterUrl={activeVideo?.thumbnail_url ?? playingVideo?.thumbnail_url ?? null}
+                    format={activeVideo?.format ?? playingVideo?.format ?? 'long'}
+                    onPreviousTrack={goPreviousVideo}
+                    onNextTrack={goNextVideo}
+                    hasNextTrack={hasNextVideo}
+                  />
                   <YoutubeWatchVideoDetails
                     className="px-1 pt-3 sm:px-0.5"
-                    title={activeVideo.title}
-                    channelName={activeVideo.channelName}
+                    title={activeVideo?.title ?? playingVideo?.title ?? 'טוען…'}
+                    channelName={
+                      activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name
+                    }
                     subtitle={
                       discoveryLoading
                         ? 'טוען המלצות מכל הערוצים…'
@@ -526,14 +592,14 @@ export function ChannelsPage() {
                         type="button"
                         variant="secondary"
                         className="gap-2 rounded-full !px-4 !py-2 text-xs font-black"
-                        onClick={() => togglePlaylistVideo(activeVideo.youtube_video_id)}
+                        onClick={() => togglePlaylistVideo(activeVideoId)}
                       >
-                        {savedPlaylistIds.has(activeVideo.youtube_video_id) ? (
+                        {savedPlaylistIds.has(activeVideoId) ? (
                           <Check className="h-4 w-4" aria-hidden />
                         ) : (
                           <Plus className="h-4 w-4" aria-hidden />
                         )}
-                        {savedPlaylistIds.has(activeVideo.youtube_video_id) ? 'בפלייליסט שלי' : 'הוסף לפלייליסט'}
+                        {savedPlaylistIds.has(activeVideoId) ? 'בפלייליסט שלי' : 'הוסף לפלייליסט'}
                       </Button>
                     }
                   />
@@ -572,7 +638,7 @@ export function ChannelsPage() {
                     title={
                       showMyPlaylist
                         ? 'הסרטונים ששמרתי'
-                        : activeVideo.format === 'short'
+                        : (activeVideo?.format ?? playingVideo?.format) === 'short'
                           ? 'עוד Shorts מומלצים'
                           : 'סרטונים מומלצים'
                     }
@@ -584,7 +650,7 @@ export function ChannelsPage() {
                             variant="row"
                             title={video.title}
                             thumbnail={video.thumbnail_url}
-                            onClick={() => selectWatchVideo(video.youtube_video_id)}
+                            onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
                           />
                         ) : (
@@ -594,7 +660,7 @@ export function ChannelsPage() {
                             thumbnail={video.thumbnail_url}
                             channelName={video.channelName}
                             active={false}
-                            onClick={() => selectWatchVideo(video.youtube_video_id)}
+                            onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
                           />
                         )}

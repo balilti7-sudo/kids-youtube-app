@@ -140,6 +140,14 @@ export function preWarmMediaBridge(): void {
   })
 }
 
+/** Warm stream resolution before the player mounts (e.g. on video card tap). */
+export function prefetchStreamInfo(videoId: string): void {
+  if (!videoId.trim()) return
+  void fetchStreamInfo(videoId).catch(() => {
+    /* best-effort — CleanPlayer will retry */
+  })
+}
+
 async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms)

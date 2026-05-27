@@ -7,7 +7,7 @@ import { partitionVideosByFormat } from '../../lib/videoFormatClassification'
 type Props = {
   videos: WatchableVideoBase[]
   activeVideoId?: string | null
-  onSelectVideo: (videoId: string) => void
+  onSelectVideo: (video: WatchableVideoBase) => void
   renderAction?: (video: WatchableVideoBase) => ReactNode
 }
 
@@ -26,7 +26,7 @@ export function ChannelVideoBrowseRows({ videos, activeVideoId, onSelectVideo, r
                   title={video.title}
                   thumbnail={video.thumbnail_url}
                   active={activeVideoId === video.youtube_video_id}
-                  onClick={() => onSelectVideo(video.youtube_video_id)}
+                  onClick={() => onSelectVideo(video)}
                   actionSlot={renderAction?.(video)}
                 />
               </div>
@@ -45,7 +45,7 @@ export function ChannelVideoBrowseRows({ videos, activeVideoId, onSelectVideo, r
                   title={video.title}
                   thumbnail={video.thumbnail_url}
                   active={activeVideoId === video.youtube_video_id}
-                  onClick={() => onSelectVideo(video.youtube_video_id)}
+                  onClick={() => onSelectVideo(video)}
                   actionSlot={renderAction?.(video)}
                 />
               </div>
