@@ -10,6 +10,25 @@ export type VideoFormatInput = {
   youtubeVideoId?: string | null
 }
 
+/** Title/tags often mark Shorts before duration is cached. */
+export function titleSuggestsYoutubeShort(title: string | null | undefined): boolean {
+  const t = (title ?? '').trim().toLowerCase()
+  if (!t) return false
+  return /#shorts?\b/.test(t) || /\bshorts\s*$/i.test(t) || /\bשורטס\b/.test(t)
+}
+
+/** Portrait preview URLs on ytimg usually indicate a Short. */
+export function thumbnailSuggestsYoutubeShort(thumbnailUrl: string | null | undefined): boolean {
+  const u = (thumbnailUrl ?? '').trim().toLowerCase()
+  if (!u) return false
+  return (
+    u.includes('/shorts/') ||
+    u.includes('oardefault') ||
+    u.includes('oar2') ||
+    (u.includes('ytimg.com') && u.includes('vi_webp') && u.includes('oar'))
+  )
+}
+
 /** Classify as Short when duration ≤ 90s or URL contains /shorts/. */
 export function classifyYoutubeVideo(input: VideoFormatInput): VideoFormat {
   const url = (input.watchUrl ?? '').trim().toLowerCase()
@@ -21,6 +40,33 @@ export function classifyYoutubeVideo(input: VideoFormatInput): VideoFormat {
   }
 
   return 'long'
+}
+
+type ShortClassificationFields = VideoFormatInput & {
+  format?: VideoFormat
+  title?: string | null
+  thumbnail_url?: string | null
+}
+
+/**
+ * True when the item belongs on the Shorts shelf — includes suspected Shorts while duration is still loading.
+ * Long-form shelf must use the inverse so vertical items never bleed into "סרטונים".
+ */
+export function isVideoShortOrSuspected(video: ShortClassificationFields): boolean {
+  if (video.format === 'short') return true
+
+  const classified = classifyYoutubeVideo({
+    durationSeconds: video.durationSeconds,
+    watchUrl: video.watchUrl,
+    youtubeVideoId: video.youtubeVideoId,
+  })
+  if (classified === 'short') return true
+
+  const duration = video.durationSeconds
+  const durationKnown = duration != null && Number.isFinite(duration) && duration > 0
+  if (durationKnown && duration > SHORT_MAX_DURATION_SECONDS) return false
+
+  return titleSuggestsYoutubeShort(video.title) || thumbnailSuggestsYoutubeShort(video.thumbnail_url)
 }
 
 export function buildYoutubeWatchUrl(videoId: string): string {
@@ -81,11 +127,11 @@ export async function enrichVideosWithFormat(
   })
 }
 
-export function partitionVideosByFormat<T extends { format: VideoFormat }>(videos: T[]) {
+export function partitionVideosByFormat<T extends WatchableVideoBase>(videos: T[]) {
   const longForm: T[] = []
   const shorts: T[] = []
   for (const video of videos) {
-    if (video.format === 'short') shorts.push(video)
+    if (isVideoShortOrSuspected(video)) shorts.push(video)
     else longForm.push(video)
   }
   return { longForm, shorts }

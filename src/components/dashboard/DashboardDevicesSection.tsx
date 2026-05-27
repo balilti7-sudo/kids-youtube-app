@@ -161,17 +161,15 @@ export function DashboardDevicesSection({
           {devices.map((d) => (
             <li
               key={d.id}
-              className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-3 sm:flex-nowrap"
+              className="flex flex-col gap-3 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-3"
             >
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-zinc-100">{d.name}</p>
-              </div>
-              <div className="flex w-full min-w-0 items-stretch gap-2 sm:max-w-md sm:flex-1 sm:justify-end">
+              <p className="truncate font-semibold text-zinc-100">{d.name}</p>
+              <div className="flex w-full min-w-0 items-stretch gap-2">
                 <Button
                   type="button"
                   variant="primary"
                   className={cn(
-                    'min-h-[3rem] flex-1 justify-center gap-2.5 px-5 py-3 text-[15px] font-extrabold tracking-tight shadow-lg shadow-brand-950/30 sm:min-h-[3.25rem] sm:px-6 sm:text-base',
+                    'min-h-[3.25rem] w-full flex-1 justify-center gap-2.5 px-5 py-3.5 text-[15px] font-bold shadow-md shadow-black/25 sm:min-h-[3.5rem] sm:text-base',
                     activeManagementDeviceId === d.id &&
                       'ring-2 ring-brand-300/90 ring-offset-2 ring-offset-zinc-950'
                   )}
@@ -185,9 +183,10 @@ export function DashboardDevicesSection({
                 <Button
                   type="button"
                   variant="danger"
-                  className="h-auto shrink-0 self-center !rounded-lg !px-2.5 !py-2 text-[11px] font-semibold shadow-none sm:!px-3"
+                  className="h-auto shrink-0 self-center !min-w-[2.75rem] !rounded-lg !px-2 !py-2 text-[11px] font-semibold shadow-none"
                   onClick={() => void handleDelete(d.id)}
                   aria-label={`מחק פרופיל ${d.name}`}
+                  title="מחק פרופיל"
                 >
                   <Trash2 className="h-3.5 w-3.5" aria-hidden />
                   מחק

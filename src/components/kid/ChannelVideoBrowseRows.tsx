@@ -12,6 +12,7 @@ type Props = {
 }
 
 export function ChannelVideoBrowseRows({ videos, activeVideoId, onSelectVideo, renderAction }: Props) {
+  // Strict partition: suspected Shorts never appear in the long-form "סרטונים" row.
   const { longForm, shorts } = partitionVideosByFormat(videos)
 
   return (
