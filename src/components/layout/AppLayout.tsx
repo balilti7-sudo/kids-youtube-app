@@ -26,6 +26,7 @@ import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
 import { ParentManagementBanner } from './ParentManagementBanner'
 import { ProfileSwitcher } from './ProfileSwitcher'
+import { JuicyUiProvider } from '../../contexts/JuicyUiContext'
 
 export function AppLayout() {
   const location = useLocation()
@@ -111,8 +112,10 @@ export function AppLayout() {
   const pathRequiresParentUnlock = isParentManagementLockedPath(location.pathname)
   const showGate = !BYPASS_AUTH && !managementUnlocked && pathRequiresParentUnlock
   const showParentManagementChrome = pathRequiresParentUnlock
+  const juicyChildUi = location.pathname === '/channels'
 
   return (
+    <JuicyUiProvider enabled={juicyChildUi}>
     <div className="relative flex min-h-dvh flex-col bg-yt-bg">
       {showGate ? <ParentalManagementGate onUnlocked={handleManagementUnlocked} /> : null}
       {!showGate ? (
@@ -146,5 +149,6 @@ export function AppLayout() {
         </>
       ) : null}
     </div>
+    </JuicyUiProvider>
   )
 }

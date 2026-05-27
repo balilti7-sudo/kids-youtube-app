@@ -23,11 +23,16 @@ import { isProfileParentPinMissing } from './lib/parentPin'
 import { parsePairingCodeFromLocationSearch } from './lib/pairingCodeFromQr'
 import { WhatsAppFloatingButton } from './components/support/WhatsAppFloatingButton'
 import { preWarmMediaBridge } from './lib/streamApi'
+import { JuicyUiProvider } from './contexts/JuicyUiContext'
 
 /** Remount כשמשנים query (למשל אחרי סריקת QR) כדי ש־boot עם קוד ירוץ שוב */
 function KidModeRoute() {
   const [searchParams] = useSearchParams()
-  return <KidModePage key={searchParams.toString()} />
+  return (
+    <JuicyUiProvider enabled>
+      <KidModePage key={searchParams.toString()} />
+    </JuicyUiProvider>
+  )
 }
 
 function SmartEntryRoute() {

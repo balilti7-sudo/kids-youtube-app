@@ -1,6 +1,7 @@
 import { Home, Tv } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { WhitelistedChannel } from '../../types'
+import { useJuicyPointerBurst, useJuicyUiEnabled, juicyPressableClass } from '../../contexts/JuicyUiContext'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -21,6 +22,8 @@ export function ChildChannelsNavCarousel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLButtonElement>(null)
   const atHome = !activeYoutubeChannelId
+  const juicy = useJuicyUiEnabled()
+  const juicyBurst = useJuicyPointerBurst()
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
@@ -37,11 +40,12 @@ export function ChildChannelsNavCarousel({
       >
         <button
           type="button"
+          onPointerDown={juicyBurst}
           onClick={onHome}
           aria-current={atHome ? 'page' : undefined}
           className={cn(
-            'flex shrink-0 scroll-ml-2 flex-col items-center gap-1.5 rounded-2xl px-1 transition [scroll-snap-align:start]',
-            atHome ? 'opacity-100' : 'opacity-90 hover:opacity-100'
+            'flex shrink-0 scroll-ml-2 flex-col items-center gap-1.5 rounded-2xl px-1 [scroll-snap-align:start]',
+            juicyPressableClass(juicy, atHome ? 'opacity-100' : 'opacity-90 hover:opacity-100')
           )}
         >
           <span
@@ -71,12 +75,13 @@ export function ChildChannelsNavCarousel({
               key={channel.id}
               ref={isActive ? activeRef : undefined}
               type="button"
+              onPointerDown={juicyBurst}
               onClick={() => onSelectChannel(channel.youtube_channel_id)}
               aria-current={isActive ? 'page' : undefined}
               aria-label={`מעבר לערוץ ${channel.channel_name}`}
               className={cn(
-                'flex shrink-0 flex-col items-center gap-1.5 rounded-2xl px-1 transition [scroll-snap-align:center]',
-                isActive ? 'opacity-100' : 'opacity-85 hover:opacity-100'
+                'flex shrink-0 flex-col items-center gap-1.5 rounded-2xl px-1 [scroll-snap-align:center]',
+                juicyPressableClass(juicy, isActive ? 'opacity-100' : 'opacity-85 hover:opacity-100')
               )}
             >
               <span

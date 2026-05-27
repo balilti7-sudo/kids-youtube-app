@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { JUICY_THUMB_INNER_CLASS, useJuicyPointerBurst, useJuicyUiEnabled, juicyPressableClass } from '../../contexts/JuicyUiContext'
 import { cn } from '../../lib/utils'
 
 export type YoutubeVideoCardProps = {
@@ -61,6 +62,14 @@ export function YoutubeVideoCard({
   thumbnailAction,
   className,
 }: YoutubeVideoCardProps) {
+  const juicy = useJuicyUiEnabled()
+  const juicyBurst = useJuicyPointerBurst()
+
+  const wrapClick = (handler?: () => void) => ({
+    onPointerDown: juicyBurst,
+    onClick: handler,
+  })
+
   const titleEl = (
     <h3 className="line-clamp-2 text-sm font-bold leading-[1.35] text-yt-text">{title}</h3>
   )
@@ -81,7 +90,7 @@ export function YoutubeVideoCard({
       src={thumbnail}
       alt=""
       loading="lazy"
-      className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
+      className={cn('h-full w-full object-cover', juicy ? JUICY_THUMB_INNER_CLASS : 'transition duration-200 group-hover:scale-[1.02]')}
     />
   ) : (
     <div className="flex h-full w-full items-center justify-center text-xs font-medium text-yt-textMuted">
@@ -98,14 +107,22 @@ export function YoutubeVideoCard({
           className
         )}
       >
-        <div className={ROW_THUMB_CLASS}>
-          <button type="button" onClick={onClick} className="block h-full w-full">
+        <div className={cn(ROW_THUMB_CLASS, juicy && 'group/juicy')}>
+          <button
+            type="button"
+            {...wrapClick(onClick)}
+            className={juicyPressableClass(juicy, 'block h-full w-full')}
+          >
             {thumbImage}
           </button>
           <ThumbnailOverlays active={active} playingLabel={playingLabel} thumbnailAction={thumbnailAction} />
         </div>
         <div className="flex min-w-0 flex-1 items-start gap-1">
-          <button type="button" onClick={onClick} className="min-w-0 flex-1 py-0.5 text-start">
+          <button
+            type="button"
+            {...wrapClick(onClick)}
+            className={juicyPressableClass(juicy, 'min-w-0 flex-1 py-0.5 text-start')}
+          >
             {titleEl}
             {metaEl}
           </button>
@@ -119,13 +136,21 @@ export function YoutubeVideoCard({
 
   return (
     <article className={cn('group flex w-full flex-col', className)}>
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-yt-surfaceHover">
-        <button type="button" onClick={onClick} className="block h-full w-full">
+      <div className={cn('relative aspect-video w-full overflow-hidden rounded-xl bg-yt-surfaceHover', juicy && 'group/juicy')}>
+        <button
+          type="button"
+          {...wrapClick(onClick)}
+          className={juicyPressableClass(juicy, 'block h-full w-full')}
+        >
           {thumbImage}
         </button>
         <ThumbnailOverlays active={active} playingLabel={playingLabel} thumbnailAction={thumbnailAction} />
       </div>
-      <button type="button" onClick={onClick} className="mt-3 w-full text-start">
+      <button
+        type="button"
+        {...wrapClick(onClick)}
+        className={juicyPressableClass(juicy, 'mt-3 w-full text-start')}
+      >
         {titleEl}
         {metaEl}
       </button>

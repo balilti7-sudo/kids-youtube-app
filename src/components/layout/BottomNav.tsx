@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { ShieldCheck, Tv, ListMusic, Settings, Tablet } from 'lucide-react'
+import { juicyPressableClass, useJuicyPointerBurst, useJuicyUiEnabled } from '../../contexts/JuicyUiContext'
 import { cn } from '../../lib/utils'
 import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
 import { LongPressNavButton } from './LongPressNavButton'
@@ -7,6 +8,8 @@ import { LongPressNavButton } from './LongPressNavButton'
 export function BottomNav() {
   const { pathname } = useLocation()
   const hasKidToken = useKidDeviceTokenPresent()
+  const juicy = useJuicyUiEnabled()
+  const juicyBurst = useJuicyPointerBurst()
 
   const parentNavDiscreet = hasKidToken
 
@@ -40,6 +43,7 @@ export function BottomNav() {
 
         <NavLink
           to="/channels"
+          onPointerDown={juicy ? juicyBurst : undefined}
           onClick={(e) => {
             if (pathname === '/channels') {
               e.preventDefault()
@@ -47,8 +51,8 @@ export function BottomNav() {
           }}
           className={({ isActive }) =>
             cn(
-              'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
-              isActive ? 'text-yt-text' : 'text-yt-textMuted'
+              'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium',
+              juicyPressableClass(juicy, isActive ? 'text-yt-text' : 'text-yt-textMuted')
             )
           }
         >
@@ -86,6 +90,7 @@ export function BottomNav() {
         {hasKidToken ? (
           <NavLink
             to="/kid"
+            onPointerDown={juicyBurst}
             onClick={(e) => {
               if (pathname === '/kid') {
                 e.preventDefault()
@@ -93,8 +98,8 @@ export function BottomNav() {
             }}
             className={({ isActive }) =>
               cn(
-                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
-                isActive ? 'text-yt-text' : 'text-yt-textMuted'
+                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium',
+                juicyPressableClass(true, isActive ? 'text-yt-text' : 'text-yt-textMuted')
               )
             }
           >

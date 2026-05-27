@@ -101,4 +101,50 @@
     background: rgb(113 113 122 / 0.95);
     background-clip: content-box;
   }
+
+  .juicy-particle-layer {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    overflow: hidden;
+  }
+
+  .juicy-particle {
+    position: fixed;
+    pointer-events: none;
+    margin-left: calc(var(--particle-size, 8px) / -2);
+    margin-top: calc(var(--particle-size, 8px) / -2);
+    transform: translate(-50%, -50%);
+    animation: juicy-particle-burst 400ms ease-out forwards;
+    will-change: transform, opacity;
+  }
+
+  .juicy-particle--bubble {
+    border-radius: 9999px;
+    opacity: 0.92;
+  }
+
+  .juicy-particle--star {
+    background: linear-gradient(135deg, #fde047, #fb923c);
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    opacity: 0.95;
+  }
+
+  @keyframes juicy-particle-burst {
+    0% {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(calc(-50% + var(--juicy-dx, 0px)), calc(-50% + var(--juicy-dy, 0px))) scale(0.15);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .juicy-particle-layer {
+      display: none !important;
+    }
+  }
 }
