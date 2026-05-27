@@ -13,19 +13,20 @@ import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList
 import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
 import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
+import { ChannelVideoBrowseRows } from '../components/kid/ChannelVideoBrowseRows'
+import { YoutubeShortCard } from '../components/youtube/YoutubeShortCard'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
-import { buildDiverseVideoMix } from '../lib/buildDiverseVideoMix'
+import { buildDiverseVideoMix, buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
 import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
+import {
+  enrichVideosWithFormat,
+  toWatchableVideo,
+  type WatchableVideoBase,
+} from '../lib/videoFormatClassification'
 
-type ChannelVideoRow = {
-  youtube_video_id: string
-  title: string
-  thumbnail_url: string | null
-}
-
-type DiscoveryVideo = ChannelVideoRow & {
+type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
   youtubeChannelId: string
   channelName: string
@@ -73,8 +74,9 @@ export function ChannelsPage() {
   const requestedDeviceId = searchParams.get('device') ?? getSavedActiveChildProfileId()
   const requestedChannelId = searchParams.get('channel')
   const [deviceId, setDeviceId] = useState<string | null>(null)
-  const [videos, setVideos] = useState<ChannelVideoRow[]>([])
-  const [discoveryVideos, setDiscoveryVideos] = useState<DiscoveryVideo[]>([])
+  const [videos, setVideos] = useState<WatchableVideoBase[]>([])
+  const [discoveryVideos, setDiscoveryVideos] = useState<ChannelWatchVideo[]>([])
+  const [watchStarted, setWatchStarted] = useState(false)
   const [discoveryLoading, setDiscoveryLoading] = useState(false)
   const [videosLoading, setVideosLoading] = useState(false)
   const [videosError, setVideosError] = useState<string | null>(null)
@@ -124,6 +126,7 @@ export function ChannelsPage() {
       setActiveVideoId(null)
       setVideoSearch('')
       setShowMyPlaylist(false)
+      setWatchStarted(false)
       return
     }
 
@@ -134,40 +137,69 @@ export function ChannelsPage() {
     setActiveVideoId(null)
     setVideoSearch('')
     setShowMyPlaylist(false)
+    setWatchStarted(false)
 
     void (async () => {
       const kidToken = getSavedChildAccessToken()
       if (kidToken) {
         const { data, error } = await getChildCachedChannelVideos(kidToken, selectedChannel.youtube_channel_id)
         if (cancelled) return
-        setVideosLoading(false)
         if (error) {
+          setVideosLoading(false)
           setVideosError(error.message)
           return
         }
-        setVideos(
+        const enriched = await enrichVideosWithFormat(
           (data ?? []).map((row) => ({
             youtube_video_id: row.youtube_video_id,
             title: row.title,
             thumbnail_url: row.thumbnail_url,
+            durationSeconds: row.duration_seconds ?? null,
           }))
         )
+        if (cancelled) return
+        setVideos(enriched)
+        setVideosLoading(false)
         return
       }
 
       const { data, error } = await supabase
         .from('channel_videos_cache')
-        .select('youtube_video_id, title, thumbnail_url, position')
+        .select('youtube_video_id, title, thumbnail_url, duration_seconds, position')
         .eq('channel_id', selectedChannel.id)
         .order('position', { ascending: true })
 
       if (cancelled) return
-      setVideosLoading(false)
       if (error) {
+        setVideosLoading(false)
         setVideosError(error.message)
         return
       }
-      setVideos((data ?? []) as ChannelVideoRow[])
+      const raw = (data ?? []).map((row) => {
+        const r = row as {
+          youtube_video_id: string
+          title: string
+          thumbnail_url: string | null
+          duration_seconds?: number | null
+        }
+        return toWatchableVideo({
+          youtube_video_id: r.youtube_video_id,
+          title: r.title,
+          thumbnail_url: r.thumbnail_url,
+          duration_seconds: r.duration_seconds ?? null,
+        })
+      })
+      const enriched = await enrichVideosWithFormat(
+        raw.map((v) => ({
+          youtube_video_id: v.youtube_video_id,
+          title: v.title,
+          thumbnail_url: v.thumbnail_url,
+          durationSeconds: v.durationSeconds,
+        }))
+      )
+      if (cancelled) return
+      setVideos(enriched)
+      setVideosLoading(false)
     })()
 
     return () => {
@@ -192,11 +224,25 @@ export function ChannelsPage() {
         visibleChannels.map(async (channel) => {
           if (kidToken) {
             const { data, error } = await getChildCachedChannelVideos(kidToken, channel.youtube_channel_id)
-            if (error || !data?.length) return [] as DiscoveryVideo[]
-            return data.map((row) => ({
-              youtube_video_id: row.youtube_video_id,
-              title: row.title,
-              thumbnail_url: row.thumbnail_url,
+            if (error || !data?.length) return [] as ChannelWatchVideo[]
+            const raw = data.map((row) =>
+              toWatchableVideo({
+                youtube_video_id: row.youtube_video_id,
+                title: row.title,
+                thumbnail_url: row.thumbnail_url,
+                duration_seconds: row.duration_seconds ?? null,
+              })
+            )
+            const enriched = await enrichVideosWithFormat(
+              raw.map((v) => ({
+                youtube_video_id: v.youtube_video_id,
+                title: v.title,
+                thumbnail_url: v.thumbnail_url,
+                durationSeconds: v.durationSeconds,
+              }))
+            )
+            return enriched.map((row) => ({
+              ...row,
               channelId: channel.id,
               youtubeChannelId: channel.youtube_channel_id,
               channelName: channel.channel_name,
@@ -205,12 +251,34 @@ export function ChannelsPage() {
 
           const { data, error } = await supabase
             .from('channel_videos_cache')
-            .select('youtube_video_id, title, thumbnail_url, position')
+            .select('youtube_video_id, title, thumbnail_url, duration_seconds, position')
             .eq('channel_id', channel.id)
             .order('position', { ascending: true })
 
-          if (error || !data?.length) return [] as DiscoveryVideo[]
-          return (data as ChannelVideoRow[]).map((row) => ({
+          if (error || !data?.length) return [] as ChannelWatchVideo[]
+          const raw = (data ?? []).map((row) => {
+            const r = row as {
+              youtube_video_id: string
+              title: string
+              thumbnail_url: string | null
+              duration_seconds?: number | null
+            }
+            return toWatchableVideo({
+              youtube_video_id: r.youtube_video_id,
+              title: r.title,
+              thumbnail_url: r.thumbnail_url,
+              duration_seconds: r.duration_seconds ?? null,
+            })
+          })
+          const enriched = await enrichVideosWithFormat(
+            raw.map((v) => ({
+              youtube_video_id: v.youtube_video_id,
+              title: v.title,
+              thumbnail_url: v.thumbnail_url,
+              durationSeconds: v.durationSeconds,
+            }))
+          )
+          return enriched.map((row) => ({
             ...row,
             channelId: channel.id,
             youtubeChannelId: channel.youtube_channel_id,
@@ -220,7 +288,7 @@ export function ChannelsPage() {
       )
 
       if (cancelled) return
-      setDiscoveryVideos(buildDiverseVideoMix(perChannel.flat()))
+      setDiscoveryVideos(buildDiverseVideoMix(perChannel.flat()) as ChannelWatchVideo[])
       setDiscoveryLoading(false)
     })()
 
@@ -229,19 +297,7 @@ export function ChannelsPage() {
     }
   }, [selectedChannel, visibleChannels])
 
-  useEffect(() => {
-    if (videos.length === 0) {
-      setActiveVideoId(null)
-      return
-    }
-    setActiveVideoId((current) =>
-      current && videos.some((video) => video.youtube_video_id === current)
-        ? current
-        : videos[0].youtube_video_id
-    )
-  }, [videos])
-
-  const channelScopedVideos = useMemo((): DiscoveryVideo[] => {
+  const channelScopedVideos = useMemo((): ChannelWatchVideo[] => {
     if (!selectedChannel) return []
     return videos.map((video) => ({
       ...video,
@@ -276,16 +332,18 @@ export function ChannelsPage() {
     [filteredVideos, activeVideoId]
   )
   const hasNextVideo = activeQueueIndex >= 0 && activeQueueIndex < filteredVideos.length - 1
-  const sidebarVideos = useMemo(
-    () => filteredVideos.filter((video) => video.youtube_video_id !== activeVideoId),
-    [filteredVideos, activeVideoId]
-  )
+  const sidebarVideos = useMemo(() => {
+    const pool = filteredVideos.filter((video) => video.youtube_video_id !== activeVideoId)
+    if (!activeVideo) return pool
+    return buildWatchRecommendationQueue(pool, activeVideo.format === 'short')
+  }, [filteredVideos, activeVideoId, activeVideo])
   const playlistCountInChannel = useMemo(
     () => watchSourceVideos.filter((video) => savedPlaylistIds.has(video.youtube_video_id)).length,
     [watchSourceVideos, savedPlaylistIds]
   )
 
   const selectWatchVideo = (videoId: string) => {
+    setWatchStarted(true)
     setActiveVideoId(videoId)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -301,6 +359,27 @@ export function ChannelsPage() {
     })
   }
 
+  const renderPlaylistAction = (videoId: string, title: string) => (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        togglePlaylistVideo(videoId)
+      }}
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs transition ${
+        savedPlaylistIds.has(videoId)
+          ? 'border-sky-400/60 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
+          : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
+      }`}
+      title={savedPlaylistIds.has(videoId) ? 'הסר מהפלייליסט שלי' : 'הוסף לפלייליסט'}
+      aria-label={
+        savedPlaylistIds.has(videoId) ? `הסר את ${title} מהפלייליסט שלי` : `הוסף את ${title} לפלייליסט שלי`
+      }
+    >
+      {savedPlaylistIds.has(videoId) ? <Check className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+    </button>
+  )
+
   const goNextVideo = () => {
     if (!hasNextVideo) return
     selectWatchVideo(filteredVideos[activeQueueIndex + 1].youtube_video_id)
@@ -313,6 +392,7 @@ export function ChannelsPage() {
 
   const openChannel = (youtubeChannelId: string) => {
     if (deviceId) saveActiveChildProfileId(deviceId)
+    setWatchStarted(false)
     const next = new URLSearchParams(searchParams)
     if (deviceId) next.set('device', deviceId)
     next.set('channel', youtubeChannelId)
@@ -321,6 +401,7 @@ export function ChannelsPage() {
   }
 
   const goHome = () => {
+    setWatchStarted(false)
     const next = new URLSearchParams(searchParams)
     next.delete('channel')
     navigate({ pathname: '/channels', search: next.toString() ? `?${next.toString()}` : '' })
@@ -395,13 +476,28 @@ export function ChannelsPage() {
             <div className="rounded-2xl border border-dashed border-zinc-700 px-4 py-10 text-center text-sm text-zinc-500">
               אין סרטונים זמינים בערוץ הזה כרגע.
             </div>
+          ) : !watchStarted ? (
+            <ChannelVideoBrowseRows
+              videos={videos}
+              activeVideoId={activeVideoId}
+              onSelectVideo={selectWatchVideo}
+              renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
+            />
           ) : activeVideo ? (
             <YoutubeWatchLayout
               className="px-0 pb-2"
               main={
                 <div className="flex w-full min-w-0 flex-col">
-                  <div className="relative w-screen max-w-[100vw] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full">
-                    <div className="relative w-full pt-[56.25%]">
+                  <div
+                    className={
+                      activeVideo.format === 'short'
+                        ? 'relative mx-auto w-full max-w-[min(100%,420px)] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:max-w-[420px]'
+                        : 'relative w-screen max-w-[100vw] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full'
+                    }
+                  >
+                    <div
+                      className={`relative w-full ${activeVideo.format === 'short' ? 'pt-[177.78%]' : 'pt-[56.25%]'}`}
+                    >
                       <div className="absolute inset-0 min-h-0">
                         <CleanPlayer
                           videoId={activeVideo.youtube_video_id}
@@ -472,47 +568,36 @@ export function ChannelsPage() {
                     channelLabel={selectedChannel.channel_name}
                     className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-3"
                   />
-                  <YoutubeSuggestedList title={showMyPlaylist ? 'הסרטונים ששמרתי' : 'סרטונים מומלצים'}>
+                  <YoutubeSuggestedList
+                    title={
+                      showMyPlaylist
+                        ? 'הסרטונים ששמרתי'
+                        : activeVideo.format === 'short'
+                          ? 'עוד Shorts מומלצים'
+                          : 'סרטונים מומלצים'
+                    }
+                  >
                     {sidebarVideos.map((video) => (
                       <li key={`${video.channelId}-${video.youtube_video_id}`} className="w-full">
-                        <YoutubeVideoCard
-                          layout="row"
-                          title={video.title}
-                          thumbnail={video.thumbnail_url}
-                          channelName={video.channelName}
-                          active={false}
-                          onClick={() => selectWatchVideo(video.youtube_video_id)}
-                          actionSlot={
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                togglePlaylistVideo(video.youtube_video_id)
-                              }}
-                              className={`inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs transition ${
-                                savedPlaylistIds.has(video.youtube_video_id)
-                                  ? 'border-sky-400/60 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
-                                  : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
-                              }`}
-                              title={
-                                savedPlaylistIds.has(video.youtube_video_id)
-                                  ? 'הסר מהפלייליסט שלי'
-                                  : 'הוסף לפלייליסט'
-                              }
-                              aria-label={
-                                savedPlaylistIds.has(video.youtube_video_id)
-                                  ? `הסר את ${video.title} מהפלייליסט שלי`
-                                  : `הוסף את ${video.title} לפלייליסט שלי`
-                              }
-                            >
-                              {savedPlaylistIds.has(video.youtube_video_id) ? (
-                                <Check className="h-4 w-4" aria-hidden />
-                              ) : (
-                                <Plus className="h-4 w-4" aria-hidden />
-                              )}
-                            </button>
-                          }
-                        />
+                        {video.format === 'short' ? (
+                          <YoutubeShortCard
+                            variant="row"
+                            title={video.title}
+                            thumbnail={video.thumbnail_url}
+                            onClick={() => selectWatchVideo(video.youtube_video_id)}
+                            actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
+                          />
+                        ) : (
+                          <YoutubeVideoCard
+                            layout="row"
+                            title={video.title}
+                            thumbnail={video.thumbnail_url}
+                            channelName={video.channelName}
+                            active={false}
+                            onClick={() => selectWatchVideo(video.youtube_video_id)}
+                            actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
+                          />
+                        )}
                       </li>
                     ))}
                   </YoutubeSuggestedList>

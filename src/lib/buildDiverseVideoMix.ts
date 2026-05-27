@@ -40,3 +40,26 @@ export function buildDiverseVideoMix<T extends { channelId: string }>(videos: T[
 
   return shuffleInPlace(mixed)
 }
+
+type FormatTagged = { format: 'short' | 'long' }
+
+/**
+ * Recommendation queue: when watching a Short, surface other Shorts first; otherwise diverse long-form mix.
+ */
+export function buildWatchRecommendationQueue<T extends FormatTagged & { channelId: string }>(
+  videos: T[],
+  activeIsShort: boolean
+): T[] {
+  const shorts = videos.filter((v) => v.format === 'short')
+  const longForm = videos.filter((v) => v.format === 'long')
+
+  if (activeIsShort) {
+    const shortMix = shuffleInPlace([...shorts])
+    const longTail = buildDiverseVideoMix(longForm) as T[]
+    return [...shortMix, ...longTail]
+  }
+
+  const longMix = buildDiverseVideoMix(longForm) as T[]
+  const shortTail = shuffleInPlace([...shorts])
+  return [...longMix, ...shortTail]
+}

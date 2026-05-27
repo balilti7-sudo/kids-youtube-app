@@ -35,6 +35,7 @@ export interface ChildCachedChannelVideo {
   title: string
   thumbnail_url: string | null
   published_at: string | null
+  duration_seconds?: number | null
 }
 
 export function getSavedChildAccessToken() {

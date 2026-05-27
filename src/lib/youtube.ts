@@ -53,6 +53,60 @@ export interface ChannelVideoItem {
   title: string
   thumbnail: string
   channelTitle: string
+  durationSeconds?: number | null
+}
+
+/** Parse YouTube `contentDetails.duration` (ISO 8601) e.g. PT1M30S → seconds. */
+export function parseYoutubeDurationIso8601(iso: string | null | undefined): number | null {
+  if (!iso || typeof iso !== 'string') return null
+  const match = iso.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i)
+  if (!match) return null
+  const hours = Number(match[1] || 0)
+  const minutes = Number(match[2] || 0)
+  const seconds = Number(match[3] || 0)
+  const total = hours * 3600 + minutes * 60 + seconds
+  return total > 0 ? total : null
+}
+
+type VideosListContentDetailsResponse = {
+  items?: Array<{
+    id?: string
+    contentDetails?: { duration?: string }
+  }>
+  error?: { message?: string }
+}
+
+/** Batch-fetch durations for up to 50 video IDs per request (Data API). */
+export async function fetchVideoDurationsBatch(videoIds: string[]): Promise<Map<string, number>> {
+  const key = getApiKey()
+  const unique = [...new Set(videoIds.map((id) => id.trim()).filter((id) => /^[a-zA-Z0-9_-]{11}$/.test(id)))]
+  const out = new Map<string, number>()
+  if (!key || unique.length === 0) return out
+
+  for (let offset = 0; offset < unique.length; offset += 50) {
+    const chunk = unique.slice(offset, offset + 50)
+    try {
+      const url = new URL(`${YT_API}/videos`)
+      url.searchParams.set('part', 'contentDetails')
+      url.searchParams.set('id', chunk.join(','))
+      url.searchParams.set('key', key)
+
+      const res = await fetch(url.toString())
+      const json = (await res.json()) as VideosListContentDetailsResponse
+      if (!res.ok) continue
+
+      for (const item of json.items ?? []) {
+        const id = item.id?.trim()
+        if (!id) continue
+        const seconds = parseYoutubeDurationIso8601(item.contentDetails?.duration)
+        if (seconds != null) out.set(id, seconds)
+      }
+    } catch {
+      /* best-effort enrichment */
+    }
+  }
+
+  return out
 }
 
 function isQuotaErrorMessage(message: string) {
