@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { RefreshCcw } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
@@ -40,15 +39,9 @@ type PendingPinAction =
 type ChannelManagerProps = {
   managedDeviceId?: string | null
   embedded?: boolean
-  /** Technical cache refresh UI — only for parent dashboard embed, never child/public views */
-  showAdminCacheTools?: boolean
 }
 
-export function ChannelManager({
-  managedDeviceId = null,
-  embedded = false,
-  showAdminCacheTools = false,
-}: ChannelManagerProps) {
+export function ChannelManager({ managedDeviceId = null, embedded = false }: ChannelManagerProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, profile } = useAuth()
@@ -64,7 +57,6 @@ export function ChannelManager({
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [removeLoading, setRemoveLoading] = useState(false)
-  const [refreshingChannelId, setRefreshingChannelId] = useState<string | null>(null)
   const [pinModalOpen, setPinModalOpen] = useState(false)
   const [addSuccessModalOpen, setAddSuccessModalOpen] = useState(false)
   const [previewChannel, setPreviewChannel] = useState<WhitelistedChannel | null>(null)
@@ -76,7 +68,6 @@ export function ChannelManager({
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
-  const showParentCacheRefresh = showAdminCacheTools
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
 
@@ -88,7 +79,6 @@ export function ChannelManager({
     loading: listLoading,
     search,
     loadWhitelist,
-    refreshChannelVideosCache,
     addToWhitelist,
     removeFromWhitelist,
   } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId, {
@@ -169,17 +159,6 @@ export function ChannelManager({
     }
   }
 
-  const handleRefreshChannelVideos = async (channelId: string, ytChannelId: string, force = true) => {
-    setRefreshingChannelId(channelId)
-    const { error } = await refreshChannelVideosCache(channelId, ytChannelId, force)
-    setRefreshingChannelId(null)
-    if (error) {
-      toast.error(error.message)
-      return
-    }
-    toast.success('סרטוני הערוץ עודכנו במטמון')
-  }
-
   const beginPinGate = (action: PendingPinAction) => {
     pendingPinActionRef.current = action
     setPinModalOpen(true)
@@ -237,18 +216,6 @@ export function ChannelManager({
     }
     beginPinGate({ kind: 'remove', channel: c })
   }
-
-  useEffect(() => {
-    if (!showParentCacheRefresh) return
-    if (whitelist.length === 0 || refreshingChannelId) return
-    const stale = whitelist.find((c) => {
-      if (!c.last_videos_refresh_at) return true
-      return Date.now() - new Date(c.last_videos_refresh_at).getTime() > 24 * 60 * 60 * 1000
-    })
-    if (!stale) return
-    void handleRefreshChannelVideos(stale.id, stale.youtube_channel_id, false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [whitelist, showParentCacheRefresh])
 
   useEffect(() => {
     const channel = previewChannel
@@ -609,32 +576,6 @@ export function ChannelManager({
                 <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים במטמון לערוץ זה.</p>
               )}
             </section>
-          ) : null}
-          {showParentCacheRefresh && whitelist.length > 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-              <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">רענון סרטוני ערוץ (Cache)</p>
-              <div className="grid gap-2">
-                {whitelist.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 p-2 dark:border-zinc-800">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-zinc-100">{c.channel_name}</p>
-                      <p className="text-xs text-slate-500 dark:text-zinc-500">
-                        רענון אחרון: {c.last_videos_refresh_at ? new Date(c.last_videos_refresh_at).toLocaleString() : 'עדיין לא רוענן'}
-                      </p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      className="shrink-0 !px-3 !py-2 text-xs"
-                      onClick={() => void handleRefreshChannelVideos(c.id, c.youtube_channel_id)}
-                      disabled={refreshingChannelId === c.id}
-                    >
-                      <RefreshCcw className="h-3.5 w-3.5" />
-                      {refreshingChannelId === c.id ? 'מרענן...' : 'רענן'}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
           ) : null}
         </div>
       )}
