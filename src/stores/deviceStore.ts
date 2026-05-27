@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { PostgrestError } from '@supabase/supabase-js'
 import type { Device } from '../types'
+import { getChildDeviceState } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 
 function formatSupabaseError(error: PostgrestError): string {
@@ -13,6 +14,7 @@ interface DeviceState {
   loading: boolean
   error: string | null
   fetchLocalParentDeviceFromToken: (accessToken: string) => Promise<void>
+  fetchDeviceFromChildToken: (accessToken: string) => Promise<void>
   fetchDevices: (userId: string) => Promise<void>
   toggleBlock: (deviceId: string, isBlocked: boolean) => Promise<{ error: Error | null }>
   addDevice: (payload: {
@@ -32,6 +34,42 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   error: null,
 
   setDevices: (devices) => set({ devices }),
+
+  fetchDeviceFromChildToken: async (accessToken) => {
+    set({ loading: true, error: null })
+    try {
+      const { data, error } = await getChildDeviceState(accessToken)
+      if (error || !data?.device_id) {
+        set({
+          loading: false,
+          error: error?.message ?? 'לא ניתן לטעון את פרופיל הילד.',
+          devices: [],
+        })
+        return
+      }
+      const device: Device = {
+        id: data.device_id,
+        user_id: '',
+        name: data.device_name || 'ילד',
+        device_type: 'tablet',
+        pairing_code: null,
+        is_online: data.is_online,
+        is_blocked: data.is_blocked,
+        last_seen_at: data.last_seen_at,
+        created_at: new Date(0).toISOString(),
+        updated_at: new Date(0).toISOString(),
+        channel_count: 0,
+      }
+      set({ devices: [device], loading: false })
+    } catch (err) {
+      console.error('[deviceStore.fetchDeviceFromChildToken]', err)
+      set({
+        loading: false,
+        error: 'לא ניתן לטעון את פרופיל הילד.',
+        devices: [],
+      })
+    }
+  },
 
   fetchLocalParentDeviceFromToken: async (accessToken) => {
     set({ loading: true, error: null })

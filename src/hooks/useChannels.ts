@@ -1,4 +1,5 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
+import { getSavedChildAccessToken } from '../lib/childDevice'
 import { extractYouTubeVideoId, resolveYouTubeChannelFromInput, searchYouTubeChannels, searchYouTubeVideos } from '../lib/youtube'
 import { useChannelStore } from '../stores/channelStore'
 import { supabase } from '../lib/supabase'
@@ -40,6 +41,7 @@ export function useChannels(
   const removeChannelFromDevice = useChannelStore((s) => s.removeChannelFromDevice)
   const removeVideoFromDevice = useChannelStore((s) => s.removeVideoFromDevice)
   const fetchWhitelistForLocalParent = useChannelStore((s) => s.fetchWhitelistForLocalParent)
+  const fetchWhitelistFromChildToken = useChannelStore((s) => s.fetchWhitelistFromChildToken)
   const addChannelLocalParent = useChannelStore((s) => s.addChannelLocalParent)
   const removeChannelLocalParent = useChannelStore((s) => s.removeChannelLocalParent)
   const replaceChannelCacheLocalParent = useChannelStore((s) => s.replaceChannelCacheLocalParent)
@@ -148,12 +150,27 @@ export function useChannels(
   )
 
   const loadWhitelist = useCallback(() => {
+    const kidToken = getSavedChildAccessToken()
+    if (kidToken) {
+      void fetchWhitelistFromChildToken(kidToken)
+      return
+    }
     if (localAccessToken) {
       void fetchWhitelistForLocalParent(localAccessToken)
       return
     }
     if (deviceId) void fetchWhitelistForDevice(deviceId)
-  }, [deviceId, localAccessToken, fetchWhitelistForDevice, fetchWhitelistForLocalParent])
+  }, [
+    deviceId,
+    localAccessToken,
+    fetchWhitelistForDevice,
+    fetchWhitelistForLocalParent,
+    fetchWhitelistFromChildToken,
+  ])
+
+  useEffect(() => {
+    loadWhitelist()
+  }, [loadWhitelist])
 
   const loadApprovedVideos = useCallback(() => {
     if (deviceId) void fetchApprovedVideosForDevice(deviceId)

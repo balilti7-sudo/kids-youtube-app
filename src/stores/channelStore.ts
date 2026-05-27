@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { WhitelistedChannel, WhitelistedVideo, YouTubeChannelResult, YouTubeVideoResult } from '../types'
+import { childAllowedChannelToWhitelist, getChildAllowedChannels } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 
 interface ChannelState {
@@ -36,6 +37,8 @@ interface ChannelState {
   removeChannelFromDevice: (deviceId: string, channelId: string) => Promise<{ error: Error | null }>
   removeVideoFromDevice: (deviceId: string, videoId: string) => Promise<{ error: Error | null }>
   fetchWhitelistForLocalParent: (accessToken: string) => Promise<void>
+  /** Public child RPC — no parent Supabase session required */
+  fetchWhitelistFromChildToken: (accessToken: string) => Promise<void>
   addChannelLocalParent: (params: {
     accessToken: string
     pin: string
@@ -218,6 +221,23 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     if (error) return { error: new Error(error.message) }
     set({ approvedVideos: get().approvedVideos.filter((v) => v.id !== videoId) })
     return { error: null }
+  },
+
+  fetchWhitelistFromChildToken: async (accessToken) => {
+    set({ loading: true })
+    try {
+      const { data, error } = await getChildAllowedChannels(accessToken)
+      if (error) {
+        set({ loading: false, whitelist: [] })
+        return
+      }
+      set({
+        whitelist: data.map(childAllowedChannelToWhitelist),
+        loading: false,
+      })
+    } catch {
+      set({ loading: false, whitelist: [] })
+    }
   },
 
   fetchWhitelistForLocalParent: async (accessToken) => {

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { Device } from '../types'
+import { getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { useDeviceStore } from '../stores/deviceStore'
 import { useLocalParentManagement } from './useLocalParentManagement'
@@ -11,16 +12,29 @@ export function useDevices(userId: string | undefined) {
   const error = useDeviceStore((s) => s.error)
   const fetchDevices = useDeviceStore((s) => s.fetchDevices)
   const fetchLocalParentDeviceFromToken = useDeviceStore((s) => s.fetchLocalParentDeviceFromToken)
+  const fetchDeviceFromChildToken = useDeviceStore((s) => s.fetchDeviceFromChildToken)
   const setFromRealtime = useDeviceStore((s) => s.setFromRealtime)
 
   useEffect(() => {
+    const kidToken = getSavedChildAccessToken()
     if (localParent.isActive && localParent.localAccessToken) {
       void fetchLocalParentDeviceFromToken(localParent.localAccessToken)
       return
     }
+    if (kidToken) {
+      void fetchDeviceFromChildToken(kidToken)
+      return
+    }
     if (!userId) return
     void fetchDevices(userId)
-  }, [userId, localParent.isActive, localParent.localAccessToken, fetchDevices, fetchLocalParentDeviceFromToken])
+  }, [
+    userId,
+    localParent.isActive,
+    localParent.localAccessToken,
+    fetchDevices,
+    fetchLocalParentDeviceFromToken,
+    fetchDeviceFromChildToken,
+  ])
 
   useEffect(() => {
     if (localParent.isActive) return
@@ -61,8 +75,13 @@ export function useDevices(userId: string | undefined) {
     loading,
     error,
     refetch: async () => {
+      const kidToken = getSavedChildAccessToken()
       if (localParent.isActive && localParent.localAccessToken) {
         await fetchLocalParentDeviceFromToken(localParent.localAccessToken)
+        return
+      }
+      if (kidToken) {
+        await fetchDeviceFromChildToken(kidToken)
         return
       }
       if (userId) await fetchDevices(userId)

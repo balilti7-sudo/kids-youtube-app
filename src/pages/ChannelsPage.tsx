@@ -15,6 +15,7 @@ import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import { buildDiverseVideoMix } from '../lib/buildDiverseVideoMix'
+import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
 
@@ -135,6 +136,25 @@ export function ChannelsPage() {
     setShowMyPlaylist(false)
 
     void (async () => {
+      const kidToken = getSavedChildAccessToken()
+      if (kidToken) {
+        const { data, error } = await getChildCachedChannelVideos(kidToken, selectedChannel.youtube_channel_id)
+        if (cancelled) return
+        setVideosLoading(false)
+        if (error) {
+          setVideosError(error.message)
+          return
+        }
+        setVideos(
+          (data ?? []).map((row) => ({
+            youtube_video_id: row.youtube_video_id,
+            title: row.title,
+            thumbnail_url: row.thumbnail_url,
+          }))
+        )
+        return
+      }
+
       const { data, error } = await supabase
         .from('channel_videos_cache')
         .select('youtube_video_id, title, thumbnail_url, position')
@@ -167,8 +187,22 @@ export function ChannelsPage() {
     setDiscoveryVideos([])
 
     void (async () => {
+      const kidToken = getSavedChildAccessToken()
       const perChannel = await Promise.all(
         visibleChannels.map(async (channel) => {
+          if (kidToken) {
+            const { data, error } = await getChildCachedChannelVideos(kidToken, channel.youtube_channel_id)
+            if (error || !data?.length) return [] as DiscoveryVideo[]
+            return data.map((row) => ({
+              youtube_video_id: row.youtube_video_id,
+              title: row.title,
+              thumbnail_url: row.thumbnail_url,
+              channelId: channel.id,
+              youtubeChannelId: channel.youtube_channel_id,
+              channelName: channel.channel_name,
+            }))
+          }
+
           const { data, error } = await supabase
             .from('channel_videos_cache')
             .select('youtube_video_id, title, thumbnail_url, position')

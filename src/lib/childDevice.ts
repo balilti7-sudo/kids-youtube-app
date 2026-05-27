@@ -1,3 +1,4 @@
+import type { WhitelistedChannel } from '../types'
 import { supabase } from './supabase'
 import { clearLocalParentSession } from './localParentAdmin'
 import { clearAppMode } from './appMode'
@@ -151,6 +152,20 @@ function mapChildAllowedChannelRow(row: Record<string, unknown>): ChildAllowedCh
     category: row.category != null && row.category !== '' ? String(row.category) : null,
     channel_thumbnail: row.channel_thumbnail != null ? String(row.channel_thumbnail) : null,
     subscriber_count: row.subscriber_count != null ? String(row.subscriber_count) : null,
+  }
+}
+
+/** Maps child RPC rows to the shared whitelist shape used by the channels UI. */
+export function childAllowedChannelToWhitelist(channel: ChildAllowedChannel): WhitelistedChannel {
+  return {
+    id: channel.channel_id,
+    youtube_channel_id: channel.youtube_channel_id,
+    channel_name: channel.channel_name,
+    category: channel.category,
+    channel_thumbnail: channel.channel_thumbnail,
+    subscriber_count: channel.subscriber_count,
+    description: null,
+    created_at: new Date(0).toISOString(),
   }
 }
 

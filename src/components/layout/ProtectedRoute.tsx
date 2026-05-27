@@ -30,7 +30,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    if (isLocalParentSessionValid() && getSavedChildAccessToken()) {
+    const kidToken = getSavedChildAccessToken()
+    if (kidToken && location.pathname === '/channels') {
+      return <>{children}</>
+    }
+    if (isLocalParentSessionValid() && kidToken) {
       return <>{children}</>
     }
     return <Navigate to="/auth" state={{ from: location }} replace />
