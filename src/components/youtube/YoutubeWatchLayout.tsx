@@ -30,7 +30,7 @@ export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLay
       <div
         dir="rtl"
         className={cn(
-          'mx-auto flex w-full max-w-full flex-col gap-4 overflow-x-hidden transition-all duration-500 ease-in-out xl:max-w-[1754px]',
+          'mx-auto flex w-full max-w-full flex-col gap-3 overflow-x-hidden transition-all duration-500 ease-in-out sm:gap-4 xl:max-w-[1754px]',
           theaterMode ? 'xl:flex-col' : 'xl:flex-row xl:items-start xl:gap-4',
           className
         )}

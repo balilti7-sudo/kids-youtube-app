@@ -347,7 +347,7 @@ export function ChannelsPage() {
           <p className="mt-1 text-sm text-zinc-500">ההורה יכול להוסיף ערוצים מתוך בקרת הורים.</p>
         </div>
       ) : selectedChannel ? (
-        <section className="max-w-full overflow-x-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70 p-3 shadow-xl shadow-black/10 sm:p-4">
+        <section className="max-w-full overflow-x-hidden rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-zinc-800 sm:bg-zinc-950/70 sm:p-4 sm:shadow-xl sm:shadow-black/10">
           {videosLoading ? (
             <div className="flex min-h-40 items-center justify-center gap-3 text-zinc-300">
               <LoadingSpinner className="h-7 w-7 border-2 border-sky-400 border-t-transparent" />
@@ -365,9 +365,9 @@ export function ChannelsPage() {
             <YoutubeWatchLayout
               className="px-0 pb-2"
               main={
-                <>
-                  <div className="relative w-full max-w-full overflow-hidden bg-black lg:rounded-none">
-                    <div className="relative pt-[56.25%]">
+                <div className="flex w-full min-w-0 flex-col">
+                  <div className="relative w-screen max-w-[100vw] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full">
+                    <div className="relative w-full pt-[56.25%]">
                       <div className="absolute inset-0 min-h-0">
                         <CleanPlayer
                           videoId={activeVideo.youtube_video_id}
@@ -383,6 +383,7 @@ export function ChannelsPage() {
                     </div>
                   </div>
                   <YoutubeWatchVideoDetails
+                    className="px-1 pt-3 sm:px-0.5"
                     title={activeVideo.title}
                     channelName={activeVideo.channelName}
                     subtitle={
@@ -406,11 +407,11 @@ export function ChannelsPage() {
                       </Button>
                     }
                   />
-                </>
+                </div>
               }
               sidebar={
-                <>
-                  <div className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2">
+                <div className="flex flex-col gap-3 px-1 sm:px-0">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2">
                     <button
                       type="button"
                       onClick={() => setShowMyPlaylist((current) => !current)}
@@ -494,7 +495,7 @@ export function ChannelsPage() {
                             : 'אין עוד סרטונים מומלצים כרגע.'}
                     </p>
                   ) : null}
-                </>
+                </div>
               }
             />
           ) : (

@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { PictureInPicture2, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react'
+import { Maximize, Minimize, PictureInPicture2, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
 import Hls from 'hls.js'
 import { setMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
 import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
 import { toast } from 'sonner'
 import { useWatchTheaterMode } from '../../hooks/useWatchTheaterMode'
+import {
+  enterElementFullscreen,
+  enterNativeVideoFullscreen,
+  exitDocumentFullscreen,
+  isDocumentFullscreen,
+} from '../../lib/requestElementFullscreen'
 import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
 import {
   fetchStreamInfo,
@@ -55,6 +61,8 @@ function PlayerControlBar({
   hasNext,
   showQueueControls,
   className,
+  videoRef,
+  playerShellRef,
 }: {
   loopEnabled: boolean
   onLoopToggle: () => void
@@ -62,34 +70,93 @@ function PlayerControlBar({
   hasNext: boolean
   showQueueControls: boolean
   className?: string
+  videoRef?: RefObject<HTMLVideoElement | null>
+  playerShellRef?: RefObject<HTMLDivElement | null>
 }) {
   const theater = useWatchTheaterMode()
+  const [nativeFullscreen, setNativeFullscreen] = useState(false)
 
-  if (!showQueueControls && !theater) return null
+  useEffect(() => {
+    const sync = () => setNativeFullscreen(isDocumentFullscreen())
+    document.addEventListener('fullscreenchange', sync)
+    document.addEventListener('webkitfullscreenchange', sync)
+    return () => {
+      document.removeEventListener('fullscreenchange', sync)
+      document.removeEventListener('webkitfullscreenchange', sync)
+    }
+  }, [])
+
+  const handleMobileExpand = useCallback(async () => {
+    try {
+      if (isDocumentFullscreen()) {
+        await exitDocumentFullscreen()
+        return
+      }
+      const video = videoRef?.current
+      if (video) {
+        await enterNativeVideoFullscreen(video)
+        return
+      }
+      const shell = playerShellRef?.current
+      if (shell) await enterElementFullscreen(shell)
+    } catch (e) {
+      console.warn('[CleanPlayer] fullscreen', e)
+      toast.message('לא ניתן להגדיל למסך מלא במכשיר זה', { duration: 2500 })
+    }
+  }, [videoRef, playerShellRef])
+
+  const showMobileExpand = Boolean(videoRef || playerShellRef)
+  const showTheaterDesktop = Boolean(theater)
+
+  if (!showQueueControls && !showTheaterDesktop && !showMobileExpand) return null
+
+  const expandActive = nativeFullscreen
 
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center gap-2 border-t border-white/10 bg-black/90 px-3 py-2.5',
+        'flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-white/10 bg-black/90 px-2 py-2.5 sm:px-3',
         className
       )}
       dir="rtl"
       role="toolbar"
       aria-label="בקרת ניגון"
     >
-      {theater ? (
+      {showMobileExpand ? (
         <button
           type="button"
-          onClick={theater.toggleTheaterMode}
-          aria-pressed={theater.theaterMode}
-          aria-label={theater.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+          onClick={() => void handleMobileExpand()}
+          aria-pressed={expandActive}
+          aria-label={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
           className={cn(
-            'hidden min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 lg:flex',
-            theater.theaterMode
+            'flex min-h-[48px] min-w-[48px] flex-1 max-w-[220px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 lg:hidden',
+            expandActive
               ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
               : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
           )}
-          title={theater.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+          title={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
+        >
+          {expandActive ? (
+            <Minimize className="h-5 w-5 shrink-0" aria-hidden />
+          ) : (
+            <Maximize className="h-5 w-5 shrink-0" aria-hidden />
+          )}
+          <span className="text-sm font-bold">{expandActive ? 'צמצום' : 'הגדלה'}</span>
+        </button>
+      ) : null}
+      {showTheaterDesktop ? (
+        <button
+          type="button"
+          onClick={theater!.toggleTheaterMode}
+          aria-pressed={theater!.theaterMode}
+          aria-label={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+          className={cn(
+            'hidden min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 lg:flex',
+            theater!.theaterMode
+              ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
+              : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
+          )}
+          title={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
         >
           <RectangleHorizontal className="h-5 w-5 shrink-0" aria-hidden />
           <span className="text-sm font-bold">תיאטרון</span>
@@ -189,6 +256,7 @@ function CleanPlayerYoutubeIframe({
   hasNextTrack = true,
   queueControls,
 }: CleanPlayerProps) {
+  const playerShellRef = useRef<HTMLDivElement>(null)
   const [loopEnabled, setLoopEnabled] = useState(false)
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
@@ -233,7 +301,7 @@ function CleanPlayerYoutubeIframe({
       className={cn('flex h-full w-full min-h-0 flex-col overflow-hidden bg-black', className)}
       dir="ltr"
     >
-      <div className="relative min-h-0 flex-1">
+      <div ref={playerShellRef} className="relative min-h-0 flex-1">
       {!safeId || !src ? (
         <div
           className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/90 px-4 text-center text-sm text-amber-100"
@@ -248,7 +316,7 @@ function CleanPlayerYoutubeIframe({
           title={title}
           src={src}
           className="h-full w-full border-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           allowFullScreen
           loading="lazy"
           referrerPolicy="strict-origin-when-cross-origin"
@@ -263,6 +331,7 @@ function CleanPlayerYoutubeIframe({
           onNext={handleNextVideo}
           hasNext={hasNextTrack}
           showQueueControls={showQueueControls}
+          playerShellRef={playerShellRef}
         />
       ) : null}
     </div>
@@ -281,6 +350,7 @@ function CleanPlayerMediaBridge({
   queueControls,
 }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const playerShellRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
@@ -744,7 +814,7 @@ function CleanPlayerMediaBridge({
       className={cn('flex h-full w-full min-h-0 flex-col overflow-hidden bg-black', className)}
       dir="ltr"
     >
-      <div className="relative min-h-0 flex-1">
+      <div ref={playerShellRef} className="relative min-h-0 flex-1">
       {showOverlay ? (
         <div
           className={cn(
@@ -822,6 +892,8 @@ function CleanPlayerMediaBridge({
           onNext={handleNextVideo}
           hasNext={hasNextTrack}
           showQueueControls={showQueueControls}
+          videoRef={videoRef}
+          playerShellRef={playerShellRef}
         />
       ) : null}
     </div>
