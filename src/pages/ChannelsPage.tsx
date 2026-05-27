@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowRight, Check, ListMusic, Plus, Tv } from 'lucide-react'
+import { Check, ListMusic, Plus, Tv } from 'lucide-react'
+import { ChildChannelsNavCarousel } from '../components/kid/ChildChannelsNavCarousel'
 import { useChannels } from '../hooks/useChannels'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { useDevices } from '../hooks/useDevices'
@@ -282,13 +283,18 @@ export function ChannelsPage() {
     if (deviceId) next.set('device', deviceId)
     next.set('channel', youtubeChannelId)
     navigate({ pathname: '/channels', search: `?${next.toString()}` })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const backToChannels = () => {
+  const goHome = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('channel')
     navigate({ pathname: '/channels', search: next.toString() ? `?${next.toString()}` : '' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  const showChannelsNav =
+    !devicesLoading && !loading && devices.length > 0 && visibleChannels.length > 0
 
   return (
     <div
@@ -296,18 +302,32 @@ export function ChannelsPage() {
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
       }`}
     >
-      <header className="rounded-3xl border border-zinc-800 bg-gradient-to-b from-zinc-900/95 to-zinc-950 p-4 shadow-2xl shadow-black/15 sm:p-5">
+      <header className="sticky top-0 z-20 rounded-3xl border border-zinc-800 bg-gradient-to-b from-zinc-900/98 to-zinc-950 p-4 shadow-2xl shadow-black/15 backdrop-blur-md sm:p-5">
         <div className="flex items-center gap-3">
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25">
             <Tv className="h-7 w-7" aria-hidden />
           </span>
-          <div className="min-w-0">
-            <h1 className="text-xl font-black text-zinc-50">ערוצים</h1>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-black text-zinc-50">
+              {selectedChannel ? selectedChannel.channel_name : 'ערוצים'}
+            </h1>
             <p className="mt-1 text-sm text-zinc-400">
-              {selectedDevice ? `הערוצים המאושרים של ${selectedDevice.name}` : 'כל הערוצים המאושרים לצפייה.'}
+              {selectedChannel
+                ? 'צפייה בערוץ — החליפו ערוץ או חזרו לבית מהשורה למטה'
+                : selectedDevice
+                  ? `הערוצים המאושרים של ${selectedDevice.name}`
+                  : 'כל הערוצים המאושרים לצפייה.'}
             </p>
           </div>
         </div>
+        {showChannelsNav ? (
+          <ChildChannelsNavCarousel
+            channels={visibleChannels}
+            activeYoutubeChannelId={selectedChannel?.youtube_channel_id ?? null}
+            onHome={goHome}
+            onSelectChannel={openChannel}
+          />
+        ) : null}
       </header>
 
       {devicesLoading || loading ? (
@@ -328,32 +348,6 @@ export function ChannelsPage() {
         </div>
       ) : selectedChannel ? (
         <section className="max-w-full overflow-x-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70 p-3 shadow-xl shadow-black/10 sm:p-4">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={backToChannels}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-zinc-200 transition hover:bg-zinc-800"
-                aria-label="חזרה לערוצים"
-              >
-                <ArrowRight className="h-5 w-5" aria-hidden />
-              </button>
-              {selectedChannel.channel_thumbnail ? (
-                <img
-                  src={selectedChannel.channel_thumbnail}
-                  alt=""
-                  className="h-12 w-12 shrink-0 rounded-2xl object-cover"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                />
-              ) : null}
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-black text-zinc-50">{selectedChannel.channel_name}</h2>
-                <p className="text-sm text-zinc-500">רשימת הסרטונים בערוץ</p>
-              </div>
-            </div>
-          </div>
-
           {videosLoading ? (
             <div className="flex min-h-40 items-center justify-center gap-3 text-zinc-300">
               <LoadingSpinner className="h-7 w-7 border-2 border-sky-400 border-t-transparent" />
