@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus, Settings2, Smartphone, Trash2 } from 'lucide-react'
+import { cn } from '../../lib/utils'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useSubscription } from '../../hooks/useSubscription'
@@ -165,29 +166,30 @@ export function DashboardDevicesSection({
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-zinc-100">{d.name}</p>
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex w-full min-w-0 items-stretch gap-2 sm:max-w-md sm:flex-1 sm:justify-end">
                 <Button
                   type="button"
-                  variant="secondary"
-                  className={
-                    activeManagementDeviceId === d.id
-                      ? '!border-brand-500/60 !bg-brand-950/50 !px-3 !py-2 text-xs font-bold !text-brand-100'
-                      : '!px-3 !py-2 text-xs font-bold'
-                  }
+                  variant="primary"
+                  className={cn(
+                    'min-h-[3rem] flex-1 justify-center gap-2.5 px-5 py-3 text-[15px] font-extrabold tracking-tight shadow-lg shadow-brand-950/30 sm:min-h-[3.25rem] sm:px-6 sm:text-base',
+                    activeManagementDeviceId === d.id &&
+                      'ring-2 ring-brand-300/90 ring-offset-2 ring-offset-zinc-950'
+                  )}
                   onClick={() => onManageChannels(d.id)}
                   aria-label={`ניהול ערוצים עבור ${d.name}`}
+                  aria-current={activeManagementDeviceId === d.id ? 'true' : undefined}
                 >
-                  <Settings2 className="h-4 w-4" />
+                  <Settings2 className="h-5 w-5 shrink-0" aria-hidden />
                   ניהול ערוצים
                 </Button>
                 <Button
                   type="button"
                   variant="danger"
-                  className="!px-3 !py-2 text-xs"
+                  className="h-auto shrink-0 self-center !rounded-lg !px-2.5 !py-2 text-[11px] font-semibold shadow-none sm:!px-3"
                   onClick={() => void handleDelete(d.id)}
                   aria-label={`מחק פרופיל ${d.name}`}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
                   מחק
                 </Button>
               </div>
