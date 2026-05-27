@@ -26,6 +26,8 @@ import {
   toWatchableVideo,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
+import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
+import { useLocalScreenTime } from '../hooks/useLocalScreenTime'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -409,7 +411,17 @@ export function ChannelsPage() {
   const showChannelsNav =
     !devicesLoading && !loading && devices.length > 0 && visibleChannels.length > 0
 
+  const screenTime = useLocalScreenTime()
+
+  useEffect(() => {
+    if (!screenTime.playbackBlocked) return
+    setWatchStarted(false)
+    setActiveVideoId(null)
+    setPlayingVideo(null)
+  }, [screenTime.playbackBlocked])
+
   return (
+    <ScreenTimeChildGate>
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
@@ -660,5 +672,6 @@ export function ChannelsPage() {
         </section>
       )}
     </div>
+    </ScreenTimeChildGate>
   )
 }

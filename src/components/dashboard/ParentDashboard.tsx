@@ -3,6 +3,7 @@ import { useDeviceStore } from '../../stores/deviceStore'
 import { StatsGrid } from './StatsGrid'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ChannelManager } from '../channels/ChannelManager'
+import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
 
 export function ParentDashboard() {
   const devices = useDeviceStore((s) => s.devices)
@@ -19,6 +20,7 @@ export function ParentDashboard() {
       </header>
 
       <StatsGrid devices={devices} />
+      <LocalScreenTimeParentCard />
       <DashboardDevicesSection activeManagementDeviceId={managedDeviceId} onManageChannels={setManagedDeviceId} />
       {managedDeviceId ? (
         <section className="rounded-2xl border border-zinc-700/60 bg-zinc-900/70 p-3 shadow-inner ring-1 ring-zinc-800/80 sm:p-4">

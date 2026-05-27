@@ -41,6 +41,8 @@ import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
 import { CleanPlayer } from '../components/player/CleanPlayer'
+import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
+import { useLocalScreenTime } from '../hooks/useLocalScreenTime'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import type { Html5Qrcode } from 'html5-qrcode'
@@ -329,6 +331,13 @@ export function KidModePage() {
     if (idx <= 0) return
     setActiveVideoId(list[idx - 1].videoId)
   }, [filteredVideos, activeVideoId])
+
+  const screenTime = useLocalScreenTime()
+
+  useEffect(() => {
+    if (!screenTime.playbackBlocked) return
+    setActiveVideoId(null)
+  }, [screenTime.playbackBlocked])
 
   const loadChannelVideos = useCallback(async (youtubeChannelId: string) => {
     const rid = ++channelVideosRequestRef.current
@@ -1023,6 +1032,7 @@ export function KidModePage() {
   }
 
   return (
+    <ScreenTimeChildGate>
     <div className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40">
       <header className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 pb-[env(safe-area-inset-top)] backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90">
         <div className="mx-auto grid max-w-[1920px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 px-2 py-2 sm:gap-x-4 sm:px-3 sm:py-2">
@@ -1598,5 +1608,6 @@ export function KidModePage() {
         description="חיפוש בכל YouTube דורש קוד הורה. הזינו PIN כדי להמשיך — אחרת החיפוש יבוטל."
       />
     </div>
+    </ScreenTimeChildGate>
   )
 }
