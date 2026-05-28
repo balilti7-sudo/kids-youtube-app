@@ -142,6 +142,15 @@
     }
   }
 
+  @keyframes playerShimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .juicy-particle-layer {
       display: none !important;

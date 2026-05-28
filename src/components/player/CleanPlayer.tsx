@@ -208,6 +208,41 @@ function buildYoutubeArtwork(videoId: string): MediaImage[] {
   ]
 }
 
+/**
+ * Instant, animated feedback shown the millisecond a card is tapped, while the player
+ * (iframe or media bridge) is still initializing. Uses the poster as a blurred backdrop
+ * with a shimmer sweep + spinner so the child never sees a blank black box.
+ */
+function PlayerLoadingSkeleton({
+  posterUrl,
+  videoId,
+}: {
+  posterUrl?: string | null
+  videoId?: string | null
+}) {
+  const poster =
+    (posterUrl || '').trim() ||
+    (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '')
+  return (
+    <div className="absolute inset-0 z-10 overflow-hidden bg-zinc-950" aria-hidden>
+      {poster ? (
+        <img
+          src={poster}
+          alt=""
+          className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-md"
+          referrerPolicy="no-referrer"
+          decoding="async"
+        />
+      ) : null}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/50" />
+      <div className="absolute inset-0 -translate-x-full animate-[playerShimmer_1.4s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-white/25 border-t-white drop-shadow-lg" />
+      </div>
+    </div>
+  )
+}
+
 function pickArtwork(videoId: string, posterUrl: string | null | undefined): MediaImage[] {
   const fromPoster = (posterUrl || '').trim()
   if (fromPoster) {
@@ -264,15 +299,21 @@ function CleanPlayerYoutubeIframe({
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
+  const [iframeReady, setIframeReady] = useState(false)
   const src = useMemo(() => {
     if (!safeId) return ''
-    const base = buildYoutubePrivacyEmbedUrl(safeId, { origin })
+    const base = buildYoutubePrivacyEmbedUrl(safeId, { origin, autoplay: true })
     if (!loopEnabled) return base
     const u = new URL(base)
     u.searchParams.set('loop', '1')
     u.searchParams.set('playlist', safeId)
     return u.toString()
   }, [safeId, origin, loopEnabled])
+
+  // Reset the skeleton whenever a new video mounts so feedback is instant on tap.
+  useEffect(() => {
+    setIframeReady(false)
+  }, [src])
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
@@ -311,16 +352,20 @@ function CleanPlayerYoutubeIframe({
           <p>מזהה סרטון YouTube לא תקין.</p>
         </div>
       ) : (
-        <iframe
-          key={src}
-          title={title}
-          src={src}
-          className="h-full w-full border-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
+        <>
+          {!iframeReady ? <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} /> : null}
+          <iframe
+            key={src}
+            title={title}
+            src={src}
+            className="h-full w-full border-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+            allowFullScreen
+            loading="eager"
+            onLoad={() => setIframeReady(true)}
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        </>
       )}
       <span className="sr-only">{title}</span>
       </div>
@@ -830,8 +875,8 @@ function CleanPlayerMediaBridge({
         >
           {phase.kind === 'resolving' ? (
             <>
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />
-              <p>{bridgeWaking ? 'השרת מתעורר... מיד מתחילים' : 'מכין את הוידאו…'}</p>
+              <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={sanitizeYoutubeVideoId(videoId)} />
+              <p className="relative z-10 drop-shadow">{bridgeWaking ? 'השרת מתעורר... מיד מתחילים' : 'מכין את הוידאו…'}</p>
             </>
           ) : phase.kind === 'error' ? (
             <>

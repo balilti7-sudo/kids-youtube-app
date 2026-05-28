@@ -16,7 +16,10 @@ export function sanitizeYoutubeVideoId(raw: string): string | null {
   return id
 }
 
-export function buildYoutubePrivacyEmbedUrl(videoId: string, opts?: { origin?: string }): string {
+export function buildYoutubePrivacyEmbedUrl(
+  videoId: string,
+  opts?: { origin?: string; autoplay?: boolean }
+): string {
   const id = sanitizeYoutubeVideoId(videoId)
   if (!id) return ''
 
@@ -27,6 +30,12 @@ export function buildYoutubePrivacyEmbedUrl(videoId: string, opts?: { origin?: s
     playsinline: '1',
     enablejsapi: '0',
   })
+
+  // Autoplay for instant playback the moment the player mounts on tap.
+  if (opts?.autoplay) {
+    params.set('autoplay', '1')
+    params.set('mute', '0')
+  }
 
   const origin = opts?.origin?.trim()
   if (origin) {

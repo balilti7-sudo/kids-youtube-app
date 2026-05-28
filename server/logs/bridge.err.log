@@ -1,0 +1,102 @@
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] 1pyObv6DwWI: Premieres in 2 days
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] 1pyObv6DwWI: Premieres in 2 days
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] 1pyObv6DwWI: Premieres in 2 days
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] 1pyObv6DwWI: Premieres in 2 days
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] 1pyObv6DwWI: Premieres in 2 days
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] 1pyObv6DwWI: Premieres in 2 days
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] oMVrJhoE-SE: This live event has ended.
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] oMVrJhoE-SE: This live event has ended.
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] oMVrJhoE-SE: This live event has ended.
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] oMVrJhoE-SE: This live event has ended.
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] oMVrJhoE-SE: This live event has ended.
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] oMVrJhoE-SE: This live event has ended.
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] vXiWfu0ft44: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] vXiWfu0ft44: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] vXiWfu0ft44: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[/api/media] proxy error: read ECONNRESET
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] w_td0f_qQy8: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] bYy1fCu-trk: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] bYy1fCu-trk: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] bYy1fCu-trk: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] bYy1fCu-trk: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] bYy1fCu-trk: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] bYy1fCu-trk: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] shv09FM-Okw: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] shv09FM-Okw: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] shv09FM-Okw: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[ytdlp] client=tv attempt=0 failed: yt-dlp exited 1: ERROR: [youtube] shv09FM-Okw: The uploader has not made this video available in your country
+[ytdlp] client=tv attempt=1 failed: yt-dlp exited 1: ERROR: [youtube] shv09FM-Okw: The uploader has not made this video available in your country
+[/api/stream] failed: yt-dlp exited 1: ERROR: [youtube] shv09FM-Okw: The uploader has not made this video available in your country
+This video is available in Israel.
+You might want to use a VPN or a proxy server (with --proxy) to workaround.
+[/api/media] proxy error: read ECONNRESET
