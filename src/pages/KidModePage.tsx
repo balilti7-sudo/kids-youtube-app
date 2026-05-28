@@ -40,8 +40,14 @@ import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
-import { CleanPlayer } from '../components/player/CleanPlayer'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
+import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
+import { KidInterceptCleanPlayer } from '../components/kid/KidInterceptCleanPlayer'
+import {
+  settingsFromDevice,
+  tryBeginPlayback,
+  type InterceptPendingVideo,
+} from '../lib/educationalIntercept'
 import { useLocalScreenTime } from '../hooks/useLocalScreenTime'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
@@ -301,14 +307,35 @@ export function KidModePage() {
     return channelVideos.find((v) => v.videoId === activeVideoId) ?? null
   }, [channelVideos, activeVideoId])
 
-  const handleSelectVideo = useCallback((videoId: string) => {
-    setActiveVideoId(videoId)
-  }, [])
-
   const activeChannel = useMemo(
     () => channels.find((c) => c.youtube_channel_id === (activeChannelId ?? '')) ?? null,
     [channels, activeChannelId]
   )
+
+  const interceptSettings = useMemo(() => settingsFromDevice(device), [device])
+
+  const handleSelectVideo = useCallback(
+    (videoId: string) => {
+      const video =
+        channelVideos.find((v) => v.videoId === videoId) ??
+        filteredVideos.find((v) => v.videoId === videoId) ??
+        null
+      const pending: InterceptPendingVideo = {
+        videoId,
+        title: video?.title,
+        channelTitle: activeChannel?.channel_name,
+        posterUrl: video?.thumbnail ?? null,
+      }
+      if (!tryBeginPlayback(pending, interceptSettings)) return
+      setActiveVideoId(videoId)
+    },
+    [channelVideos, filteredVideos, activeChannel?.channel_name, interceptSettings]
+  )
+
+  const resumePendingPlayback = useCallback((pending: InterceptPendingVideo | null) => {
+    if (!pending?.videoId) return
+    setActiveVideoId(pending.videoId)
+  }, [])
 
   const activeVideoQueueIndex = useMemo(() => {
     if (!activeVideoId) return -1
@@ -322,15 +349,15 @@ export function KidModePage() {
     const list = filteredVideos
     const idx = list.findIndex((v) => v.videoId === activeVideoId)
     if (idx < 0 || idx >= list.length - 1) return
-    setActiveVideoId(list[idx + 1].videoId)
-  }, [filteredVideos, activeVideoId])
+    handleSelectVideo(list[idx + 1]!.videoId)
+  }, [filteredVideos, activeVideoId, handleSelectVideo])
 
   const handlePlayerPreviousTrack = useCallback(() => {
     const list = filteredVideos
     const idx = list.findIndex((v) => v.videoId === activeVideoId)
     if (idx <= 0) return
-    setActiveVideoId(list[idx - 1].videoId)
-  }, [filteredVideos, activeVideoId])
+    handleSelectVideo(list[idx - 1]!.videoId)
+  }, [filteredVideos, activeVideoId, handleSelectVideo])
 
   const screenTime = useLocalScreenTime()
 
@@ -537,9 +564,21 @@ export function KidModePage() {
     }
     setActiveVideoId((prev) => {
       if (prev && channelVideos.some((v) => v.videoId === prev)) return prev
-      return channelVideos[0]?.videoId ?? null
+      const next = channelVideos[0]
+      const nextId = next?.videoId ?? null
+      if (!nextId) return null
+      const ok = tryBeginPlayback(
+        {
+          videoId: nextId,
+          title: next.title,
+          channelTitle: activeChannel?.channel_name,
+          posterUrl: next.thumbnail ?? null,
+        },
+        interceptSettings
+      )
+      return ok ? nextId : null
     })
-  }, [channelVideos, activeChannelId, channelPickNonce])
+  }, [channelVideos, activeChannelId, channelPickNonce, interceptSettings, activeChannel?.channel_name])
 
   useEffect(() => {
     if (videoSearchFocused) return
@@ -549,9 +588,21 @@ export function KidModePage() {
     }
     setActiveVideoId((prev) => {
       if (prev && filteredVideos.some((v) => v.videoId === prev)) return prev
-      return filteredVideos[0]?.videoId ?? null
+      const next = filteredVideos[0]
+      const nextId = next?.videoId ?? null
+      if (!nextId) return null
+      const ok = tryBeginPlayback(
+        {
+          videoId: nextId,
+          title: next.title,
+          channelTitle: activeChannel?.channel_name,
+          posterUrl: next.thumbnail ?? null,
+        },
+        interceptSettings
+      )
+      return ok ? nextId : null
     })
-  }, [videoSearch, filteredVideos, videoSearchFocused])
+  }, [videoSearch, filteredVideos, videoSearchFocused, interceptSettings, activeChannel?.channel_name])
 
   useEffect(() => {
     if (!accessToken) return
@@ -1033,6 +1084,7 @@ export function KidModePage() {
 
   return (
     <ScreenTimeChildGate>
+    <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <div className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40">
       <header className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 pb-[env(safe-area-inset-top)] backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90">
         <div className="mx-auto grid max-w-[1920px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 px-2 py-2 sm:gap-x-4 sm:px-3 sm:py-2">
@@ -1368,7 +1420,7 @@ export function KidModePage() {
                         <div className="relative w-full overflow-hidden rounded-none bg-black lg:rounded-none">
                           <div className="relative pt-[56.25%]">
                             <div className="absolute inset-0 min-h-0">
-                              <CleanPlayer
+                              <KidInterceptCleanPlayer
                                 videoId={activeVideo.videoId}
                                 title={activeVideo.title}
                                 channelTitle={activeChannel?.channel_name}
@@ -1608,6 +1660,7 @@ export function KidModePage() {
         description="חיפוש בכל YouTube דורש קוד הורה. הזינו PIN כדי להמשיך — אחרת החיפוש יבוטל."
       />
     </div>
+    </EducationalInterceptGate>
     </ScreenTimeChildGate>
   )
 }

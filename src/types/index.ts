@@ -12,6 +12,8 @@ export interface Profile {
   updated_at: string
 }
 
+export type EducationalInterceptFrequency = 2 | 3 | 5
+
 export interface Device {
   id: string
   user_id: string
@@ -24,6 +26,8 @@ export interface Device {
   created_at: string
   updated_at: string
   channel_count?: number
+  educational_intercepts_enabled?: boolean
+  educational_intercept_frequency?: EducationalInterceptFrequency
 }
 
 export interface WhitelistedChannel {

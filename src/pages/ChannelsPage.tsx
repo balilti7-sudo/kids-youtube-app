@@ -17,16 +17,23 @@ import { ChannelVideoBrowseRows } from '../components/kid/ChannelVideoBrowseRows
 import { YoutubeShortCard } from '../components/youtube/YoutubeShortCard'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import { buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
-import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
+import { getChildCachedChannelVideos, getChildDeviceState, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
 import { prefetchStreamInfo } from '../lib/streamApi'
+import {
+  DEFAULT_INTERCEPT_SETTINGS,
+  settingsFromDevice,
+  tryBeginPlayback,
+  type InterceptPendingVideo,
+} from '../lib/educationalIntercept'
 import {
   enrichVideosWithFormat,
   toWatchableVideo,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
+import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { useLocalScreenTime } from '../hooks/useLocalScreenTime'
 
 type ChannelWatchVideo = WatchableVideoBase & {
@@ -89,6 +96,26 @@ export function ChannelsPage() {
   const [videoSearch, setVideoSearch] = useState('')
   const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
+  const [childInterceptSettings, setChildInterceptSettings] = useState(DEFAULT_INTERCEPT_SETTINGS)
+
+  useEffect(() => {
+    const token = getSavedChildAccessToken()
+    if (!token) return
+    const load = () => {
+      void getChildDeviceState(token).then(({ data }) => {
+        if (data) setChildInterceptSettings(settingsFromDevice(data))
+      })
+    }
+    load()
+    const id = window.setInterval(load, 3_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const interceptSettings = useMemo(() => {
+    const fromList = devices.find((d) => d.id === deviceId)
+    if (fromList) return settingsFromDevice(fromList)
+    return childInterceptSettings
+  }, [devices, deviceId, childInterceptSettings])
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -339,10 +366,36 @@ export function ChannelsPage() {
         snapshot = toChannelWatchVideo(input)
       }
 
+      const pending: InterceptPendingVideo = {
+        videoId,
+        title: snapshot?.title,
+        channelTitle: snapshot?.channelName,
+        posterUrl: snapshot?.thumbnail_url ?? null,
+      }
+
+      if (!tryBeginPlayback(pending, interceptSettings)) {
+        if (snapshot) setPlayingVideo(snapshot)
+        return
+      }
+
       if (snapshot) setPlayingVideo(snapshot)
       prefetchStreamInfo(videoId)
       setWatchStarted(true)
       setActiveVideoId(videoId)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    },
+    [videos, toChannelWatchVideo, interceptSettings]
+  )
+
+  const resumePendingPlayback = useCallback(
+    (pending: InterceptPendingVideo | null) => {
+      if (!pending?.videoId) return
+      const base = videos.find((video) => video.youtube_video_id === pending.videoId) ?? null
+      const snapshot = base ? toChannelWatchVideo(base) : null
+      if (snapshot) setPlayingVideo(snapshot)
+      prefetchStreamInfo(pending.videoId)
+      setWatchStarted(true)
+      setActiveVideoId(pending.videoId)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     },
     [videos, toChannelWatchVideo]
@@ -422,6 +475,7 @@ export function ChannelsPage() {
 
   return (
     <ScreenTimeChildGate>
+    <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
@@ -672,6 +726,7 @@ export function ChannelsPage() {
         </section>
       )}
     </div>
+    </EducationalInterceptGate>
     </ScreenTimeChildGate>
   )
 }

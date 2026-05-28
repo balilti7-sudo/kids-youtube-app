@@ -17,6 +17,11 @@ interface DeviceState {
   fetchDeviceFromChildToken: (accessToken: string) => Promise<void>
   fetchDevices: (userId: string) => Promise<void>
   toggleBlock: (deviceId: string, isBlocked: boolean) => Promise<{ error: Error | null }>
+  updateEducationalInterceptSettings: (
+    deviceId: string,
+    enabled: boolean,
+    frequency: 2 | 3 | 5
+  ) => Promise<{ error: Error | null }>
   addDevice: (payload: {
     userId: string
     name: string
@@ -59,6 +64,8 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         created_at: new Date(0).toISOString(),
         updated_at: new Date(0).toISOString(),
         channel_count: 0,
+        educational_intercepts_enabled: data.educational_intercepts_enabled,
+        educational_intercept_frequency: data.educational_intercept_frequency,
       }
       set({ devices: [device], loading: false })
     } catch (err) {
@@ -150,6 +157,28 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     }
     set({
       devices: get().devices.map((d) => (d.id === deviceId ? { ...d, is_blocked: isBlocked } : d)),
+    })
+    return { error: null }
+  },
+
+  updateEducationalInterceptSettings: async (deviceId, enabled, frequency) => {
+    const { error } = await supabase
+      .from('devices')
+      .update({
+        educational_intercepts_enabled: enabled,
+        educational_intercept_frequency: frequency,
+      })
+      .eq('id', deviceId)
+    if (error) {
+      console.error('[deviceStore.updateEducationalInterceptSettings]', error)
+      return { error: new Error(formatSupabaseError(error)) }
+    }
+    set({
+      devices: get().devices.map((d) =>
+        d.id === deviceId
+          ? { ...d, educational_intercepts_enabled: enabled, educational_intercept_frequency: frequency }
+          : d
+      ),
     })
     return { error: null }
   },

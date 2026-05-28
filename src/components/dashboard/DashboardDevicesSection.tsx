@@ -11,6 +11,7 @@ import { Modal } from '../ui/Modal'
 import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui/ErrorState'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
+import { EducationalInterceptDeviceSettings } from './EducationalInterceptDeviceSettings'
 import { toast } from 'sonner'
 
 function randomSixDigits() {
@@ -147,32 +148,35 @@ export function DashboardDevicesSection({
           {devices.map((d) => (
             <li
               key={d.id}
-              className="flex flex-row items-center justify-between gap-3 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60"
+              className="flex flex-col gap-2 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-3 text-start">
-                <span
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800/90 text-zinc-400 ring-1 ring-zinc-700/80"
-                  aria-hidden
+              <div className="flex flex-row items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3 text-start">
+                  <span
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800/90 text-zinc-400 ring-1 ring-zinc-700/80"
+                    aria-hidden
+                  >
+                    <Smartphone className="h-5 w-5" />
+                  </span>
+                  <p className="truncate text-sm font-semibold text-zinc-100 sm:text-base">{d.name}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={cn(
+                    'h-9 shrink-0 justify-center gap-1.5 rounded-lg !px-4 !py-2 text-xs font-semibold sm:text-sm',
+                    activeManagementDeviceId === d.id &&
+                      'ring-2 ring-brand-300/80 ring-offset-1 ring-offset-zinc-950'
+                  )}
+                  onClick={() => onManageChannels(d.id)}
+                  aria-label={`ניהול ערוצים עבור ${d.name}`}
+                  aria-current={activeManagementDeviceId === d.id ? 'true' : undefined}
                 >
-                  <Smartphone className="h-5 w-5" />
-                </span>
-                <p className="truncate text-sm font-semibold text-zinc-100 sm:text-base">{d.name}</p>
+                  <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="whitespace-nowrap">ניהול ערוצים</span>
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="primary"
-                className={cn(
-                  'h-9 shrink-0 justify-center gap-1.5 rounded-lg !px-4 !py-2 text-xs font-semibold sm:text-sm',
-                  activeManagementDeviceId === d.id &&
-                    'ring-2 ring-brand-300/80 ring-offset-1 ring-offset-zinc-950'
-                )}
-                onClick={() => onManageChannels(d.id)}
-                aria-label={`ניהול ערוצים עבור ${d.name}`}
-                aria-current={activeManagementDeviceId === d.id ? 'true' : undefined}
-              >
-                <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
-                <span className="whitespace-nowrap">ניהול ערוצים</span>
-              </Button>
+              <EducationalInterceptDeviceSettings device={d} />
             </li>
           ))}
         </ul>

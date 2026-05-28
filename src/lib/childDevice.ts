@@ -11,6 +11,8 @@ export interface ChildDeviceState {
   is_blocked: boolean
   is_online: boolean
   last_seen_at: string | null
+  educational_intercepts_enabled: boolean
+  educational_intercept_frequency: 2 | 3 | 5
 }
 
 export interface ChildAllowedVideo {
@@ -117,9 +119,17 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
       is_blocked: Boolean(r.is_blocked),
       is_online: Boolean(r.is_online),
       last_seen_at: r.last_seen_at != null ? String(r.last_seen_at) : null,
+      educational_intercepts_enabled: Boolean(r.educational_intercepts_enabled),
+      educational_intercept_frequency: normalizeInterceptFrequency(r.educational_intercept_frequency),
     },
     error: null,
   }
+}
+
+function normalizeInterceptFrequency(raw: unknown): 2 | 3 | 5 {
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  if (n === 2 || n === 5) return n
+  return 3
 }
 
 export function mapHeartbeatRow(row: Record<string, unknown>): Partial<ChildDeviceState> {

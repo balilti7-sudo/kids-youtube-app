@@ -39,6 +39,8 @@ export type CleanPlayerProps = {
   hasNextTrack?: boolean
   /** Kid queue bar (next + loop). Default: true when `onNextTrack` is provided. */
   queueControls?: boolean
+  /** Fired once when playback actually starts for a video (both paths). */
+  onVideoPlaybackStarted?: (videoId: string) => void
 }
 
 const END_OF_PLAYLIST_TOAST = 'הגעת לסוף הפלייליסט'
@@ -290,6 +292,7 @@ function CleanPlayerYoutubeIframe({
   onNextTrack,
   hasNextTrack = true,
   queueControls,
+  onVideoPlaybackStarted,
 }: CleanPlayerProps) {
   const playerShellRef = useRef<HTMLDivElement>(null)
   const [loopEnabled, setLoopEnabled] = useState(false)
@@ -300,6 +303,7 @@ function CleanPlayerYoutubeIframe({
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
   const [iframeReady, setIframeReady] = useState(false)
+  const iframePlaybackNotifiedRef = useRef(false)
   const src = useMemo(() => {
     if (!safeId) return ''
     const base = buildYoutubePrivacyEmbedUrl(safeId, { origin, autoplay: true })
@@ -313,7 +317,17 @@ function CleanPlayerYoutubeIframe({
   // Reset the skeleton whenever a new video mounts so feedback is instant on tap.
   useEffect(() => {
     setIframeReady(false)
+    iframePlaybackNotifiedRef.current = false
   }, [src])
+
+  const handleIframeLoad = useCallback(() => {
+    setIframeReady(true)
+    const id = sanitizeYoutubeVideoId(videoId)
+    if (id && onVideoPlaybackStarted && !iframePlaybackNotifiedRef.current) {
+      iframePlaybackNotifiedRef.current = true
+      onVideoPlaybackStarted(id)
+    }
+  }, [videoId, onVideoPlaybackStarted])
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
@@ -362,7 +376,7 @@ function CleanPlayerYoutubeIframe({
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
             allowFullScreen
             loading="eager"
-            onLoad={() => setIframeReady(true)}
+            onLoad={handleIframeLoad}
             referrerPolicy="strict-origin-when-cross-origin"
           />
         </>
@@ -393,6 +407,7 @@ function CleanPlayerMediaBridge({
   onPreviousTrack,
   hasNextTrack = true,
   queueControls,
+  onVideoPlaybackStarted,
 }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
@@ -414,6 +429,7 @@ function CleanPlayerMediaBridge({
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
+  const playbackNotifiedRef = useRef(false)
 
   useEffect(() => {
     onNextTrackRef.current = onNextTrack
@@ -430,6 +446,35 @@ function CleanPlayerMediaBridge({
   useEffect(() => {
     setLoopEnabled(false)
   }, [videoId])
+
+  useEffect(() => {
+    playbackNotifiedRef.current = false
+  }, [videoId])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing' || !onVideoPlaybackStarted) return
+    const el = videoRef.current
+    if (!el) return
+
+    const notifyOnce = () => {
+      const id = sanitizeYoutubeVideoId(videoId)
+      if (!id || playbackNotifiedRef.current) return
+      playbackNotifiedRef.current = true
+      onVideoPlaybackStarted(id)
+    }
+
+    const onPlaybackStarted = () => notifyOnce()
+    const onPlaybackEnded = () => notifyOnce()
+
+    el.addEventListener('play', onPlaybackStarted)
+    el.addEventListener('ended', onPlaybackEnded)
+    if (!el.paused && !el.ended) notifyOnce()
+
+    return () => {
+      el.removeEventListener('play', onPlaybackStarted)
+      el.removeEventListener('ended', onPlaybackEnded)
+    }
+  }, [phase.kind, videoId, onVideoPlaybackStarted])
 
   const handleRetry = useCallback(() => {
     setBridgeWaking(false)

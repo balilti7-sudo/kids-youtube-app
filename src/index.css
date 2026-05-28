@@ -151,6 +151,47 @@
     }
   }
 
+  @keyframes lionWorried {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-1deg);
+    }
+    50% {
+      transform: translateY(3px) rotate(1deg);
+    }
+  }
+
+  @keyframes lionBounce {
+    0% {
+      transform: translateY(0) scale(1);
+    }
+    35% {
+      transform: translateY(-16px) scale(1.06);
+    }
+    70% {
+      transform: translateY(0) scale(0.98);
+    }
+    100% {
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes lionCelebrate {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-4deg) scale(1);
+    }
+    25% {
+      transform: translateY(-10px) rotate(4deg) scale(1.05);
+    }
+    50% {
+      transform: translateY(0) rotate(-3deg) scale(1.02);
+    }
+    75% {
+      transform: translateY(-8px) rotate(5deg) scale(1.06);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .juicy-particle-layer {
       display: none !important;
