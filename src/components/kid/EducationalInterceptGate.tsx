@@ -20,6 +20,8 @@ import {
   type InterceptSettings,
 } from '../../lib/educationalIntercept'
 import { getEducationalScene } from '../../data/educationalScenes'
+import { INTERCEPT_XP_REWARD } from '../../lib/lionProgression'
+import { useLionProgressionOptional } from '../../contexts/LionProgressionContext'
 import { EducationalInterceptModal } from './EducationalInterceptModal'
 
 type GateContextValue = {
@@ -47,6 +49,7 @@ export function EducationalInterceptGate({ settings, children, onResumePlayback 
   const [videoCount, setVideoCount] = useState(() => readInterceptVideoCount())
   const [active, setActive] = useState(() => isInterceptSessionActive())
   const countedVideoRef = useRef<string | null>(null)
+  const lion = useLionProgressionOptional()
 
   const sync = useCallback(() => {
     setVideoCount(readInterceptVideoCount())
@@ -83,8 +86,20 @@ export function EducationalInterceptGate({ settings, children, onResumePlayback 
     const pending = readInterceptPendingVideo()
     completeInterceptSession()
     sync()
-    onResumePlayback?.(pending)
-  }, [onResumePlayback, sync])
+
+    const resume = () => onResumePlayback?.(pending)
+
+    if (lion) {
+      const result = lion.awardXp(INTERCEPT_XP_REWARD)
+      if (result.leveledUp) {
+        lion.showLevelUp(result.level)
+        window.setTimeout(resume, 2800)
+        return
+      }
+    }
+
+    resume()
+  }, [onResumePlayback, sync, lion])
 
   const ctx = useMemo(
     (): GateContextValue => ({

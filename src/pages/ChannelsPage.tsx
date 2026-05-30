@@ -34,6 +34,8 @@ import {
 } from '../lib/videoFormatClassification'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
+import { LionProgressionProvider } from '../contexts/LionProgressionContext'
+import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { useLocalScreenTime } from '../hooks/useLocalScreenTime'
 
 type ChannelWatchVideo = WatchableVideoBase & {
@@ -473,8 +475,11 @@ export function ChannelsPage() {
     setPlayingVideo(null)
   }, [screenTime.playbackBlocked])
 
+  const showLionProfile = Boolean(getSavedChildAccessToken())
+
   return (
     <ScreenTimeChildGate>
+    <LionProgressionProvider>
     <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
@@ -498,6 +503,7 @@ export function ChannelsPage() {
                   : 'כל הערוצים המאושרים לצפייה.'}
             </p>
           </div>
+          {showLionProfile ? <LionProfileButton /> : null}
         </div>
         {showChannelsNav ? (
           <ChildChannelsNavCarousel
@@ -727,6 +733,7 @@ export function ChannelsPage() {
       )}
     </div>
     </EducationalInterceptGate>
+    </LionProgressionProvider>
     </ScreenTimeChildGate>
   )
 }

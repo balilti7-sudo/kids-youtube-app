@@ -7,6 +7,7 @@ import { spawnMassiveConfetti, spawnParticleBurstOnElement } from '../../lib/jui
 import { cn } from '../../lib/utils'
 import { EducationalRoomScene } from './EducationalRoomScene'
 import { LionMascot, type LionMood } from './LionMascot'
+import { useLionProgressionOptional } from '../../contexts/LionProgressionContext'
 
 type ModalPhase = 'playing' | 'celebrating'
 
@@ -26,6 +27,7 @@ export function EducationalInterceptModal({ scene, initialFixedItems, onComplete
 
   const fixedSet = useMemo(() => new Set(fixedItems), [fixedItems])
   const remaining = scene.items.filter((item) => !fixedSet.has(item.id))
+  const lion = useLionProgressionOptional()
 
   useEffect(() => {
     if (initialFixedItems.length >= scene.items.length) {
@@ -110,7 +112,7 @@ export function EducationalInterceptModal({ scene, initialFixedItems, onComplete
         </div>
 
         <div className="flex flex-col items-center gap-2">
-          <LionMascot mood={lionMood} />
+          <LionMascot mood={lionMood} outfitId={lion?.activeOutfitId ?? 'cub'} />
           <p className="max-w-sm text-center text-sm leading-relaxed text-zinc-200">
             {phase === 'celebrating'
               ? 'גור האריה שמח! ממשיכים לצפות…'

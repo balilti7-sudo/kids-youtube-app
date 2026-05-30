@@ -42,6 +42,8 @@ import { searchYouTubeVideos } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
+import { LionProgressionProvider } from '../contexts/LionProgressionContext'
+import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { KidInterceptCleanPlayer } from '../components/kid/KidInterceptCleanPlayer'
 import {
   settingsFromDevice,
@@ -1084,6 +1086,7 @@ export function KidModePage() {
 
   return (
     <ScreenTimeChildGate>
+    <LionProgressionProvider>
     <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <div className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40">
       <header className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 pb-[env(safe-area-inset-top)] backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90">
@@ -1100,6 +1103,7 @@ export function KidModePage() {
           </div>
           <SafeTubeBrandMark to="/kid" className="justify-self-center px-0.5" />
           <div className="flex min-w-0 items-center justify-end gap-2 ps-2 pe-0.5 sm:gap-3 sm:pe-1">
+            {kidSurface === 'watch' ? <LionProfileButton /> : null}
             <div
               className="flex shrink-0 items-center gap-0.5 rounded-full border border-yt-border bg-yt-input p-0.5"
               role="tablist"
@@ -1661,6 +1665,7 @@ export function KidModePage() {
       />
     </div>
     </EducationalInterceptGate>
+    </LionProgressionProvider>
     </ScreenTimeChildGate>
   )
 }
