@@ -15,7 +15,6 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
 import { useAuth } from '../hooks/useAuth'
 import {
-  childHeartbeat,
   childMarkOffline,
   clearChildAccessToken,
   getChildAllowedChannels,
@@ -43,14 +42,13 @@ import type { YouTubeVideoResult } from '../types'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
+import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { KidInterceptCleanPlayer } from '../components/kid/KidInterceptCleanPlayer'
 import {
   settingsFromDevice,
-  tryBeginPlayback,
   type InterceptPendingVideo,
 } from '../lib/educationalIntercept'
-import { useLocalScreenTime } from '../hooks/useLocalScreenTime'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import type { Html5Qrcode } from 'html5-qrcode'
@@ -83,7 +81,8 @@ function KidQrScanModal({
   )
 }
 
-export function KidModePage() {
+function KidModePageInner() {
+  const childRuntime = useChildRuntimeOptional()
   const [pairingCode, setPairingCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [bootLoading, setBootLoading] = useState(true)
@@ -314,10 +313,19 @@ export function KidModePage() {
     [channels, activeChannelId]
   )
 
-  const interceptSettings = useMemo(() => settingsFromDevice(device), [device])
+  const interceptSettings = useMemo(() => {
+    const rt = childRuntime?.effectiveRuntime
+    if (rt) {
+      return {
+        enabled: rt.educationalInterceptEnabled,
+        frequency: rt.educationalInterceptFrequency,
+      }
+    }
+    return settingsFromDevice(device)
+  }, [childRuntime?.effectiveRuntime, device])
 
   const handleSelectVideo = useCallback(
-    (videoId: string) => {
+    async (videoId: string) => {
       const video =
         channelVideos.find((v) => v.videoId === videoId) ??
         filteredVideos.find((v) => v.videoId === videoId) ??
@@ -328,10 +336,13 @@ export function KidModePage() {
         channelTitle: activeChannel?.channel_name,
         posterUrl: video?.thumbnail ?? null,
       }
-      if (!tryBeginPlayback(pending, interceptSettings)) return
+      if (childRuntime) {
+        const allowed = await childRuntime.tryBeginPlayback(pending)
+        if (!allowed) return
+      }
       setActiveVideoId(videoId)
     },
-    [channelVideos, filteredVideos, activeChannel?.channel_name, interceptSettings]
+    [channelVideos, filteredVideos, activeChannel?.channel_name, childRuntime]
   )
 
   const resumePendingPlayback = useCallback((pending: InterceptPendingVideo | null) => {
@@ -361,12 +372,10 @@ export function KidModePage() {
     handleSelectVideo(list[idx - 1]!.videoId)
   }, [filteredVideos, activeVideoId, handleSelectVideo])
 
-  const screenTime = useLocalScreenTime()
-
   useEffect(() => {
-    if (!screenTime.playbackBlocked) return
+    if (!childRuntime?.playbackBlocked) return
     setActiveVideoId(null)
-  }, [screenTime.playbackBlocked])
+  }, [childRuntime?.playbackBlocked])
 
   const loadChannelVideos = useCallback(async (youtubeChannelId: string) => {
     const rid = ++channelVideosRequestRef.current
@@ -521,37 +530,18 @@ export function KidModePage() {
     void boot()
   }, [])
 
-  const pollChildDeviceState = useCallback(async (token: string) => {
-    const [hbRes, stateRes] = await Promise.all([childHeartbeat(token), getChildDeviceState(token)])
-    if (stateRes.error) throw stateRes.error
-    if (stateRes.data) {
-      setDevice(stateRes.data)
-      return
-    }
-    if (hbRes.data) {
-      setDevice((prev) => (prev ? { ...prev, ...hbRes.data, is_online: true } : prev))
-    }
-  }, [])
 
   useEffect(() => {
     if (!accessToken) return
-    const pollState = () => {
-      void pollChildDeviceState(accessToken).catch((e) => {
-        setError(e instanceof Error ? e.message : 'עדכון מצב נכשל')
-      })
-    }
-    pollState()
-    const stateId = window.setInterval(pollState, 3_000)
     const channelsId = window.setInterval(() => {
       void loadChildData(accessToken).catch((e) => {
         setError(e instanceof Error ? e.message : 'עדכון ערוצים נכשל')
       })
     }, 30_000)
     return () => {
-      window.clearInterval(stateId)
       window.clearInterval(channelsId)
     }
-  }, [accessToken, pollChildDeviceState, loadChildData])
+  }, [accessToken, loadChildData])
 
   useEffect(() => {
     const yt = activeChannelId
@@ -566,21 +556,9 @@ export function KidModePage() {
     }
     setActiveVideoId((prev) => {
       if (prev && channelVideos.some((v) => v.videoId === prev)) return prev
-      const next = channelVideos[0]
-      const nextId = next?.videoId ?? null
-      if (!nextId) return null
-      const ok = tryBeginPlayback(
-        {
-          videoId: nextId,
-          title: next.title,
-          channelTitle: activeChannel?.channel_name,
-          posterUrl: next.thumbnail ?? null,
-        },
-        interceptSettings
-      )
-      return ok ? nextId : null
+      return null
     })
-  }, [channelVideos, activeChannelId, channelPickNonce, interceptSettings, activeChannel?.channel_name])
+  }, [channelVideos, activeChannelId, channelPickNonce])
 
   useEffect(() => {
     if (videoSearchFocused) return
@@ -590,21 +568,9 @@ export function KidModePage() {
     }
     setActiveVideoId((prev) => {
       if (prev && filteredVideos.some((v) => v.videoId === prev)) return prev
-      const next = filteredVideos[0]
-      const nextId = next?.videoId ?? null
-      if (!nextId) return null
-      const ok = tryBeginPlayback(
-        {
-          videoId: nextId,
-          title: next.title,
-          channelTitle: activeChannel?.channel_name,
-          posterUrl: next.thumbnail ?? null,
-        },
-        interceptSettings
-      )
-      return ok ? nextId : null
+      return null
     })
-  }, [videoSearch, filteredVideos, videoSearchFocused, interceptSettings, activeChannel?.channel_name])
+  }, [videoSearch, filteredVideos, videoSearchFocused])
 
   useEffect(() => {
     if (!accessToken) return
@@ -1248,7 +1214,7 @@ export function KidModePage() {
             </p>
           </section>
         </main>
-      ) : device.is_blocked ? (
+      ) : (childRuntime?.isBlocked ?? device.is_blocked) ? (
         <section className="mx-auto max-w-lg px-4 py-10">
           <div className="rounded-2xl border border-danger-700/50 bg-gradient-to-b from-danger-900/30 to-danger-950/80 p-8 text-center text-danger-100 shadow-inner">
             <ShieldAlert className="mx-auto mb-3 h-12 w-12 opacity-90" aria-hidden />
@@ -1667,5 +1633,13 @@ export function KidModePage() {
     </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>
+  )
+}
+
+export function KidModePage() {
+  return (
+    <ChildRuntimeProvider>
+      <KidModePageInner />
+    </ChildRuntimeProvider>
   )
 }

@@ -18,8 +18,10 @@ import {
   getStreamApiBaseUrl,
   streamResponseToSource,
   StreamApiError,
+  ChildPlaybackBlockedError,
   type StreamApiResponse,
 } from '../../lib/streamApi'
+import { assertChildPlaybackAllowedForStream } from '../../lib/childRuntime'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
 
@@ -319,6 +321,17 @@ function CleanPlayerYoutubeIframe({
     setIframeReady(false)
     iframePlaybackNotifiedRef.current = false
   }, [src])
+
+  useEffect(() => {
+    let cancelled = false
+    void assertChildPlaybackAllowedForStream().catch((e) => {
+      if (cancelled) return
+      console.warn('[CleanPlayer] iframe blocked', e)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [videoId])
 
   const handleIframeLoad = useCallback(() => {
     setIframeReady(true)
@@ -624,8 +637,8 @@ function CleanPlayerMediaBridge({
         setBridgeWaking(false)
         if (cancelled || signal.aborted) return
         console.error('[CleanPlayer] resolve failed', e)
-        if (e instanceof StreamApiError) {
-          setPhase({ kind: 'error', message: e.message, retryable: true })
+        if (e instanceof StreamApiError || e instanceof ChildPlaybackBlockedError) {
+          setPhase({ kind: 'error', message: e.message, retryable: e instanceof StreamApiError })
           return
         }
         const msg = e instanceof Error ? e.message : String(e)

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import type { EducationalScene, SceneItemId } from '../../data/educationalScenes'
-import { markSceneItemFixed } from '../../lib/educationalIntercept'
 import { spawnMassiveConfetti, spawnParticleBurstOnElement } from '../../lib/juicyUi/spawnParticleBurst'
 import { cn } from '../../lib/utils'
 import { EducationalRoomScene } from './EducationalRoomScene'
@@ -14,10 +13,11 @@ type ModalPhase = 'playing' | 'celebrating'
 type Props = {
   scene: EducationalScene
   initialFixedItems: string[]
+  onMarkItemFixed: (itemId: SceneItemId) => Promise<string[]>
   onComplete: () => void
 }
 
-export function EducationalInterceptModal({ scene, initialFixedItems, onComplete }: Props) {
+export function EducationalInterceptModal({ scene, initialFixedItems, onMarkItemFixed, onComplete }: Props) {
   const [fixedItems, setFixedItems] = useState<string[]>(() => [...initialFixedItems])
   const [lastFixedItem, setLastFixedItem] = useState<SceneItemId | null>(null)
   const [lionMood, setLionMood] = useState<LionMood>('worried')
@@ -28,6 +28,10 @@ export function EducationalInterceptModal({ scene, initialFixedItems, onComplete
   const fixedSet = useMemo(() => new Set(fixedItems), [fixedItems])
   const remaining = scene.items.filter((item) => !fixedSet.has(item.id))
   const lion = useLionProgressionOptional()
+
+  useEffect(() => {
+    setFixedItems([...initialFixedItems])
+  }, [initialFixedItems])
 
   useEffect(() => {
     if (initialFixedItems.length >= scene.items.length) {
@@ -45,20 +49,21 @@ export function EducationalInterceptModal({ scene, initialFixedItems, onComplete
       spawnParticleBurstOnElement(element)
       setLionMood('bounce')
       window.setTimeout(() => setLionMood('worried'), 520)
-      const next = markSceneItemFixed(itemId)
-      setFixedItems(next)
-      setLastFixedItem(itemId)
+      void onMarkItemFixed(itemId).then((next) => {
+        setFixedItems(next)
+        setLastFixedItem(itemId)
 
-      if (next.length >= scene.items.length) {
-        spawnMassiveConfetti()
-        setLionMood('celebrate')
-        setPhase('celebrating')
-        window.setTimeout(() => {
-          onComplete()
-        }, 2000)
-      }
+        if (next.length >= scene.items.length) {
+          spawnMassiveConfetti()
+          setLionMood('celebrate')
+          setPhase('celebrating')
+          window.setTimeout(() => {
+            onComplete()
+          }, 2000)
+        }
+      })
     },
-    [fixedSet, onComplete, scene.items.length]
+    [fixedSet, onComplete, onMarkItemFixed, scene.items.length]
   )
 
   return createPortal(

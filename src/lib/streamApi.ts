@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { assertChildPlaybackAllowedForStream, ChildPlaybackBlockedError } from './childRuntime'
 
 /** Response shape from `server` Media Bridge `GET /api/stream/:videoId` */
 export type StreamApiResponse = {
@@ -286,6 +287,8 @@ export class StreamApiError extends Error {
   }
 }
 
+export { ChildPlaybackBlockedError }
+
 /**
  * Resolves a YouTube videoId to stream metadata via the bridge.
  *
@@ -352,6 +355,8 @@ async function doFetchStreamInfo(
   videoId: string,
   { signal, timeoutMs }: { signal?: AbortSignal; timeoutMs: number }
 ): Promise<StreamApiResponse> {
+  await assertChildPlaybackAllowedForStream()
+
   const url = buildStreamApiUrl(`/api/stream/${encodeURIComponent(videoId)}`)
 
   const controller = new AbortController()

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Check, ListMusic, Plus, Tv } from 'lucide-react'
+import { Check, ListMusic, Plus, ShieldAlert, Tv } from 'lucide-react'
 import { ChildChannelsNavCarousel } from '../components/kid/ChildChannelsNavCarousel'
 import { useChannels } from '../hooks/useChannels'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
@@ -24,7 +24,6 @@ import { prefetchStreamInfo } from '../lib/streamApi'
 import {
   DEFAULT_INTERCEPT_SETTINGS,
   settingsFromDevice,
-  tryBeginPlayback,
   type InterceptPendingVideo,
 } from '../lib/educationalIntercept'
 import {
@@ -35,8 +34,8 @@ import {
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
+import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
-import { useLocalScreenTime } from '../hooks/useLocalScreenTime'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -78,7 +77,8 @@ function savePlaylistIds(deviceId: string, ids: Set<string>) {
   }
 }
 
-export function ChannelsPage() {
+function ChannelsPageInner() {
+  const childRuntime = useChildRuntimeOptional()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { ownerUserId } = useDeviceOwnerId()
@@ -114,10 +114,17 @@ export function ChannelsPage() {
   }, [])
 
   const interceptSettings = useMemo(() => {
+    const rt = childRuntime?.effectiveRuntime
+    if (rt) {
+      return {
+        enabled: rt.educationalInterceptEnabled,
+        frequency: rt.educationalInterceptFrequency,
+      }
+    }
     const fromList = devices.find((d) => d.id === deviceId)
     if (fromList) return settingsFromDevice(fromList)
     return childInterceptSettings
-  }, [devices, deviceId, childInterceptSettings])
+  }, [childRuntime?.effectiveRuntime, devices, deviceId, childInterceptSettings])
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -375,18 +382,24 @@ export function ChannelsPage() {
         posterUrl: snapshot?.thumbnail_url ?? null,
       }
 
-      if (!tryBeginPlayback(pending, interceptSettings)) {
-        if (snapshot) setPlayingVideo(snapshot)
-        return
-      }
+      void (async () => {
+        if (childRuntime?.isBlocked) return
+        if (childRuntime) {
+          const allowed = await childRuntime.tryBeginPlayback(pending)
+          if (!allowed) {
+            if (snapshot) setPlayingVideo(snapshot)
+            return
+          }
+        }
 
-      if (snapshot) setPlayingVideo(snapshot)
-      prefetchStreamInfo(videoId)
-      setWatchStarted(true)
-      setActiveVideoId(videoId)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+        if (snapshot) setPlayingVideo(snapshot)
+        prefetchStreamInfo(videoId)
+        setWatchStarted(true)
+        setActiveVideoId(videoId)
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      })()
     },
-    [videos, toChannelWatchVideo, interceptSettings]
+    [videos, toChannelWatchVideo, childRuntime]
   )
 
   const resumePendingPlayback = useCallback(
@@ -466,16 +479,29 @@ export function ChannelsPage() {
   const showChannelsNav =
     !devicesLoading && !loading && devices.length > 0 && visibleChannels.length > 0
 
-  const screenTime = useLocalScreenTime()
-
   useEffect(() => {
-    if (!screenTime.playbackBlocked) return
+    if (!childRuntime?.playbackBlocked) return
     setWatchStarted(false)
     setActiveVideoId(null)
     setPlayingVideo(null)
-  }, [screenTime.playbackBlocked])
+  }, [childRuntime?.playbackBlocked])
 
   const showLionProfile = Boolean(getSavedChildAccessToken())
+  const childBlocked = Boolean(childRuntime?.isBlocked)
+
+  if (childBlocked && getSavedChildAccessToken()) {
+    return (
+      <section className="mx-auto max-w-lg px-4 py-10">
+        <div className="rounded-2xl border border-danger-700/50 bg-gradient-to-b from-danger-900/30 to-danger-950/80 p-8 text-center text-danger-100 shadow-inner">
+          <ShieldAlert className="mx-auto mb-3 h-12 w-12 opacity-90" aria-hidden />
+          <h2 className="text-xl font-black tracking-tight">הצפייה חסומה</h2>
+          <p className="mt-3 text-sm leading-relaxed opacity-95">
+            ההורה חסם את הצפייה כרגע. בקשו לפתוח — או עברו ללשונית <strong>הורים</strong>.
+          </p>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <ScreenTimeChildGate>
@@ -735,5 +761,13 @@ export function ChannelsPage() {
     </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>
+  )
+}
+
+export function ChannelsPage() {
+  return (
+    <ChildRuntimeProvider>
+      <ChannelsPageInner />
+    </ChildRuntimeProvider>
   )
 }

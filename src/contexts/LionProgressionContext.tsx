@@ -2,23 +2,18 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react'
 import type { LionOutfitId } from '../data/lionOutfits'
+import { sanitizeActiveOutfitId } from '../data/lionOutfits'
 import {
-  awardLionXp,
-  ensureDefaultLionProgression,
   formatLionProgressLabel,
-  LION_PROGRESSION_CHANGED_EVENT,
-  readLionProgression,
-  writeActiveOutfitId,
   XP_PER_LEVEL,
   type AwardXpResult,
-  type LionProgressionState,
 } from '../lib/lionProgression'
+import { useChildRuntimeOptional } from './ChildRuntimeContext'
 import { LionClosetModal } from '../components/kid/LionClosetModal'
 import { LionLevelUpFlash } from '../components/kid/LionLevelUpFlash'
 
@@ -43,54 +38,51 @@ type Props = {
 }
 
 export function LionProgressionProvider({ children }: Props) {
-  const [state, setState] = useState<LionProgressionState>(() => readLionProgression())
+  const runtime = useChildRuntimeOptional()
+  const server = runtime?.effectiveRuntime
   const [closetOpen, setClosetOpen] = useState(false)
   const [levelUpLevel, setLevelUpLevel] = useState<number | null>(null)
 
-  const sync = useCallback(() => {
-    setState(readLionProgression())
-  }, [])
-
-  useEffect(() => {
-    ensureDefaultLionProgression()
-    sync()
-    const onChange = () => sync()
-    window.addEventListener(LION_PROGRESSION_CHANGED_EVENT, onChange)
-    window.addEventListener('storage', onChange)
-    return () => {
-      window.removeEventListener(LION_PROGRESSION_CHANGED_EVENT, onChange)
-      window.removeEventListener('storage', onChange)
-    }
-  }, [sync])
+  const level = server?.lionLevel ?? 1
+  const xp = server?.lionXp ?? 0
+  const activeOutfitId = sanitizeActiveOutfitId(server?.lionActiveOutfit ?? 'classic', level)
 
   const equipOutfit = useCallback(
     (outfitId: LionOutfitId) => {
-      writeActiveOutfitId(outfitId)
-      sync()
+      if (runtime) {
+        void runtime.equipLionOutfit(outfitId)
+        return
+      }
     },
-    [sync]
+    [runtime]
   )
 
   const awardXpHandler = useCallback(
-    (amount: number) => {
-      const result = awardLionXp(amount)
-      sync()
-      return result
+    (amount: number): AwardXpResult => {
+      // XP is awarded server-side on intercept complete; this is a UI-only fallback.
+      return {
+        level,
+        xp,
+        activeOutfitId,
+        leveledUp: false,
+        levelsGained: 0,
+        xpGained: amount,
+      }
     },
-    [sync]
+    [level, xp, activeOutfitId]
   )
 
-  const showLevelUp = useCallback((level: number) => {
-    setLevelUpLevel(level)
+  const showLevelUp = useCallback((nextLevel: number) => {
+    setLevelUpLevel(nextLevel)
   }, [])
 
   const value = useMemo(
     (): LionProgressionContextValue => ({
-      level: state.level,
-      xp: state.xp,
-      activeOutfitId: state.activeOutfitId,
-      progressLabel: formatLionProgressLabel(state.level, state.xp),
-      xpPercent: Math.min(100, (state.xp / XP_PER_LEVEL) * 100),
+      level,
+      xp,
+      activeOutfitId,
+      progressLabel: formatLionProgressLabel(level, xp),
+      xpPercent: Math.min(100, (xp / XP_PER_LEVEL) * 100),
       closetOpen,
       openCloset: () => setClosetOpen(true),
       closeCloset: () => setClosetOpen(false),
@@ -98,7 +90,7 @@ export function LionProgressionProvider({ children }: Props) {
       awardXp: awardXpHandler,
       showLevelUp,
     }),
-    [state, closetOpen, equipOutfit, awardXpHandler, showLevelUp]
+    [level, xp, activeOutfitId, closetOpen, equipOutfit, awardXpHandler, showLevelUp]
   )
 
   return (
