@@ -170,14 +170,21 @@ export function completeInterceptSession() {
 }
 
 export function settingsFromDevice(device: {
+  educational_intercept_enabled?: boolean
   educational_intercepts_enabled?: boolean
-  educational_intercept_frequency?: number
+  educational_intercept_frequency?: number | string
 } | null | undefined): InterceptSettings {
   if (!device) return DEFAULT_INTERCEPT_SETTINGS
-  const freq = device.educational_intercept_frequency
-  const frequency: EducationalInterceptFrequency = freq === 2 || freq === 5 ? freq : 3
+  const freq = normalizeInterceptFrequencyFromDevice(device.educational_intercept_frequency)
   return {
-    enabled: Boolean(device.educational_intercepts_enabled),
-    frequency,
+    enabled: Boolean(device.educational_intercept_enabled ?? device.educational_intercepts_enabled),
+    frequency: freq,
   }
+}
+
+function normalizeInterceptFrequencyFromDevice(raw: unknown): EducationalInterceptFrequency {
+  const s = typeof raw === 'number' ? String(raw) : String(raw ?? '3').trim()
+  if (s === '2') return 2
+  if (s === '5') return 5
+  return 3
 }

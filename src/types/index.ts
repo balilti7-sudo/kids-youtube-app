@@ -26,8 +26,8 @@ export interface Device {
   created_at: string
   updated_at: string
   channel_count?: number
-  educational_intercepts_enabled?: boolean
-  educational_intercept_frequency?: EducationalInterceptFrequency
+  educational_intercept_enabled?: boolean
+  educational_intercept_frequency?: EducationalInterceptFrequency | string
 }
 
 export interface WhitelistedChannel {

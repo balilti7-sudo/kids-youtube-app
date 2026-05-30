@@ -64,7 +64,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         created_at: new Date(0).toISOString(),
         updated_at: new Date(0).toISOString(),
         channel_count: 0,
-        educational_intercepts_enabled: data.educational_intercepts_enabled,
+        educational_intercept_enabled: data.educational_intercept_enabled,
         educational_intercept_frequency: data.educational_intercept_frequency,
       }
       set({ devices: [device], loading: false })
@@ -165,8 +165,8 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     const { error } = await supabase
       .from('devices')
       .update({
-        educational_intercepts_enabled: enabled,
-        educational_intercept_frequency: frequency,
+        educational_intercept_enabled: enabled,
+        educational_intercept_frequency: String(frequency),
       })
       .eq('id', deviceId)
     if (error) {
@@ -176,7 +176,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     set({
       devices: get().devices.map((d) =>
         d.id === deviceId
-          ? { ...d, educational_intercepts_enabled: enabled, educational_intercept_frequency: frequency }
+          ? { ...d, educational_intercept_enabled: enabled, educational_intercept_frequency: frequency }
           : d
       ),
     })

@@ -11,24 +11,25 @@ type Props = {
   className?: string
 }
 
+function normalizeFrequency(raw: EducationalInterceptFrequency | string | undefined): EducationalInterceptFrequency {
+  const s = typeof raw === 'number' ? String(raw) : String(raw ?? '3').trim()
+  if (s === '2') return 2
+  if (s === '5') return 5
+  return 3
+}
+
 export function EducationalInterceptDeviceSettings({ device, className }: Props) {
   const updateSettings = useDeviceStore((s) => s.updateEducationalInterceptSettings)
-  const [enabled, setEnabled] = useState(Boolean(device.educational_intercepts_enabled))
-  const [frequency, setFrequency] = useState<EducationalInterceptFrequency>(
-    device.educational_intercept_frequency === 2 || device.educational_intercept_frequency === 5
-      ? device.educational_intercept_frequency
-      : 3
+  const [enabled, setEnabled] = useState(Boolean(device.educational_intercept_enabled))
+  const [frequency, setFrequency] = useState<EducationalInterceptFrequency>(() =>
+    normalizeFrequency(device.educational_intercept_frequency)
   )
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setEnabled(Boolean(device.educational_intercepts_enabled))
-    setFrequency(
-      device.educational_intercept_frequency === 2 || device.educational_intercept_frequency === 5
-        ? device.educational_intercept_frequency
-        : 3
-    )
-  }, [device.id, device.educational_intercepts_enabled, device.educational_intercept_frequency])
+    setEnabled(Boolean(device.educational_intercept_enabled))
+    setFrequency(normalizeFrequency(device.educational_intercept_frequency))
+  }, [device.id, device.educational_intercept_enabled, device.educational_intercept_frequency])
 
   const persist = async (nextEnabled: boolean, nextFrequency: EducationalInterceptFrequency) => {
     setSaving(true)
@@ -36,12 +37,8 @@ export function EducationalInterceptDeviceSettings({ device, className }: Props)
     setSaving(false)
     if (error) {
       toast.error('שמירה נכשלה', { description: error.message })
-      setEnabled(Boolean(device.educational_intercepts_enabled))
-      setFrequency(
-        device.educational_intercept_frequency === 2 || device.educational_intercept_frequency === 5
-          ? device.educational_intercept_frequency
-          : 3
-      )
+      setEnabled(Boolean(device.educational_intercept_enabled))
+      setFrequency(normalizeFrequency(device.educational_intercept_frequency))
       return
     }
     toast.success('הפסקות חינוכיות עודכנו')
