@@ -32,6 +32,106 @@ export type CompleteInterceptResult = {
   xpGained: number
 }
 
+export type RaffleTicketSource =
+  | 'educational_intercept'
+  | 'lion_level_up'
+  | 'screen_time_challenge'
+  | 'manual_parent'
+
+export type RaffleTicket = {
+  id: string
+  ticketCode: string
+  source: RaffleTicketSource
+  sourceRef: string | null
+  earnedAt: string
+}
+
+export type RaffleTicketSummary = {
+  raffleWeekStart: string
+  ticketCount: number
+  tickets: RaffleTicket[]
+}
+
+export type AwardRaffleTicketResult = {
+  ticketId: string
+  ticketCode: string
+  raffleWeekStart: string
+  source: RaffleTicketSource
+  sourceRef: string | null
+  alreadyExisted: boolean
+}
+
+const RAFFLE_SOURCES = new Set<RaffleTicketSource>([
+  'educational_intercept',
+  'lion_level_up',
+  'screen_time_challenge',
+  'manual_parent',
+])
+
+function normalizeRaffleSource(raw: unknown): RaffleTicketSource {
+  const s = String(raw ?? '').trim() as RaffleTicketSource
+  return RAFFLE_SOURCES.has(s) ? s : 'educational_intercept'
+}
+
+function parseRaffleTicket(raw: unknown): RaffleTicket | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  const id = r.id != null ? String(r.id) : ''
+  const ticketCode =
+    typeof r.ticket_code === 'string'
+      ? r.ticket_code
+      : typeof r.ticketCode === 'string'
+        ? r.ticketCode
+        : ''
+  if (!id.trim() || !ticketCode.trim()) return null
+  return {
+    id: id.trim(),
+    ticketCode: ticketCode.trim(),
+    source: normalizeRaffleSource(r.source),
+    sourceRef:
+      typeof r.source_ref === 'string'
+        ? r.source_ref
+        : typeof r.sourceRef === 'string'
+          ? r.sourceRef
+          : null,
+    earnedAt: String(r.earned_at ?? r.earnedAt ?? new Date().toISOString()),
+  }
+}
+
+function parseRaffleTickets(raw: unknown): RaffleTicket[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(parseRaffleTicket).filter((t): t is RaffleTicket => t !== null)
+}
+
+function mapRaffleSummaryRow(row: Record<string, unknown>): RaffleTicketSummary {
+  return {
+    raffleWeekStart: String(row.raffle_week_start ?? row.raffleWeekStart ?? ''),
+    ticketCount:
+      typeof row.ticket_count === 'number'
+        ? Math.max(0, row.ticket_count)
+        : typeof row.ticketCount === 'number'
+          ? Math.max(0, row.ticketCount)
+          : 0,
+    tickets: parseRaffleTickets(row.tickets),
+  }
+}
+
+function mapAwardRaffleTicketRow(row: Record<string, unknown>): AwardRaffleTicketResult {
+  return {
+    ticketId: String(row.ticket_id ?? row.ticketId ?? ''),
+    ticketCode: String(row.ticket_code ?? row.ticketCode ?? ''),
+    raffleWeekStart: String(row.raffle_week_start ?? row.raffleWeekStart ?? ''),
+    source: normalizeRaffleSource(row.source),
+    sourceRef:
+      typeof row.source_ref === 'string'
+        ? row.source_ref
+        : typeof row.sourceRef === 'string'
+          ? row.sourceRef
+          : null,
+    alreadyExisted: Boolean(row.already_existed ?? row.alreadyExisted),
+  }
+}
+
 const RUNTIME_CACHE_KEY = 'safetube_child_runtime_cache_v1'
 
 function normalizeFrequency(raw: unknown): 2 | 3 | 5 {
@@ -268,6 +368,37 @@ export async function childEquipLionOutfit(
   })
   if (error) return { outfitId, error: new Error(error.message) }
   return { outfitId: typeof data === 'string' ? data : outfitId, error: null }
+}
+
+export async function childGetRaffleTicketSummary(accessToken: string): Promise<{
+  data: RaffleTicketSummary | null
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('child_get_raffle_ticket_summary', {
+    p_access_token: accessToken,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapRaffleSummaryRow(row as Record<string, unknown>), error: null }
+}
+
+export async function childAwardRaffleTicket(
+  accessToken: string,
+  source: RaffleTicketSource,
+  sourceRef?: string | null,
+  metadata?: Record<string, unknown> | null
+): Promise<{ data: AwardRaffleTicketResult | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc('child_award_raffle_ticket', {
+    p_access_token: accessToken,
+    p_source: source,
+    p_source_ref: sourceRef?.trim() ? sourceRef.trim() : null,
+    p_metadata: metadata ?? {},
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapAwardRaffleTicketRow(row as Record<string, unknown>), error: null }
 }
 
 export class ChildPlaybackBlockedError extends Error {

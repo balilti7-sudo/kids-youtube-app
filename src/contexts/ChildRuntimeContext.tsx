@@ -14,6 +14,7 @@ import {
   childCompleteIntercept,
   childCompleteScreenTimeChallenge,
   childEquipLionOutfit,
+  childGetRaffleTicketSummary,
   childMarkInterceptItemFixed,
   childReportVideoPlaybackStarted,
   childTickScreenTime,
@@ -21,17 +22,19 @@ import {
   parentStartScreenTime,
   readCachedChildRuntime,
   type CompleteInterceptResult,
+  type RaffleTicketSummary,
   type ScreenTimePhase,
   type ServerChildRuntime,
 } from '../lib/childRuntime'
 
-const POLL_MS = 3000
+const POLL_MS = 15_000
 const MIN_SYNC_GAP_MS = 2500
 
 export type ChildRuntimeContextValue = {
   runtime: ServerChildRuntime | null
   ready: boolean
   effectiveRuntime: ServerChildRuntime | null
+  raffleSummary: RaffleTicketSummary | null
   playbackBlocked: boolean
   isBlocked: boolean
   screenTimePhase: ScreenTimePhase
@@ -42,6 +45,7 @@ export type ChildRuntimeContextValue = {
   interceptPendingVideo: InterceptPendingVideo | null
   interceptSceneProgress: string[]
   refresh: (force?: boolean) => Promise<void>
+  refreshRaffleSummary: () => Promise<void>
   startScreenTimeSession: (deviceId: string, limitMinutes: number) => Promise<{ error: Error | null }>
   completeChallengeAndLock: () => Promise<{ error: Error | null }>
   tryBeginPlayback: (pending: InterceptPendingVideo) => Promise<boolean>
@@ -60,15 +64,31 @@ type Props = {
 
 export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
   const [runtime, setRuntime] = useState<ServerChildRuntime | null>(() => readCachedChildRuntime())
+  const [raffleSummary, setRaffleSummary] = useState<RaffleTicketSummary | null>(null)
   const [ready, setReady] = useState(false)
   const inFlightRef = useRef<Promise<void> | null>(null)
   const lastSyncAtRef = useRef(0)
+
+  const refreshRaffleSummary = useCallback(async () => {
+    const token = getSavedChildAccessToken()
+    if (!token) {
+      setRaffleSummary(null)
+      return
+    }
+    const { data, error } = await childGetRaffleTicketSummary(token)
+    if (error) {
+      console.warn('[ChildRuntime] raffle summary failed', error.message)
+      return
+    }
+    setRaffleSummary(data)
+  }, [])
 
   const sync = useCallback(async (force = false) => {
     const token = getSavedChildAccessToken()
 
     if (!token) {
       setRuntime(null)
+      setRaffleSummary(null)
       setReady(true)
       return
     }
@@ -85,7 +105,15 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     const run = (async () => {
       const { data, error } = await childTickScreenTime(token)
       lastSyncAtRef.current = Date.now()
-      if (data) setRuntime(data)
+      if (data) {
+        setRuntime(data)
+        const raffleRes = await childGetRaffleTicketSummary(token)
+        if (raffleRes.error) {
+          console.warn('[ChildRuntime] raffle summary failed', raffleRes.error.message)
+        } else {
+          setRaffleSummary(raffleRes.data)
+        }
+      }
       if (error) console.warn('[ChildRuntime] tick failed', error.message)
       setReady(true)
     })()
@@ -195,6 +223,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
       runtime,
       ready,
       effectiveRuntime: eff,
+      raffleSummary,
       playbackBlocked: Boolean(eff?.playbackBlocked),
       isBlocked: Boolean(eff?.isBlocked),
       screenTimePhase: eff?.screenTimePhase ?? 'idle',
@@ -205,6 +234,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
       interceptPendingVideo: eff?.interceptPendingVideo ?? null,
       interceptSceneProgress: eff?.interceptSceneProgress ?? [],
       refresh: sync,
+      refreshRaffleSummary,
       startScreenTimeSession,
       completeChallengeAndLock,
       tryBeginPlayback,
@@ -217,7 +247,9 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     runtime,
     ready,
     effectiveRuntime,
+    raffleSummary,
     sync,
+    refreshRaffleSummary,
     startScreenTimeSession,
     completeChallengeAndLock,
     tryBeginPlayback,

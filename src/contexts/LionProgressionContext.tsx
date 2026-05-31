@@ -8,11 +8,13 @@ import {
 } from 'react'
 import type { LionOutfitId } from '../data/lionOutfits'
 import { sanitizeActiveOutfitId } from '../data/lionOutfits'
+import { getSavedChildAccessToken } from '../lib/childDevice'
 import {
   formatLionProgressLabel,
   XP_PER_LEVEL,
   type AwardXpResult,
 } from '../lib/lionProgression'
+import { childAwardRaffleTicket } from '../lib/childRuntime'
 import { useChildRuntimeOptional } from './ChildRuntimeContext'
 import { LionClosetModal } from '../components/kid/LionClosetModal'
 import { LionLevelUpFlash } from '../components/kid/LionLevelUpFlash'
@@ -45,7 +47,7 @@ export function LionProgressionProvider({ children }: Props) {
 
   const level = server?.lionLevel ?? 1
   const xp = server?.lionXp ?? 0
-  const activeOutfitId = sanitizeActiveOutfitId(server?.lionActiveOutfit ?? 'classic', level)
+  const activeOutfitId = sanitizeActiveOutfitId(server?.lionActiveOutfit ?? 'cub', level)
 
   const equipOutfit = useCallback(
     (outfitId: LionOutfitId) => {
@@ -72,9 +74,22 @@ export function LionProgressionProvider({ children }: Props) {
     [level, xp, activeOutfitId]
   )
 
-  const showLevelUp = useCallback((nextLevel: number) => {
-    setLevelUpLevel(nextLevel)
-  }, [])
+  const showLevelUp = useCallback(
+    (nextLevel: number) => {
+      const token = getSavedChildAccessToken()
+      if (token) {
+        void childAwardRaffleTicket(token, 'lion_level_up', `level_${nextLevel}`).then((res) => {
+          if (res.error) {
+            console.warn('[LionProgression] raffle award failed', res.error.message)
+            return
+          }
+          void runtime?.refreshRaffleSummary()
+        })
+      }
+      setLevelUpLevel(nextLevel)
+    },
+    [runtime]
+  )
 
   const value = useMemo(
     (): LionProgressionContextValue => ({

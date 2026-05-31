@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { LION_OUTFITS, isOutfitUnlocked, type LionOutfitId } from '../../data/lionOutfits'
 import { XP_PER_LEVEL } from '../../lib/lionProgression'
 import { spawnParticleBurstOnElement } from '../../lib/juicyUi/spawnParticleBurst'
+import { useChildRuntimeOptional } from '../../contexts/ChildRuntimeContext'
 import { useLionProgression } from '../../contexts/LionProgressionContext'
 import { cn } from '../../lib/utils'
 import { LionMascot } from './LionMascot'
@@ -15,6 +16,8 @@ type Props = {
 
 export function LionClosetModal({ open, onClose }: Props) {
   const { level, xp, activeOutfitId, equipOutfit } = useLionProgression()
+  const runtime = useChildRuntimeOptional()
+  const ticketCount = runtime?.raffleSummary?.ticketCount ?? 0
 
   if (!open) return null
 
@@ -56,7 +59,7 @@ export function LionClosetModal({ open, onClose }: Props) {
           </button>
         </header>
 
-        <div className="px-4 pt-3 sm:px-5">
+        <div className="space-y-3 px-4 pt-3 sm:px-5">
           <div className="h-3 overflow-hidden rounded-full bg-zinc-800 ring-1 ring-white/10">
             <motion.div
               className="h-full rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400"
@@ -64,6 +67,15 @@ export function LionClosetModal({ open, onClose }: Props) {
               animate={{ width: `${xpPercent}%` }}
               transition={{ type: 'spring', stiffness: 180, damping: 20 }}
             />
+          </div>
+          <div className="flex items-center justify-center gap-2 rounded-2xl border border-violet-400/30 bg-violet-950/40 px-3 py-2.5 ring-1 ring-violet-400/20">
+            <span className="text-xl leading-none" aria-hidden>
+              🎟️
+            </span>
+            <p className="text-sm font-semibold text-violet-100">
+              כרטיסי ההגרלה שלך השבוע:{' '}
+              <span className="font-black text-violet-200">{ticketCount}</span>
+            </p>
           </div>
         </div>
 

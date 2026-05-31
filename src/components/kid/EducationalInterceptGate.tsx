@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import { getSavedChildAccessToken } from '../../lib/childDevice'
+import { childAwardRaffleTicket } from '../../lib/childRuntime'
 import type { InterceptSettings } from '../../lib/educationalIntercept'
 import { getEducationalScene } from '../../data/educationalScenes'
 import { useChildRuntimeOptional } from '../../contexts/ChildRuntimeContext'
@@ -59,6 +60,19 @@ export function EducationalInterceptGate({ settings, children, onResumePlayback 
       if (error) {
         console.warn('[EducationalInterceptGate] complete failed', error.message)
         return
+      }
+
+      const token = getSavedChildAccessToken()
+      if (token) {
+        const raffleRes = await childAwardRaffleTicket(
+          token,
+          'educational_intercept',
+          `session_${Date.now()}`
+        )
+        if (raffleRes.error) {
+          console.warn('[EducationalInterceptGate] raffle award failed', raffleRes.error.message)
+        }
+        await runtime.refreshRaffleSummary()
       }
 
       const resume = () => onResumePlayback?.(pending)
