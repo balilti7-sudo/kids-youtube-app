@@ -638,7 +638,8 @@ function CleanPlayerMediaBridge({
         if (cancelled || signal.aborted) return
         console.error('[CleanPlayer] resolve failed', e)
         if (e instanceof StreamApiError || e instanceof ChildPlaybackBlockedError) {
-          setPhase({ kind: 'error', message: e.message, retryable: e instanceof StreamApiError })
+          const retryable = e instanceof StreamApiError && e.status !== 422
+          setPhase({ kind: 'error', message: e.message, retryable })
           return
         }
         const msg = e instanceof Error ? e.message : String(e)

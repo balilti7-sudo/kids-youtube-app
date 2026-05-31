@@ -146,6 +146,19 @@ async function resolveVideo(videoId, { jsonOnly = false } = {}) {
   throw lastErr || new Error('resolveVideo: unknown failure');
 }
 
+function readLiveMetaFromInfo(info) {
+  const liveStatus = info.live_status || (info.is_upcoming ? 'is_upcoming' : info.is_live ? 'is_live' : 'not_live');
+  const isUpcoming = Boolean(info.is_upcoming) || liveStatus === 'is_upcoming';
+  const isLive = Boolean(info.is_live) || liveStatus === 'is_live';
+  return { liveStatus, isUpcoming, isLive };
+}
+
+async function resolveLiveMeta(videoId) {
+  const { output } = await resolveVideo(videoId, { jsonOnly: true });
+  const info = JSON.parse(output);
+  return readLiveMetaFromInfo(info);
+}
+
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 app.get('/health', async (_req, res) => {
@@ -166,12 +179,24 @@ app.get('/api/stream/:videoId', async (req, res) => {
     return res.status(400).json({ error: 'invalid videoId' });
   }
   try {
+    const liveMeta = await resolveLiveMeta(videoId);
+    if (liveMeta.isUpcoming || liveMeta.liveStatus === 'is_upcoming') {
+      return res.status(422).json({
+        error: 'LIVE_UPCOMING',
+        live_status: liveMeta.liveStatus,
+        detail: 'This live broadcast has not started yet.',
+      });
+    }
     const { client, output } = await resolveVideo(videoId, { jsonOnly: false });
     const url = output.split('\n').filter(Boolean).pop();
-    res.json({ videoId, client, url });
+    res.json({ videoId, client, url, live_status: liveMeta.liveStatus, is_live: liveMeta.isLive });
   } catch (err) {
     console.error('[/api/stream] failed:', err.message);
-    res.status(502).json({ error: 'resolve_failed', detail: err.message.split('\n').slice(0, 3) });
+    const detail = err.message.split('\n').slice(0, 3);
+    if (/live|premiere|upcoming|not yet started|scheduled/i.test(err.message)) {
+      return res.status(422).json({ error: 'LIVE_UPCOMING', detail });
+    }
+    res.status(502).json({ error: 'resolve_failed', detail });
   }
 });
 
@@ -184,6 +209,7 @@ app.get('/api/info/:videoId', async (req, res) => {
   try {
     const { client, output } = await resolveVideo(videoId, { jsonOnly: true });
     const info = JSON.parse(output);
+    const liveMeta = readLiveMetaFromInfo(info);
     res.json({
       videoId,
       client,
@@ -192,6 +218,9 @@ app.get('/api/info/:videoId', async (req, res) => {
       uploader: info.uploader,
       channel_id: info.channel_id,
       thumbnail: info.thumbnail,
+      live_status: liveMeta.liveStatus,
+      is_live: liveMeta.isLive,
+      is_upcoming: liveMeta.isUpcoming,
       formats: (info.formats || [])
         .filter((f) => f.url)
         .map((f) => ({

@@ -8,16 +8,24 @@ import { usePortraitVideoThumbnailIds } from '../../hooks/usePortraitVideoThumbn
 type Props = {
   videos: WatchableVideoBase[]
   activeVideoId?: string | null
+  allowShorts?: boolean
   onSelectVideo: (video: WatchableVideoBase) => void
   renderAction?: (video: WatchableVideoBase) => ReactNode
 }
 
-export function ChannelVideoBrowseRows({ videos, activeVideoId, onSelectVideo, renderAction }: Props) {
+export function ChannelVideoBrowseRows({
+  videos,
+  activeVideoId,
+  allowShorts = false,
+  onSelectVideo,
+  renderAction,
+}: Props) {
   const portraitThumbnailIds = usePortraitVideoThumbnailIds(videos)
   const { longForm, shorts } = useMemo(
     () => partitionVideosForBrowse(videos, portraitThumbnailIds),
     [videos, portraitThumbnailIds]
   )
+  const showShorts = allowShorts && shorts.length > 0
 
   return (
     <div className="flex flex-col gap-5 px-1 pb-2 sm:px-0">
@@ -40,7 +48,7 @@ export function ChannelVideoBrowseRows({ videos, activeVideoId, onSelectVideo, r
         </section>
       ) : null}
 
-      {shorts.length > 0 ? (
+      {showShorts ? (
         <section aria-label="סרטונים קצרים">
           <h2 className="mb-3 px-0.5 text-base font-black text-zinc-50">סרטונים קצרים (Shorts)</h2>
           <div className="premium-scrollbar flex gap-3 overflow-x-auto pb-2 pe-1 [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory]">

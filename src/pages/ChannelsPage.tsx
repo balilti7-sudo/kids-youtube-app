@@ -16,6 +16,7 @@ import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVide
 import { ChannelVideoBrowseRows } from '../components/kid/ChannelVideoBrowseRows'
 import { YoutubeShortCard } from '../components/youtube/YoutubeShortCard'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
+import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
 import { getChildCachedChannelVideos, getChildDeviceState, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
@@ -28,6 +29,7 @@ import {
 } from '../lib/educationalIntercept'
 import {
   enrichVideosWithFormat,
+  filterVideosRespectingAllowShorts,
   toWatchableVideo,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
@@ -36,6 +38,12 @@ import { EducationalInterceptGate } from '../components/kid/EducationalIntercept
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
+import { BedtimeRoutineZone } from '../components/kid/BedtimeRoutineZone'
+import {
+  bedtimeBlocksChannelBrowse,
+  isBedtimeQaPreviewActive,
+  shouldShowBedtimeRoutineUi,
+} from '../lib/childRuntime'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -99,13 +107,17 @@ function ChannelsPageInner() {
   const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
   const [childInterceptSettings, setChildInterceptSettings] = useState(DEFAULT_INTERCEPT_SETTINGS)
+  const [allowShorts, setAllowShorts] = useState(false)
 
   useEffect(() => {
     const token = getSavedChildAccessToken()
     if (!token) return
     const load = () => {
       void getChildDeviceState(token).then(({ data }) => {
-        if (data) setChildInterceptSettings(settingsFromDevice(data))
+        if (data) {
+          setChildInterceptSettings(settingsFromDevice(data))
+          setAllowShorts(Boolean(data.allow_shorts))
+        }
       })
     }
     load()
@@ -294,10 +306,11 @@ function ChannelsPageInner() {
         : channelScopedVideos,
     [showMyPlaylist, channelScopedVideos, savedPlaylistIds]
   )
-  const filteredVideos = useMemo(
-    () => filterVideosByTitle(playlistSourceVideos, videoSearch),
-    [playlistSourceVideos, videoSearch]
-  )
+  const filteredVideos = useMemo(() => {
+    const bySearch = filterVideosByTitle(playlistSourceVideos, videoSearch)
+    const withoutUpcoming = bySearch.filter((video) => !shouldHideFromChildBrowse(video.title))
+    return filterVideosRespectingAllowShorts(withoutUpcoming, allowShorts)
+  }, [playlistSourceVideos, videoSearch, allowShorts])
   const activeVideo = useMemo(() => {
     if (!activeVideoId) return null
     const fromChannel = channelScopedVideos.find((video) => video.youtube_video_id === activeVideoId)
@@ -487,7 +500,16 @@ function ChannelsPageInner() {
   }, [childRuntime?.playbackBlocked])
 
   const showLionProfile = Boolean(getSavedChildAccessToken())
+  const showBedtimeUi = shouldShowBedtimeRoutineUi()
+  const qaBedtimePreview = isBedtimeQaPreviewActive()
+  const bedtimeBlocksBrowse = qaBedtimePreview
+    ? false
+    : bedtimeBlocksChannelBrowse(childRuntime?.bedtimeState)
   const childBlocked = Boolean(childRuntime?.isBlocked)
+
+  const bedtimePanel = showBedtimeUi ? (
+    <BedtimeRoutineZone className="w-full" compact={Boolean(selectedChannel && watchStarted && activeVideoId)} />
+  ) : null
 
   if (childBlocked && getSavedChildAccessToken()) {
     return (
@@ -609,6 +631,7 @@ function ChannelsPageInner() {
               }
               sidebar={
                 <div className="flex flex-col gap-3 px-1 sm:px-0">
+                  {bedtimePanel}
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2">
                     <button
                       type="button"
@@ -695,15 +718,22 @@ function ChannelsPageInner() {
               אין סרטונים זמינים בערוץ הזה כרגע.
             </div>
           ) : (
-            <ChannelVideoBrowseRows
-              videos={videos}
+            <>
+              {bedtimePanel}
+              <ChannelVideoBrowseRows
+              videos={filteredVideos}
               activeVideoId={activeVideoId}
+              allowShorts={allowShorts}
               onSelectVideo={selectWatchVideo}
               renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
             />
+            </>
           )}
         </section>
       ) : (
+        <>
+          {bedtimePanel}
+          {showBedtimeUi && bedtimeBlocksBrowse ? null : (
         <section
           aria-label="ערוצים מאושרים"
           className="mx-auto grid w-full max-w-[1040px] grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
@@ -756,6 +786,8 @@ function ChannelsPageInner() {
             </article>
           ))}
         </section>
+          )}
+        </>
       )}
     </div>
     </EducationalInterceptGate>

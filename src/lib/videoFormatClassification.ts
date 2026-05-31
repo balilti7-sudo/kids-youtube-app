@@ -1,6 +1,6 @@
 import { fetchVideoDurationsBatch } from './youtube'
 
-export const SHORT_MAX_DURATION_SECONDS = 90
+export const SHORT_MAX_DURATION_SECONDS = 60
 
 export type VideoFormat = 'short' | 'long'
 
@@ -159,4 +159,13 @@ export function partitionVideosForBrowse<T extends WatchableVideoBase>(
 
 export function partitionVideosByFormat<T extends WatchableVideoBase>(videos: T[]) {
   return partitionVideosForBrowse(videos)
+}
+
+/** Drop Shorts from a list when the device policy disables them. */
+export function filterVideosRespectingAllowShorts<T extends ShortClassificationFields>(
+  videos: T[],
+  allowShorts: boolean
+): T[] {
+  if (allowShorts) return videos
+  return videos.filter((video) => !isVideoShortOrSuspected(video))
 }

@@ -1,5 +1,12 @@
 import { supabase } from './supabase'
 import { assertChildPlaybackAllowedForStream, ChildPlaybackBlockedError } from './childRuntime'
+import {
+  LIVE_UPCOMING_PLAYBACK_MESSAGE,
+  parseBridgeVideoInfo,
+  shouldBlockLivePlayback,
+  streamErrorLooksLikeUpcomingLive,
+  type BridgeVideoInfo,
+} from './liveStreamPolicy'
 
 /** Response shape from `server` Media Bridge `GET /api/stream/:videoId` */
 export type StreamApiResponse = {
@@ -289,6 +296,64 @@ export class StreamApiError extends Error {
 
 export { ChildPlaybackBlockedError }
 
+export type { BridgeVideoInfo }
+
+const VIDEO_INFO_TIMEOUT_MS = 45_000
+
+/** Lightweight metadata from Media Bridge `/api/info/:videoId` (live status, title, duration). */
+export async function fetchVideoInfo(
+  videoId: string,
+  {
+    signal,
+    timeoutMs = VIDEO_INFO_TIMEOUT_MS,
+  }: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<BridgeVideoInfo> {
+  const url = buildStreamApiUrl(`/api/info/${encodeURIComponent(videoId)}`)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), timeoutMs)
+  const abortForwarded = () => controller.abort(signal?.reason)
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason)
+    else signal.addEventListener('abort', abortForwarded, { once: true })
+  }
+
+  try {
+    const res = await fetch(url, { credentials: 'omit', headers: { accept: 'application/json' }, signal: controller.signal })
+    if (!res.ok) {
+      let errorCode: string | null = null
+      let detail: string | null = null
+      try {
+        const body = (await res.json()) as { error?: string; detail?: string }
+        errorCode = body.error ?? null
+        detail = body.detail ?? null
+      } catch {
+        /* ignore */
+      }
+      if (res.status === 422 && errorCode === 'LIVE_UPCOMING') {
+        throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, res.status, detail)
+      }
+      throw new StreamApiError(detail || `שגיאה ${res.status}`, res.status, detail)
+    }
+    const body = (await res.json()) as Record<string, unknown>
+    return parseBridgeVideoInfo(body, videoId)
+  } finally {
+    clearTimeout(timeout)
+    if (signal) signal.removeEventListener('abort', abortForwarded)
+  }
+}
+
+async function assertLiveStreamPlayable(videoId: string, signal?: AbortSignal): Promise<void> {
+  try {
+    const info = await fetchVideoInfo(videoId, { signal })
+    if (shouldBlockLivePlayback(info)) {
+      throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, 422, info.liveStatus)
+    }
+  } catch (err) {
+    if (err instanceof StreamApiError) throw err
+    /* If metadata probe fails, fall through — stream route may still succeed or return a clearer error. */
+  }
+}
+
 /**
  * Resolves a YouTube videoId to stream metadata via the bridge.
  *
@@ -356,6 +421,7 @@ async function doFetchStreamInfo(
   { signal, timeoutMs }: { signal?: AbortSignal; timeoutMs: number }
 ): Promise<StreamApiResponse> {
   await assertChildPlaybackAllowedForStream()
+  await assertLiveStreamPlayable(videoId, signal)
 
   const url = buildStreamApiUrl(`/api/stream/${encodeURIComponent(videoId)}`)
 
@@ -435,6 +501,12 @@ async function doFetchStreamInfo(
           res.status,
           detail
         )
+      }
+      if (res.status === 422 && errorCode === 'LIVE_UPCOMING') {
+        throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, res.status, detail)
+      }
+      if (streamErrorLooksLikeUpcomingLive(detail ?? errMsg)) {
+        throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, res.status, detail)
       }
       throw new StreamApiError(detail ? `${errMsg}: ${detail}` : errMsg, res.status, detail)
     }

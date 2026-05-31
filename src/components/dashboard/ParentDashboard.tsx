@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { useDeviceStore } from '../../stores/deviceStore'
 import { clearActiveChildProfileIdIfMatches } from '../../lib/activeDeviceSelection'
+import { ChildRuntimeProvider } from '../../contexts/ChildRuntimeContext'
 import { StatsGrid } from './StatsGrid'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ChannelManager } from '../channels/ChannelManager'
 import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
 
-export function ParentDashboard() {
+function ParentDashboardInner() {
   const devices = useDeviceStore((s) => s.devices)
   const removeDevice = useDeviceStore((s) => s.removeDevice)
   const [managedDeviceId, setManagedDeviceId] = useState<string | null>(null)
@@ -76,5 +77,13 @@ export function ParentDashboard() {
         </section>
       ) : null}
     </div>
+  )
+}
+
+export function ParentDashboard() {
+  return (
+    <ChildRuntimeProvider>
+      <ParentDashboardInner />
+    </ChildRuntimeProvider>
   )
 }

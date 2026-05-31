@@ -11,20 +11,35 @@ import {
 import { getSavedChildAccessToken } from '../lib/childDevice'
 import type { InterceptPendingVideo } from '../lib/educationalIntercept'
 import {
+  childClaimTreasureChest,
   childCompleteIntercept,
   childCompleteScreenTimeChallenge,
+  childConfirmBedtimeTask,
   childEquipLionOutfit,
+  childGetBedtimeState,
   childGetRaffleTicketSummary,
   childMarkInterceptItemFixed,
   childReportVideoPlaybackStarted,
+  childSpinDailyWheel,
   childTickScreenTime,
   childTryBeginPlayback,
+  parentApproveBedtime as parentApproveBedtimeRpc,
+  parentGetBedtimeState as parentGetBedtimeStateRpc,
   parentStartScreenTime,
+  parentUpdateBedtimeSettings as parentUpdateBedtimeSettingsRpc,
   readCachedChildRuntime,
+  type BedtimeSettings,
+  type BedtimeTask,
+  type BedtimeTaskConfirmResult,
+  type ChildBedtimeState,
   type CompleteInterceptResult,
+  type DailyWheelSpinResult,
+  type ParentBedtimeApproveResult,
+  type ParentBedtimeState,
   type RaffleTicketSummary,
   type ScreenTimePhase,
   type ServerChildRuntime,
+  type TreasureClaimResult,
 } from '../lib/childRuntime'
 
 const POLL_MS = 15_000
@@ -35,6 +50,7 @@ export type ChildRuntimeContextValue = {
   ready: boolean
   effectiveRuntime: ServerChildRuntime | null
   raffleSummary: RaffleTicketSummary | null
+  bedtimeState: ChildBedtimeState | null
   playbackBlocked: boolean
   isBlocked: boolean
   screenTimePhase: ScreenTimePhase
@@ -46,6 +62,29 @@ export type ChildRuntimeContextValue = {
   interceptSceneProgress: string[]
   refresh: (force?: boolean) => Promise<void>
   refreshRaffleSummary: () => Promise<void>
+  refreshBedtimeState: () => Promise<void>
+  confirmBedtimeTask: (
+    task: BedtimeTask
+  ) => Promise<{ data: BedtimeTaskConfirmResult | null; error: Error | null }>
+  spinDailyWheel: () => Promise<{ data: DailyWheelSpinResult | null; error: Error | null }>
+  claimTreasureChest: () => Promise<{ data: TreasureClaimResult | null; error: Error | null }>
+  parentApproveBedtime: (
+    deviceId: string,
+    routineDate?: string | null
+  ) => Promise<{ data: ParentBedtimeApproveResult | null; error: Error | null }>
+  parentGetBedtimeState: (
+    deviceId: string,
+    routineDate?: string | null
+  ) => Promise<{ data: ParentBedtimeState | null; error: Error | null }>
+  parentUpdateBedtimeSettings: (
+    deviceId: string,
+    updates: {
+      enabled?: boolean
+      treasurePointsThreshold?: number
+      treasurePrizeTitle?: string
+      treasurePrizeDescription?: string
+    }
+  ) => Promise<{ data: BedtimeSettings | null; error: Error | null }>
   startScreenTimeSession: (deviceId: string, limitMinutes: number) => Promise<{ error: Error | null }>
   completeChallengeAndLock: () => Promise<{ error: Error | null }>
   tryBeginPlayback: (pending: InterceptPendingVideo) => Promise<boolean>
@@ -65,6 +104,7 @@ type Props = {
 export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
   const [runtime, setRuntime] = useState<ServerChildRuntime | null>(() => readCachedChildRuntime())
   const [raffleSummary, setRaffleSummary] = useState<RaffleTicketSummary | null>(null)
+  const [bedtimeState, setBedtimeState] = useState<ChildBedtimeState | null>(null)
   const [ready, setReady] = useState(false)
   const inFlightRef = useRef<Promise<void> | null>(null)
   const lastSyncAtRef = useRef(0)
@@ -83,12 +123,27 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     setRaffleSummary(data)
   }, [])
 
+  const refreshBedtimeState = useCallback(async () => {
+    const token = getSavedChildAccessToken()
+    if (!token) {
+      setBedtimeState(null)
+      return
+    }
+    const { data, error } = await childGetBedtimeState(token)
+    if (error) {
+      console.warn('[ChildRuntime] bedtime state failed', error.message)
+      return
+    }
+    setBedtimeState(data)
+  }, [])
+
   const sync = useCallback(async (force = false) => {
     const token = getSavedChildAccessToken()
 
     if (!token) {
       setRuntime(null)
       setRaffleSummary(null)
+      setBedtimeState(null)
       setReady(true)
       return
     }
@@ -107,11 +162,19 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
       lastSyncAtRef.current = Date.now()
       if (data) {
         setRuntime(data)
-        const raffleRes = await childGetRaffleTicketSummary(token)
+        const [raffleRes, bedtimeRes] = await Promise.all([
+          childGetRaffleTicketSummary(token),
+          childGetBedtimeState(token),
+        ])
         if (raffleRes.error) {
           console.warn('[ChildRuntime] raffle summary failed', raffleRes.error.message)
         } else {
           setRaffleSummary(raffleRes.data)
+        }
+        if (bedtimeRes.error) {
+          console.warn('[ChildRuntime] bedtime state failed', bedtimeRes.error.message)
+        } else {
+          setBedtimeState(bedtimeRes.data)
         }
       }
       if (error) console.warn('[ChildRuntime] tick failed', error.message)
@@ -142,6 +205,69 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
   }, [sync, pollMs])
 
   const effectiveRuntime = runtime ?? readCachedChildRuntime()
+
+  const confirmBedtimeTask = useCallback(
+    async (task: BedtimeTask) => {
+      const token = getSavedChildAccessToken()
+      if (!token) return { data: null, error: new Error('NO_TOKEN') }
+      const result = await childConfirmBedtimeTask(token, task)
+      if (!result.error) await refreshBedtimeState()
+      return result
+    },
+    [refreshBedtimeState]
+  )
+
+  const spinDailyWheel = useCallback(async () => {
+    const token = getSavedChildAccessToken()
+    if (!token) return { data: null, error: new Error('NO_TOKEN') }
+    const result = await childSpinDailyWheel(token)
+    if (!result.error) await refreshBedtimeState()
+    return result
+  }, [refreshBedtimeState])
+
+  const claimTreasureChest = useCallback(async () => {
+    const token = getSavedChildAccessToken()
+    if (!token) return { data: null, error: new Error('NO_TOKEN') }
+    const result = await childClaimTreasureChest(token)
+    if (!result.error) await refreshBedtimeState()
+    return result
+  }, [refreshBedtimeState])
+
+  const parentApproveBedtime = useCallback(
+    async (deviceId: string, routineDate?: string | null) => {
+      const result = await parentApproveBedtimeRpc(deviceId, routineDate)
+      const token = getSavedChildAccessToken()
+      if (!result.error && token && effectiveRuntime?.deviceId === deviceId) {
+        await refreshBedtimeState()
+      }
+      return result
+    },
+    [effectiveRuntime?.deviceId, refreshBedtimeState]
+  )
+
+  const parentGetBedtimeState = useCallback(async (deviceId: string, routineDate?: string | null) => {
+    return parentGetBedtimeStateRpc(deviceId, routineDate)
+  }, [])
+
+  const parentUpdateBedtimeSettings = useCallback(
+    async (
+      deviceId: string,
+      updates: {
+        enabled?: boolean
+        treasurePointsThreshold?: number
+        treasurePrizeTitle?: string
+        treasurePrizeDescription?: string
+      }
+    ) => {
+      const result = await parentUpdateBedtimeSettingsRpc(deviceId, updates)
+      const token = getSavedChildAccessToken()
+      if (!result.error && token && effectiveRuntime?.deviceId === deviceId) {
+        await refreshBedtimeState()
+      }
+      return result
+    },
+    [effectiveRuntime?.deviceId, refreshBedtimeState]
+  )
 
   const startScreenTimeSession = useCallback(
     async (deviceId: string, limitMinutes: number) => {
@@ -224,6 +350,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
       ready,
       effectiveRuntime: eff,
       raffleSummary,
+      bedtimeState,
       playbackBlocked: Boolean(eff?.playbackBlocked),
       isBlocked: Boolean(eff?.isBlocked),
       screenTimePhase: eff?.screenTimePhase ?? 'idle',
@@ -235,6 +362,13 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
       interceptSceneProgress: eff?.interceptSceneProgress ?? [],
       refresh: sync,
       refreshRaffleSummary,
+      refreshBedtimeState,
+      confirmBedtimeTask,
+      spinDailyWheel,
+      claimTreasureChest,
+      parentApproveBedtime,
+      parentGetBedtimeState,
+      parentUpdateBedtimeSettings,
       startScreenTimeSession,
       completeChallengeAndLock,
       tryBeginPlayback,
@@ -248,8 +382,16 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     ready,
     effectiveRuntime,
     raffleSummary,
+    bedtimeState,
     sync,
     refreshRaffleSummary,
+    refreshBedtimeState,
+    confirmBedtimeTask,
+    spinDailyWheel,
+    claimTreasureChest,
+    parentApproveBedtime,
+    parentGetBedtimeState,
+    parentUpdateBedtimeSettings,
     startScreenTimeSession,
     completeChallengeAndLock,
     tryBeginPlayback,

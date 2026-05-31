@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { PostgrestError } from '@supabase/supabase-js'
 import type { Device } from '../types'
 import { getChildDeviceState } from '../lib/childDevice'
+import { parentUpdateDeviceSettings } from '../lib/deviceSettings'
 import { supabase } from '../lib/supabase'
 
 function formatSupabaseError(error: PostgrestError): string {
@@ -22,6 +23,7 @@ interface DeviceState {
     enabled: boolean,
     frequency: 2 | 3 | 5
   ) => Promise<{ error: Error | null }>
+  updateAllowShorts: (deviceId: string, allowShorts: boolean) => Promise<{ error: Error | null }>
   addDevice: (payload: {
     userId: string
     name: string
@@ -66,6 +68,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         channel_count: 0,
         educational_intercept_enabled: data.educational_intercept_enabled,
         educational_intercept_frequency: data.educational_intercept_frequency,
+        allow_shorts: data.allow_shorts,
       }
       set({ devices: [device], loading: false })
     } catch (err) {
@@ -178,6 +181,23 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         d.id === deviceId
           ? { ...d, educational_intercept_enabled: enabled, educational_intercept_frequency: frequency }
           : d
+      ),
+    })
+    return { error: null }
+  },
+
+  updateAllowShorts: async (deviceId, allowShorts) => {
+    const { data, error } = await parentUpdateDeviceSettings(deviceId, { allowShorts })
+    if (error) {
+      console.error('[deviceStore.updateAllowShorts]', error)
+      return { error }
+    }
+    if (!data) {
+      return { error: new Error('DEVICE_SETTINGS_UPDATE_FAILED') }
+    }
+    set({
+      devices: get().devices.map((d) =>
+        d.id === deviceId ? { ...d, allow_shorts: data.allowShorts } : d
       ),
     })
     return { error: null }

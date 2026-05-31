@@ -12,6 +12,8 @@ import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui/ErrorState'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { EducationalInterceptDeviceSettings } from './EducationalInterceptDeviceSettings'
+import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
+import { BedtimeParentApproveControl } from './BedtimeParentApproveControl'
 import { toast } from 'sonner'
 
 function randomSixDigits() {
@@ -177,6 +179,8 @@ export function DashboardDevicesSection({
                 </Button>
               </div>
               <EducationalInterceptDeviceSettings device={d} />
+              <BedtimeParentApproveControl deviceId={d.id} />
+              <AllowShortsDeviceSettings device={d} />
             </li>
           ))}
         </ul>

@@ -61,6 +61,290 @@ export type AwardRaffleTicketResult = {
   alreadyExisted: boolean
 }
 
+export type BedtimeTask = 'teeth' | 'bathroom'
+
+export type ChildBedtimeState = {
+  serverNow: string
+  routineDate: string
+  weekStart: string
+  enabled: boolean
+  teethConfirmed: boolean
+  bathroomConfirmed: boolean
+  tasksCompleted: boolean
+  parentApproved: boolean
+  canSpinWheel: boolean
+  wheelSpun: boolean
+  wheelPointsToday: number
+  weeklyTotalPoints: number
+  treasureThreshold: number
+  treasureEligible: boolean
+  treasureWindowOpen: boolean
+  treasureOpened: boolean
+  treasureClaimed: boolean
+  treasurePrizeTitle: string
+  treasurePrizeDescription: string
+}
+
+export type BedtimeTaskConfirmResult = {
+  routineDate: string
+  teethConfirmed: boolean
+  bathroomConfirmed: boolean
+  tasksCompleted: boolean
+}
+
+export type DailyWheelSpinResult = {
+  routineDate: string
+  weekStart: string
+  pointsWon: number
+  weeklyTotalPoints: number
+  spinsToday: number
+  alreadySpun: boolean
+}
+
+export type TreasureClaimResult = {
+  weekStart: string
+  weeklyTotalPoints: number
+  treasureThreshold: number
+  treasurePrizeTitle: string
+  treasurePrizeDescription: string
+  claimedAt: string
+}
+
+export type ParentBedtimeApproveResult = {
+  deviceId: string
+  routineDate: string
+  parentApprovedAt: string | null
+  canSpinWheel: boolean
+}
+
+export type ParentBedtimeState = {
+  routineDate: string
+  weekStart: string
+  enabled: boolean
+  teethConfirmed: boolean
+  bathroomConfirmed: boolean
+  tasksCompleted: boolean
+  parentApproved: boolean
+  parentApprovedAt: string | null
+  wheelSpun: boolean
+  wheelPointsToday: number
+  weeklyTotalPoints: number
+  treasureThreshold: number
+  treasurePrizeTitle: string
+  treasurePrizeDescription: string
+}
+
+export type BedtimeSettings = {
+  deviceId: string
+  enabled: boolean
+  treasurePointsThreshold: number
+  treasurePrizeTitle: string
+  treasurePrizeDescription: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** Temporary: keep bedtime UI visible while QA runs E2E (set false before production lock-down). */
+export const BEDTIME_ROUTINE_FORCE_ENABLED = true
+
+/** Temporary: show bedtime UI even without a paired kid token (set false before production). */
+export const BEDTIME_QA_FORCE_UI_VISIBLE = true
+
+export function shouldShowBedtimeRoutineUi(): boolean {
+  return BEDTIME_QA_FORCE_UI_VISIBLE || Boolean(getSavedChildAccessToken())
+}
+
+export function isBedtimeQaPreviewActive(): boolean {
+  return BEDTIME_QA_FORCE_UI_VISIBLE && !getSavedChildAccessToken()
+}
+
+export function createBedtimeQaMockState(): ChildBedtimeState {
+  const today = new Date().toISOString().slice(0, 10)
+  return {
+    serverNow: new Date().toISOString(),
+    routineDate: today,
+    weekStart: today,
+    enabled: true,
+    teethConfirmed: false,
+    bathroomConfirmed: false,
+    tasksCompleted: false,
+    parentApproved: false,
+    canSpinWheel: false,
+    wheelSpun: false,
+    wheelPointsToday: 0,
+    weeklyTotalPoints: 0,
+    treasureThreshold: 100,
+    treasureEligible: false,
+    treasureWindowOpen: false,
+    treasureOpened: false,
+    treasureClaimed: false,
+    treasurePrizeTitle: 'פרס השבוע',
+    treasurePrizeDescription: 'מצב בדיקה — צמדו מכשיר ילד כדי לשמור נקודות',
+  }
+}
+
+export function isBedtimeRoutineVisible(state: ChildBedtimeState | null | undefined): boolean {
+  if (!state) return false
+  return BEDTIME_ROUTINE_FORCE_ENABLED || state.enabled
+}
+
+/** Kid cannot browse channels until evening tasks are done and a parent approves. */
+export function bedtimeBlocksChannelBrowse(state: ChildBedtimeState | null | undefined): boolean {
+  if (!isBedtimeRoutineVisible(state)) return false
+  return !state!.tasksCompleted || !state!.parentApproved
+}
+
+const BEDTIME_TASKS = new Set<BedtimeTask>(['teeth', 'bathroom'])
+
+function normalizeBedtimeTask(task: BedtimeTask): BedtimeTask {
+  return BEDTIME_TASKS.has(task) ? task : 'teeth'
+}
+
+function rowBool(row: Record<string, unknown>, ...keys: string[]): boolean {
+  for (const key of keys) {
+    if (typeof row[key] === 'boolean') return row[key]
+  }
+  return false
+}
+
+function rowInt(row: Record<string, unknown>, fallback: number, ...keys: string[]): number {
+  for (const key of keys) {
+    if (typeof row[key] === 'number' && Number.isFinite(row[key])) {
+      return Math.max(0, Math.round(row[key] as number))
+    }
+  }
+  return fallback
+}
+
+function rowStr(row: Record<string, unknown>, fallback = '', ...keys: string[]): string {
+  for (const key of keys) {
+    if (typeof row[key] === 'string') return row[key]
+    if (row[key] != null && typeof row[key] !== 'object') return String(row[key])
+  }
+  return fallback
+}
+
+function rowStrOrNull(row: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    if (typeof row[key] === 'string') return row[key]
+    if (row[key] == null) return null
+  }
+  return null
+}
+
+function mapChildBedtimeStateRow(row: Record<string, unknown>): ChildBedtimeState {
+  const enabledFromRow = typeof row.enabled === 'boolean' ? row.enabled : true
+
+  return {
+    serverNow: rowStr(row, new Date().toISOString(), 'server_now', 'serverNow'),
+    routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
+    weekStart: rowStr(row, '', 'week_start', 'weekStart'),
+    enabled: BEDTIME_ROUTINE_FORCE_ENABLED || enabledFromRow,
+    teethConfirmed: rowBool(row, 'teeth_confirmed', 'teethConfirmed'),
+    bathroomConfirmed: rowBool(row, 'bathroom_confirmed', 'bathroomConfirmed'),
+    tasksCompleted: rowBool(row, 'tasks_completed', 'tasksCompleted'),
+    parentApproved: rowBool(row, 'parent_approved', 'parentApproved'),
+    canSpinWheel: rowBool(row, 'can_spin_wheel', 'canSpinWheel'),
+    wheelSpun: rowBool(row, 'wheel_spun', 'wheelSpun'),
+    wheelPointsToday: rowInt(row, 0, 'wheel_points_today', 'wheelPointsToday'),
+    weeklyTotalPoints: rowInt(row, 0, 'weekly_total_points', 'weeklyTotalPoints'),
+    treasureThreshold: rowInt(row, 100, 'treasure_threshold', 'treasureThreshold'),
+    treasureEligible: rowBool(row, 'treasure_eligible', 'treasureEligible'),
+    treasureWindowOpen: rowBool(row, 'treasure_window_open', 'treasureWindowOpen'),
+    treasureOpened: rowBool(row, 'treasure_opened', 'treasureOpened'),
+    treasureClaimed: rowBool(row, 'treasure_claimed', 'treasureClaimed'),
+    treasurePrizeTitle: rowStr(row, '', 'treasure_prize_title', 'treasurePrizeTitle'),
+    treasurePrizeDescription: rowStr(row, '', 'treasure_prize_description', 'treasurePrizeDescription'),
+  }
+}
+
+function mapBedtimeTaskConfirmRow(row: Record<string, unknown>): BedtimeTaskConfirmResult {
+  return {
+    routineDate: rowStr(row, '', 'out_routine_date', 'routine_date', 'routineDate'),
+    teethConfirmed: rowBool(row, 'out_teeth_confirmed', 'teeth_confirmed', 'teethConfirmed'),
+    bathroomConfirmed: rowBool(row, 'out_bathroom_confirmed', 'bathroom_confirmed', 'bathroomConfirmed'),
+    tasksCompleted: rowBool(row, 'out_tasks_completed', 'tasks_completed', 'tasksCompleted'),
+  }
+}
+
+function mapDailyWheelSpinRow(row: Record<string, unknown>): DailyWheelSpinResult {
+  return {
+    routineDate: rowStr(row, '', 'out_routine_date', 'routine_date', 'routineDate'),
+    weekStart: rowStr(row, '', 'out_week_start', 'week_start', 'weekStart'),
+    pointsWon: rowInt(row, 0, 'out_points_won', 'points_won', 'pointsWon'),
+    weeklyTotalPoints: rowInt(row, 0, 'out_weekly_total_points', 'weekly_total_points', 'weeklyTotalPoints'),
+    spinsToday: rowInt(row, 0, 'out_spins_today', 'spins_today', 'spinsToday'),
+    alreadySpun: rowBool(row, 'out_already_spun', 'already_spun', 'alreadySpun'),
+  }
+}
+
+function mapTreasureClaimRow(row: Record<string, unknown>): TreasureClaimResult {
+  return {
+    weekStart: rowStr(row, '', 'out_week_start', 'week_start', 'weekStart'),
+    weeklyTotalPoints: rowInt(row, 0, 'out_weekly_total_points', 'weekly_total_points', 'weeklyTotalPoints'),
+    treasureThreshold: rowInt(row, 100, 'out_treasure_threshold', 'treasure_threshold', 'treasureThreshold'),
+    treasurePrizeTitle: rowStr(row, '', 'out_treasure_prize_title', 'treasure_prize_title', 'treasurePrizeTitle'),
+    treasurePrizeDescription: rowStr(
+      row,
+      '',
+      'out_treasure_prize_description',
+      'treasure_prize_description',
+      'treasurePrizeDescription'
+    ),
+    claimedAt: rowStr(row, '', 'out_claimed_at', 'claimed_at', 'claimedAt'),
+  }
+}
+
+function mapParentBedtimeApproveRow(row: Record<string, unknown>): ParentBedtimeApproveResult {
+  return {
+    deviceId: rowStr(row, '', 'out_device_id', 'device_id', 'deviceId'),
+    routineDate: rowStr(row, '', 'out_routine_date', 'routine_date', 'routineDate'),
+    parentApprovedAt: rowStrOrNull(
+      row,
+      'out_parent_approved_at',
+      'parent_approved_at',
+      'parentApprovedAt'
+    ),
+    canSpinWheel: rowBool(row, 'out_can_spin_wheel', 'can_spin_wheel', 'canSpinWheel'),
+  }
+}
+
+function mapParentBedtimeStateRow(row: Record<string, unknown>): ParentBedtimeState {
+  return {
+    routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
+    weekStart: rowStr(row, '', 'week_start', 'weekStart'),
+    enabled: rowBool(row, 'enabled'),
+    teethConfirmed: rowBool(row, 'teeth_confirmed', 'teethConfirmed'),
+    bathroomConfirmed: rowBool(row, 'bathroom_confirmed', 'bathroomConfirmed'),
+    tasksCompleted: rowBool(row, 'tasks_completed', 'tasksCompleted'),
+    parentApproved: rowBool(row, 'parent_approved', 'parentApproved'),
+    parentApprovedAt: rowStrOrNull(row, 'parent_approved_at', 'parentApprovedAt'),
+    wheelSpun: rowBool(row, 'wheel_spun', 'wheelSpun'),
+    wheelPointsToday: rowInt(row, 0, 'wheel_points_today', 'wheelPointsToday'),
+    weeklyTotalPoints: rowInt(row, 0, 'weekly_total_points', 'weeklyTotalPoints'),
+    treasureThreshold: rowInt(row, 100, 'treasure_threshold', 'treasureThreshold'),
+    treasurePrizeTitle: rowStr(row, '', 'treasure_prize_title', 'treasurePrizeTitle'),
+    treasurePrizeDescription: rowStr(row, '', 'treasure_prize_description', 'treasurePrizeDescription'),
+  }
+}
+
+function mapBedtimeSettingsRow(row: Record<string, unknown>): BedtimeSettings {
+  return {
+    deviceId: rowStr(row, '', 'device_id', 'deviceId'),
+    enabled: rowBool(row, 'enabled'),
+    treasurePointsThreshold: rowInt(row, 100, 'treasure_points_threshold', 'treasurePointsThreshold'),
+    treasurePrizeTitle: rowStr(row, 'Weekly treasure prize!', 'treasure_prize_title', 'treasurePrizeTitle'),
+    treasurePrizeDescription: rowStr(
+      row,
+      'Great job with bedtime routine!',
+      'treasure_prize_description',
+      'treasurePrizeDescription'
+    ),
+    createdAt: rowStr(row, '', 'created_at', 'createdAt'),
+    updatedAt: rowStr(row, '', 'updated_at', 'updatedAt'),
+  }
+}
+
 const RAFFLE_SOURCES = new Set<RaffleTicketSource>([
   'educational_intercept',
   'lion_level_up',
@@ -399,6 +683,115 @@ export async function childAwardRaffleTicket(
   const row = Array.isArray(data) ? data[0] : null
   if (!row) return { data: null, error: null }
   return { data: mapAwardRaffleTicketRow(row as Record<string, unknown>), error: null }
+}
+
+export async function childGetBedtimeState(accessToken: string): Promise<{
+  data: ChildBedtimeState | null
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('child_get_bedtime_state', {
+    p_access_token: accessToken,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapChildBedtimeStateRow(row as Record<string, unknown>), error: null }
+}
+
+export async function childConfirmBedtimeTask(
+  accessToken: string,
+  task: BedtimeTask
+): Promise<{ data: BedtimeTaskConfirmResult | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc('child_confirm_bedtime_task', {
+    p_access_token: accessToken,
+    p_task: normalizeBedtimeTask(task),
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapBedtimeTaskConfirmRow(row as Record<string, unknown>), error: null }
+}
+
+export async function childSpinDailyWheel(accessToken: string): Promise<{
+  data: DailyWheelSpinResult | null
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('child_spin_daily_wheel', {
+    p_access_token: accessToken,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapDailyWheelSpinRow(row as Record<string, unknown>), error: null }
+}
+
+export async function childClaimTreasureChest(accessToken: string): Promise<{
+  data: TreasureClaimResult | null
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('child_claim_treasure_chest', {
+    p_access_token: accessToken,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapTreasureClaimRow(row as Record<string, unknown>), error: null }
+}
+
+export async function parentApproveBedtime(
+  deviceId: string,
+  routineDate?: string | null
+): Promise<{ data: ParentBedtimeApproveResult | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc('parent_approve_bedtime', {
+    p_device_id: deviceId,
+    p_routine_date: routineDate?.trim() ? routineDate.trim() : null,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapParentBedtimeApproveRow(row as Record<string, unknown>), error: null }
+}
+
+export async function parentGetBedtimeState(
+  deviceId: string,
+  routineDate?: string | null
+): Promise<{ data: ParentBedtimeState | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc('parent_get_bedtime_state', {
+    p_device_id: deviceId,
+    p_routine_date: routineDate?.trim() ? routineDate.trim() : null,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapParentBedtimeStateRow(row as Record<string, unknown>), error: null }
+}
+
+export async function parentUpdateBedtimeSettings(
+  deviceId: string,
+  updates: {
+    enabled?: boolean
+    treasurePointsThreshold?: number
+    treasurePrizeTitle?: string
+    treasurePrizeDescription?: string
+  }
+): Promise<{ data: BedtimeSettings | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc('parent_update_bedtime_settings', {
+    p_device_id: deviceId,
+    p_enabled: updates.enabled ?? null,
+    p_treasure_points_threshold:
+      typeof updates.treasurePointsThreshold === 'number'
+        ? Math.round(updates.treasurePointsThreshold)
+        : null,
+    p_treasure_prize_title: updates.treasurePrizeTitle?.trim() ? updates.treasurePrizeTitle.trim() : null,
+    p_treasure_prize_description: updates.treasurePrizeDescription?.trim()
+      ? updates.treasurePrizeDescription.trim()
+      : null,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { data: null, error: null }
+  }
+  return { data: mapBedtimeSettingsRow(data as Record<string, unknown>), error: null }
 }
 
 export class ChildPlaybackBlockedError extends Error {

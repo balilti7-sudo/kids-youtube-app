@@ -13,6 +13,7 @@ export interface ChildDeviceState {
   last_seen_at: string | null
   educational_intercept_enabled: boolean
   educational_intercept_frequency: 2 | 3 | 5
+  allow_shorts: boolean
 }
 
 export interface ChildAllowedVideo {
@@ -125,6 +126,7 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
       educational_intercept_frequency: normalizeInterceptFrequency(
         r.educational_intercept_frequency
       ),
+      allow_shorts: Boolean(r.allow_shorts ?? r.allowShorts),
     },
     error: null,
   }

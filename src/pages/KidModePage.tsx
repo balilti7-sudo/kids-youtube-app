@@ -36,6 +36,11 @@ import { setAppModeKid } from '../lib/appMode'
 import { lockManagementAppShell } from '../lib/lockParentApp'
 import { setParentEntryIntent } from '../lib/parentEntryIntent'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
+import {
+  buildYoutubeWatchUrl,
+  isVideoShortOrSuspected,
+} from '../lib/videoFormatClassification'
+import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
@@ -163,10 +168,21 @@ function KidModePageInner() {
     }
   })
 
-  const filteredVideos = useMemo(
-    () => filterVideosByTitle(channelVideos, videoSearch),
-    [channelVideos, videoSearch]
-  )
+  const filteredVideos = useMemo(() => {
+    const allowShorts = device?.allow_shorts ?? false
+    const bySearch = filterVideosByTitle(channelVideos, videoSearch)
+    const childSafe = bySearch.filter((video) => {
+      if (shouldHideFromChildBrowse(video.title)) return false
+      if (allowShorts) return true
+      return !isVideoShortOrSuspected({
+        title: video.title,
+        durationSeconds: video.durationSeconds ?? null,
+        watchUrl: buildYoutubeWatchUrl(video.videoId),
+        youtubeVideoId: video.videoId,
+      })
+    })
+    return childSafe
+  }, [channelVideos, videoSearch, device?.allow_shorts])
 
   const verifyKidGlobalSearchPin = useCallback(
     async (pin: string) => {
@@ -403,6 +419,7 @@ function KidModePageInner() {
       title: v.title,
       thumbnail: v.thumbnail_url ?? '',
       channelTitle: '',
+      durationSeconds: v.duration_seconds ?? null,
     }))
     if (rid !== channelVideosRequestRef.current) return
     setChannelVideos(next)
@@ -1157,7 +1174,7 @@ function KidModePageInner() {
       ) : null}
 
       {kidSurface === 'parent' ? (
-        <main className="mx-auto w-full max-w-lg px-2 py-3 sm:px-3">
+        <main className="mx-auto w-full max-w-lg space-y-4 px-2 py-3 sm:px-3">
           <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
             <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">ניהול הורה במכשיר הזה</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
