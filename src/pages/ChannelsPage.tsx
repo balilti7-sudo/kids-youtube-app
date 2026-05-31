@@ -592,11 +592,6 @@ function ChannelsPageInner() {
                     channelName={
                       activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name
                     }
-                    subtitle={
-                      recommendationsLoading || videosLoading
-                        ? `טוען סרטונים מ${selectedChannel.channel_name}…`
-                        : `${channelScopedVideos.length} סרטונים בערוץ`
-                    }
                     actions={
                       <Button
                         type="button"
