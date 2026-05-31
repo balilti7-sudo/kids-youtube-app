@@ -18,7 +18,7 @@ import { YoutubeShortCard } from '../components/youtube/YoutubeShortCard'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
-import { getChildCachedChannelVideos, getChildDeviceState, getSavedChildAccessToken } from '../lib/childDevice'
+import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
 import { prefetchStreamInfo } from '../lib/streamApi'
@@ -41,8 +41,6 @@ import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { BedtimeRoutineZone } from '../components/kid/BedtimeRoutineZone'
 import {
   bedtimeBlocksChannelBrowse,
-  isBedtimeQaPreviewActive,
-  shouldShowBedtimeRoutineUi,
 } from '../lib/childRuntime'
 
 type ChannelWatchVideo = WatchableVideoBase & {
@@ -93,7 +91,7 @@ function ChannelsPageInner() {
   const { devices, loading: devicesLoading } = useDevices(ownerUserId)
   const requestedDeviceId = searchParams.get('device') ?? getSavedActiveChildProfileId()
   const requestedChannelId = searchParams.get('channel')
-  const [deviceId, setDeviceId] = useState<string | null>(null)
+  const [deviceId, setDeviceId] = useState<string | null>(() => requestedDeviceId ?? getSavedActiveChildProfileId())
   const [videos, setVideos] = useState<WatchableVideoBase[]>([])
   const [watchStarted, setWatchStarted] = useState(false)
   const [channelRecommendations, setChannelRecommendations] = useState<ChannelWatchVideo[]>([])
@@ -108,22 +106,6 @@ function ChannelsPageInner() {
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
   const [childInterceptSettings, setChildInterceptSettings] = useState(DEFAULT_INTERCEPT_SETTINGS)
   const [allowShorts, setAllowShorts] = useState(false)
-
-  useEffect(() => {
-    const token = getSavedChildAccessToken()
-    if (!token) return
-    const load = () => {
-      void getChildDeviceState(token).then(({ data }) => {
-        if (data) {
-          setChildInterceptSettings(settingsFromDevice(data))
-          setAllowShorts(Boolean(data.allow_shorts))
-        }
-      })
-    }
-    load()
-    const id = window.setInterval(load, 3_000)
-    return () => window.clearInterval(id)
-  }, [])
 
   const interceptSettings = useMemo(() => {
     const rt = childRuntime?.effectiveRuntime
@@ -153,6 +135,13 @@ function ChannelsPageInner() {
   }, [devices, requestedDeviceId])
 
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
+
+  useEffect(() => {
+    if (!selectedDevice) return
+    setChildInterceptSettings(settingsFromDevice(selectedDevice))
+    setAllowShorts(Boolean(selectedDevice.allow_shorts))
+  }, [selectedDevice])
+
   const { whitelist, loading } = useChannels(deviceId ?? undefined, ownerUserId)
 
   useEffect(() => {
@@ -500,16 +489,12 @@ function ChannelsPageInner() {
   }, [childRuntime?.playbackBlocked])
 
   const showLionProfile = Boolean(getSavedChildAccessToken())
-  const showBedtimeUi = shouldShowBedtimeRoutineUi()
-  const qaBedtimePreview = isBedtimeQaPreviewActive()
-  const bedtimeBlocksBrowse = qaBedtimePreview
-    ? false
-    : bedtimeBlocksChannelBrowse(childRuntime?.bedtimeState)
-  const childBlocked = Boolean(childRuntime?.isBlocked)
-
-  const bedtimePanel = showBedtimeUi ? (
+  const bedtimePanel = (
     <BedtimeRoutineZone className="w-full" compact={Boolean(selectedChannel && watchStarted && activeVideoId)} />
-  ) : null
+  )
+  const bedtimeBlocksBrowse =
+    Boolean(deviceId) && bedtimeBlocksChannelBrowse(childRuntime?.bedtimeState)
+  const childBlocked = Boolean(childRuntime?.isBlocked)
 
   if (childBlocked && getSavedChildAccessToken()) {
     return (
@@ -526,6 +511,7 @@ function ChannelsPageInner() {
   }
 
   return (
+    <ChildRuntimeProvider activeDeviceId={deviceId}>
     <ScreenTimeChildGate>
     <LionProgressionProvider>
     <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
@@ -733,7 +719,7 @@ function ChannelsPageInner() {
       ) : (
         <>
           {bedtimePanel}
-          {showBedtimeUi && bedtimeBlocksBrowse ? null : (
+          {bedtimeBlocksBrowse ? null : (
         <section
           aria-label="ערוצים מאושרים"
           className="mx-auto grid w-full max-w-[1040px] grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
@@ -793,13 +779,10 @@ function ChannelsPageInner() {
     </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>
+    </ChildRuntimeProvider>
   )
 }
 
 export function ChannelsPage() {
-  return (
-    <ChildRuntimeProvider>
-      <ChannelsPageInner />
-    </ChildRuntimeProvider>
-  )
+  return <ChannelsPageInner />
 }

@@ -3,12 +3,8 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, Star } from 'lucide-react'
 import { useChildRuntimeOptional } from '../../contexts/ChildRuntimeContext'
-import type { BedtimeTask, ChildBedtimeState, TreasureClaimResult } from '../../lib/childRuntime'
-import {
-  BEDTIME_ROUTINE_FORCE_ENABLED,
-  createBedtimeQaMockState,
-  isBedtimeQaPreviewActive,
-} from '../../lib/childRuntime'
+import type { BedtimeTask, TreasureClaimResult } from '../../lib/childRuntime'
+import { BEDTIME_ROUTINE_FORCE_ENABLED } from '../../lib/childRuntime'
 import { spawnMassiveConfetti, spawnParticleBurstOnElement } from '../../lib/juicyUi/spawnParticleBurst'
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/Button'
@@ -41,11 +37,8 @@ type Props = {
 
 export function BedtimeRoutineZone({ className, compact = false }: Props) {
   const runtime = useChildRuntimeOptional()
-  const serverBedtime = runtime?.bedtimeState
+  const bedtime = runtime?.bedtimeState
   const ready = runtime?.ready ?? false
-  const qaPreview = isBedtimeQaPreviewActive()
-  const [qaMock, setQaMock] = useState<ChildBedtimeState>(() => createBedtimeQaMockState())
-  const bedtime = serverBedtime ?? (qaPreview ? qaMock : null)
 
   const [confirmingTask, setConfirmingTask] = useState<BedtimeTask | null>(null)
   const [taskError, setTaskError] = useState<string | null>(null)
@@ -64,77 +57,74 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
   }, [bedtime?.weeklyTotalPoints, bedtime?.treasureThreshold])
 
   useEffect(() => {
-    if (qaPreview || !ready || bedtime || !runtime?.refreshBedtimeState) return
+    if (!ready || bedtime || !runtime?.refreshBedtimeState) return
     void runtime.refreshBedtimeState()
-  }, [qaPreview, ready, bedtime, runtime])
+  }, [ready, bedtime, runtime])
 
   const handleConfirmTask = useCallback(
     async (task: BedtimeTask) => {
-      setTaskError(null)
-      setConfirmingTask(task)
+      const activeDeviceId = runtime?.activeDeviceId ?? null
 
-      if (qaPreview) {
-        setQaMock((prev) => {
-          const teethConfirmed = task === 'teeth' ? true : prev.teethConfirmed
-          const bathroomConfirmed = task === 'bathroom' ? true : prev.bathroomConfirmed
-          const tasksCompleted = teethConfirmed && bathroomConfirmed
-          return {
-            ...prev,
-            teethConfirmed,
-            bathroomConfirmed,
-            tasksCompleted,
-            canSpinWheel: tasksCompleted,
-            parentApproved: tasksCompleted,
-          }
-        })
-        setConfirmingTask(null)
-        spawnParticleBurstOnElement(document.activeElement instanceof HTMLElement ? document.activeElement : document.body)
+      if (!activeDeviceId) {
+        console.error('[BedtimeRoutineZone] onTaskToggle: no activeDeviceId', { task, runtime })
+        setTaskError('נא לבחור פרופיל ילד כדי להתחיל בשגרה')
         return
       }
 
       if (!runtime?.confirmBedtimeTask) {
+        console.error('[BedtimeRoutineZone] onTaskToggle: confirmBedtimeTask unavailable', {
+          task,
+          activeDeviceId,
+        })
+        setTaskError('שגיאת מערכת — רעננו את הדף ונסו שוב.')
+        return
+      }
+
+      setTaskError(null)
+      setConfirmingTask(task)
+
+      try {
+        console.info('[BedtimeRoutineZone] onTaskToggle start', { task, activeDeviceId })
+        const { data, error } = await runtime.confirmBedtimeTask(task)
+
+        if (error) {
+          console.error('[BedtimeRoutineZone] onTaskToggle RPC failed', {
+            task,
+            activeDeviceId,
+            message: error.message,
+            error,
+          })
+          setTaskError(
+            error.message === 'AUTH_SESSION_MISSING'
+              ? 'יש להתחבר מחדש כדי לשמור את שגרת השינה.'
+              : `לא הצלחנו לשמור — ${error.message}`
+          )
+          return
+        }
+
+        console.info('[BedtimeRoutineZone] onTaskToggle saved', { task, activeDeviceId, data })
+        spawnParticleBurstOnElement(
+          document.activeElement instanceof HTMLElement ? document.activeElement : document.body
+        )
+      } catch (err) {
+        console.error('[BedtimeRoutineZone] onTaskToggle unexpected error', {
+          task,
+          activeDeviceId,
+          err,
+        })
+        setTaskError('לא הצלחנו לשמור — שגיאה לא צפויה. פרטים בקונסול.')
+      } finally {
         setConfirmingTask(null)
-        return
       }
-      const { error } = await runtime.confirmBedtimeTask(task)
-      setConfirmingTask(null)
-      if (error) {
-        setTaskError('לא הצלחנו לשמור — נסו שוב בעוד רגע.')
-        return
-      }
-      spawnParticleBurstOnElement(document.activeElement instanceof HTMLElement ? document.activeElement : document.body)
     },
-    [runtime, qaPreview]
+    [runtime]
   )
 
   const handleSpinWheel = useCallback(async () => {
-    if (spinning) return
+    if (!runtime?.spinDailyWheel || spinning) return
     setSpinError(null)
     setSpinCelebration(null)
     setSpinning(true)
-
-    if (qaPreview) {
-      const points = WHEEL_SEGMENTS[Math.floor(Math.random() * WHEEL_SEGMENTS.length)]?.points ?? 10
-      setWheelRotation((prev) => prev + rotationForPoints(points))
-      window.setTimeout(() => {
-        setSpinning(false)
-        setSpinCelebration(points)
-        setQaMock((prev) => ({
-          ...prev,
-          wheelSpun: true,
-          wheelPointsToday: points,
-          weeklyTotalPoints: prev.weeklyTotalPoints + points,
-          canSpinWheel: false,
-        }))
-        spawnMassiveConfetti()
-      }, 4200)
-      return
-    }
-
-    if (!runtime?.spinDailyWheel) {
-      setSpinning(false)
-      return
-    }
 
     const { data, error } = await runtime.spinDailyWheel()
 
@@ -152,7 +142,7 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
       setSpinCelebration(points)
       spawnMassiveConfetti()
     }, 4200)
-  }, [runtime, spinning, qaPreview])
+  }, [runtime, spinning])
 
   const handleClaimTreasure = useCallback(async () => {
     if (!runtime?.claimTreasureChest || claimingTreasure) return
@@ -171,7 +161,7 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
     }
   }, [runtime, claimingTreasure])
 
-  if (!ready && !qaPreview) {
+  if (!ready) {
     return (
       <section
         className={cn(
@@ -182,6 +172,23 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
         aria-busy="true"
       >
         <p className="text-sm font-medium text-indigo-200/80">טוען את שגרת השינה… 🌙</p>
+      </section>
+    )
+  }
+
+  if (!runtime?.activeDeviceId) {
+    return (
+      <section
+        className={cn(
+          'rounded-3xl border border-sky-400/25 bg-sky-950/30 p-5 text-center',
+          className
+        )}
+        dir="rtl"
+      >
+        <p className="text-sm font-semibold text-sky-100">נא לבחור פרופיל ילד כדי להתחיל בשגרה</p>
+        <p className="mt-2 text-xs leading-relaxed text-sky-200/75">
+          בחרו פרופיל מהרשימה למעלה (החלף פרופיל) — ואז נשמור את המשימות והגלגל בבסיס הנתונים.
+        </p>
       </section>
     )
   }
@@ -197,7 +204,7 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
       >
         <p className="text-sm font-semibold text-amber-100">לא הצלחנו לטעון את שגרת השינה.</p>
         <p className="mt-2 text-xs leading-relaxed text-amber-200/80">
-          ודאו ש-migration 042 רץ ב-Supabase, ואז רעננו.
+          ודאו ש-migrations 042 ו-044 רצו ב-Supabase, ואז רעננו.
         </p>
         <Button
           type="button"
@@ -215,9 +222,7 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
   }
 
   const showParentWait = bedtime.tasksCompleted && !bedtime.parentApproved && !bedtime.wheelSpun
-  const showWheel =
-    (bedtime.canSpinWheel || (qaPreview && bedtime.tasksCompleted && !bedtime.wheelSpun)) &&
-    !bedtime.wheelSpun
+  const showWheel = bedtime.canSpinWheel && !bedtime.wheelSpun
   const showSpunMessage = bedtime.wheelSpun
   const wheelSizeClass = compact ? 'h-40 w-40 sm:h-44 sm:w-44' : 'h-52 w-52 sm:h-56 sm:w-56'
 
@@ -232,11 +237,6 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
         dir="rtl"
         aria-label="שגרת שינה"
       >
-        {qaPreview ? (
-          <p className="mb-3 rounded-xl border border-amber-400/35 bg-amber-950/40 px-3 py-2 text-center text-xs leading-relaxed text-amber-100">
-            מצב בדיקה — אין מכשיר ילד מצומד. אפשר לנסות את המסך; לשמירה אמיתית צמדו מכשיר ב־/kid.
-          </p>
-        ) : null}
         <header className={cn('text-center', compact ? 'mb-3' : 'mb-4')}>
           <div className="mb-1 flex items-center justify-center gap-1 text-amber-300/90" aria-hidden>
             <Star className="h-4 w-4 fill-current" />

@@ -10,6 +10,7 @@ import { pinsMatch } from '../../lib/parentPin'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { useChildRuntime } from '../../contexts/ChildRuntimeContext'
 import type { ParentBedtimeState } from '../../lib/childRuntime'
+import { notifyBedtimeChanged } from '../../lib/childRuntime'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -66,6 +67,7 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
       return
     }
     toast.success('שגרת השינה אושרה! הילד יכול לסובב את הגלגל 🎡')
+    notifyBedtimeChanged()
     void loadState()
   }
 

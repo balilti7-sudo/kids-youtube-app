@@ -21,12 +21,15 @@ export function useDevices(userId: string | undefined) {
       void fetchLocalParentDeviceFromToken(localParent.localAccessToken)
       return
     }
+    // Single authenticated app: load all owner devices (not just legacy kid token).
+    if (userId) {
+      void fetchDevices(userId)
+      return
+    }
     if (kidToken) {
       void fetchDeviceFromChildToken(kidToken)
       return
     }
-    if (!userId) return
-    void fetchDevices(userId)
   }, [
     userId,
     localParent.isActive,
@@ -80,11 +83,13 @@ export function useDevices(userId: string | undefined) {
         await fetchLocalParentDeviceFromToken(localParent.localAccessToken)
         return
       }
-      if (kidToken) {
-        await fetchDeviceFromChildToken(kidToken)
+      if (userId) {
+        await fetchDevices(userId)
         return
       }
-      if (userId) await fetchDevices(userId)
+      if (kidToken) {
+        await fetchDeviceFromChildToken(kidToken)
+      }
     },
   }
 }

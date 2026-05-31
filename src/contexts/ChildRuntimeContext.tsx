@@ -9,20 +9,28 @@ import {
   type ReactNode,
 } from 'react'
 import { getSavedChildAccessToken } from '../lib/childDevice'
+import {
+  ACTIVE_CHILD_PROFILE_CHANGED_EVENT,
+  getSavedActiveChildProfileId,
+  resolveOwnerActiveDeviceId,
+  saveActiveChildProfileId,
+} from '../lib/activeDeviceSelection'
 import type { InterceptPendingVideo } from '../lib/educationalIntercept'
 import {
-  childClaimTreasureChest,
+  BEDTIME_CHANGED_EVENT,
   childCompleteIntercept,
   childCompleteScreenTimeChallenge,
-  childConfirmBedtimeTask,
   childEquipLionOutfit,
-  childGetBedtimeState,
   childGetRaffleTicketSummary,
   childMarkInterceptItemFixed,
   childReportVideoPlaybackStarted,
-  childSpinDailyWheel,
   childTickScreenTime,
   childTryBeginPlayback,
+  notifyBedtimeChanged,
+  ownerClaimTreasureChest,
+  ownerConfirmBedtimeTask,
+  ownerGetBedtimeState,
+  ownerSpinDailyWheel,
   parentApproveBedtime as parentApproveBedtimeRpc,
   parentGetBedtimeState as parentGetBedtimeStateRpc,
   parentStartScreenTime,
@@ -49,6 +57,7 @@ export type ChildRuntimeContextValue = {
   runtime: ServerChildRuntime | null
   ready: boolean
   effectiveRuntime: ServerChildRuntime | null
+  activeDeviceId: string | null
   raffleSummary: RaffleTicketSummary | null
   bedtimeState: ChildBedtimeState | null
   playbackBlocked: boolean
@@ -99,15 +108,55 @@ const ChildRuntimeContext = createContext<ChildRuntimeContextValue | null>(null)
 type Props = {
   children: ReactNode
   pollMs?: number
+  /** Active child profile in the single authenticated app flow (devices.id). */
+  activeDeviceId?: string | null
 }
 
-export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
+export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceId = null }: Props) {
   const [runtime, setRuntime] = useState<ServerChildRuntime | null>(() => readCachedChildRuntime())
   const [raffleSummary, setRaffleSummary] = useState<RaffleTicketSummary | null>(null)
   const [bedtimeState, setBedtimeState] = useState<ChildBedtimeState | null>(null)
   const [ready, setReady] = useState(false)
+  const [resolvedDeviceId, setResolvedDeviceId] = useState<string | null>(null)
   const inFlightRef = useRef<Promise<void> | null>(null)
   const lastSyncAtRef = useRef(0)
+
+  const propDeviceId = activeDeviceId?.trim() || null
+  const savedDeviceId = getSavedActiveChildProfileId()?.trim() || null
+  const effectiveActiveDeviceId = propDeviceId || savedDeviceId || resolvedDeviceId
+
+  useEffect(() => {
+    if (propDeviceId || savedDeviceId) {
+      setResolvedDeviceId(null)
+      return
+    }
+
+    let cancelled = false
+    void resolveOwnerActiveDeviceId(null).then((id) => {
+      if (cancelled || !id) return
+      setResolvedDeviceId(id)
+      if (id !== getSavedActiveChildProfileId()) {
+        saveActiveChildProfileId(id)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [propDeviceId, savedDeviceId])
+
+  const refreshBedtimeState = useCallback(async () => {
+    if (!effectiveActiveDeviceId) {
+      setBedtimeState(null)
+      return
+    }
+    const { data, error } = await ownerGetBedtimeState(effectiveActiveDeviceId)
+    if (error) {
+      console.warn('[ChildRuntime] owner bedtime state failed', error.message)
+      return
+    }
+    setBedtimeState(data)
+  }, [effectiveActiveDeviceId])
 
   const refreshRaffleSummary = useCallback(async () => {
     const token = getSavedChildAccessToken()
@@ -123,27 +172,17 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     setRaffleSummary(data)
   }, [])
 
-  const refreshBedtimeState = useCallback(async () => {
-    const token = getSavedChildAccessToken()
-    if (!token) {
-      setBedtimeState(null)
-      return
-    }
-    const { data, error } = await childGetBedtimeState(token)
-    if (error) {
-      console.warn('[ChildRuntime] bedtime state failed', error.message)
-      return
-    }
-    setBedtimeState(data)
-  }, [])
-
   const sync = useCallback(async (force = false) => {
     const token = getSavedChildAccessToken()
 
     if (!token) {
       setRuntime(null)
       setRaffleSummary(null)
-      setBedtimeState(null)
+      if (effectiveActiveDeviceId) {
+        await refreshBedtimeState()
+      } else {
+        setBedtimeState(null)
+      }
       setReady(true)
       return
     }
@@ -164,7 +203,9 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
         setRuntime(data)
         const [raffleRes, bedtimeRes] = await Promise.all([
           childGetRaffleTicketSummary(token),
-          childGetBedtimeState(token),
+          effectiveActiveDeviceId
+            ? ownerGetBedtimeState(effectiveActiveDeviceId)
+            : Promise.resolve({ data: null, error: null }),
         ])
         if (raffleRes.error) {
           console.warn('[ChildRuntime] raffle summary failed', raffleRes.error.message)
@@ -187,7 +228,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     } finally {
       if (inFlightRef.current === run) inFlightRef.current = null
     }
-  }, [])
+  }, [effectiveActiveDeviceId, refreshBedtimeState])
 
   useEffect(() => {
     void sync(true)
@@ -197,52 +238,114 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     const onTokenChange = () => {
       void sync(true)
     }
+    const onBedtimeChanged = () => {
+      void refreshBedtimeState()
+    }
+    const onActiveProfileChanged = () => {
+      if (!propDeviceId && !getSavedActiveChildProfileId()?.trim()) {
+        void resolveOwnerActiveDeviceId(null).then((resolved) => {
+          if (resolved) {
+            setResolvedDeviceId(resolved)
+            saveActiveChildProfileId(resolved)
+          }
+        })
+      }
+      void refreshBedtimeState()
+    }
     window.addEventListener('safetube-kid-token-changed', onTokenChange)
+    window.addEventListener(BEDTIME_CHANGED_EVENT, onBedtimeChanged)
+    window.addEventListener(ACTIVE_CHILD_PROFILE_CHANGED_EVENT, onActiveProfileChanged)
     return () => {
       window.clearInterval(id)
       window.removeEventListener('safetube-kid-token-changed', onTokenChange)
+      window.removeEventListener(BEDTIME_CHANGED_EVENT, onBedtimeChanged)
+      window.removeEventListener(ACTIVE_CHILD_PROFILE_CHANGED_EVENT, onActiveProfileChanged)
     }
-  }, [sync, pollMs])
+  }, [sync, pollMs, refreshBedtimeState, propDeviceId])
+
+  useEffect(() => {
+    void refreshBedtimeState()
+  }, [effectiveActiveDeviceId, refreshBedtimeState])
 
   const effectiveRuntime = runtime ?? readCachedChildRuntime()
 
   const confirmBedtimeTask = useCallback(
     async (task: BedtimeTask) => {
-      const token = getSavedChildAccessToken()
-      if (!token) return { data: null, error: new Error('NO_TOKEN') }
-      const result = await childConfirmBedtimeTask(token, task)
-      if (!result.error) await refreshBedtimeState()
+      if (!effectiveActiveDeviceId) {
+        console.error('[ChildRuntime] confirmBedtimeTask: missing activeDeviceId', { task })
+        return { data: null, error: new Error('NO_ACTIVE_DEVICE') }
+      }
+      console.info('[ChildRuntime] confirmBedtimeTask start', { task, activeDeviceId: effectiveActiveDeviceId })
+      const result = await ownerConfirmBedtimeTask(effectiveActiveDeviceId, task)
+      if (result.error) {
+        console.error('[ChildRuntime] confirmBedtimeTask failed', {
+          task,
+          activeDeviceId: effectiveActiveDeviceId,
+          message: result.error.message,
+        })
+        return result
+      }
+      if (result.data) {
+        setBedtimeState((prev) =>
+          prev
+            ? {
+                ...prev,
+                teethConfirmed: result.data!.teethConfirmed,
+                bathroomConfirmed: result.data!.bathroomConfirmed,
+                tasksCompleted: result.data!.tasksCompleted,
+              }
+            : prev
+        )
+      }
+      await refreshBedtimeState()
+      notifyBedtimeChanged()
+      console.info('[ChildRuntime] confirmBedtimeTask done', {
+        task,
+        activeDeviceId: effectiveActiveDeviceId,
+        data: result.data,
+      })
       return result
     },
-    [refreshBedtimeState]
+    [effectiveActiveDeviceId, refreshBedtimeState]
   )
 
   const spinDailyWheel = useCallback(async () => {
-    const token = getSavedChildAccessToken()
-    if (!token) return { data: null, error: new Error('NO_TOKEN') }
-    const result = await childSpinDailyWheel(token)
-    if (!result.error) await refreshBedtimeState()
+    if (!effectiveActiveDeviceId) {
+      return { data: null, error: new Error('NO_ACTIVE_DEVICE') }
+    }
+    const result = await ownerSpinDailyWheel(effectiveActiveDeviceId)
+    if (!result.error) {
+      await refreshBedtimeState()
+      notifyBedtimeChanged()
+    }
     return result
-  }, [refreshBedtimeState])
+  }, [effectiveActiveDeviceId, refreshBedtimeState])
 
   const claimTreasureChest = useCallback(async () => {
-    const token = getSavedChildAccessToken()
-    if (!token) return { data: null, error: new Error('NO_TOKEN') }
-    const result = await childClaimTreasureChest(token)
-    if (!result.error) await refreshBedtimeState()
+    if (!effectiveActiveDeviceId) {
+      return { data: null, error: new Error('NO_ACTIVE_DEVICE') }
+    }
+    const result = await ownerClaimTreasureChest(effectiveActiveDeviceId)
+    if (!result.error) {
+      await refreshBedtimeState()
+      notifyBedtimeChanged()
+    }
     return result
-  }, [refreshBedtimeState])
+  }, [effectiveActiveDeviceId, refreshBedtimeState])
 
   const parentApproveBedtime = useCallback(
     async (deviceId: string, routineDate?: string | null) => {
       const result = await parentApproveBedtimeRpc(deviceId, routineDate)
-      const token = getSavedChildAccessToken()
-      if (!result.error && token && effectiveRuntime?.deviceId === deviceId) {
+      if (
+        !result.error &&
+        (effectiveActiveDeviceId === deviceId || effectiveRuntime?.deviceId === deviceId)
+      ) {
         await refreshBedtimeState()
+        notifyBedtimeChanged()
       }
       return result
     },
-    [effectiveRuntime?.deviceId, refreshBedtimeState]
+    [effectiveActiveDeviceId, effectiveRuntime?.deviceId, refreshBedtimeState]
   )
 
   const parentGetBedtimeState = useCallback(async (deviceId: string, routineDate?: string | null) => {
@@ -260,13 +363,13 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
       }
     ) => {
       const result = await parentUpdateBedtimeSettingsRpc(deviceId, updates)
-      const token = getSavedChildAccessToken()
-      if (!result.error && token && effectiveRuntime?.deviceId === deviceId) {
+      if (!result.error && effectiveActiveDeviceId === deviceId) {
         await refreshBedtimeState()
+        notifyBedtimeChanged()
       }
       return result
     },
-    [effectiveRuntime?.deviceId, refreshBedtimeState]
+    [effectiveActiveDeviceId, refreshBedtimeState]
   )
 
   const startScreenTimeSession = useCallback(
@@ -349,6 +452,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
       runtime,
       ready,
       effectiveRuntime: eff,
+      activeDeviceId: effectiveActiveDeviceId,
       raffleSummary,
       bedtimeState,
       playbackBlocked: Boolean(eff?.playbackBlocked),
@@ -381,6 +485,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS }: Props) {
     runtime,
     ready,
     effectiveRuntime,
+    effectiveActiveDeviceId,
     raffleSummary,
     bedtimeState,
     sync,

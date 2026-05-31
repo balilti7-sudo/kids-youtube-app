@@ -144,43 +144,21 @@ export type BedtimeSettings = {
   updatedAt: string
 }
 
-/** Temporary: keep bedtime UI visible while QA runs E2E (set false before production lock-down). */
-export const BEDTIME_ROUTINE_FORCE_ENABLED = true
+export const BEDTIME_ROUTINE_FORCE_ENABLED = false
 
-/** Temporary: show bedtime UI even without a paired kid token (set false before production). */
-export const BEDTIME_QA_FORCE_UI_VISIBLE = true
+export const BEDTIME_CHANGED_EVENT = 'safetube-bedtime-changed'
 
-export function shouldShowBedtimeRoutineUi(): boolean {
-  return BEDTIME_QA_FORCE_UI_VISIBLE || Boolean(getSavedChildAccessToken())
-}
-
-export function isBedtimeQaPreviewActive(): boolean {
-  return BEDTIME_QA_FORCE_UI_VISIBLE && !getSavedChildAccessToken()
-}
-
-export function createBedtimeQaMockState(): ChildBedtimeState {
-  const today = new Date().toISOString().slice(0, 10)
-  return {
-    serverNow: new Date().toISOString(),
-    routineDate: today,
-    weekStart: today,
-    enabled: true,
-    teethConfirmed: false,
-    bathroomConfirmed: false,
-    tasksCompleted: false,
-    parentApproved: false,
-    canSpinWheel: false,
-    wheelSpun: false,
-    wheelPointsToday: 0,
-    weeklyTotalPoints: 0,
-    treasureThreshold: 100,
-    treasureEligible: false,
-    treasureWindowOpen: false,
-    treasureOpened: false,
-    treasureClaimed: false,
-    treasurePrizeTitle: 'פרס השבוע',
-    treasurePrizeDescription: 'מצב בדיקה — צמדו מכשיר ילד כדי לשמור נקודות',
+export function notifyBedtimeChanged() {
+  try {
+    window.dispatchEvent(new CustomEvent(BEDTIME_CHANGED_EVENT))
+  } catch {
+    /* ignore */
   }
+}
+
+/** Show bedtime UI when an active child profile (device) is selected in the single-app flow. */
+export function shouldShowBedtimeRoutineUi(activeDeviceId: string | null | undefined): boolean {
+  return Boolean(activeDeviceId?.trim())
 }
 
 export function isBedtimeRoutineVisible(state: ChildBedtimeState | null | undefined): boolean {
@@ -731,6 +709,105 @@ export async function childClaimTreasureChest(accessToken: string): Promise<{
 }> {
   const { data, error } = await supabase.rpc('child_claim_treasure_chest', {
     p_access_token: accessToken,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapTreasureClaimRow(row as Record<string, unknown>), error: null }
+}
+
+export async function ownerGetBedtimeState(deviceId: string): Promise<{
+  data: ChildBedtimeState | null
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('owner_get_bedtime_state', {
+    p_device_id: deviceId,
+  })
+  if (error) {
+    console.error('[Bedtime] owner_get_bedtime_state RPC error', {
+      deviceId,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+    })
+    return { data: null, error: new Error(error.message) }
+  }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapChildBedtimeStateRow(row as Record<string, unknown>), error: null }
+}
+
+export async function ownerConfirmBedtimeTask(
+  deviceId: string,
+  task: BedtimeTask
+): Promise<{ data: BedtimeTaskConfirmResult | null; error: Error | null }> {
+  const { data: sessionWrap } = await supabase.auth.getSession()
+  if (!sessionWrap.session) {
+    const err = new Error('AUTH_SESSION_MISSING')
+    console.error('[Bedtime] owner_confirm_bedtime_task: no Supabase auth session', {
+      deviceId,
+      task,
+    })
+    return { data: null, error: err }
+  }
+
+  console.info('[Bedtime] owner_confirm_bedtime_task RPC start', {
+    deviceId,
+    task,
+    userId: sessionWrap.session.user.id,
+  })
+
+  const { data, error } = await supabase.rpc('owner_confirm_bedtime_task', {
+    p_device_id: deviceId,
+    p_task: normalizeBedtimeTask(task),
+  })
+
+  if (error) {
+    console.error('[Bedtime] owner_confirm_bedtime_task RPC error', {
+      deviceId,
+      task,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    })
+    return { data: null, error: new Error(error.message) }
+  }
+
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) {
+    console.error('[Bedtime] owner_confirm_bedtime_task RPC returned no row', {
+      deviceId,
+      task,
+      raw: data,
+    })
+    return { data: null, error: new Error('EMPTY_RPC_RESPONSE') }
+  }
+
+  const mapped = mapBedtimeTaskConfirmRow(row as Record<string, unknown>)
+  console.info('[Bedtime] owner_confirm_bedtime_task RPC ok', { deviceId, task, mapped })
+  return { data: mapped, error: null }
+}
+
+export async function ownerSpinDailyWheel(deviceId: string): Promise<{
+  data: DailyWheelSpinResult | null
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('owner_spin_daily_wheel', {
+    p_device_id: deviceId,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapDailyWheelSpinRow(row as Record<string, unknown>), error: null }
+}
+
+export async function ownerClaimTreasureChest(deviceId: string): Promise<{
+  data: TreasureClaimResult | null
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('owner_claim_treasure_chest', {
+    p_device_id: deviceId,
   })
   if (error) return { data: null, error: new Error(error.message) }
   const row = Array.isArray(data) ? data[0] : null
