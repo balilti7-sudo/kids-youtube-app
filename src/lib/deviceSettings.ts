@@ -21,10 +21,14 @@ export async function parentUpdateDeviceSettings(
   deviceId: string,
   updates: DeviceSettingsUpdate
 ): Promise<{ data: DeviceSettingsRow | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('parent_update_device_settings', {
-    p_device_id: deviceId,
-    p_allow_shorts: typeof updates.allowShorts === 'boolean' ? updates.allowShorts : null,
-  })
+  const rpcArgs: {
+    p_device_id: string
+    p_allow_shorts?: boolean
+  } = { p_device_id: deviceId }
+  if (typeof updates.allowShorts === 'boolean') {
+    rpcArgs.p_allow_shorts = updates.allowShorts
+  }
+  const { data, error } = await supabase.rpc('parent_update_device_settings', rpcArgs)
   if (error) return { data: null, error: new Error(error.message) }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return { data: null, error: null }

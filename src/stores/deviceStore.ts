@@ -167,7 +167,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   updateEducationalInterceptSettings: async (deviceId, enabled, intervalMinutes) => {
     const { error } = await supabase.rpc('parent_update_device_settings', {
       p_device_id: deviceId,
-      p_allow_shorts: null,
       p_break_interval_minutes: intervalMinutes,
       p_educational_intercept_enabled: enabled,
     })
