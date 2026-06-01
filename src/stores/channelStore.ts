@@ -214,42 +214,25 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return { error: null }
   },
 
-  addVideoToDevice: async ({ deviceId, userId, yt }) => {
-    let videoId: string
-    const existing = await supabase
-      .from('whitelisted_videos')
-      .select('id')
-      .eq('youtube_video_id', yt.videoId)
-      .maybeSingle()
-
-    if (existing.data?.id) {
-      videoId = existing.data.id
-    } else {
-      const ins = await supabase
-        .from('whitelisted_videos')
-        .insert({
-          youtube_video_id: yt.videoId,
-          title: yt.title,
-          thumbnail_url: yt.thumbnail || null,
-          youtube_channel_id: null,
-          duration_seconds: null,
-        })
-        .select('id')
-        .single()
-      if (ins.error) return { error: new Error(ins.error.message) }
-      videoId = ins.data.id
+  addVideoToDevice: async ({ deviceId, yt }) => {
+    const videoIdPattern = /^[a-zA-Z0-9_-]{11}$/
+    if (!videoIdPattern.test(yt.videoId)) {
+      return { error: new Error('INVALID_VIDEO_ID') }
     }
 
-    const link = await supabase.from('device_video_whitelist').insert({
-      device_id: deviceId,
-      video_id: videoId,
-      added_by: userId,
+    const { error: rpcError } = await supabase.rpc('parent_approve_video_for_device', {
+      p_device_id: deviceId,
+      p_youtube_video_id: yt.videoId,
+      p_title: yt.title?.slice(0, 500) ?? yt.videoId,
+      p_thumbnail_url: yt.thumbnail || null,
+      p_youtube_channel_id: null,
     })
-    if (link.error) {
-      if (link.error.code === '23505') return { error: null }
-      return { error: new Error(link.error.message) }
+
+    if (rpcError) {
+      return { error: new Error(rpcError.message) }
     }
 
+    void userId
     await get().fetchApprovedVideosForDevice(deviceId)
     return { error: null }
   },

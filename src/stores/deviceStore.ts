@@ -119,7 +119,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     try {
       const { data, error } = await supabase
         .from('devices')
-        .select('*')
+        .select(
+          'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, educational_intercept_enabled, educational_intercept_frequency, break_interval_minutes, allow_shorts'
+        )
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
 
