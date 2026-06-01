@@ -11,6 +11,7 @@ import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { useChildRuntime } from '../../contexts/ChildRuntimeContext'
 import type { ParentBedtimeState } from '../../lib/childRuntime'
 import { notifyBedtimeChanged } from '../../lib/childRuntime'
+import { BedtimeGoodnightOverlay } from '../kid/BedtimeGoodnightOverlay'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -26,6 +27,7 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
   const [loading, setLoading] = useState(true)
   const [approving, setApproving] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const localPin = readLocalParentSession()?.pin?.trim() ?? ''
   const usePinFlow = localPin.length >= 4
@@ -74,27 +76,46 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
   if (loading && !state) return null
   if (!state?.enabled) return null
 
+  const previewButton = (
+    <Button
+      type="button"
+      variant="secondary"
+      className="mt-2 w-full justify-center gap-2 py-2 text-xs font-bold"
+      onClick={() => setPreviewOpen(true)}
+    >
+      תצוגה מקדימה — לילה טוב 🌙
+    </Button>
+  )
+
   const canApprove = state.tasksCompleted && !state.parentApproved && !state.wheelSpun
 
   if (!canApprove) {
     if (state.parentApproved && !state.wheelSpun) {
       return (
-        <p className={cn('text-xs leading-snug text-emerald-400/90', className)}>
-          שגרת שינה: אושר — הילד יכול לסובב את הגלגל.
-        </p>
+        <div className={className}>
+          <p className="text-xs leading-snug text-emerald-400/90">
+            שגרת שינה: אושר — הילד יכול לסובב את הגלגל.
+          </p>
+          {previewButton}
+          <BedtimeGoodnightOverlay open={previewOpen} onClose={() => setPreviewOpen(false)} preview />
+        </div>
       )
     }
     if (state.wheelSpun) {
       return (
-        <p className={cn('text-xs leading-snug text-zinc-500', className)}>
-          שגרת שינה: הערב הושלם להיום.
-        </p>
+        <div className={className}>
+          <p className="text-xs leading-snug text-zinc-500">שגרת שינה: הערב הושלם להיום.</p>
+          {previewButton}
+          <BedtimeGoodnightOverlay open={previewOpen} onClose={() => setPreviewOpen(false)} preview />
+        </div>
       )
     }
     return (
-      <p className={cn('text-xs leading-snug text-zinc-500', className)}>
-        שגרת שינה: ממתינים שהילד יסמן את משימות הערב.
-      </p>
+      <div className={className}>
+        <p className="text-xs leading-snug text-zinc-500">שגרת שינה: ממתינים שהילד יסמן את משימות הערב.</p>
+        {previewButton}
+        <BedtimeGoodnightOverlay open={previewOpen} onClose={() => setPreviewOpen(false)} preview />
+      </div>
     )
   }
 
@@ -124,7 +145,10 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
         >
           {approving ? 'מאשר…' : 'אשר שגרת שינה לילד 🔑'}
         </Button>
+        {previewButton}
       </div>
+
+      <BedtimeGoodnightOverlay open={previewOpen} onClose={() => setPreviewOpen(false)} preview />
 
       <ParentalPinModal
         open={pinOpen}

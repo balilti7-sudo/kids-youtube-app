@@ -8,6 +8,12 @@ import { BEDTIME_ROUTINE_FORCE_ENABLED } from '../../lib/childRuntime'
 import { spawnMassiveConfetti, spawnParticleBurstOnElement } from '../../lib/juicyUi/spawnParticleBurst'
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/Button'
+import { BedtimeGoodnightOverlay } from './BedtimeGoodnightOverlay'
+import {
+  BEDTIME_GOODNIGHT_PREVIEW_EVENT,
+  hasSeenBedtimeGoodnight,
+  markBedtimeGoodnightSeen,
+} from '../../lib/bedtimeGoodnight'
 
 const WHEEL_SEGMENTS = [
   { points: 10, label: '10' },
@@ -50,6 +56,10 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
   const [treasureClaim, setTreasureClaim] = useState<TreasureClaimResult | null>(null)
   const [treasureModalOpen, setTreasureModalOpen] = useState(false)
   const [treasureError, setTreasureError] = useState<string | null>(null)
+  const [goodnightOpen, setGoodnightOpen] = useState(false)
+  const [goodnightPreview, setGoodnightPreview] = useState(false)
+
+  const activeDeviceId = runtime?.activeDeviceId ?? null
 
   const progressPercent = useMemo(() => {
     if (!bedtime?.treasureThreshold) return 0
@@ -60,6 +70,32 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
     if (!ready || bedtime || !runtime?.refreshBedtimeState) return
     void runtime.refreshBedtimeState()
   }, [ready, bedtime, runtime])
+
+  useEffect(() => {
+    if (!activeDeviceId || !bedtime?.wheelSpun || !bedtime.routineDate) return
+    if (hasSeenBedtimeGoodnight(activeDeviceId, bedtime.routineDate)) return
+    setGoodnightPreview(false)
+    setGoodnightOpen(true)
+  }, [activeDeviceId, bedtime?.wheelSpun, bedtime?.routineDate])
+
+  useEffect(() => {
+    const onPreview = (event: Event) => {
+      const detail = (event as CustomEvent<{ deviceId?: string }>).detail
+      if (!activeDeviceId || detail?.deviceId !== activeDeviceId) return
+      setGoodnightPreview(true)
+      setGoodnightOpen(true)
+    }
+    window.addEventListener(BEDTIME_GOODNIGHT_PREVIEW_EVENT, onPreview)
+    return () => window.removeEventListener(BEDTIME_GOODNIGHT_PREVIEW_EVENT, onPreview)
+  }, [activeDeviceId])
+
+  const closeGoodnight = useCallback(() => {
+    if (!goodnightPreview && activeDeviceId && bedtime?.routineDate) {
+      markBedtimeGoodnightSeen(activeDeviceId, bedtime.routineDate)
+    }
+    setGoodnightOpen(false)
+    setGoodnightPreview(false)
+  }, [goodnightPreview, activeDeviceId, bedtime?.routineDate])
 
   const handleConfirmTask = useCallback(
     async (task: BedtimeTask) => {
@@ -141,6 +177,8 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
       setSpinning(false)
       setSpinCelebration(points)
       spawnMassiveConfetti()
+      setGoodnightPreview(false)
+      setGoodnightOpen(true)
     }, 4200)
   }, [runtime, spinning])
 
@@ -228,6 +266,12 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
 
   return (
     <>
+      <BedtimeGoodnightOverlay
+        open={goodnightOpen}
+        onClose={closeGoodnight}
+        pointsWon={bedtime?.wheelPointsToday ?? spinCelebration}
+        preview={goodnightPreview}
+      />
       <section
         className={cn(
           'overflow-hidden rounded-3xl border border-indigo-400/25 bg-gradient-to-b from-indigo-950/80 via-violet-950/50 to-zinc-950/90 shadow-xl shadow-indigo-950/30 ring-1 ring-indigo-300/10',
