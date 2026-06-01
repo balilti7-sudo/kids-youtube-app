@@ -23,18 +23,12 @@ import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
 import { prefetchStreamInfo } from '../lib/streamApi'
 import {
-  DEFAULT_INTERCEPT_SETTINGS,
-  settingsFromDevice,
-  type InterceptPendingVideo,
-} from '../lib/educationalIntercept'
-import {
   enrichVideosWithFormat,
   filterVideosRespectingAllowShorts,
   toWatchableVideo,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
-import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
@@ -104,21 +98,7 @@ function ChannelsPageInner() {
   const [videoSearch, setVideoSearch] = useState('')
   const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
-  const [childInterceptSettings, setChildInterceptSettings] = useState(DEFAULT_INTERCEPT_SETTINGS)
   const [allowShorts, setAllowShorts] = useState(false)
-
-  const interceptSettings = useMemo(() => {
-    const rt = childRuntime?.effectiveRuntime
-    if (rt) {
-      return {
-        enabled: rt.educationalInterceptEnabled,
-        frequency: rt.educationalInterceptFrequency,
-      }
-    }
-    const fromList = devices.find((d) => d.id === deviceId)
-    if (fromList) return settingsFromDevice(fromList)
-    return childInterceptSettings
-  }, [childRuntime?.effectiveRuntime, devices, deviceId, childInterceptSettings])
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -138,7 +118,6 @@ function ChannelsPageInner() {
 
   useEffect(() => {
     if (!selectedDevice) return
-    setChildInterceptSettings(settingsFromDevice(selectedDevice))
     setAllowShorts(Boolean(selectedDevice.allow_shorts))
   }, [selectedDevice])
 
@@ -377,22 +356,9 @@ function ChannelsPageInner() {
         snapshot = toChannelWatchVideo(input)
       }
 
-      const pending: InterceptPendingVideo = {
-        videoId,
-        title: snapshot?.title,
-        channelTitle: snapshot?.channelName,
-        posterUrl: snapshot?.thumbnail_url ?? null,
-      }
-
       void (async () => {
         if (childRuntime?.isBlocked) return
-        if (childRuntime) {
-          const allowed = await childRuntime.tryBeginPlayback(pending)
-          if (!allowed) {
-            if (snapshot) setPlayingVideo(snapshot)
-            return
-          }
-        }
+        // Educational break gate disabled — always allow playback (see EDUCATIONAL_BREAKS_RUNTIME_ENABLED)
 
         if (snapshot) setPlayingVideo(snapshot)
         prefetchStreamInfo(videoId)
@@ -402,20 +368,6 @@ function ChannelsPageInner() {
       })()
     },
     [videos, toChannelWatchVideo, childRuntime]
-  )
-
-  const resumePendingPlayback = useCallback(
-    (pending: InterceptPendingVideo | null) => {
-      if (!pending?.videoId) return
-      const base = videos.find((video) => video.youtube_video_id === pending.videoId) ?? null
-      const snapshot = base ? toChannelWatchVideo(base) : null
-      if (snapshot) setPlayingVideo(snapshot)
-      prefetchStreamInfo(pending.videoId)
-      setWatchStarted(true)
-      setActiveVideoId(pending.videoId)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    },
-    [videos, toChannelWatchVideo]
   )
 
   const togglePlaylistVideo = (videoId: string) => {
@@ -514,7 +466,6 @@ function ChannelsPageInner() {
     <ChildRuntimeProvider activeDeviceId={deviceId}>
     <ScreenTimeChildGate>
     <LionProgressionProvider>
-    <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
@@ -771,7 +722,6 @@ function ChannelsPageInner() {
         </>
       )}
     </div>
-    </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>
     </ChildRuntimeProvider>

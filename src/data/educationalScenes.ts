@@ -51,8 +51,8 @@ export function getEducationalScene(sceneId?: string | null): EducationalScene {
   return EDUCATIONAL_SCENES.find((s) => s.id === sceneId) ?? EDUCATIONAL_SCENES[0]!
 }
 
-export const INTERCEPT_FREQUENCY_OPTIONS = [
-  { value: 2 as const, label: 'כל 2 סרטונים' },
-  { value: 3 as const, label: 'כל 3 סרטונים' },
-  { value: 5 as const, label: 'כל 5 סרטונים' },
-]
+export const INTERCEPT_BREAK_INTERVAL_OPTIONS = [
+  { value: 15 as const, label: '15 דקות' },
+  { value: 30 as const, label: '30 דקות' },
+  { value: 45 as const, label: '45 דקות' },
+] as const

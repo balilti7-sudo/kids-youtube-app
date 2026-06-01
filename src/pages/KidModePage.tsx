@@ -45,15 +45,10 @@ import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
-import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { KidInterceptCleanPlayer } from '../components/kid/KidInterceptCleanPlayer'
-import {
-  settingsFromDevice,
-  type InterceptPendingVideo,
-} from '../lib/educationalIntercept'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import type { Html5Qrcode } from 'html5-qrcode'
@@ -329,41 +324,8 @@ function KidModePageInner() {
     [channels, activeChannelId]
   )
 
-  const interceptSettings = useMemo(() => {
-    const rt = childRuntime?.effectiveRuntime
-    if (rt) {
-      return {
-        enabled: rt.educationalInterceptEnabled,
-        frequency: rt.educationalInterceptFrequency,
-      }
-    }
-    return settingsFromDevice(device)
-  }, [childRuntime?.effectiveRuntime, device])
-
-  const handleSelectVideo = useCallback(
-    async (videoId: string) => {
-      const video =
-        channelVideos.find((v) => v.videoId === videoId) ??
-        filteredVideos.find((v) => v.videoId === videoId) ??
-        null
-      const pending: InterceptPendingVideo = {
-        videoId,
-        title: video?.title,
-        channelTitle: activeChannel?.channel_name,
-        posterUrl: video?.thumbnail ?? null,
-      }
-      if (childRuntime) {
-        const allowed = await childRuntime.tryBeginPlayback(pending)
-        if (!allowed) return
-      }
-      setActiveVideoId(videoId)
-    },
-    [channelVideos, filteredVideos, activeChannel?.channel_name, childRuntime]
-  )
-
-  const resumePendingPlayback = useCallback((pending: InterceptPendingVideo | null) => {
-    if (!pending?.videoId) return
-    setActiveVideoId(pending.videoId)
+  const handleSelectVideo = useCallback((videoId: string) => {
+    setActiveVideoId(videoId)
   }, [])
 
   const activeVideoQueueIndex = useMemo(() => {
@@ -1070,7 +1032,6 @@ function KidModePageInner() {
   return (
     <ScreenTimeChildGate>
     <LionProgressionProvider>
-    <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <div className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40">
       <header className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 pb-[env(safe-area-inset-top)] backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90">
         <div className="mx-auto grid max-w-[1920px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 px-2 py-2 sm:gap-x-4 sm:px-3 sm:py-2">
@@ -1647,7 +1608,6 @@ function KidModePageInner() {
         description="חיפוש בכל YouTube דורש קוד הורה. הזינו PIN כדי להמשיך — אחרת החיפוש יבוטל."
       />
     </div>
-    </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>
   )

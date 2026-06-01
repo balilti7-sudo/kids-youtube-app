@@ -16,6 +16,8 @@ import {
   saveActiveChildProfileId,
 } from '../lib/activeDeviceSelection'
 import type { InterceptPendingVideo } from '../lib/educationalIntercept'
+import type { EducationalBreakIntervalMinutes } from '../types'
+import { EDUCATIONAL_BREAKS_RUNTIME_ENABLED } from '../lib/educationalIntercept'
 import {
   BEDTIME_CHANGED_EVENT,
   childCompleteIntercept,
@@ -23,7 +25,6 @@ import {
   childEquipLionOutfit,
   childGetRaffleTicketSummary,
   childMarkInterceptItemFixed,
-  childReportVideoPlaybackStarted,
   childTickScreenTime,
   childTryBeginPlayback,
   notifyBedtimeChanged,
@@ -67,6 +68,8 @@ export type ChildRuntimeContextValue = {
   challengeTask: string | null
   interceptActive: boolean
   interceptVideoCount: number
+  interceptWatchSeconds: number
+  breakIntervalMinutes: EducationalBreakIntervalMinutes
   interceptPendingVideo: InterceptPendingVideo | null
   interceptSceneProgress: string[]
   refresh: (force?: boolean) => Promise<void>
@@ -390,10 +393,12 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
   }, [sync])
 
   const tryBeginPlayback = useCallback(
-    async (pending: InterceptPendingVideo) => {
+    async (_pending: InterceptPendingVideo) => {
+      if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) return true
+
       const token = getSavedChildAccessToken()
       if (!token) return true
-      const { allowed, error } = await childTryBeginPlayback(token, pending)
+      const { allowed, error } = await childTryBeginPlayback(token, _pending)
       if (error) {
         console.warn('[ChildRuntime] tryBeginPlayback', error.message)
         return false
@@ -404,16 +409,9 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
     [sync]
   )
 
-  const reportVideoPlaybackStarted = useCallback(
-    async (videoId: string) => {
-      const token = getSavedChildAccessToken()
-      if (!token || !videoId.trim()) return
-      const { error } = await childReportVideoPlaybackStarted(token, videoId)
-      if (error) console.warn('[ChildRuntime] reportVideoPlaybackStarted', error.message)
-      await sync(true)
-    },
-    [sync]
-  )
+  const reportVideoPlaybackStarted = useCallback(async (_videoId: string) => {
+    /* Educational breaks use cumulative watch timer, not per-video counts */
+  }, [])
 
   const markInterceptItemFixed = useCallback(
     async (itemId: string) => {
@@ -460,8 +458,10 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
       screenTimePhase: eff?.screenTimePhase ?? 'idle',
       remainingSeconds: eff?.remainingSeconds ?? null,
       challengeTask: eff?.challengeTask ?? null,
-      interceptActive: Boolean(eff?.interceptActive),
+      interceptActive: EDUCATIONAL_BREAKS_RUNTIME_ENABLED ? Boolean(eff?.interceptActive) : false,
       interceptVideoCount: eff?.interceptVideoCount ?? 0,
+      interceptWatchSeconds: eff?.interceptWatchSeconds ?? 0,
+      breakIntervalMinutes: eff?.breakIntervalMinutes ?? 30,
       interceptPendingVideo: eff?.interceptPendingVideo ?? null,
       interceptSceneProgress: eff?.interceptSceneProgress ?? [],
       refresh: sync,

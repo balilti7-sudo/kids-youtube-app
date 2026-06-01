@@ -1,10 +1,17 @@
-import type { EducationalInterceptFrequency } from '../types'
+import type { EducationalBreakIntervalMinutes } from '../types'
 
-export const INTERCEPT_VIDEO_COUNT_KEY = 'safetube_intercept_video_count'
+/**
+ * When false, no watch timer, no break overlay, and playback is never blocked.
+ * Re-enable after the time-based break system is fully implemented and tested.
+ */
+export const EDUCATIONAL_BREAKS_RUNTIME_ENABLED = false
+
 export const INTERCEPT_ACTIVE_KEY = 'safetube_intercept_active'
 export const INTERCEPT_SCENE_PROGRESS_KEY = 'safetube_intercept_scene_progress'
 export const INTERCEPT_PENDING_VIDEO_KEY = 'safetube_intercept_pending_video'
 export const INTERCEPT_CHANGED_EVENT = 'safetube-intercept-changed'
+
+const WATCH_SECONDS_PREFIX = 'safetube_intercept_watch_seconds_'
 
 export type InterceptPendingVideo = {
   videoId: string
@@ -15,15 +22,16 @@ export type InterceptPendingVideo = {
 
 export type InterceptSettings = {
   enabled: boolean
-  frequency: EducationalInterceptFrequency
+  intervalMinutes: EducationalBreakIntervalMinutes
 }
 
 export const DEFAULT_INTERCEPT_SETTINGS: InterceptSettings = {
   enabled: false,
-  frequency: 3,
+  intervalMinutes: 30,
 }
 
 function dispatchChanged() {
+  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) return
   try {
     window.dispatchEvent(new CustomEvent(INTERCEPT_CHANGED_EVENT))
   } catch {
@@ -31,9 +39,13 @@ function dispatchChanged() {
   }
 }
 
-function readCountRaw(): number {
+export function interceptWatchKey(deviceId: string): string {
+  return `${WATCH_SECONDS_PREFIX}${deviceId}`
+}
+
+function readWatchRaw(deviceId: string): number {
   try {
-    const raw = localStorage.getItem(INTERCEPT_VIDEO_COUNT_KEY)
+    const raw = localStorage.getItem(interceptWatchKey(deviceId))
     const n = raw != null ? Number.parseInt(raw, 10) : 0
     return Number.isFinite(n) && n >= 0 ? n : 0
   } catch {
@@ -41,30 +53,32 @@ function readCountRaw(): number {
   }
 }
 
-export function readInterceptVideoCount(): number {
-  return readCountRaw()
+export function readInterceptWatchSeconds(deviceId: string): number {
+  return readWatchRaw(deviceId)
 }
 
-export function writeInterceptVideoCount(count: number) {
+export function writeInterceptWatchSeconds(deviceId: string, seconds: number) {
   try {
-    localStorage.setItem(INTERCEPT_VIDEO_COUNT_KEY, String(Math.max(0, count)))
+    localStorage.setItem(interceptWatchKey(deviceId), String(Math.max(0, Math.round(seconds))))
     dispatchChanged()
   } catch {
     /* ignore */
   }
 }
 
-export function incrementInterceptVideoCount(): number {
-  const next = readCountRaw() + 1
-  writeInterceptVideoCount(next)
+export function addInterceptWatchSeconds(deviceId: string, deltaSeconds: number): number {
+  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) return 0
+  const next = readWatchRaw(deviceId) + Math.max(0, deltaSeconds)
+  writeInterceptWatchSeconds(deviceId, next)
   return next
 }
 
-export function resetInterceptVideoCount() {
-  writeInterceptVideoCount(0)
+export function resetInterceptWatchSeconds(deviceId: string) {
+  writeInterceptWatchSeconds(deviceId, 0)
 }
 
 export function isInterceptSessionActive(): boolean {
+  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) return false
   try {
     return localStorage.getItem(INTERCEPT_ACTIVE_KEY) === '1'
   } catch {
@@ -118,7 +132,8 @@ export function writeInterceptPendingVideo(video: InterceptPendingVideo | null) 
   }
 }
 
-export function activateInterceptSession(pendingVideo: InterceptPendingVideo) {
+export function activateInterceptSession(_deviceId: string, pendingVideo: InterceptPendingVideo) {
+  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) return
   try {
     localStorage.setItem(INTERCEPT_ACTIVE_KEY, '1')
     writeInterceptSceneProgress([])
@@ -140,17 +155,46 @@ export function clearInterceptSession() {
   }
 }
 
-export function shouldTriggerIntercept(settings: InterceptSettings): boolean {
-  if (!settings.enabled) return false
-  if (isInterceptSessionActive()) return true
-  return readInterceptVideoCount() >= settings.frequency
+/** Clears stuck break session + per-device watch counters (call when breaks are off). */
+export function clearAllEducationalBreakLocalState() {
+  clearInterceptSession()
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(WATCH_SECONDS_PREFIX)) {
+        localStorage.removeItem(key)
+      }
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
-export function tryBeginPlayback(video: InterceptPendingVideo, settings: InterceptSettings): boolean {
-  if (!settings.enabled) return true
+if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED && typeof window !== 'undefined') {
+  clearAllEducationalBreakLocalState()
+}
+
+export function interceptThresholdSeconds(settings: InterceptSettings): number {
+  return settings.intervalMinutes * 60
+}
+
+export function shouldTriggerIntercept(deviceId: string, settings: InterceptSettings): boolean {
+  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) return false
+  if (!settings.enabled || !deviceId.trim()) return false
+  if (isInterceptSessionActive()) return true
+  return readInterceptWatchSeconds(deviceId) >= interceptThresholdSeconds(settings)
+}
+
+export function tryBeginPlayback(
+  deviceId: string,
+  video: InterceptPendingVideo,
+  settings: InterceptSettings
+): boolean {
+  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) return true
+  if (!settings.enabled || !deviceId.trim()) return true
   if (isInterceptSessionActive()) return false
-  if (readInterceptVideoCount() >= settings.frequency) {
-    activateInterceptSession(video)
+  if (readInterceptWatchSeconds(deviceId) >= interceptThresholdSeconds(settings)) {
+    activateInterceptSession(deviceId, video)
     return false
   }
   return true
@@ -164,27 +208,31 @@ export function markSceneItemFixed(itemId: string): string[] {
   return next
 }
 
-export function completeInterceptSession() {
-  resetInterceptVideoCount()
+export function completeInterceptSession(deviceId: string) {
+  resetInterceptWatchSeconds(deviceId)
   clearInterceptSession()
 }
 
 export function settingsFromDevice(device: {
   educational_intercept_enabled?: boolean
   educational_intercepts_enabled?: boolean
+  break_interval_minutes?: number | string | null
   educational_intercept_frequency?: number | string
 } | null | undefined): InterceptSettings {
   if (!device) return DEFAULT_INTERCEPT_SETTINGS
-  const freq = normalizeInterceptFrequencyFromDevice(device.educational_intercept_frequency)
   return {
     enabled: Boolean(device.educational_intercept_enabled ?? device.educational_intercepts_enabled),
-    frequency: freq,
+    intervalMinutes: normalizeBreakIntervalFromDevice(
+      device.break_interval_minutes ?? device.educational_intercept_frequency
+    ),
   }
 }
 
-function normalizeInterceptFrequencyFromDevice(raw: unknown): EducationalInterceptFrequency {
-  const s = typeof raw === 'number' ? String(raw) : String(raw ?? '3').trim()
-  if (s === '2') return 2
-  if (s === '5') return 5
-  return 3
+export function normalizeBreakIntervalFromDevice(raw: unknown): EducationalBreakIntervalMinutes {
+  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? '30').trim(), 10)
+  if (n === 15) return 15
+  if (n === 45) return 45
+  if (n === 2) return 15
+  if (n === 5) return 45
+  return 30
 }

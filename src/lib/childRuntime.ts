@@ -1,4 +1,9 @@
-import type { InterceptPendingVideo } from './educationalIntercept'
+import type { EducationalBreakIntervalMinutes } from '../types'
+import {
+  EDUCATIONAL_BREAKS_RUNTIME_ENABLED,
+  normalizeBreakIntervalFromDevice,
+  type InterceptPendingVideo,
+} from './educationalIntercept'
 import { getSavedChildAccessToken } from './childDevice'
 import { supabase } from './supabase'
 
@@ -14,14 +19,16 @@ export type ServerChildRuntime = {
   playbackBlocked: boolean
   challengeTask: string | null
   interceptActive: boolean
+  /** @deprecated Legacy; use interceptWatchSeconds */
   interceptVideoCount: number
+  interceptWatchSeconds: number
   interceptPendingVideo: InterceptPendingVideo | null
   interceptSceneProgress: string[]
   lionLevel: number
   lionXp: number
   lionActiveOutfit: string
   educationalInterceptEnabled: boolean
-  educationalInterceptFrequency: 2 | 3 | 5
+  breakIntervalMinutes: EducationalBreakIntervalMinutes
 }
 
 export type CompleteInterceptResult = {
@@ -396,11 +403,6 @@ function mapAwardRaffleTicketRow(row: Record<string, unknown>): AwardRaffleTicke
 
 const RUNTIME_CACHE_KEY = 'safetube_child_runtime_cache_v1'
 
-function normalizeFrequency(raw: unknown): 2 | 3 | 5 {
-  const s = typeof raw === 'number' ? String(raw) : String(raw ?? '3').trim()
-  if (s === '2' || s === '5') return Number(s) as 2 | 5
-  return 3
-}
 
 function parsePendingVideo(raw: unknown): InterceptPendingVideo | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
@@ -425,10 +427,17 @@ export function mapChildRuntimeRow(row: Record<string, unknown>): ServerChildRun
   const validPhase: ScreenTimePhase =
     phase === 'active' || phase === 'challenge' || phase === 'locked' || phase === 'idle' ? phase : 'idle'
 
+  const isBlocked = Boolean(row.is_blocked)
+  const screenTimeBlocksPlayback = validPhase === 'challenge' || validPhase === 'locked'
+  const interceptActive = EDUCATIONAL_BREAKS_RUNTIME_ENABLED ? Boolean(row.intercept_active) : false
+  const playbackBlocked = EDUCATIONAL_BREAKS_RUNTIME_ENABLED
+    ? Boolean(row.playback_blocked)
+    : isBlocked || screenTimeBlocksPlayback
+
   return {
     serverNow: String(row.server_now ?? new Date().toISOString()),
     deviceId: String(row.device_id ?? ''),
-    isBlocked: Boolean(row.is_blocked),
+    isBlocked,
     screenTimePhase: validPhase,
     screenTimeLimitMinutes:
       typeof row.screen_time_limit_minutes === 'number' && row.screen_time_limit_minutes > 0
@@ -438,20 +447,28 @@ export function mapChildRuntimeRow(row: Record<string, unknown>): ServerChildRun
       typeof row.remaining_seconds === 'number' && Number.isFinite(row.remaining_seconds)
         ? Math.max(0, Math.round(row.remaining_seconds))
         : null,
-    playbackBlocked: Boolean(row.playback_blocked),
+    playbackBlocked,
     challengeTask: typeof row.challenge_task === 'string' ? row.challenge_task : null,
-    interceptActive: Boolean(row.intercept_active),
+    interceptActive,
     interceptVideoCount:
       typeof row.intercept_video_count === 'number' && row.intercept_video_count >= 0
         ? row.intercept_video_count
         : 0,
+    interceptWatchSeconds:
+      typeof row.intercept_watch_seconds === 'number' && row.intercept_watch_seconds >= 0
+        ? row.intercept_watch_seconds
+        : typeof row.intercept_video_count === 'number' && row.intercept_video_count >= 0
+          ? row.intercept_video_count
+          : 0,
     interceptPendingVideo: parsePendingVideo(row.intercept_pending_video),
     interceptSceneProgress: parseSceneProgress(row.intercept_scene_progress),
     lionLevel: typeof row.lion_level === 'number' && row.lion_level >= 1 ? row.lion_level : 1,
     lionXp: typeof row.lion_xp === 'number' && row.lion_xp >= 0 ? row.lion_xp : 0,
     lionActiveOutfit: typeof row.lion_active_outfit === 'string' ? row.lion_active_outfit : 'cub',
     educationalInterceptEnabled: Boolean(row.educational_intercept_enabled),
-    educationalInterceptFrequency: normalizeFrequency(row.educational_intercept_frequency),
+    breakIntervalMinutes: normalizeBreakIntervalFromDevice(
+      row.break_interval_minutes ?? row.educational_intercept_frequency
+    ),
   }
 }
 
@@ -480,13 +497,14 @@ export function writeCachedChildRuntime(runtime: ServerChildRuntime) {
         challenge_task: runtime.challengeTask,
         intercept_active: runtime.interceptActive,
         intercept_video_count: runtime.interceptVideoCount,
+        intercept_watch_seconds: runtime.interceptWatchSeconds,
         intercept_pending_video: runtime.interceptPendingVideo,
         intercept_scene_progress: runtime.interceptSceneProgress,
         lion_level: runtime.lionLevel,
         lion_xp: runtime.lionXp,
         lion_active_outfit: runtime.lionActiveOutfit,
         educational_intercept_enabled: runtime.educationalInterceptEnabled,
-        educational_intercept_frequency: runtime.educationalInterceptFrequency,
+        break_interval_minutes: runtime.breakIntervalMinutes,
       })
     )
   } catch {
@@ -558,6 +576,9 @@ export async function childTryBeginPlayback(
   accessToken: string,
   pendingVideo: InterceptPendingVideo | null
 ): Promise<{ allowed: boolean; interceptActivated: boolean; error: Error | null }> {
+  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) {
+    return { allowed: true, interceptActivated: false, error: null }
+  }
   const { data, error } = await supabase.rpc('child_try_begin_playback', {
     p_access_token: accessToken,
     p_pending_video: pendingVideo,
@@ -583,6 +604,18 @@ export async function childReportVideoPlaybackStarted(
   })
   if (error) return { count: 0, error: new Error(error.message) }
   return { count: typeof data === 'number' ? data : 0, error: null }
+}
+
+export async function childAddInterceptWatchSeconds(
+  accessToken: string,
+  seconds: number
+): Promise<{ watchSeconds: number; error: Error | null }> {
+  const { data, error } = await supabase.rpc('child_add_intercept_watch_seconds', {
+    p_access_token: accessToken,
+    p_seconds: seconds,
+  })
+  if (error) return { watchSeconds: 0, error: new Error(error.message) }
+  return { watchSeconds: typeof data === 'number' ? data : 0, error: null }
 }
 
 export async function childMarkInterceptItemFixed(

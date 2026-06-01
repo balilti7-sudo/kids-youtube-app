@@ -1,8 +1,6 @@
 import { CleanPlayer, type CleanPlayerProps } from '../player/CleanPlayer'
-import { useEducationalInterceptGate } from './EducationalInterceptGate'
 
-/** CleanPlayer wired to educational intercept playback counting. */
+/** Educational breaks disabled — plain player only. */
 export function KidInterceptCleanPlayer(props: CleanPlayerProps) {
-  const gate = useEducationalInterceptGate()
-  return <CleanPlayer {...props} onVideoPlaybackStarted={gate?.onVideoPlaybackStarted} />
+  return <CleanPlayer {...props} />
 }

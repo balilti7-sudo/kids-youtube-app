@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { PostgrestError } from '@supabase/supabase-js'
-import type { Device } from '../types'
+import type { Device, EducationalBreakIntervalMinutes } from '../types'
 import { getChildDeviceState } from '../lib/childDevice'
 import { parentUpdateDeviceSettings } from '../lib/deviceSettings'
 import { supabase } from '../lib/supabase'
@@ -21,7 +21,7 @@ interface DeviceState {
   updateEducationalInterceptSettings: (
     deviceId: string,
     enabled: boolean,
-    frequency: 2 | 3 | 5
+    intervalMinutes: EducationalBreakIntervalMinutes
   ) => Promise<{ error: Error | null }>
   updateAllowShorts: (deviceId: string, allowShorts: boolean) => Promise<{ error: Error | null }>
   addDevice: (payload: {
@@ -67,7 +67,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         updated_at: new Date(0).toISOString(),
         channel_count: 0,
         educational_intercept_enabled: data.educational_intercept_enabled,
-        educational_intercept_frequency: data.educational_intercept_frequency,
+        break_interval_minutes: data.break_interval_minutes,
         allow_shorts: data.allow_shorts,
       }
       set({ devices: [device], loading: false })
@@ -164,14 +164,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     return { error: null }
   },
 
-  updateEducationalInterceptSettings: async (deviceId, enabled, frequency) => {
-    const { error } = await supabase
-      .from('devices')
-      .update({
-        educational_intercept_enabled: enabled,
-        educational_intercept_frequency: String(frequency),
-      })
-      .eq('id', deviceId)
+  updateEducationalInterceptSettings: async (deviceId, enabled, intervalMinutes) => {
+    const { error } = await supabase.rpc('parent_update_device_settings', {
+      p_device_id: deviceId,
+      p_allow_shorts: null,
+      p_break_interval_minutes: intervalMinutes,
+      p_educational_intercept_enabled: enabled,
+    })
     if (error) {
       console.error('[deviceStore.updateEducationalInterceptSettings]', error)
       return { error: new Error(formatSupabaseError(error)) }
@@ -179,7 +178,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     set({
       devices: get().devices.map((d) =>
         d.id === deviceId
-          ? { ...d, educational_intercept_enabled: enabled, educational_intercept_frequency: frequency }
+          ? {
+              ...d,
+              educational_intercept_enabled: enabled,
+              break_interval_minutes: intervalMinutes,
+            }
           : d
       ),
     })

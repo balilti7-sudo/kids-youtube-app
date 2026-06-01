@@ -12,6 +12,10 @@ export interface Profile {
   updated_at: string
 }
 
+/** Minutes between mandatory educational breaks while watching. */
+export type EducationalBreakIntervalMinutes = 15 | 30 | 45
+
+/** @deprecated Use EducationalBreakIntervalMinutes */
 export type EducationalInterceptFrequency = 2 | 3 | 5
 
 export interface Device {
@@ -27,7 +31,9 @@ export interface Device {
   updated_at: string
   channel_count?: number
   educational_intercept_enabled?: boolean
+  /** @deprecated Legacy video-count frequency; use break_interval_minutes */
   educational_intercept_frequency?: EducationalInterceptFrequency | string
+  break_interval_minutes?: EducationalBreakIntervalMinutes | number
   allow_shorts?: boolean
 }
 

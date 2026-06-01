@@ -43,6 +43,8 @@ export type CleanPlayerProps = {
   queueControls?: boolean
   /** Fired once when playback actually starts for a video (both paths). */
   onVideoPlaybackStarted?: (videoId: string) => void
+  /** Fired when the underlying media element starts or stops playing (for watch-time breaks). */
+  onPlaybackActiveChange?: (playing: boolean) => void
 }
 
 const END_OF_PLAYLIST_TOAST = 'הגעת לסוף הפלייליסט'
@@ -295,6 +297,7 @@ function CleanPlayerYoutubeIframe({
   hasNextTrack = true,
   queueControls,
   onVideoPlaybackStarted,
+  onPlaybackActiveChange: _onPlaybackActiveChange,
 }: CleanPlayerProps) {
   const playerShellRef = useRef<HTMLDivElement>(null)
   const [loopEnabled, setLoopEnabled] = useState(false)
@@ -340,6 +343,8 @@ function CleanPlayerYoutubeIframe({
       iframePlaybackNotifiedRef.current = true
       onVideoPlaybackStarted(id)
     }
+    // Educational break watch timer disabled — see EDUCATIONAL_BREAKS_RUNTIME_ENABLED
+    // onPlaybackActiveChange?.(true)
   }, [videoId, onVideoPlaybackStarted])
 
   useEffect(() => {
@@ -421,6 +426,7 @@ function CleanPlayerMediaBridge({
   hasNextTrack = true,
   queueControls,
   onVideoPlaybackStarted,
+  onPlaybackActiveChange: _onPlaybackActiveChange,
 }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
@@ -488,6 +494,9 @@ function CleanPlayerMediaBridge({
       el.removeEventListener('ended', onPlaybackEnded)
     }
   }, [phase.kind, videoId, onVideoPlaybackStarted])
+
+  // Educational break watch timer disabled — see EDUCATIONAL_BREAKS_RUNTIME_ENABLED
+  // useEffect(() => { ... onPlaybackActiveChange ... }, [phase.kind, videoId, onPlaybackActiveChange])
 
   const handleRetry = useCallback(() => {
     setBridgeWaking(false)

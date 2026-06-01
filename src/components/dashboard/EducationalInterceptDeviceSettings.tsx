@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { toast } from 'sonner'
-import { INTERCEPT_FREQUENCY_OPTIONS } from '../../data/educationalScenes'
+import { INTERCEPT_BREAK_INTERVAL_OPTIONS } from '../../data/educationalScenes'
+import { normalizeBreakIntervalFromDevice } from '../../lib/educationalIntercept'
 import { useDeviceStore } from '../../stores/deviceStore'
-import type { Device, EducationalInterceptFrequency } from '../../types'
+import type { Device, EducationalBreakIntervalMinutes } from '../../types'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -11,34 +12,31 @@ type Props = {
   className?: string
 }
 
-function normalizeFrequency(raw: EducationalInterceptFrequency | string | undefined): EducationalInterceptFrequency {
-  const s = typeof raw === 'number' ? String(raw) : String(raw ?? '3').trim()
-  if (s === '2') return 2
-  if (s === '5') return 5
-  return 3
-}
-
 export function EducationalInterceptDeviceSettings({ device, className }: Props) {
   const updateSettings = useDeviceStore((s) => s.updateEducationalInterceptSettings)
   const [enabled, setEnabled] = useState(Boolean(device.educational_intercept_enabled))
-  const [frequency, setFrequency] = useState<EducationalInterceptFrequency>(() =>
-    normalizeFrequency(device.educational_intercept_frequency)
+  const [intervalMinutes, setIntervalMinutes] = useState<EducationalBreakIntervalMinutes>(() =>
+    normalizeBreakIntervalFromDevice(device.break_interval_minutes ?? device.educational_intercept_frequency)
   )
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     setEnabled(Boolean(device.educational_intercept_enabled))
-    setFrequency(normalizeFrequency(device.educational_intercept_frequency))
-  }, [device.id, device.educational_intercept_enabled, device.educational_intercept_frequency])
+    setIntervalMinutes(
+      normalizeBreakIntervalFromDevice(device.break_interval_minutes ?? device.educational_intercept_frequency)
+    )
+  }, [device.id, device.educational_intercept_enabled, device.break_interval_minutes, device.educational_intercept_frequency])
 
-  const persist = async (nextEnabled: boolean, nextFrequency: EducationalInterceptFrequency) => {
+  const persist = async (nextEnabled: boolean, nextInterval: EducationalBreakIntervalMinutes) => {
     setSaving(true)
-    const { error } = await updateSettings(device.id, nextEnabled, nextFrequency)
+    const { error } = await updateSettings(device.id, nextEnabled, nextInterval)
     setSaving(false)
     if (error) {
       toast.error('שמירה נכשלה', { description: error.message })
       setEnabled(Boolean(device.educational_intercept_enabled))
-      setFrequency(normalizeFrequency(device.educational_intercept_frequency))
+      setIntervalMinutes(
+        normalizeBreakIntervalFromDevice(device.break_interval_minutes ?? device.educational_intercept_frequency)
+      )
       return
     }
     toast.success('הפסקות חינוכיות עודכנו')
@@ -64,27 +62,27 @@ export function EducationalInterceptDeviceSettings({ device, className }: Props)
               onChange={(e) => {
                 const next = e.target.checked
                 setEnabled(next)
-                void persist(next, frequency)
+                void persist(next, intervalMinutes)
               }}
             />
           </label>
           {enabled ? (
             <div className="mt-2">
-              <label htmlFor={`intercept-freq-${device.id}`} className="mb-1 block text-xs text-zinc-400">
-                תדירות
+              <label htmlFor={`intercept-interval-${device.id}`} className="mb-1 block text-xs text-zinc-400">
+                מרווח זמן
               </label>
               <select
-                id={`intercept-freq-${device.id}`}
+                id={`intercept-interval-${device.id}`}
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400"
-                value={frequency}
+                value={intervalMinutes}
                 disabled={saving}
                 onChange={(e) => {
-                  const next = Number(e.target.value) as EducationalInterceptFrequency
-                  setFrequency(next)
+                  const next = Number(e.target.value) as EducationalBreakIntervalMinutes
+                  setIntervalMinutes(next)
                   void persist(enabled, next)
                 }}
               >
-                {INTERCEPT_FREQUENCY_OPTIONS.map((opt) => (
+                {INTERCEPT_BREAK_INTERVAL_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -92,7 +90,9 @@ export function EducationalInterceptDeviceSettings({ device, className }: Props)
               </select>
             </div>
           ) : (
-            <p className="mt-1 text-xs leading-snug text-zinc-500">גור האריה יבקש הפסקה לסידור החדר בין סרטונים.</p>
+            <p className="mt-1 text-xs leading-snug text-zinc-500">
+              גור האריה יבקש הפסקה לסידור החדר אחרי זמן צפייה מצטבר.
+            </p>
           )}
         </div>
       </div>

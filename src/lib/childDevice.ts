@@ -1,4 +1,5 @@
-import type { WhitelistedChannel } from '../types'
+import type { EducationalBreakIntervalMinutes, WhitelistedChannel } from '../types'
+import { normalizeBreakIntervalFromDevice } from './educationalIntercept'
 import { supabase } from './supabase'
 import { clearLocalParentSession } from './localParentAdmin'
 import { clearAppMode } from './appMode'
@@ -12,7 +13,7 @@ export interface ChildDeviceState {
   is_online: boolean
   last_seen_at: string | null
   educational_intercept_enabled: boolean
-  educational_intercept_frequency: 2 | 3 | 5
+  break_interval_minutes: EducationalBreakIntervalMinutes
   allow_shorts: boolean
 }
 
@@ -123,19 +124,13 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
       educational_intercept_enabled: Boolean(
         r.educational_intercept_enabled ?? r.educational_intercepts_enabled
       ),
-      educational_intercept_frequency: normalizeInterceptFrequency(
-        r.educational_intercept_frequency
+      break_interval_minutes: normalizeBreakIntervalFromDevice(
+        r.break_interval_minutes ?? r.educational_intercept_frequency
       ),
       allow_shorts: Boolean(r.allow_shorts ?? r.allowShorts),
     },
     error: null,
   }
-}
-
-function normalizeInterceptFrequency(raw: unknown): 2 | 3 | 5 {
-  const s = typeof raw === 'number' ? String(raw) : String(raw ?? '3').trim()
-  if (s === '2' || s === '5') return Number(s) as 2 | 5
-  return 3
 }
 
 export function mapHeartbeatRow(row: Record<string, unknown>): Partial<ChildDeviceState> {

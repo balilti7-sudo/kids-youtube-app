@@ -1,7 +1,6 @@
 import { memo } from 'react'
 import { CleanPlayer } from '../player/CleanPlayer'
 import type { VideoFormat } from '../../lib/videoFormatClassification'
-import { useEducationalInterceptGate } from './EducationalInterceptGate'
 
 export type ChildWatchPlayerShellProps = {
   videoId: string
@@ -25,7 +24,6 @@ function ChildWatchPlayerShellInner({
   hasNextTrack,
 }: ChildWatchPlayerShellProps) {
   const isShort = format === 'short'
-  const interceptGate = useEducationalInterceptGate()
 
   return (
     <div
@@ -45,7 +43,6 @@ function ChildWatchPlayerShellInner({
             onPreviousTrack={onPreviousTrack}
             onNextTrack={onNextTrack}
             hasNextTrack={hasNextTrack}
-            onVideoPlaybackStarted={interceptGate?.onVideoPlaybackStarted}
             className="h-full w-full"
           />
         </div>
