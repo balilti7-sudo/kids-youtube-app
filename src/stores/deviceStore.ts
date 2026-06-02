@@ -167,7 +167,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   updateEducationalInterceptSettings: async (deviceId, enabled, intervalMinutes) => {
-    const { error } = await supabase.rpc('parent_update_device_settings', {
+    const { data, error } = await supabase.rpc('parent_update_device_settings', {
       p_device_id: deviceId,
       p_break_interval_minutes: intervalMinutes,
       p_educational_intercept_enabled: enabled,
@@ -176,13 +176,20 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       console.error('[deviceStore.updateEducationalInterceptSettings]', error)
       return { error: new Error(formatSupabaseError(error)) }
     }
+    const row = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : null
+    const savedInterval =
+      typeof row?.break_interval_minutes === 'number' ? row.break_interval_minutes : intervalMinutes
+    const savedEnabled =
+      typeof row?.educational_intercept_enabled === 'boolean'
+        ? row.educational_intercept_enabled
+        : enabled
     set({
       devices: get().devices.map((d) =>
         d.id === deviceId
           ? {
               ...d,
-              educational_intercept_enabled: enabled,
-              break_interval_minutes: intervalMinutes,
+              educational_intercept_enabled: savedEnabled,
+              break_interval_minutes: savedInterval,
             }
           : d
       ),

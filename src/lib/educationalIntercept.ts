@@ -1,10 +1,13 @@
-import type { EducationalBreakIntervalMinutes } from '../types'
+import {
+  EDUCATIONAL_BREAK_INTERVAL_MINUTES,
+  type EducationalBreakIntervalMinutes,
+} from '../types'
 
 /**
  * When false, no watch timer, no break overlay, and playback is never blocked.
  * Re-enable after the time-based break system is fully implemented and tested.
  */
-export const EDUCATIONAL_BREAKS_RUNTIME_ENABLED = false
+export const EDUCATIONAL_BREAKS_RUNTIME_ENABLED = true
 
 export const INTERCEPT_ACTIVE_KEY = 'safetube_intercept_active'
 export const INTERCEPT_SCENE_PROGRESS_KEY = 'safetube_intercept_scene_progress'
@@ -173,6 +176,7 @@ export function clearAllEducationalBreakLocalState() {
 if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED && typeof window !== 'undefined') {
   clearAllEducationalBreakLocalState()
 }
+// When enabled, watch time is tracked server-side (intercept_watch_seconds) and in useEducationalWatchTimer.
 
 export function interceptThresholdSeconds(settings: InterceptSettings): number {
   return settings.intervalMinutes * 60
@@ -230,9 +234,10 @@ export function settingsFromDevice(device: {
 
 export function normalizeBreakIntervalFromDevice(raw: unknown): EducationalBreakIntervalMinutes {
   const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? '30').trim(), 10)
-  if (n === 15) return 15
-  if (n === 45) return 45
+  if ((EDUCATIONAL_BREAK_INTERVAL_MINUTES as readonly number[]).includes(n)) {
+    return n as EducationalBreakIntervalMinutes
+  }
   if (n === 2) return 15
-  if (n === 5) return 45
-  return 30
+  if (n === 3) return 30
+  return 15
 }
