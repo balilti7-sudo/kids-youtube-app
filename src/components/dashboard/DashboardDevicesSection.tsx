@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Settings2, Smartphone } from 'lucide-react'
+import { Plus, Settings2, Smartphone, Link2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -14,6 +14,7 @@ import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { EducationalInterceptDeviceSettings } from './EducationalInterceptDeviceSettings'
 import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
 import { BedtimeParentApproveControl } from './BedtimeParentApproveControl'
+import { LinkExistingDeviceModal } from './LinkExistingDeviceModal'
 import { toast } from 'sonner'
 
 function randomSixDigits() {
@@ -33,6 +34,7 @@ export function DashboardDevicesSection({
   const addDevice = useDeviceStore((s) => s.addDevice)
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [linkModalOpen, setLinkModalOpen] = useState(false)
   const [deviceName, setDeviceName] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -117,6 +119,15 @@ export function DashboardDevicesSection({
           >
             <Plus className="h-5 w-5 shrink-0" aria-hidden />
             הוספת פרופיל
+          </button>
+          <button
+            type="button"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-600 bg-zinc-900/60 px-4 py-2.5 text-[14px] font-semibold text-zinc-100 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={() => setLinkModalOpen(true)}
+            disabled={atLimit || !ownerUserId}
+          >
+            <Link2 className="h-4 w-4 shrink-0" aria-hidden />
+            קשר מכשיר קיים
           </button>
         </div>
       </div>
@@ -212,6 +223,13 @@ export function DashboardDevicesSection({
           onKeyDown={(e) => e.key === 'Enter' && void handleAdd()}
         />
       </Modal>
+
+      <LinkExistingDeviceModal
+        open={linkModalOpen}
+        onClose={() => setLinkModalOpen(false)}
+        atDeviceLimit={atLimit}
+        onLinked={() => refetch()}
+      />
     </section>
   )
 }

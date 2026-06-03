@@ -48,6 +48,7 @@ import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { BedtimeRoutineGate } from '../components/kid/BedtimeRoutineGate'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
 import { ParentVoiceMessageListener } from '../components/kid/ParentVoiceMessageListener'
+import { KidDeviceLinkCodePanel } from '../components/kid/KidDeviceLinkCodePanel'
 import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import {
@@ -1238,6 +1239,7 @@ function KidModePageInner() {
                 נתק מכשיר
               </Button>
             </div>
+            <KidDeviceLinkCodePanel className="mt-5" />
             <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
               לחזרה ללוח ההורה: החזיקו לחוץ על לשונית &quot;הורים&quot; למעלה והזינו PIN.
             </p>
