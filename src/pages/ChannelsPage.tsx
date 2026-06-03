@@ -40,6 +40,7 @@ import {
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { BedtimeRoutineGate } from '../components/kid/BedtimeRoutineGate'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
+import { ParentVoiceMessageListener } from '../components/kid/ParentVoiceMessageListener'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -509,6 +510,7 @@ function ChannelsPageInner() {
     <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <BedtimeRoutineGate deviceId={deviceId}>
     <DailyWatchBudgetTracker deviceId={deviceId} />
+    <ParentVoiceMessageListener deviceId={deviceId} ownerUserId={ownerUserId} />
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
