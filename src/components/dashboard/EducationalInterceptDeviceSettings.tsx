@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { toast } from 'sonner'
-import { INTERCEPT_BREAK_INTERVAL_OPTIONS } from '../../data/educationalScenes'
+import { INTERCEPT_BREAK_INTERVAL_OPTIONS } from '../../lib/breakIntervalOptions'
 import { normalizeBreakIntervalFromDevice } from '../../lib/educationalIntercept'
 import { useDeviceStore } from '../../stores/deviceStore'
 import type { Device, EducationalBreakIntervalMinutes } from '../../types'
@@ -77,7 +77,7 @@ export function EducationalInterceptDeviceSettings({ device, className }: Props)
                 value={intervalMinutes}
                 disabled={saving}
                 onChange={(e) => {
-                  const next = Number(e.target.value) as EducationalBreakIntervalMinutes
+                  const next = normalizeBreakIntervalFromDevice(Number(e.target.value))
                   setIntervalMinutes(next)
                   void persist(enabled, next)
                 }}

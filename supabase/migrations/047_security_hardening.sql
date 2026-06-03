@@ -1,7 +1,14 @@
 -- Security hardening: pairing backdoor removal, video catalog validation, parent device RPC.
 
 -- ---------------------------------------------------------------------------
--- 1) Remove emergency master pairing code (migration 019) — restore strict match only
+-- 0) Cleanup existing functions to allow migration
+-- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.child_pair_device(TEXT);
+DROP FUNCTION IF EXISTS public.parent_approve_video_for_device(UUID, TEXT, TEXT, TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.parent_update_device_settings(UUID, BOOLEAN, INTEGER, BOOLEAN);
+
+-- ---------------------------------------------------------------------------
+-- 1) Remove emergency master pairing code
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.child_pair_device(p_pairing_code TEXT)
 RETURNS TABLE (
@@ -24,6 +31,7 @@ BEGIN
 
   v_trim := btrim(p_pairing_code);
 
+  -- Strict length check
   IF length(v_trim) > 32 OR length(v_trim) < 4 THEN
     RETURN;
   END IF;
@@ -60,9 +68,10 @@ END;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 2) Validate rows inserted into global video catalog (prevent junk / oversized payloads)
+-- 2) Validate rows inserted into global video catalog
 -- ---------------------------------------------------------------------------
 DROP POLICY IF EXISTS "whitelisted_videos_insert_authenticated" ON public.whitelisted_videos;
+DROP POLICY IF EXISTS "whitelisted_videos_insert_validated" ON public.whitelisted_videos;
 
 CREATE POLICY "whitelisted_videos_insert_validated"
   ON public.whitelisted_videos
@@ -82,7 +91,7 @@ CREATE POLICY "whitelisted_videos_insert_validated"
   );
 
 -- ---------------------------------------------------------------------------
--- 3) Single RPC for parent video approve (ownership + validated catalog insert)
+-- 3) Single RPC for parent video approve
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.parent_approve_video_for_device(
   p_device_id UUID,
@@ -103,9 +112,7 @@ DECLARE
   v_yt_id TEXT := btrim(COALESCE(p_youtube_video_id, ''));
   v_title TEXT := btrim(COALESCE(p_title, ''));
 BEGIN
-  IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'AUTH_REQUIRED';
-  END IF;
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
 
   IF NOT EXISTS (
     SELECT 1 FROM public.devices d
@@ -114,13 +121,8 @@ BEGIN
     RAISE EXCEPTION 'DEVICE_NOT_FOUND';
   END IF;
 
-  IF v_yt_id !~ '^[a-zA-Z0-9_-]{11}$' THEN
-    RAISE EXCEPTION 'INVALID_VIDEO_ID';
-  END IF;
-
-  IF char_length(v_title) < 1 OR char_length(v_title) > 500 THEN
-    RAISE EXCEPTION 'INVALID_TITLE';
-  END IF;
+  IF v_yt_id !~ '^[a-zA-Z0-9_-]{11}$' THEN RAISE EXCEPTION 'INVALID_VIDEO_ID'; END IF;
+  IF char_length(v_title) < 1 OR char_length(v_title) > 500 THEN RAISE EXCEPTION 'INVALID_TITLE'; END IF;
 
   SELECT wv.id INTO v_video_id
   FROM public.whitelisted_videos wv
@@ -128,25 +130,10 @@ BEGIN
   LIMIT 1;
 
   IF v_video_id IS NULL THEN
-    INSERT INTO public.whitelisted_videos (
-      youtube_video_id,
-      title,
-      thumbnail_url,
-      youtube_channel_id
-    )
-    VALUES (
-      v_yt_id,
-      v_title,
-      CASE
-        WHEN p_thumbnail_url IS NULL OR btrim(p_thumbnail_url) = '' THEN NULL
-        WHEN char_length(p_thumbnail_url) > 2048 OR btrim(p_thumbnail_url) !~ '^https?://' THEN NULL
-        ELSE btrim(p_thumbnail_url)
-      END,
-      CASE
-        WHEN p_youtube_channel_id IS NULL OR btrim(p_youtube_channel_id) = '' THEN NULL
-        WHEN btrim(p_youtube_channel_id) !~ '^[a-zA-Z0-9_-]+$' OR char_length(p_youtube_channel_id) > 64 THEN NULL
-        ELSE btrim(p_youtube_channel_id)
-      END
+    INSERT INTO public.whitelisted_videos (youtube_video_id, title, thumbnail_url, youtube_channel_id)
+    VALUES (v_yt_id, v_title, 
+      CASE WHEN p_thumbnail_url ~ '^https?://' AND char_length(p_thumbnail_url) <= 2048 THEN p_thumbnail_url ELSE NULL END,
+      CASE WHEN p_youtube_channel_id ~ '^[a-zA-Z0-9_-]+$' AND char_length(p_youtube_channel_id) <= 64 THEN p_youtube_channel_id ELSE NULL END
     )
     RETURNING id INTO v_video_id;
   END IF;
@@ -163,7 +150,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.parent_approve_video_for_device(UUID, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 4) Harden parent_update_device_settings (explicit COALESCE for allow_shorts)
+-- 4) Harden parent_update_device_settings
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.parent_update_device_settings(
   p_device_id UUID,
@@ -179,9 +166,7 @@ AS $$
 DECLARE
   v_row public.devices%ROWTYPE;
 BEGIN
-  IF auth.uid() IS NULL THEN
-    RAISE EXCEPTION 'AUTH_REQUIRED';
-  END IF;
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
 
   IF NOT EXISTS (
     SELECT 1 FROM public.devices d
@@ -192,18 +177,12 @@ BEGIN
 
   UPDATE public.devices d
   SET
-    allow_shorts = CASE
-      WHEN p_allow_shorts IS NULL THEN d.allow_shorts
-      ELSE p_allow_shorts
+    allow_shorts = COALESCE(p_allow_shorts, d.allow_shorts),
+    break_interval_minutes = CASE 
+      WHEN p_break_interval_minutes IS NULL THEN d.break_interval_minutes 
+      ELSE public._normalize_break_interval_minutes(p_break_interval_minutes) 
     END,
-    break_interval_minutes = CASE
-      WHEN p_break_interval_minutes IS NULL THEN d.break_interval_minutes
-      ELSE public._normalize_break_interval_minutes(p_break_interval_minutes)
-    END,
-    educational_intercept_enabled = CASE
-      WHEN p_educational_intercept_enabled IS NULL THEN d.educational_intercept_enabled
-      ELSE p_educational_intercept_enabled
-    END
+    educational_intercept_enabled = COALESCE(p_educational_intercept_enabled, d.educational_intercept_enabled)
   WHERE d.id = p_device_id
   RETURNING * INTO v_row;
 

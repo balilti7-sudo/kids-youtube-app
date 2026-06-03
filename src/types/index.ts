@@ -13,7 +13,10 @@ export interface Profile {
 }
 
 /** Minutes between mandatory educational breaks while watching. */
-export type EducationalBreakIntervalMinutes = 15 | 30 | 45
+export const EDUCATIONAL_BREAK_INTERVAL_MINUTES = [5, 10, 15, 30, 45, 60] as const
+
+export type EducationalBreakIntervalMinutes =
+  (typeof EDUCATIONAL_BREAK_INTERVAL_MINUTES)[number]
 
 /** @deprecated Use EducationalBreakIntervalMinutes */
 export type EducationalInterceptFrequency = 2 | 3 | 5

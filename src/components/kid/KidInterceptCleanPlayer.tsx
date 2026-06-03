@@ -1,6 +1,6 @@
-import { CleanPlayer, type CleanPlayerProps } from '../player/CleanPlayer'
+import type { CleanPlayerProps } from '../player/CleanPlayer'
+import { EducationalBreakPlayerChrome } from './EducationalBreakPlayerChrome'
 
-/** Educational breaks disabled — plain player only. */
 export function KidInterceptCleanPlayer(props: CleanPlayerProps) {
-  return <CleanPlayer {...props} />
+  return <EducationalBreakPlayerChrome {...props} />
 }

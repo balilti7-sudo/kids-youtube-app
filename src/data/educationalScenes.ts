@@ -51,8 +51,4 @@ export function getEducationalScene(sceneId?: string | null): EducationalScene {
   return EDUCATIONAL_SCENES.find((s) => s.id === sceneId) ?? EDUCATIONAL_SCENES[0]!
 }
 
-export const INTERCEPT_BREAK_INTERVAL_OPTIONS = [
-  { value: 15 as const, label: '15 דקות' },
-  { value: 30 as const, label: '30 דקות' },
-  { value: 45 as const, label: '45 דקות' },
-] as const
+export { INTERCEPT_BREAK_INTERVAL_OPTIONS } from '../lib/breakIntervalOptions'
