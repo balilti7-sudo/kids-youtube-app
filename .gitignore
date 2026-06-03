@@ -20,6 +20,8 @@ server/*_cookies.txt
 server/cookies.txt
 server/.cache/
 server/logs/*.log
+server/logs/elevated-deploy.ps1
+server/logs/set-welcome-key.ps1
 .vercel
 .env.vercel.pull
 deploy/windows-server/bridge.secrets.env

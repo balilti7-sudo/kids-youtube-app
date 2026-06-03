@@ -39,6 +39,7 @@ import {
 } from '../lib/educationalIntercept'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { BedtimeRoutineGate } from '../components/kid/BedtimeRoutineGate'
+import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -507,6 +508,7 @@ function ChannelsPageInner() {
     <LionProgressionProvider>
     <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <BedtimeRoutineGate deviceId={deviceId}>
+    <DailyWatchBudgetTracker deviceId={deviceId} />
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
