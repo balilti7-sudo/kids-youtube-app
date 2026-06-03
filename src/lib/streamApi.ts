@@ -2,10 +2,16 @@ import { supabase } from './supabase'
 import { assertChildPlaybackAllowedForStream, ChildPlaybackBlockedError } from './childRuntime'
 import {
   LIVE_UPCOMING_PLAYBACK_MESSAGE,
+  normalizeBridgeErrorDetail,
   parseBridgeVideoInfo,
   shouldBlockLivePlayback,
   streamErrorLooksLikeUpcomingLive,
   type BridgeVideoInfo,
+} from './liveStreamPolicy'
+
+export {
+  streamApiErrorIsUpcomingLive,
+  UPCOMING_LIVE_LION_MESSAGE,
 } from './liveStreamPolicy'
 
 /** Response shape from `server` Media Bridge `GET /api/stream/:videoId` */
@@ -323,9 +329,9 @@ export async function fetchVideoInfo(
       let errorCode: string | null = null
       let detail: string | null = null
       try {
-        const body = (await res.json()) as { error?: string; detail?: string }
+        const body = (await res.json()) as { error?: string; detail?: unknown }
         errorCode = body.error ?? null
-        detail = body.detail ?? null
+        detail = normalizeBridgeErrorDetail(body.detail)
       } catch {
         /* ignore */
       }
@@ -466,11 +472,11 @@ async function doFetchStreamInfo(
       let detail: string | null = null
       let errorCode: string | null = null
       try {
-        const body = (await res.json()) as { error?: string; detail?: string; message?: string }
+        const body = (await res.json()) as { error?: string; detail?: unknown; message?: string }
         if (body.error) errMsg = body.error
-        if (body.detail) detail = body.detail
+        detail = normalizeBridgeErrorDetail(body.detail)
         if (body.error) errorCode = body.error
-        if (body.message && !detail) detail = body.message
+        if (body.message && !detail) detail = normalizeBridgeErrorDetail(body.message)
       } catch {
         /* ignore */
       }

@@ -18,9 +18,12 @@ import {
   getStreamApiBaseUrl,
   streamResponseToSource,
   StreamApiError,
+  streamApiErrorIsUpcomingLive,
   ChildPlaybackBlockedError,
   type StreamApiResponse,
 } from '../../lib/streamApi'
+import { streamErrorLooksLikeUpcomingLive } from '../../lib/liveStreamPolicy'
+import { UpcomingLiveLionOverlay } from './UpcomingLiveLionOverlay'
 import { assertChildPlaybackAllowedForStream } from '../../lib/childRuntime'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
@@ -45,6 +48,8 @@ export type CleanPlayerProps = {
   onVideoPlaybackStarted?: (videoId: string) => void
   /** Fired when the underlying media element starts or stops playing (for watch-time breaks). */
   onPlaybackActiveChange?: (playing: boolean) => void
+  /** Current playback position in seconds (native `<video>` path only; throttled ~1 Hz). */
+  onPlaybackTimeUpdate?: (currentTimeSeconds: number) => void
 }
 
 const END_OF_PLAYLIST_TOAST = 'הגעת לסוף הפלייליסט'
@@ -260,6 +265,7 @@ function pickArtwork(videoId: string, posterUrl: string | null | undefined): Med
 type PlayerPhase =
   | { kind: 'resolving' }
   | { kind: 'playing'; info: StreamApiResponse }
+  | { kind: 'upcoming_live' }
   | { kind: 'error'; message: string; retryable: boolean }
 
 function canPlayNativeHls(): boolean {
@@ -297,7 +303,7 @@ function CleanPlayerYoutubeIframe({
   hasNextTrack = true,
   queueControls,
   onVideoPlaybackStarted,
-  onPlaybackActiveChange: _onPlaybackActiveChange,
+  onPlaybackActiveChange,
 }: CleanPlayerProps) {
   const playerShellRef = useRef<HTMLDivElement>(null)
   const [loopEnabled, setLoopEnabled] = useState(false)
@@ -343,9 +349,14 @@ function CleanPlayerYoutubeIframe({
       iframePlaybackNotifiedRef.current = true
       onVideoPlaybackStarted(id)
     }
-    // Educational break watch timer disabled — see EDUCATIONAL_BREAKS_RUNTIME_ENABLED
-    // onPlaybackActiveChange?.(true)
-  }, [videoId, onVideoPlaybackStarted])
+    onPlaybackActiveChange?.(true)
+  }, [videoId, onVideoPlaybackStarted, onPlaybackActiveChange])
+
+  useEffect(() => {
+    return () => {
+      onPlaybackActiveChange?.(false)
+    }
+  }, [videoId, onPlaybackActiveChange])
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
@@ -426,7 +437,8 @@ function CleanPlayerMediaBridge({
   hasNextTrack = true,
   queueControls,
   onVideoPlaybackStarted,
-  onPlaybackActiveChange: _onPlaybackActiveChange,
+  onPlaybackActiveChange,
+  onPlaybackTimeUpdate,
 }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
@@ -495,8 +507,54 @@ function CleanPlayerMediaBridge({
     }
   }, [phase.kind, videoId, onVideoPlaybackStarted])
 
-  // Educational break watch timer disabled — see EDUCATIONAL_BREAKS_RUNTIME_ENABLED
-  // useEffect(() => { ... onPlaybackActiveChange ... }, [phase.kind, videoId, onPlaybackActiveChange])
+  useEffect(() => {
+    if (phase.kind !== 'playing') {
+      onPlaybackActiveChange?.(false)
+      return
+    }
+    const el = videoRef.current
+    if (!el) return
+
+    const sync = () => {
+      onPlaybackActiveChange?.(!el.paused && !el.ended)
+    }
+
+    el.addEventListener('play', sync)
+    el.addEventListener('pause', sync)
+    el.addEventListener('ended', sync)
+    sync()
+
+    return () => {
+      el.removeEventListener('play', sync)
+      el.removeEventListener('pause', sync)
+      el.removeEventListener('ended', sync)
+      onPlaybackActiveChange?.(false)
+    }
+  }, [phase.kind, videoId, onPlaybackActiveChange])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing' || !onPlaybackTimeUpdate) return
+    const el = videoRef.current
+    if (!el) return
+
+    let lastSent = -1
+    const emit = () => {
+      if (!Number.isFinite(el.currentTime)) return
+      const t = Math.floor(el.currentTime)
+      if (t === lastSent) return
+      lastSent = t
+      onPlaybackTimeUpdate(t)
+    }
+
+    el.addEventListener('timeupdate', emit)
+    el.addEventListener('seeked', emit)
+    emit()
+
+    return () => {
+      el.removeEventListener('timeupdate', emit)
+      el.removeEventListener('seeked', emit)
+    }
+  }, [phase.kind, videoId, onPlaybackTimeUpdate])
 
   const handleRetry = useCallback(() => {
     setBridgeWaking(false)
@@ -646,12 +704,24 @@ function CleanPlayerMediaBridge({
         setBridgeWaking(false)
         if (cancelled || signal.aborted) return
         console.error('[CleanPlayer] resolve failed', e)
-        if (e instanceof StreamApiError || e instanceof ChildPlaybackBlockedError) {
-          const retryable = e instanceof StreamApiError && e.status !== 422
+        if (e instanceof StreamApiError) {
+          if (streamApiErrorIsUpcomingLive(e)) {
+            setPhase({ kind: 'upcoming_live' })
+            return
+          }
+          const retryable = e.status !== 422
           setPhase({ kind: 'error', message: e.message, retryable })
           return
         }
+        if (e instanceof ChildPlaybackBlockedError) {
+          setPhase({ kind: 'error', message: e.message, retryable: false })
+          return
+        }
         const msg = e instanceof Error ? e.message : String(e)
+        if (streamErrorLooksLikeUpcomingLive(msg)) {
+          setPhase({ kind: 'upcoming_live' })
+          return
+        }
         setPhase({
           kind: 'error',
           message:
@@ -920,7 +990,8 @@ function CleanPlayerMediaBridge({
     }
   }, [pipSupported])
 
-  const showOverlay = phase.kind !== 'playing'
+  const isUpcomingLive = phase.kind === 'upcoming_live'
+  const showOverlay = phase.kind !== 'playing' && !isUpcomingLive
 
   return (
     <div
@@ -976,10 +1047,13 @@ function CleanPlayerMediaBridge({
           <PictureInPicture2 className="h-5 w-5" aria-hidden />
         </button>
       ) : null}
+      {isUpcomingLive ? <UpcomingLiveLionOverlay /> : null}
       <video
         ref={videoRef}
-        className="h-full w-full"
+        className={cn('h-full w-full', isUpcomingLive && 'pointer-events-none invisible')}
         controls
+        tabIndex={isUpcomingLive ? -1 : undefined}
+        aria-hidden={isUpcomingLive}
         controlsList="nodownload"
         playsInline
         preload="auto"

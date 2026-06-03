@@ -73,13 +73,42 @@ export function shouldHideFromChildBrowse(title: string | null | undefined): boo
   return titleSuggestsUpcomingLive(title)
 }
 
+/** Bridge may return `detail` as a string or string[] (yt-dlp error lines). */
+export function normalizeBridgeErrorDetail(detail: unknown): string | null {
+  if (detail == null) return null
+  if (Array.isArray(detail)) {
+    const parts = detail.map((x) => String(x).trim()).filter(Boolean)
+    return parts.length ? parts.join(' ') : null
+  }
+  const s = String(detail).trim()
+  return s || null
+}
+
 export function streamErrorLooksLikeUpcomingLive(detail: string | null | undefined): boolean {
   const s = (detail ?? '').toLowerCase()
   if (!s) return false
+  if (s.includes('live event has ended') || s.includes('live event ended')) return false
   return (
     s.includes('live_upcoming') ||
     s.includes('is_upcoming') ||
     s.includes('premiere') ||
+    s.includes('premieres in') ||
+    s.includes('will begin in') ||
+    s.includes('not started yet') ||
+    s.includes('not yet started') ||
     (s.includes('live') && (s.includes('not started') || s.includes('upcoming') || s.includes('scheduled')))
   )
 }
+
+export function streamApiErrorIsUpcomingLive(err: {
+  status: number | null
+  message: string
+  detail: string | null
+}): boolean {
+  if (err.status === 422) return true
+  if (err.message === LIVE_UPCOMING_PLAYBACK_MESSAGE) return true
+  return streamErrorLooksLikeUpcomingLive(err.detail ?? err.message)
+}
+
+/** User-facing copy for the lion upcoming-live overlay (English). */
+export const UPCOMING_LIVE_LION_MESSAGE = 'This is a live event, it will start soon!'

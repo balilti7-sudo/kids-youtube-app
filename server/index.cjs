@@ -570,16 +570,19 @@ app.get('/api/stream/:videoId', async (req, res) => {
       proxied: true,
     });
   } catch (err) {
-    console.error(
-      '[/api/stream] failed:',
-      err.message
-    );
+    const msg = err?.message || String(err);
+    console.error('[/api/stream] failed:', msg);
+
+    if (/live|premiere|upcoming|not yet started|scheduled|will begin in/i.test(msg)) {
+      return res.status(422).json({
+        error: 'LIVE_UPCOMING',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+      });
+    }
 
     res.status(502).json({
       error: 'resolve_failed',
-      detail: err.message
-        .split('\n')
-        .slice(0, 3),
+      detail: msg.split('\n').slice(0, 3),
     });
   }
 });
