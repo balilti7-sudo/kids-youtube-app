@@ -1,20 +1,28 @@
 import { useEffect, useRef } from 'react'
 import {
   fetchDailyWatchState,
-  isDailyWatchBudgetExceeded,
   logDailyWatchBudgetExceeded,
   reportDailyWatchSeconds,
   type DailyWatchState,
 } from '../lib/dailyWatchBudget'
 import { isMediaPlaybackActive } from '../lib/mediaPlaybackActivity'
+import { useDailyWatchBudgetStore } from '../stores/dailyWatchBudgetStore'
 
 const FLUSH_EVERY_SECONDS = 15
 
 /**
  * Tracks cumulative video playback time for the active child device and syncs to Supabase.
- * Phase 1: logs to console when the daily budget is exceeded (no UI overlay yet).
+ * Exposes `isLimitReached` for player overlays and playback guards.
  */
-export function useDailyWatchBudgetTracker(deviceId: string | null | undefined): void {
+export function useDailyWatchBudgetTracker(deviceId: string | null | undefined): {
+  isLimitReached: boolean
+} {
+  const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
+  const resetForDevice = useDailyWatchBudgetStore((s) => s.resetForDevice)
+  const applyWatchState = useDailyWatchBudgetStore((s) => s.applyWatchState)
+  const incrementLocalWatchSeconds = useDailyWatchBudgetStore((s) => s.incrementLocalWatchSeconds)
+  const applyServerTotals = useDailyWatchBudgetStore((s) => s.applyServerTotals)
+
   const pendingSecondsRef = useRef(0)
   const stateRef = useRef<DailyWatchState | null>(null)
   const exceededLoggedRef = useRef(false)
@@ -23,12 +31,12 @@ export function useDailyWatchBudgetTracker(deviceId: string | null | undefined):
   const maybeLogExceeded = () => {
     const state = stateRef.current
     if (!state || exceededLoggedRef.current) return
-    if (!isDailyWatchBudgetExceeded(state.watchSecondsToday, state.dailyTimeLimitMinutes)) return
+    if (!useDailyWatchBudgetStore.getState().isLimitReached) return
     exceededLoggedRef.current = true
     logDailyWatchBudgetExceeded(state)
   }
 
-  const applyServerTotals = (watchSecondsToday: number, dailyTimeLimitMinutes: number) => {
+  const syncServerTotals = (watchSecondsToday: number, dailyTimeLimitMinutes: number) => {
     const prev = stateRef.current
     if (!prev) return
     stateRef.current = {
@@ -36,6 +44,7 @@ export function useDailyWatchBudgetTracker(deviceId: string | null | undefined):
       watchSecondsToday,
       dailyTimeLimitMinutes,
     }
+    applyServerTotals(watchSecondsToday, dailyTimeLimitMinutes)
     maybeLogExceeded()
   }
 
@@ -52,7 +61,7 @@ export function useDailyWatchBudgetTracker(deviceId: string | null | undefined):
         return
       }
       if (data) {
-        applyServerTotals(data.watchSecondsToday, data.dailyTimeLimitMinutes)
+        syncServerTotals(data.watchSecondsToday, data.dailyTimeLimitMinutes)
       }
     } finally {
       flushingRef.current = false
@@ -63,6 +72,7 @@ export function useDailyWatchBudgetTracker(deviceId: string | null | undefined):
     exceededLoggedRef.current = false
     pendingSecondsRef.current = 0
     stateRef.current = null
+    resetForDevice(deviceId)
 
     const id = deviceId?.trim()
     if (!id) return
@@ -76,13 +86,14 @@ export function useDailyWatchBudgetTracker(deviceId: string | null | undefined):
       }
       if (!data) return
       stateRef.current = data
+      applyWatchState(data)
       maybeLogExceeded()
     })
 
     return () => {
       cancelled = true
     }
-  }, [deviceId])
+  }, [deviceId, resetForDevice, applyWatchState])
 
   useEffect(() => {
     const id = deviceId?.trim()
@@ -96,6 +107,7 @@ export function useDailyWatchBudgetTracker(deviceId: string | null | undefined):
           ...stateRef.current,
           watchSecondsToday: stateRef.current.watchSecondsToday + 1,
         }
+        incrementLocalWatchSeconds(1)
         maybeLogExceeded()
       }
       if (pendingSecondsRef.current >= FLUSH_EVERY_SECONDS) {
@@ -115,5 +127,7 @@ export function useDailyWatchBudgetTracker(deviceId: string | null | undefined):
       window.removeEventListener('pagehide', onHidden)
       void flushPending(id)
     }
-  }, [deviceId])
+  }, [deviceId, incrementLocalWatchSeconds, applyServerTotals])
+
+  return { isLimitReached }
 }

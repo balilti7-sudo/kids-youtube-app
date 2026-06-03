@@ -22,7 +22,9 @@ import {
 import { classifyPlaybackFailure, logPlaybackFailure } from '../../lib/playerPlaybackErrors'
 import { UpcomingLiveLionOverlay } from './UpcomingLiveLionOverlay'
 import { PlayerErrorOverlay } from './PlayerErrorOverlay'
+import { DailyLimitOverlay } from '../kid/DailyLimitOverlay'
 import { assertChildPlaybackAllowedForStream } from '../../lib/childRuntime'
+import { useDailyWatchBudgetStore } from '../../stores/dailyWatchBudgetStore'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
 
@@ -265,6 +267,7 @@ type PlayerPhase =
   | { kind: 'playing'; info: StreamApiResponse }
   | { kind: 'upcoming_live' }
   | { kind: 'error'; retryable: boolean }
+  | { kind: 'daily_limit' }
 
 function applyPlaybackFailure(
   err: unknown,
@@ -302,6 +305,7 @@ function CleanPlayerYoutubeIframe({
   onPlaybackActiveChange,
 }: CleanPlayerProps) {
   const playerShellRef = useRef<HTMLDivElement>(null)
+  const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
   const [loopEnabled, setLoopEnabled] = useState(false)
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
@@ -312,20 +316,26 @@ function CleanPlayerYoutubeIframe({
   const [iframeReady, setIframeReady] = useState(false)
   const iframePlaybackNotifiedRef = useRef(false)
   const src = useMemo(() => {
-    if (!safeId) return ''
+    if (!safeId || isLimitReached) return ''
     const base = buildYoutubePrivacyEmbedUrl(safeId, { origin, autoplay: true })
     if (!loopEnabled) return base
     const u = new URL(base)
     u.searchParams.set('loop', '1')
     u.searchParams.set('playlist', safeId)
     return u.toString()
-  }, [safeId, origin, loopEnabled])
+  }, [safeId, origin, loopEnabled, isLimitReached])
 
   // Reset the skeleton whenever a new video mounts so feedback is instant on tap.
   useEffect(() => {
     setIframeReady(false)
     iframePlaybackNotifiedRef.current = false
   }, [src])
+
+  useEffect(() => {
+    if (!isLimitReached) return
+    onPlaybackActiveChange?.(false)
+    setMediaPlaybackActive(false)
+  }, [isLimitReached, onPlaybackActiveChange])
 
   useEffect(() => {
     let cancelled = false
@@ -382,7 +392,8 @@ function CleanPlayerYoutubeIframe({
       dir="ltr"
     >
       <div ref={playerShellRef} className="relative min-h-0 flex-1">
-      {!safeId || !src ? (
+      {isLimitReached ? <DailyLimitOverlay /> : null}
+      {!safeId ? (
         <div
           className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/90 px-4 text-center text-sm text-amber-100"
           role="alert"
@@ -390,14 +401,14 @@ function CleanPlayerYoutubeIframe({
         >
           <p>מזהה סרטון YouTube לא תקין.</p>
         </div>
-      ) : (
+      ) : !src ? null : (
         <>
           {!iframeReady ? <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} /> : null}
           <iframe
             key={src}
             title={title}
             src={src}
-            className="h-full w-full border-0"
+            className={cn('h-full w-full border-0', isLimitReached && 'pointer-events-none invisible')}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
             allowFullScreen
             loading="eager"
@@ -456,6 +467,7 @@ function CleanPlayerMediaBridge({
   const showControlBar = showQueueControls || Boolean(theater)
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
   const playbackNotifiedRef = useRef(false)
+  const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
 
   useEffect(() => {
     onNextTrackRef.current = onNextTrack
@@ -575,6 +587,14 @@ function CleanPlayerMediaBridge({
       }
     }
 
+    if (isLimitReached) {
+      detachHls()
+      setPhase({ kind: 'daily_limit' })
+      return () => {
+        cancelled = true
+      }
+    }
+
     setPhase({ kind: 'resolving' })
     setBridgeWaking(false)
     hlsJsActiveRef.current = false
@@ -684,7 +704,20 @@ function CleanPlayerMediaBridge({
       ac?.abort()
       detachHls()
     }
-  }, [videoId, retryNonce])
+  }, [videoId, retryNonce, isLimitReached])
+
+  useEffect(() => {
+    if (!isLimitReached) return
+    const el = videoRef.current
+    if (el && !el.paused) {
+      el.pause()
+    }
+    setMediaPlaybackActive(false)
+    onPlaybackActiveChange?.(false)
+    if (phase.kind === 'playing') {
+      setPhase({ kind: 'daily_limit' })
+    }
+  }, [isLimitReached, phase.kind, onPlaybackActiveChange])
 
   const safePosterVideoId = sanitizeYoutubeVideoId(videoId)
   const videoPoster =
@@ -744,6 +777,10 @@ function CleanPlayerMediaBridge({
 
     try {
       ms.setActionHandler('play', () => {
+        if (useDailyWatchBudgetStore.getState().isLimitReached) {
+          el.pause()
+          return
+        }
         void el.play()
       })
       ms.setActionHandler('pause', () => {
@@ -822,12 +859,24 @@ function CleanPlayerMediaBridge({
     if (!el) return
 
     const sync = () => {
+      if (useDailyWatchBudgetStore.getState().isLimitReached) {
+        if (!el.paused) el.pause()
+        setMediaPlaybackActive(false)
+        return
+      }
       const on = !el.paused && !el.ended
       setMediaPlaybackActive(on)
       if (on) touchParentalGateActivity()
     }
 
-    const onPlay = () => sync()
+    const onPlay = () => {
+      if (useDailyWatchBudgetStore.getState().isLimitReached) {
+        el.pause()
+        setMediaPlaybackActive(false)
+        return
+      }
+      sync()
+    }
     const onPause = () => sync()
     const onEndedForActivity = () => sync()
 
@@ -855,6 +904,7 @@ function CleanPlayerMediaBridge({
     if (!el) return
 
     const tryAutoplay = () => {
+      if (useDailyWatchBudgetStore.getState().isLimitReached) return
       void el.play().catch(() => {})
     }
     if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
@@ -863,7 +913,7 @@ function CleanPlayerMediaBridge({
       el.addEventListener('canplay', tryAutoplay, { once: true })
     }
     return () => el.removeEventListener('canplay', tryAutoplay)
-  }, [phase.kind, videoId])
+  }, [phase.kind, videoId, isLimitReached])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
@@ -871,6 +921,7 @@ function CleanPlayerMediaBridge({
     if (!el) return
 
     const onQueueEnded = () => {
+      if (useDailyWatchBudgetStore.getState().isLimitReached) return
       if (loopEnabled) {
         el.currentTime = 0
         void el.play().catch(() => {})
@@ -895,7 +946,11 @@ function CleanPlayerMediaBridge({
         wasPlayingBeforeHiddenRef.current = !el.paused
         return
       }
-      if (document.visibilityState === 'visible' && wasPlayingBeforeHiddenRef.current) {
+      if (
+        document.visibilityState === 'visible' &&
+        wasPlayingBeforeHiddenRef.current &&
+        !useDailyWatchBudgetStore.getState().isLimitReached
+      ) {
         void el.play().catch(() => {})
       }
     }
@@ -937,8 +992,9 @@ function CleanPlayerMediaBridge({
 
   const isUpcomingLive = phase.kind === 'upcoming_live'
   const isPlaybackError = phase.kind === 'error'
-  const hideVideo = isUpcomingLive || isPlaybackError
-  const showLoadingOverlay = phase.kind === 'resolving'
+  const isDailyLimit = phase.kind === 'daily_limit' || isLimitReached
+  const hideVideo = isUpcomingLive || isPlaybackError || isDailyLimit
+  const showLoadingOverlay = phase.kind === 'resolving' && !isLimitReached
 
   return (
     <div
@@ -965,7 +1021,14 @@ function CleanPlayerMediaBridge({
           onRetry={phase.retryable ? handleRetry : undefined}
         />
       ) : null}
-      {phase.kind === 'playing' && pipSupported ? (
+      {isDailyLimit ? (
+        <DailyLimitOverlay
+          onSnoozed={() => {
+            setRetryNonce((n) => n + 1)
+          }}
+        />
+      ) : null}
+      {phase.kind === 'playing' && pipSupported && !isLimitReached ? (
         <button
           type="button"
           onClick={() => void handlePipToggle()}

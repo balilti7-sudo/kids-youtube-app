@@ -91,9 +91,10 @@ export async function reportDailyWatchSeconds(
 
 export function isDailyWatchBudgetExceeded(
   watchSecondsToday: number,
-  dailyTimeLimitMinutes: number
+  dailyTimeLimitMinutes: number,
+  snoozeBonusSeconds = 0
 ): boolean {
-  const limitSeconds = Math.max(1, dailyTimeLimitMinutes) * 60
+  const limitSeconds = Math.max(1, dailyTimeLimitMinutes) * 60 + Math.max(0, snoozeBonusSeconds)
   return watchSecondsToday >= limitSeconds
 }
 
