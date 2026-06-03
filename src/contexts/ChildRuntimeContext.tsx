@@ -22,9 +22,13 @@ import {
   BEDTIME_CHANGED_EVENT,
   childCompleteIntercept,
   childCompleteScreenTimeChallenge,
+  childConfirmBedtimeTask,
+  childClaimTreasureChest,
   childEquipLionOutfit,
+  childGetBedtimeState,
   childGetRaffleTicketSummary,
   childMarkInterceptItemFixed,
+  childSpinDailyWheel,
   childTickScreenTime,
   childTryBeginPlayback,
   notifyBedtimeChanged,
@@ -149,6 +153,17 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
   }, [propDeviceId, savedDeviceId])
 
   const refreshBedtimeState = useCallback(async () => {
+    const token = getSavedChildAccessToken()
+    if (token) {
+      const { data, error } = await childGetBedtimeState(token)
+      if (error) {
+        console.warn('[ChildRuntime] child bedtime state failed', error.message)
+        return
+      }
+      setBedtimeState(data)
+      return
+    }
+
     if (!effectiveActiveDeviceId) {
       setBedtimeState(null)
       return
@@ -206,9 +221,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
         setRuntime(data)
         const [raffleRes, bedtimeRes] = await Promise.all([
           childGetRaffleTicketSummary(token),
-          effectiveActiveDeviceId
-            ? ownerGetBedtimeState(effectiveActiveDeviceId)
-            : Promise.resolve({ data: null, error: null }),
+          childGetBedtimeState(token),
         ])
         if (raffleRes.error) {
           console.warn('[ChildRuntime] raffle summary failed', raffleRes.error.message)
@@ -274,6 +287,34 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
 
   const confirmBedtimeTask = useCallback(
     async (task: BedtimeTask) => {
+      const token = getSavedChildAccessToken()
+      if (token) {
+        console.info('[ChildRuntime] confirmBedtimeTask (child token)', { task })
+        const result = await childConfirmBedtimeTask(token, task)
+        if (result.error) {
+          console.error('[ChildRuntime] confirmBedtimeTask failed', {
+            task,
+            message: result.error.message,
+          })
+          return result
+        }
+        if (result.data) {
+          setBedtimeState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  teethConfirmed: result.data!.teethConfirmed,
+                  bathroomConfirmed: result.data!.bathroomConfirmed,
+                  tasksCompleted: result.data!.tasksCompleted,
+                }
+              : prev
+          )
+        }
+        await refreshBedtimeState()
+        notifyBedtimeChanged()
+        return result
+      }
+
       if (!effectiveActiveDeviceId) {
         console.error('[ChildRuntime] confirmBedtimeTask: missing activeDeviceId', { task })
         return { data: null, error: new Error('NO_ACTIVE_DEVICE') }
@@ -313,6 +354,15 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
   )
 
   const spinDailyWheel = useCallback(async () => {
+    const token = getSavedChildAccessToken()
+    if (token) {
+      const result = await childSpinDailyWheel(token)
+      if (!result.error) {
+        await refreshBedtimeState()
+        notifyBedtimeChanged()
+      }
+      return result
+    }
     if (!effectiveActiveDeviceId) {
       return { data: null, error: new Error('NO_ACTIVE_DEVICE') }
     }
@@ -325,6 +375,15 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
   }, [effectiveActiveDeviceId, refreshBedtimeState])
 
   const claimTreasureChest = useCallback(async () => {
+    const token = getSavedChildAccessToken()
+    if (token) {
+      const result = await childClaimTreasureChest(token)
+      if (!result.error) {
+        await refreshBedtimeState()
+        notifyBedtimeChanged()
+      }
+      return result
+    }
     if (!effectiveActiveDeviceId) {
       return { data: null, error: new Error('NO_ACTIVE_DEVICE') }
     }

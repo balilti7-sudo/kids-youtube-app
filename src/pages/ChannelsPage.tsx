@@ -38,10 +38,7 @@ import {
   type InterceptPendingVideo,
 } from '../lib/educationalIntercept'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
-import { BedtimeRoutineZone } from '../components/kid/BedtimeRoutineZone'
-import {
-  bedtimeBlocksChannelBrowse,
-} from '../lib/childRuntime'
+import { BedtimeRoutineGate } from '../components/kid/BedtimeRoutineGate'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -489,11 +486,6 @@ function ChannelsPageInner() {
   )
 
   const showLionProfile = Boolean(getSavedChildAccessToken())
-  const bedtimePanel = (
-    <BedtimeRoutineZone className="w-full" compact={Boolean(selectedChannel && watchStarted && activeVideoId)} />
-  )
-  const bedtimeBlocksBrowse =
-    Boolean(deviceId) && bedtimeBlocksChannelBrowse(childRuntime?.bedtimeState)
   const childBlocked = Boolean(childRuntime?.isBlocked)
 
   if (childBlocked && getSavedChildAccessToken()) {
@@ -514,6 +506,7 @@ function ChannelsPageInner() {
     <ScreenTimeChildGate>
     <LionProgressionProvider>
     <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
+    <BedtimeRoutineGate deviceId={deviceId}>
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
@@ -624,7 +617,6 @@ function ChannelsPageInner() {
               }
               sidebar={
                 <div className="flex flex-col gap-3 px-1 sm:px-0">
-                  {bedtimePanel}
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2">
                     <button
                       type="button"
@@ -703,7 +695,6 @@ function ChannelsPageInner() {
             </div>
           ) : (
             <>
-              {bedtimePanel}
               {filteredVideos.length === 0 && videoSearch.trim() ? (
                 <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-10 text-center text-sm text-zinc-400">
                   אין סרטונים שמתאימים לחיפוש &quot;{videoSearch.trim()}&quot;.
@@ -722,8 +713,6 @@ function ChannelsPageInner() {
         </section>
       ) : (
         <>
-          {bedtimePanel}
-          {bedtimeBlocksBrowse ? null : (
         <section
           aria-label="ערוצים מאושרים"
           className="mx-auto grid w-full max-w-[1040px] grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
@@ -776,10 +765,10 @@ function ChannelsPageInner() {
             </article>
           ))}
         </section>
-          )}
         </>
       )}
     </div>
+    </BedtimeRoutineGate>
     </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>

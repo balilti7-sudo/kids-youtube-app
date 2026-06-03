@@ -45,6 +45,7 @@ import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
+import { BedtimeRoutineGate } from '../components/kid/BedtimeRoutineGate'
 import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import {
@@ -1077,6 +1078,7 @@ function KidModePageInner() {
     <ScreenTimeChildGate>
     <LionProgressionProvider>
     <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
+    <BedtimeRoutineGate deviceId={device?.device_id ?? null}>
     <div className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40">
       <header className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 pb-[env(safe-area-inset-top)] backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90">
         <div className="mx-auto grid max-w-[1920px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 px-2 py-2 sm:gap-x-4 sm:px-3 sm:py-2">
@@ -1653,6 +1655,7 @@ function KidModePageInner() {
         description="חיפוש בכל YouTube דורש קוד הורה. הזינו PIN כדי להמשיך — אחרת החיפוש יבוטל."
       />
     </div>
+    </BedtimeRoutineGate>
     </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>

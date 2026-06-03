@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BYPASS_AUTH } from '../../config/dev'
 import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
+import { useBedtimeRoutineStore } from '../../stores/bedtimeRoutineStore'
 import { getSavedChildAccessToken } from '../../lib/childDevice'
 import { LOCK_MANAGEMENT_APP_EVENT, lockManagementAppShell } from '../../lib/lockParentApp'
 import { consumeParentEntryIntent } from '../../lib/parentEntryIntent'
@@ -113,6 +114,8 @@ export function AppLayout() {
   const showGate = !BYPASS_AUTH && !managementUnlocked && pathRequiresParentUnlock
   const showParentManagementChrome = pathRequiresParentUnlock
   const juicyChildUi = location.pathname === '/channels'
+  const bedtimeRoutineActive = useBedtimeRoutineStore((s) => s.isRoutineActive)
+  const hideBottomNav = bedtimeRoutineActive && location.pathname === '/channels'
 
   return (
     <JuicyUiProvider enabled={juicyChildUi}>
@@ -145,7 +148,7 @@ export function AppLayout() {
               <ParentAppFooter />
             </div>
           </main>
-          <BottomNav />
+          {hideBottomNav ? null : <BottomNav />}
         </>
       ) : null}
     </div>

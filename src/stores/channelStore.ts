@@ -232,7 +232,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       return { error: new Error(rpcError.message) }
     }
 
-    void userId
     await get().fetchApprovedVideosForDevice(deviceId)
     return { error: null }
   },
