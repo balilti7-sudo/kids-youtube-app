@@ -19,6 +19,7 @@ server/*-player-script.js
 server/*_cookies.txt
 server/cookies.txt
 server/.cache/
+server/logs/*.log
 .vercel
 .env.vercel.pull
 deploy/windows-server/bridge.secrets.env
