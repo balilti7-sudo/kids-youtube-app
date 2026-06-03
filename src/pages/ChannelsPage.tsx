@@ -29,8 +29,14 @@ import {
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
+import { EducationalInterceptGate } from '../components/kid/EducationalInterceptGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
+import {
+  DEFAULT_INTERCEPT_SETTINGS,
+  settingsFromDevice,
+  type InterceptPendingVideo,
+} from '../lib/educationalIntercept'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { BedtimeRoutineZone } from '../components/kid/BedtimeRoutineZone'
 import {
@@ -99,6 +105,20 @@ function ChannelsPageInner() {
   const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
   const [allowShorts, setAllowShorts] = useState(false)
+  const [childInterceptSettings, setChildInterceptSettings] = useState(DEFAULT_INTERCEPT_SETTINGS)
+
+  const interceptSettings = useMemo(() => {
+    const rt = childRuntime?.effectiveRuntime
+    if (rt) {
+      return {
+        enabled: rt.educationalInterceptEnabled,
+        intervalMinutes: rt.breakIntervalMinutes,
+      }
+    }
+    const fromList = devices.find((d) => d.id === deviceId)
+    if (fromList) return settingsFromDevice(fromList)
+    return childInterceptSettings
+  }, [childRuntime?.effectiveRuntime, devices, deviceId, childInterceptSettings])
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -119,6 +139,7 @@ function ChannelsPageInner() {
   useEffect(() => {
     if (!selectedDevice) return
     setAllowShorts(Boolean(selectedDevice.allow_shorts))
+    setChildInterceptSettings(settingsFromDevice(selectedDevice))
   }, [selectedDevice])
 
   const { whitelist, loading } = useChannels(deviceId ?? undefined, ownerUserId)
@@ -358,7 +379,20 @@ function ChannelsPageInner() {
 
       void (async () => {
         if (childRuntime?.isBlocked) return
-        // Educational break gate disabled — always allow playback (see EDUCATIONAL_BREAKS_RUNTIME_ENABLED)
+
+        const pending: InterceptPendingVideo = {
+          videoId,
+          title: snapshot?.title,
+          channelTitle: snapshot?.channelName,
+          posterUrl: snapshot?.thumbnail_url ?? null,
+        }
+        if (childRuntime) {
+          const allowed = await childRuntime.tryBeginPlayback(pending)
+          if (!allowed) {
+            if (snapshot) setPlayingVideo(snapshot)
+            return
+          }
+        }
 
         if (snapshot) setPlayingVideo(snapshot)
         prefetchStreamInfo(videoId)
@@ -440,6 +474,20 @@ function ChannelsPageInner() {
     setPlayingVideo(null)
   }, [childRuntime?.playbackBlocked])
 
+  const resumePendingPlayback = useCallback(
+    (pending: InterceptPendingVideo | null) => {
+      if (!pending?.videoId) return
+      const base = videos.find((video) => video.youtube_video_id === pending.videoId) ?? null
+      const snapshot = base ? toChannelWatchVideo(base) : null
+      if (snapshot) setPlayingVideo(snapshot)
+      prefetchStreamInfo(pending.videoId)
+      setWatchStarted(true)
+      setActiveVideoId(pending.videoId)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    },
+    [videos, toChannelWatchVideo]
+  )
+
   const showLionProfile = Boolean(getSavedChildAccessToken())
   const bedtimePanel = (
     <BedtimeRoutineZone className="w-full" compact={Boolean(selectedChannel && watchStarted && activeVideoId)} />
@@ -463,9 +511,9 @@ function ChannelsPageInner() {
   }
 
   return (
-    <ChildRuntimeProvider activeDeviceId={deviceId}>
     <ScreenTimeChildGate>
     <LionProgressionProvider>
+    <EducationalInterceptGate settings={interceptSettings} onResumePlayback={resumePendingPlayback}>
     <div
       className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
         selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
@@ -497,6 +545,19 @@ function ChannelsPageInner() {
             onHome={goHome}
             onSelectChannel={openChannel}
           />
+        ) : null}
+        {selectedChannel ? (
+          <div className="mt-4 border-t border-zinc-800/80 pt-4">
+            <ChannelVideoSearchBar
+              id="child-channel-video-search"
+              value={videoSearch}
+              onChange={setVideoSearch}
+              totalCount={playlistSourceVideos.length}
+              filteredCount={filteredVideos.length}
+              channelLabel={selectedChannel.channel_name}
+              className="rounded-2xl border border-zinc-800/90 bg-zinc-950/70 p-3 shadow-inner shadow-black/20"
+            />
+          </div>
         ) : null}
       </header>
 
@@ -582,15 +643,6 @@ function ChannelsPageInner() {
                       </span>
                     </button>
                   </div>
-                  <ChannelVideoSearchBar
-                    id="child-channel-watch-search"
-                    value={videoSearch}
-                    onChange={setVideoSearch}
-                    totalCount={playlistSourceVideos.length}
-                    filteredCount={filteredVideos.length}
-                    channelLabel={selectedChannel.channel_name}
-                    className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-3"
-                  />
                   <YoutubeSuggestedList
                     title={
                       showMyPlaylist
@@ -652,13 +704,19 @@ function ChannelsPageInner() {
           ) : (
             <>
               {bedtimePanel}
-              <ChannelVideoBrowseRows
-              videos={filteredVideos}
-              activeVideoId={activeVideoId}
-              allowShorts={allowShorts}
-              onSelectVideo={selectWatchVideo}
-              renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
-            />
+              {filteredVideos.length === 0 && videoSearch.trim() ? (
+                <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-10 text-center text-sm text-zinc-400">
+                  אין סרטונים שמתאימים לחיפוש &quot;{videoSearch.trim()}&quot;.
+                </p>
+              ) : (
+                <ChannelVideoBrowseRows
+                  videos={filteredVideos}
+                  activeVideoId={activeVideoId}
+                  allowShorts={allowShorts}
+                  onSelectVideo={selectWatchVideo}
+                  renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
+                />
+              )}
             </>
           )}
         </section>
@@ -722,12 +780,16 @@ function ChannelsPageInner() {
         </>
       )}
     </div>
+    </EducationalInterceptGate>
     </LionProgressionProvider>
     </ScreenTimeChildGate>
-    </ChildRuntimeProvider>
   )
 }
 
 export function ChannelsPage() {
-  return <ChannelsPageInner />
+  return (
+    <ChildRuntimeProvider>
+      <ChannelsPageInner />
+    </ChildRuntimeProvider>
+  )
 }

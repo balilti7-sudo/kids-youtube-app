@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Maximize, Minimize, PictureInPicture2, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
 import Hls from 'hls.js'
 import { setMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
@@ -17,13 +17,11 @@ import {
   fetchStreamInfo,
   getStreamApiBaseUrl,
   streamResponseToSource,
-  StreamApiError,
-  streamApiErrorIsUpcomingLive,
-  ChildPlaybackBlockedError,
   type StreamApiResponse,
 } from '../../lib/streamApi'
-import { streamErrorLooksLikeUpcomingLive } from '../../lib/liveStreamPolicy'
+import { classifyPlaybackFailure, logPlaybackFailure } from '../../lib/playerPlaybackErrors'
 import { UpcomingLiveLionOverlay } from './UpcomingLiveLionOverlay'
+import { PlayerErrorOverlay } from './PlayerErrorOverlay'
 import { assertChildPlaybackAllowedForStream } from '../../lib/childRuntime'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
@@ -266,7 +264,21 @@ type PlayerPhase =
   | { kind: 'resolving' }
   | { kind: 'playing'; info: StreamApiResponse }
   | { kind: 'upcoming_live' }
-  | { kind: 'error'; message: string; retryable: boolean }
+  | { kind: 'error'; retryable: boolean }
+
+function applyPlaybackFailure(
+  err: unknown,
+  context: string,
+  setPhase: (phase: PlayerPhase) => void
+): void {
+  const result = classifyPlaybackFailure(err)
+  logPlaybackFailure(context, result, err)
+  if (result.phase === 'upcoming_live') {
+    setPhase({ kind: 'upcoming_live' })
+    return
+  }
+  setPhase({ kind: 'error', retryable: result.retryable })
+}
 
 function canPlayNativeHls(): boolean {
   if (typeof document === 'undefined') return false
@@ -275,22 +287,6 @@ function canPlayNativeHls(): boolean {
     v.canPlayType('application/vnd.apple.mpegurl') !== '' ||
     v.canPlayType('application/x-mpegURL') !== ''
   )
-}
-
-function mediaErrorMessage(err: MediaError | null): string {
-  if (!err) return 'אירעה שגיאת ניגון לא ידועה.'
-  switch (err.code) {
-    case err.MEDIA_ERR_ABORTED:
-      return 'הניגון בוטל.'
-    case err.MEDIA_ERR_NETWORK:
-      return 'בעיית רשת מול שרת המדיה. בדקו שהשרת רץ ופעיל.'
-    case err.MEDIA_ERR_DECODE:
-      return 'נכשל פענוח הוידאו. ייתכן שהפורמט לא נתמך.'
-    case err.MEDIA_ERR_SRC_NOT_SUPPORTED:
-      return 'הדפדפן לא מצליח לפענח את הזרם. נסו סרטון אחר.'
-    default:
-      return err.message || 'שגיאת ניגון.'
-  }
 }
 
 function CleanPlayerYoutubeIframe({
@@ -455,7 +451,6 @@ function CleanPlayerMediaBridge({
   const [pipActive, setPipActive] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
   const [loopEnabled, setLoopEnabled] = useState(false)
-  const errId = useId()
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
@@ -574,7 +569,7 @@ function CleanPlayerMediaBridge({
     }
 
     if (!videoId.trim()) {
-      setPhase({ kind: 'error', message: 'מזהה סרטון חסר או לא תקין.', retryable: false })
+      applyPlaybackFailure(new Error('missing videoId'), 'invalid videoId', setPhase)
       return () => {
         cancelled = true
       }
@@ -622,11 +617,7 @@ function CleanPlayerMediaBridge({
 
           if (info.format === 'hls' && !canPlayNativeHls()) {
             if (!Hls.isSupported()) {
-              setPhase({
-                kind: 'error',
-                message: 'הדפדפן לא תומך ב־HLS. נסו דפדפן אחר או עדכנו את המכשיר.',
-                retryable: false,
-              })
+              applyPlaybackFailure(new Error('HLS not supported'), 'hls unsupported', setPhase)
               return
             }
             hlsJsActiveRef.current = true
@@ -641,31 +632,15 @@ function CleanPlayerMediaBridge({
             hls.on(Hls.Events.ERROR, (_evt, data) => {
               if (!data.fatal) return
               console.error('[CleanPlayer] hls.js fatal', data)
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                setPhase({
-                  kind: 'error',
-                  message: 'בעיית רשת בזרם הוידאו. בדקו ששרת המדיה רץ ונסו שוב.',
-                  retryable: true,
-                })
-              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                 try {
                   hls.recoverMediaError()
                   return
                 } catch {
-                  /* fall through to error */
+                  /* fall through */
                 }
-                setPhase({
-                  kind: 'error',
-                  message: 'נכשל פענוח הוידאו (HLS). נסו סרטון אחר.',
-                  retryable: true,
-                })
-              } else {
-                setPhase({
-                  kind: 'error',
-                  message: 'נכשל ניגון HLS. נסו שוב או בחרו סרטון אחר.',
-                  retryable: true,
-                })
               }
+              applyPlaybackFailure(new Error(`hls fatal: ${data.type}`), 'hls.js', setPhase)
             })
             hls.loadSource(playbackSrc)
             hls.attachMedia(el)
@@ -689,11 +664,7 @@ function CleanPlayerMediaBridge({
           }
           attachFrames += 1
           if (attachFrames >= MAX_ATTACH_FRAMES) {
-            setPhase({
-              kind: 'error',
-              message: 'נגן הוידאו לא היה זמין לאחר הטעינה. רעננו את הדף.',
-              retryable: true,
-            })
+            applyPlaybackFailure(new Error('video element not mounted'), 'attach timeout', setPhase)
             return
           }
           attachRafId = requestAnimationFrame(tryAttach)
@@ -703,33 +674,7 @@ function CleanPlayerMediaBridge({
       } catch (e) {
         setBridgeWaking(false)
         if (cancelled || signal.aborted) return
-        console.error('[CleanPlayer] resolve failed', e)
-        if (e instanceof StreamApiError) {
-          if (streamApiErrorIsUpcomingLive(e)) {
-            setPhase({ kind: 'upcoming_live' })
-            return
-          }
-          const retryable = e.status !== 422
-          setPhase({ kind: 'error', message: e.message, retryable })
-          return
-        }
-        if (e instanceof ChildPlaybackBlockedError) {
-          setPhase({ kind: 'error', message: e.message, retryable: false })
-          return
-        }
-        const msg = e instanceof Error ? e.message : String(e)
-        if (streamErrorLooksLikeUpcomingLive(msg)) {
-          setPhase({ kind: 'upcoming_live' })
-          return
-        }
-        setPhase({
-          kind: 'error',
-          message:
-            /Failed to fetch|NetworkError|Load failed|ERR_CONNECTION/i.test(msg)
-              ? `לא ניתן להתחבר לשרת הזרם (${getStreamApiBaseUrl()}). הריצו "npm run dev:api".`
-              : msg,
-          retryable: true,
-        })
+        applyPlaybackFailure(e, 'resolve failed', setPhase)
       }
     })()
 
@@ -991,7 +936,9 @@ function CleanPlayerMediaBridge({
   }, [pipSupported])
 
   const isUpcomingLive = phase.kind === 'upcoming_live'
-  const showOverlay = phase.kind !== 'playing' && !isUpcomingLive
+  const isPlaybackError = phase.kind === 'error'
+  const hideVideo = isUpcomingLive || isPlaybackError
+  const showLoadingOverlay = phase.kind === 'resolving'
 
   return (
     <div
@@ -999,39 +946,24 @@ function CleanPlayerMediaBridge({
       dir="ltr"
     >
       <div ref={playerShellRef} className="relative min-h-0 flex-1">
-      {showOverlay ? (
+      {showLoadingOverlay ? (
         <div
-          className={cn(
-            'absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-4 text-center text-sm leading-relaxed',
-            phase.kind === 'error'
-              ? 'bg-black/90 text-amber-100'
-              : 'bg-black/75 text-zinc-200'
-          )}
-          role={phase.kind === 'error' ? 'alert' : 'status'}
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/75 px-4 text-center text-sm leading-relaxed text-zinc-200"
+          role="status"
           aria-live="polite"
-          id={phase.kind === 'error' ? errId : undefined}
           dir="rtl"
         >
-          {phase.kind === 'resolving' ? (
-            <>
-              <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={sanitizeYoutubeVideoId(videoId)} />
-              <p className="relative z-10 drop-shadow">{bridgeWaking ? 'השרת מתעורר... מיד מתחילים' : 'מכין את הוידאו…'}</p>
-            </>
-          ) : phase.kind === 'error' ? (
-            <>
-              <p className="max-w-sm">{phase.message}</p>
-              {phase.retryable ? (
-                <button
-                  type="button"
-                  onClick={handleRetry}
-                  className="rounded-lg bg-amber-500/90 px-4 py-1.5 text-xs font-semibold text-black transition hover:bg-amber-400"
-                >
-                  נסה שוב
-                </button>
-              ) : null}
-            </>
-          ) : null}
+          <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={sanitizeYoutubeVideoId(videoId)} />
+          <p className="relative z-10 drop-shadow">
+            {bridgeWaking ? 'השרת מתעורר... מיד מתחילים' : 'מכין את הוידאו…'}
+          </p>
         </div>
+      ) : null}
+      {isUpcomingLive ? <UpcomingLiveLionOverlay /> : null}
+      {isPlaybackError ? (
+        <PlayerErrorOverlay
+          onRetry={phase.retryable ? handleRetry : undefined}
+        />
       ) : null}
       {phase.kind === 'playing' && pipSupported ? (
         <button
@@ -1047,27 +979,28 @@ function CleanPlayerMediaBridge({
           <PictureInPicture2 className="h-5 w-5" aria-hidden />
         </button>
       ) : null}
-      {isUpcomingLive ? <UpcomingLiveLionOverlay /> : null}
       <video
         ref={videoRef}
-        className={cn('h-full w-full', isUpcomingLive && 'pointer-events-none invisible')}
+        className={cn('h-full w-full', hideVideo && 'pointer-events-none invisible')}
         controls
-        tabIndex={isUpcomingLive ? -1 : undefined}
-        aria-hidden={isUpcomingLive}
+        tabIndex={hideVideo ? -1 : undefined}
+        aria-hidden={hideVideo}
         controlsList="nodownload"
         playsInline
         preload="auto"
         poster={videoPoster}
-        aria-describedby={phase.kind === 'error' ? errId : undefined}
         onError={(e) => {
           if (hlsJsActiveRef.current) return
           const target = e.currentTarget
-          const msg = mediaErrorMessage(target.error)
           console.error('[CleanPlayer] <video> error', {
             code: target.error?.code,
             message: target.error?.message,
           })
-          setPhase({ kind: 'error', message: msg, retryable: true })
+          applyPlaybackFailure(
+            target.error ?? new Error('video element error'),
+            'video element',
+            setPhase
+          )
         }}
       />
       <span className="sr-only">{title}</span>

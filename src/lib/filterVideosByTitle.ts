@@ -4,3 +4,8 @@ export function filterVideosByTitle<T extends { title: string }>(videos: T[], qu
   if (!q) return videos
   return videos.filter((v) => v.title.toLowerCase().includes(q))
 }
+
+/** Alias for channel browse UIs — filters the in-memory list by title substring. */
+export function filterChannelVideos<T extends { title: string }>(videos: T[], searchTerm: string): T[] {
+  return filterVideosByTitle(videos, searchTerm)
+}
