@@ -1,5 +1,10 @@
 import type { YouTubeChannelResult, YouTubeVideoResult } from '../types'
-import { getStreamApiBaseUrl } from './streamApi'
+import {
+  buildMediaBridgeApiUrl,
+  getMediaBridgeRequestOrigin,
+  getStreamApiBaseUrl,
+  logMediaBridgeConfig,
+} from './streamApi'
 
 const YT_API = 'https://www.googleapis.com/youtube/v3'
 
@@ -396,19 +401,21 @@ function parseBridgeSearchJson(text: string, url: string, status: number, conten
       trimmed.startsWith('<!DOCTYPE') ||
       trimmed.startsWith('<html')
     const hint = looksHtml
-      ? 'שרת החיפוש החזיר HTML במקום JSON. בדקו ש-VITE_STREAM_API_BASE מצביע ל-Media Bridge ולא לאתר ה-frontend.'
+      ? `שרת החיפוש החזיר HTML במקום JSON (בדרך כלל 404 מ-Vite/Hosting). ודאו ש-VITE_STREAM_API_BASE הוא origin של Media Bridge כולל פורט (למשל http://127.0.0.1:8787), לא אתר ה-frontend. URL: ${url}`
       : 'שרת החיפוש החזיר תשובה לא תקינה.'
     throw new Error(`${hint} (${status})`)
   }
 }
 
+/** Media Bridge search route (see `server/index.cjs` `GET /api/youtube/search`). */
+export const MEDIA_BRIDGE_SEARCH_PATH = '/api/youtube/search'
+
 function buildBridgeSearchUrl(query: string, continuation?: string | null): string {
-  const base = getStreamApiBaseUrl().replace(/\/+$/, '')
-  const url = new URL(`${base}/api/youtube/search`)
   const q = query.trim()
-  if (q) url.searchParams.set('q', q)
-  if (continuation) url.searchParams.set('continuation', continuation)
-  return url.toString()
+  return buildMediaBridgeApiUrl(MEDIA_BRIDGE_SEARCH_PATH, {
+    q: q || undefined,
+    continuation: continuation ?? undefined,
+  })
 }
 
 export async function searchYouTubeVideos(
@@ -423,6 +430,16 @@ export async function searchYouTubeVideos(
 
   try {
     const url = buildBridgeSearchUrl(q, continuation)
+    logMediaBridgeConfig('youtube.search', url)
+    if (import.meta.env.DEV) {
+      console.info('[youtube] bridge search fetch', {
+        url,
+        path: MEDIA_BRIDGE_SEARCH_PATH,
+        streamApiBaseEnv: import.meta.env.VITE_STREAM_API_BASE ?? '(unset)',
+        configuredOrigin: getStreamApiBaseUrl(),
+        requestOrigin: getMediaBridgeRequestOrigin(),
+      })
+    }
     const res = await fetch(url, {
       method: 'GET',
       credentials: 'omit',

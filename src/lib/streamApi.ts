@@ -137,6 +137,59 @@ export function getStreamApiBaseUrl(): string {
   return MEDIA_BRIDGE_BASE.replace(/\/$/, '')
 }
 
+const VITE_DEV_SERVER_PORTS = new Set(['5173', '5174', '4173'])
+
+/**
+ * Origin used for browser `fetch` to the Media Bridge.
+ * In local dev, when `VITE_STREAM_API_BASE` is unset or points at the Vite port, use
+ * `window.location.origin` so `/api/*` is handled by the Vite proxy → bridge (8787).
+ */
+export function getMediaBridgeRequestOrigin(): string {
+  const configured = getStreamApiBaseUrl()
+  const envRaw = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
+
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    if (!envRaw) {
+      return window.location.origin.replace(/\/$/, '')
+    }
+    try {
+      const u = new URL(envRaw.includes('://') ? envRaw : `http://${envRaw}`)
+      if (VITE_DEV_SERVER_PORTS.has(u.port) || u.port === window.location.port) {
+        return window.location.origin.replace(/\/$/, '')
+      }
+    } catch {
+      return window.location.origin.replace(/\/$/, '')
+    }
+  }
+
+  return configured
+}
+
+let mediaBridgeConfigLogged = false
+
+/** One-time console diagnostics for Media Bridge URL resolution (dev-friendly). */
+export function logMediaBridgeConfig(context: string, requestUrl?: string): void {
+  const payload = {
+    context,
+    viteEnv: import.meta.env.VITE_STREAM_API_BASE ?? '(unset)',
+    resolvedOrigin: getMediaBridgeRequestOrigin(),
+    configuredOrigin: getStreamApiBaseUrl(),
+    requestUrl: requestUrl ?? null,
+    devUsesViteProxy:
+      import.meta.env.DEV &&
+      typeof window !== 'undefined' &&
+      getMediaBridgeRequestOrigin() === window.location.origin.replace(/\/$/, ''),
+  }
+  if (import.meta.env.DEV) {
+    console.info('[streamApi] Media Bridge config', payload)
+    return
+  }
+  if (!mediaBridgeConfigLogged) {
+    mediaBridgeConfigLogged = true
+    console.info('[streamApi] Media Bridge config', payload)
+  }
+}
+
 /**
  * Fire-and-forget GET `/health` so a sleeping Render dyno starts waking before stream playback.
  * Does not block; errors are ignored.
@@ -186,10 +239,25 @@ async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
  * Build `https://host/api/stream/:id` etc. via explicit join (avoids `new URL(relative, base)`
  * edge cases when base accidentally contained path fragments).
  */
-function buildStreamApiUrl(pathname: string): string {
-  const base = getStreamApiBaseUrl().replace(/\/+$/, '')
+export function buildMediaBridgeApiUrl(
+  pathname: string,
+  searchParams?: Record<string, string | null | undefined>
+): string {
+  const base = getMediaBridgeRequestOrigin().replace(/\/+$/, '')
   const path = pathname.startsWith('/') ? pathname : `/${pathname}`
-  return `${base}${path}`
+  const url = new URL(`${base}${path}`)
+  if (searchParams) {
+    for (const [key, value] of Object.entries(searchParams)) {
+      if (value != null && String(value).trim() !== '') {
+        url.searchParams.set(key, String(value).trim())
+      }
+    }
+  }
+  return url.toString()
+}
+
+function buildStreamApiUrl(pathname: string): string {
+  return buildMediaBridgeApiUrl(pathname)
 }
 
 /** `GET /api/media/:videoId` on the same origin as the bridge — use for `<video src>`. */
