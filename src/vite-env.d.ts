@@ -11,8 +11,15 @@ interface ImportMetaEnv {
   readonly VITE_PARENT_MANAGEMENT_PIN?: string
   /** אופציונלי: UUID קיים ב-profiles כש-FK פעיל ואין התחברות */
   readonly VITE_DEV_DEVICE_OWNER_ID?: string
-  /** Media Bridge base URL (no trailing slash), e.g. http://localhost:8787 */
+  /**
+   * Media Bridge origin (no path). Production: bridge HTTPS URL only.
+   * Local dev: leave unset or use `vite-proxy` — see VITE_STREAM_API_USE_VITE_PROXY.
+   */
   readonly VITE_STREAM_API_BASE?: string
+  /** Local dev: `"true"` forces Vite proxy (`/api` → 127.0.0.1:8787) even if BASE is set. */
+  readonly VITE_STREAM_API_USE_VITE_PROXY?: string
+  /** Optional override for vite.config.ts proxy target (default http://127.0.0.1:8787). */
+  readonly VITE_MEDIA_BRIDGE_PROXY_TARGET?: string
   /** When `"true"`, CleanPlayer uses youtube-nocookie iframe with modestbranding=1&rel=0 instead of Media Bridge */
   readonly VITE_YOUTUBE_IFRAME_PLAYER?: string
   /** Must match `MEDIA_BRIDGE_WELCOME_KEY` on Render — allows POST /api/email/welcome and POST /api/email/pairing-reminder without JWT from the kid device */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Moon } from 'lucide-react'
+import { Moon, Timer } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '../ui/Button'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
@@ -11,8 +11,11 @@ import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { useChildRuntime } from '../../contexts/ChildRuntimeContext'
 import type { ParentBedtimeState } from '../../lib/childRuntime'
 import { notifyBedtimeChanged } from '../../lib/childRuntime'
+import { normalizeGracePeriodMinutes } from '../../lib/bedtimeRoutinePhase'
 import { BedtimeGoodnightOverlay } from '../kid/BedtimeGoodnightOverlay'
 import { cn } from '../../lib/utils'
+
+const GRACE_MINUTE_OPTIONS = [3, 5, 10, 15, 20, 30] as const
 
 type Props = {
   deviceId: string
@@ -26,7 +29,10 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
   const [state, setState] = useState<ParentBedtimeState | null>(null)
   const [loading, setLoading] = useState(true)
   const [approving, setApproving] = useState(false)
+  const [startingGrace, setStartingGrace] = useState(false)
+  const [savingGraceMinutes, setSavingGraceMinutes] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
+  const [gracePinOpen, setGracePinOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
 
   const localPin = readLocalParentSession()?.pin?.trim() ?? ''
@@ -73,8 +79,39 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
     void loadState()
   }
 
+  const runStartGrace = async () => {
+    setStartingGrace(true)
+    const { error } = await runtime.parentStartBedtimeGrace(deviceId, state?.routineDate ?? null)
+    setStartingGrace(false)
+    if (error) {
+      toast.error('התחלת הטיימר נכשלה', { description: error.message })
+      return
+    }
+    toast.success('הטיימר לפני שגרת השינה התחיל ⏱️')
+    notifyBedtimeChanged()
+    void loadState()
+  }
+
+  const saveGraceMinutes = async (minutes: number) => {
+    setSavingGraceMinutes(true)
+    const { error } = await runtime.parentUpdateBedtimeSettings(deviceId, {
+      gracePeriodMinutes: minutes,
+    })
+    setSavingGraceMinutes(false)
+    if (error) {
+      toast.error('שמירת זמן החסד נכשלה', { description: error.message })
+      return
+    }
+    toast.success(`זמן חסד לפני שגרה: ${minutes} דקות`)
+    void loadState()
+  }
+
   if (loading && !state) return null
   if (!state?.enabled) return null
+
+  const graceMinutes = normalizeGracePeriodMinutes(state.gracePeriodMinutes)
+  const graceNotStarted = !state.graceCountdownStartedAt
+  const canApprove = state.tasksCompleted && !state.parentApproved && !state.wheelSpun
 
   const previewButton = (
     <Button
@@ -87,38 +124,6 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
     </Button>
   )
 
-  const canApprove = state.tasksCompleted && !state.parentApproved && !state.wheelSpun
-
-  if (!canApprove) {
-    if (state.parentApproved && !state.wheelSpun) {
-      return (
-        <div className={className}>
-          <p className="text-xs leading-snug text-emerald-400/90">
-            שגרת שינה: אושר — הילד יכול לסובב את הגלגל.
-          </p>
-          {previewButton}
-          <BedtimeGoodnightOverlay open={previewOpen} onClose={() => setPreviewOpen(false)} preview />
-        </div>
-      )
-    }
-    if (state.wheelSpun) {
-      return (
-        <div className={className}>
-          <p className="text-xs leading-snug text-zinc-500">שגרת שינה: הערב הושלם להיום.</p>
-          {previewButton}
-          <BedtimeGoodnightOverlay open={previewOpen} onClose={() => setPreviewOpen(false)} preview />
-        </div>
-      )
-    }
-    return (
-      <div className={className}>
-        <p className="text-xs leading-snug text-zinc-500">שגרת שינה: ממתינים שהילד יסמן את משימות הערב.</p>
-        {previewButton}
-        <BedtimeGoodnightOverlay open={previewOpen} onClose={() => setPreviewOpen(false)} preview />
-      </div>
-    )
-  }
-
   return (
     <>
       <div
@@ -129,22 +134,78 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
       >
         <div className="mb-2 flex items-center gap-2 text-xs text-indigo-200/90">
           <Moon className="h-3.5 w-3.5 shrink-0 text-indigo-300" aria-hidden />
-          הילד סיים את משימות הערב ומחכה לאישור שלכם.
+          שגרת שינה פעילה להיום
         </div>
-        <Button
-          type="button"
-          className="w-full justify-center gap-2 py-2.5 text-sm font-bold"
-          disabled={approving}
-          onClick={() => {
-            if (usePinFlow) {
-              setPinOpen(true)
-              return
-            }
-            void runApprove()
-          }}
+
+        <label className="mb-1 block text-[11px] font-semibold text-zinc-400">
+          דקות חסד לפני נעילה (הורה מתחיל ידנית)
+        </label>
+        <select
+          className="mb-2 w-full rounded-lg border border-zinc-600/50 bg-zinc-900/80 px-2 py-1.5 text-xs text-zinc-100"
+          value={graceMinutes}
+          disabled={savingGraceMinutes}
+          onChange={(e) => void saveGraceMinutes(Number(e.target.value))}
         >
-          {approving ? 'מאשר…' : 'אשר שגרת שינה לילד 🔑'}
-        </Button>
+          {GRACE_MINUTE_OPTIONS.map((m) => (
+            <option key={m} value={m}>
+              {m} דקות
+            </option>
+          ))}
+        </select>
+
+        {graceNotStarted && !state.wheelSpun ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="mb-2 w-full justify-center gap-2 py-2.5 text-sm font-bold"
+            disabled={startingGrace}
+            onClick={() => {
+              if (usePinFlow) {
+                setGracePinOpen(true)
+                return
+              }
+              void runStartGrace()
+            }}
+          >
+            <Timer className="h-4 w-4 shrink-0" aria-hidden />
+            {startingGrace ? 'מתחיל…' : `התחל טיימר (${graceMinutes} דק׳)`}
+          </Button>
+        ) : state.graceCountdownStartedAt && !state.wheelSpun ? (
+          <p className="mb-2 text-xs leading-snug text-amber-200/90">
+            הטיימר כבר התחיל — הילד יכול עדיין לצפות עד סיום {graceMinutes} הדקות.
+          </p>
+        ) : null}
+
+        {canApprove ? (
+          <>
+            <p className="mb-2 text-xs leading-snug text-indigo-200/80">
+              הילד סיים משימות — אשרו לפני סיבוב הגלגל.
+            </p>
+            <Button
+              type="button"
+              className="w-full justify-center gap-2 py-2.5 text-sm font-bold"
+              disabled={approving}
+              onClick={() => {
+                if (usePinFlow) {
+                  setPinOpen(true)
+                  return
+                }
+                void runApprove()
+              }}
+            >
+              {approving ? 'מאשר…' : 'אשר שגרת שינה לילד 🔑'}
+            </Button>
+          </>
+        ) : state.parentApproved && !state.wheelSpun ? (
+          <p className="text-xs leading-snug text-emerald-400/90">
+            אושר — הילד יכול לסובב את הגלגל.
+          </p>
+        ) : state.wheelSpun ? (
+          <p className="text-xs leading-snug text-zinc-500">הערב הושלם להיום.</p>
+        ) : (
+          <p className="text-xs leading-snug text-zinc-500">ממתינים שהילד יסמן משימות ערב.</p>
+        )}
+
         {previewButton}
       </div>
 
@@ -163,6 +224,21 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
         }}
         title="אימות הורה — שגרת שינה"
         description="הזינו את קוד ההורה כדי לאשר שהילד סיים את משימות הערב."
+      />
+
+      <ParentalPinModal
+        open={gracePinOpen}
+        onClose={() => setGracePinOpen(false)}
+        verifyPin={async (pin) => {
+          if (localPin && pinsMatch(pin, localPin)) return { ok: true as const }
+          return verifyParentPin(pin)
+        }}
+        onVerified={() => {
+          setGracePinOpen(false)
+          void runStartGrace()
+        }}
+        title="התחלת טיימר שגרת שינה"
+        description={`הזינו קוד PIN כדי להתחיל ${graceMinutes} דקות חסד לפני שגרת השינה.`}
       />
     </>
   )

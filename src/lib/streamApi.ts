@@ -32,6 +32,13 @@ export const CANONICAL_MEDIA_BRIDGE_ORIGIN = 'https://safetube-media-bridge.onre
 
 const DEFAULT_MEDIA_BRIDGE = CANONICAL_MEDIA_BRIDGE_ORIGIN
 
+/** Local Media Bridge port when using `npm run dev:api` (see vite.config.ts proxy target). */
+export const LOCAL_MEDIA_BRIDGE_ORIGIN = 'http://127.0.0.1:8787'
+
+const VITE_DEV_SERVER_PORTS = new Set(['5173', '5174', '4173'])
+
+const VITE_PROXY_SENTINELS = new Set(['', 'vite', 'proxy', 'vite-proxy', 'local'])
+
 function parseValidHttpBaseOrNull(rawBase: string): string | null {
   const trimmed = rawBase.trim()
   if (!trimmed) return null
@@ -105,80 +112,133 @@ function coerceMediaBridgeOrigin(raw: string | null): string {
   return origin
 }
 
-/**
- * Local Media Bridge (no trailing slash). Server default port is 3001; override with
- * `VITE_STREAM_API_BASE` if the server listens elsewhere (restart Vite after changing `.env`).
- *
- * We intentionally do **not** read `VITE_API_BASE_URL` here — that name is easy to repurpose for
- * another backend and would silently send stream requests to the wrong host.
- */
-export const MEDIA_BRIDGE_BASE: string = (() => {
-  const v = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
-  const normalizedForParse = v.replace(/[\[\]]/g, '').trim()
-  const configuredOrigin = parseValidHttpBaseOrNull(v)
-  const defaultOrigin = parseValidHttpBaseOrNull(DEFAULT_MEDIA_BRIDGE) || DEFAULT_MEDIA_BRIDGE
-  const base = coerceMediaBridgeOrigin(configuredOrigin || defaultOrigin)
-  if (import.meta.env.DEV) {
-    console.info('[streamApi] Media Bridge base:', base)
-  } else if (v.length === 0) {
-    console.error(
-      '[streamApi] VITE_STREAM_API_BASE is missing in production build — falling back to Render Media Bridge URL.'
-    )
-  } else if (!configuredOrigin) {
-    console.error(
-      `[streamApi] VITE_STREAM_API_BASE is invalid ("${v}", sanitized="${normalizedForParse}"). ` +
-        `Expected absolute http(s) origin (e.g. ${CANONICAL_MEDIA_BRIDGE_ORIGIN}). Falling back.`
-    )
-  }
-  return base
-})()
-
-export function getStreamApiBaseUrl(): string {
-  return MEDIA_BRIDGE_BASE.replace(/\/$/, '')
+function normalizeEnvRaw(raw: string): string {
+  return raw.trim().replace(/^['"]+|['"]+$/g, '').toLowerCase()
 }
 
-const VITE_DEV_SERVER_PORTS = new Set(['5173', '5174', '4173'])
-
-/**
- * Origin used for browser `fetch` to the Media Bridge.
- * In local dev, when `VITE_STREAM_API_BASE` is unset or points at the Vite port, use
- * `window.location.origin` so `/api/*` is handled by the Vite proxy → bridge (8787).
- */
-export function getMediaBridgeRequestOrigin(): string {
-  const configured = getStreamApiBaseUrl()
-  const envRaw = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
-
-  if (import.meta.env.DEV && typeof window !== 'undefined') {
-    if (!envRaw) {
-      return window.location.origin.replace(/\/$/, '')
+/** True when the env value is clearly the Vite app, not the Media Bridge. */
+export function isLikelyFrontendDeploymentOrigin(origin: string): boolean {
+  try {
+    const h = new URL(origin).hostname.toLowerCase()
+    if (h === 'localhost' || h === '127.0.0.1') {
+      const port = new URL(origin).port
+      return VITE_DEV_SERVER_PORTS.has(port)
     }
-    try {
-      const u = new URL(envRaw.includes('://') ? envRaw : `http://${envRaw}`)
-      if (VITE_DEV_SERVER_PORTS.has(u.port) || u.port === window.location.port) {
-        return window.location.origin.replace(/\/$/, '')
-      }
-    } catch {
-      return window.location.origin.replace(/\/$/, '')
-    }
+    return h.endsWith('.vercel.app') || h.endsWith('.netlify.app') || h.endsWith('.pages.dev')
+  } catch {
+    return false
+  }
+}
+
+function envImpliesViteDevProxy(envRaw: string): boolean {
+  const normalized = normalizeEnvRaw(envRaw)
+  if (VITE_PROXY_SENTINELS.has(normalized)) return true
+
+  const origin = parseValidHttpBaseOrNull(envRaw)
+  if (!origin) return true
+
+  if (isLikelyFrontendDeploymentOrigin(origin)) return true
+
+  try {
+    const u = new URL(origin)
+    if (u.port === '8787') return false
+    if (VITE_DEV_SERVER_PORTS.has(u.port)) return true
+    if ((u.hostname === 'localhost' || u.hostname === '127.0.0.1') && !u.port) return true
+  } catch {
+    return true
   }
 
-  return configured
+  return false
+}
+
+function viteProxyOrigin(): string {
+  if (typeof window === 'undefined') {
+    return parseValidHttpBaseOrNull(import.meta.env.VITE_STREAM_API_BASE ?? '') ?? LOCAL_MEDIA_BRIDGE_ORIGIN
+  }
+  return window.location.origin.replace(/\/$/, '')
+}
+
+function resolveProductionBridgeOrigin(): string {
+  const v = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
+  const parsed = parseValidHttpBaseOrNull(v)
+  if (!parsed) {
+    console.error(
+      '[streamApi] VITE_STREAM_API_BASE is missing in production — falling back to Render Media Bridge.'
+    )
+    return CANONICAL_MEDIA_BRIDGE_ORIGIN
+  }
+  if (isLikelyFrontendDeploymentOrigin(parsed)) {
+    console.error(
+      `[streamApi] VITE_STREAM_API_BASE must be the Media Bridge origin, not the frontend ("${parsed}"). ` +
+        `Using ${CANONICAL_MEDIA_BRIDGE_ORIGIN}.`
+    )
+    return CANONICAL_MEDIA_BRIDGE_ORIGIN
+  }
+  return coerceMediaBridgeOrigin(parsed)
+}
+
+/**
+ * Origin for browser `fetch` to `/api/*` on the Media Bridge.
+ *
+ * - **Development:** default = same origin as Vite → `vite.config.ts` proxies `/api` → `127.0.0.1:8787`.
+ *   Set `VITE_STREAM_API_USE_VITE_PROXY=true` or leave `VITE_STREAM_API_BASE` empty.
+ *   Direct bridge: `VITE_STREAM_API_BASE=http://127.0.0.1:8787`
+ * - **Production:** `VITE_STREAM_API_BASE` must be the bridge HTTPS origin (never Vercel/frontend).
+ */
+export function getMediaBridgeRequestOrigin(): string {
+  const envRaw = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
+  const useProxyFlag =
+    import.meta.env.VITE_STREAM_API_USE_VITE_PROXY === 'true' ||
+    import.meta.env.VITE_STREAM_API_USE_VITE_PROXY === '1'
+
+  if (import.meta.env.DEV) {
+    if (typeof window !== 'undefined') {
+      if (useProxyFlag || envImpliesViteDevProxy(envRaw)) {
+        if (envRaw && isLikelyFrontendDeploymentOrigin(parseValidHttpBaseOrNull(envRaw) ?? '')) {
+          console.warn(
+            '[streamApi] VITE_STREAM_API_BASE looks like a frontend URL — using Vite proxy for /api instead.',
+            envRaw
+          )
+        }
+        return viteProxyOrigin()
+      }
+      const direct = parseValidHttpBaseOrNull(envRaw)
+      if (direct) return direct.replace(/\/$/, '')
+      return viteProxyOrigin()
+    }
+    if (useProxyFlag || envImpliesViteDevProxy(envRaw)) {
+      return parseValidHttpBaseOrNull(envRaw) ?? LOCAL_MEDIA_BRIDGE_ORIGIN
+    }
+    return (parseValidHttpBaseOrNull(envRaw) ?? LOCAL_MEDIA_BRIDGE_ORIGIN).replace(/\/$/, '')
+  }
+
+  return resolveProductionBridgeOrigin().replace(/\/$/, '')
+}
+
+/**
+ * Configured Media Bridge origin (no trailing slash). Prefer `getMediaBridgeRequestOrigin()` for fetches.
+ */
+export function getStreamApiBaseUrl(): string {
+  return getMediaBridgeRequestOrigin()
 }
 
 let mediaBridgeConfigLogged = false
 
 /** One-time console diagnostics for Media Bridge URL resolution (dev-friendly). */
 export function logMediaBridgeConfig(context: string, requestUrl?: string): void {
+  const resolved = getMediaBridgeRequestOrigin()
   const payload = {
     context,
+    mode: import.meta.env.DEV ? 'development' : 'production',
     viteEnv: import.meta.env.VITE_STREAM_API_BASE ?? '(unset)',
-    resolvedOrigin: getMediaBridgeRequestOrigin(),
-    configuredOrigin: getStreamApiBaseUrl(),
+    useViteProxyFlag: import.meta.env.VITE_STREAM_API_USE_VITE_PROXY ?? '(unset)',
+    resolvedOrigin: resolved,
     requestUrl: requestUrl ?? null,
     devUsesViteProxy:
       import.meta.env.DEV &&
       typeof window !== 'undefined' &&
-      getMediaBridgeRequestOrigin() === window.location.origin.replace(/\/$/, ''),
+      resolved === window.location.origin.replace(/\/$/, ''),
+    proxyTargetHint: import.meta.env.DEV ? LOCAL_MEDIA_BRIDGE_ORIGIN : null,
   }
   if (import.meta.env.DEV) {
     console.info('[streamApi] Media Bridge config', payload)
@@ -196,7 +256,7 @@ export function logMediaBridgeConfig(context: string, requestUrl?: string): void
  */
 export function preWarmMediaBridge(): void {
   if (typeof fetch === 'undefined') return
-  const base = getStreamApiBaseUrl()
+  const base = getMediaBridgeRequestOrigin()
   void fetch(`${base}/health`, {
     method: 'GET',
     credentials: 'omit',

@@ -1,13 +1,10 @@
 import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Clock, ShieldCheck } from 'lucide-react'
+import { Clock } from 'lucide-react'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { Button } from '../ui/Button'
 import { LionMascot } from './LionMascot'
-import { useAuth } from '../../hooks/useAuth'
-import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
-import { readLocalParentSession } from '../../lib/localParentAdmin'
-import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
+import { useParentManagementPinVerify } from '../../hooks/useParentManagementPinVerify'
 import {
   DAILY_WATCH_SNOOZE_MINUTES,
   useDailyWatchBudgetStore,
@@ -21,35 +18,26 @@ type Props = {
 }
 
 export function DailyLimitOverlay({ className, onSnoozed }: Props) {
-  const { user, profile } = useAuth()
-  const localParent = useLocalParentManagement()
   const snoozeMinutes = useDailyWatchBudgetStore((s) => s.snoozeMinutes)
   const lion = useLionProgressionOptional()
   const outfitId = lion?.activeOutfitId ?? 'cub'
+  const verifyParentPin = useParentManagementPinVerify()
 
-  const [pinOpen, setPinOpen] = useState(false)
+  /** Show parent PIN immediately — no extra tap when limit is already reached. */
+  const [pinOpen, setPinOpen] = useState(true)
   const [parentVerified, setParentVerified] = useState(false)
-
-  const localPin = readLocalParentSession()?.pin?.trim() ?? ''
-
-  const verifyParentPin = useCallback(
-    (pin: string) =>
-      verifyParentManagementPin(
-        {
-          userId: user?.id,
-          profile,
-          localParent: { isActive: localParent.isActive, pin: localParent.pin ?? localPin },
-        },
-        pin
-      ),
-    [user?.id, profile, localParent.isActive, localParent.pin, localPin]
-  )
 
   const handleSnooze = () => {
     snoozeMinutes(DAILY_WATCH_SNOOZE_MINUTES)
     setParentVerified(false)
+    setPinOpen(false)
     onSnoozed?.()
   }
+
+  const handleVerified = useCallback(() => {
+    setPinOpen(false)
+    setParentVerified(true)
+  }, [])
 
   return (
     <>
@@ -80,33 +68,31 @@ export function DailyLimitOverlay({ className, onSnoozed }: Props) {
 
         <div className="space-y-4">
           <h2 id="daily-limit-title" className="max-w-sm text-lg font-bold leading-relaxed text-zinc-50">
-            Your daily screen time is finished! Ask a parent to help you finish up.
+            Your daily screen time is finished! Ask a parent to enter their PIN below.
           </h2>
 
-          {!parentVerified ? (
-            <Button
-              type="button"
-              className="min-w-[180px] gap-2"
-              onClick={() => setPinOpen(true)}
-            >
-              <ShieldCheck className="h-4 w-4" aria-hidden />
-              Parent PIN
-            </Button>
-          ) : (
+          {parentVerified ? (
             <Button type="button" className="min-w-[180px]" onClick={handleSnooze}>
               Snooze (+{DAILY_WATCH_SNOOZE_MINUTES} minutes)
             </Button>
+          ) : (
+            <p className="max-w-xs text-sm text-violet-200/90">
+              Parent PIN dialog is open — enter the code to unlock extra time.
+            </p>
           )}
+
+          {!parentVerified && !pinOpen ? (
+            <Button type="button" className="min-w-[180px]" onClick={() => setPinOpen(true)}>
+              Show parent PIN
+            </Button>
+          ) : null}
         </div>
       </div>
 
       <ParentalPinModal
-        open={pinOpen}
+        open={pinOpen && !parentVerified}
         onClose={() => setPinOpen(false)}
-        onVerified={() => {
-          setPinOpen(false)
-          setParentVerified(true)
-        }}
+        onVerified={handleVerified}
         verifyPin={verifyParentPin}
         title="Parent verification"
         description="Enter the parent PIN to unlock extra watch time for today."

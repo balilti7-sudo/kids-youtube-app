@@ -75,6 +75,10 @@ export type ChildBedtimeState = {
   routineDate: string
   weekStart: string
   enabled: boolean
+  /** Minutes of watching allowed after parent starts grace (from device_bedtime_settings). */
+  gracePeriodMinutes: number
+  /** Set by parent via parent_start_bedtime_grace — null until parent explicitly starts. */
+  graceCountdownStartedAt: string | null
   teethConfirmed: boolean
   bathroomConfirmed: boolean
   tasksCompleted: boolean
@@ -128,6 +132,8 @@ export type ParentBedtimeState = {
   routineDate: string
   weekStart: string
   enabled: boolean
+  gracePeriodMinutes: number
+  graceCountdownStartedAt: string | null
   teethConfirmed: boolean
   bathroomConfirmed: boolean
   tasksCompleted: boolean
@@ -141,9 +147,16 @@ export type ParentBedtimeState = {
   treasurePrizeDescription: string
 }
 
+export type ParentBedtimeGraceStartResult = {
+  routineDate: string
+  gracePeriodMinutes: number
+  graceCountdownStartedAt: string
+}
+
 export type BedtimeSettings = {
   deviceId: string
   enabled: boolean
+  gracePeriodMinutes: number
   treasurePointsThreshold: number
   treasurePrizeTitle: string
   treasurePrizeDescription: string
@@ -225,6 +238,12 @@ function mapChildBedtimeStateRow(row: Record<string, unknown>): ChildBedtimeStat
     routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
     weekStart: rowStr(row, '', 'week_start', 'weekStart'),
     enabled: BEDTIME_ROUTINE_FORCE_ENABLED || enabledFromRow,
+    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
+    graceCountdownStartedAt: rowStrOrNull(
+      row,
+      'grace_countdown_started_at',
+      'graceCountdownStartedAt'
+    ),
     teethConfirmed: rowBool(row, 'teeth_confirmed', 'teethConfirmed'),
     bathroomConfirmed: rowBool(row, 'bathroom_confirmed', 'bathroomConfirmed'),
     tasksCompleted: rowBool(row, 'tasks_completed', 'tasksCompleted'),
@@ -299,6 +318,12 @@ function mapParentBedtimeStateRow(row: Record<string, unknown>): ParentBedtimeSt
     routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
     weekStart: rowStr(row, '', 'week_start', 'weekStart'),
     enabled: rowBool(row, 'enabled'),
+    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
+    graceCountdownStartedAt: rowStrOrNull(
+      row,
+      'grace_countdown_started_at',
+      'graceCountdownStartedAt'
+    ),
     teethConfirmed: rowBool(row, 'teeth_confirmed', 'teethConfirmed'),
     bathroomConfirmed: rowBool(row, 'bathroom_confirmed', 'bathroomConfirmed'),
     tasksCompleted: rowBool(row, 'tasks_completed', 'tasksCompleted'),
@@ -313,10 +338,24 @@ function mapParentBedtimeStateRow(row: Record<string, unknown>): ParentBedtimeSt
   }
 }
 
+function mapParentBedtimeGraceStartRow(row: Record<string, unknown>): ParentBedtimeGraceStartResult {
+  return {
+    routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
+    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
+    graceCountdownStartedAt: rowStr(
+      row,
+      '',
+      'grace_countdown_started_at',
+      'graceCountdownStartedAt'
+    ),
+  }
+}
+
 function mapBedtimeSettingsRow(row: Record<string, unknown>): BedtimeSettings {
   return {
     deviceId: rowStr(row, '', 'device_id', 'deviceId'),
     enabled: rowBool(row, 'enabled'),
+    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
     treasurePointsThreshold: rowInt(row, 100, 'treasure_points_threshold', 'treasurePointsThreshold'),
     treasurePrizeTitle: rowStr(row, 'Weekly treasure prize!', 'treasure_prize_title', 'treasurePrizeTitle'),
     treasurePrizeDescription: rowStr(
@@ -876,10 +915,25 @@ export async function parentGetBedtimeState(
   return { data: mapParentBedtimeStateRow(row as Record<string, unknown>), error: null }
 }
 
+export async function parentStartBedtimeGrace(
+  deviceId: string,
+  routineDate?: string | null
+): Promise<{ data: ParentBedtimeGraceStartResult | null; error: Error | null }> {
+  const { data, error } = await supabase.rpc('parent_start_bedtime_grace', {
+    p_device_id: deviceId,
+    p_routine_date: routineDate?.trim() ? routineDate.trim() : null,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row || typeof row !== 'object') return { data: null, error: null }
+  return { data: mapParentBedtimeGraceStartRow(row as Record<string, unknown>), error: null }
+}
+
 export async function parentUpdateBedtimeSettings(
   deviceId: string,
   updates: {
     enabled?: boolean
+    gracePeriodMinutes?: number
     treasurePointsThreshold?: number
     treasurePrizeTitle?: string
     treasurePrizeDescription?: string
@@ -888,6 +942,10 @@ export async function parentUpdateBedtimeSettings(
   const { data, error } = await supabase.rpc('parent_update_bedtime_settings', {
     p_device_id: deviceId,
     p_enabled: updates.enabled ?? null,
+    p_grace_period_minutes:
+      typeof updates.gracePeriodMinutes === 'number'
+        ? Math.round(updates.gracePeriodMinutes)
+        : null,
     p_treasure_points_threshold:
       typeof updates.treasurePointsThreshold === 'number'
         ? Math.round(updates.treasurePointsThreshold)

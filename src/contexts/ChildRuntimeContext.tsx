@@ -38,6 +38,7 @@ import {
   ownerSpinDailyWheel,
   parentApproveBedtime as parentApproveBedtimeRpc,
   parentGetBedtimeState as parentGetBedtimeStateRpc,
+  parentStartBedtimeGrace as parentStartBedtimeGraceRpc,
   parentStartScreenTime,
   parentUpdateBedtimeSettings as parentUpdateBedtimeSettingsRpc,
   readCachedChildRuntime,
@@ -48,6 +49,7 @@ import {
   type CompleteInterceptResult,
   type DailyWheelSpinResult,
   type ParentBedtimeApproveResult,
+  type ParentBedtimeGraceStartResult,
   type ParentBedtimeState,
   type RaffleTicketSummary,
   type ScreenTimePhase,
@@ -92,10 +94,15 @@ export type ChildRuntimeContextValue = {
     deviceId: string,
     routineDate?: string | null
   ) => Promise<{ data: ParentBedtimeState | null; error: Error | null }>
+  parentStartBedtimeGrace: (
+    deviceId: string,
+    routineDate?: string | null
+  ) => Promise<{ data: ParentBedtimeGraceStartResult | null; error: Error | null }>
   parentUpdateBedtimeSettings: (
     deviceId: string,
     updates: {
       enabled?: boolean
+      gracePeriodMinutes?: number
       treasurePointsThreshold?: number
       treasurePrizeTitle?: string
       treasurePrizeDescription?: string
@@ -414,11 +421,24 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
     return parentGetBedtimeStateRpc(deviceId, routineDate)
   }, [])
 
+  const parentStartBedtimeGrace = useCallback(
+    async (deviceId: string, routineDate?: string | null) => {
+      const result = await parentStartBedtimeGraceRpc(deviceId, routineDate)
+      if (!result.error && effectiveActiveDeviceId === deviceId) {
+        await refreshBedtimeState()
+        notifyBedtimeChanged()
+      }
+      return result
+    },
+    [effectiveActiveDeviceId, refreshBedtimeState]
+  )
+
   const parentUpdateBedtimeSettings = useCallback(
     async (
       deviceId: string,
       updates: {
         enabled?: boolean
+        gracePeriodMinutes?: number
         treasurePointsThreshold?: number
         treasurePrizeTitle?: string
         treasurePrizeDescription?: string
@@ -531,6 +551,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
       claimTreasureChest,
       parentApproveBedtime,
       parentGetBedtimeState,
+      parentStartBedtimeGrace,
       parentUpdateBedtimeSettings,
       startScreenTimeSession,
       completeChallengeAndLock,
@@ -555,6 +576,7 @@ export function ChildRuntimeProvider({ children, pollMs = POLL_MS, activeDeviceI
     claimTreasureChest,
     parentApproveBedtime,
     parentGetBedtimeState,
+    parentStartBedtimeGrace,
     parentUpdateBedtimeSettings,
     startScreenTimeSession,
     completeChallengeAndLock,

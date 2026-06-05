@@ -9,6 +9,7 @@ import { spawnMassiveConfetti, spawnParticleBurstOnElement } from '../../lib/jui
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/Button'
 import { BedtimeGoodnightOverlay } from './BedtimeGoodnightOverlay'
+import { BedtimeRoutineEmergencyExit } from './BedtimeRoutineEmergencyExit'
 import {
   BEDTIME_GOODNIGHT_PREVIEW_EVENT,
   hasSeenBedtimeGoodnight,
@@ -331,8 +332,9 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
                 className="rounded-xl border border-amber-400/30 bg-amber-950/40 px-4 py-4 text-center"
               >
                 <p className="text-base font-semibold leading-relaxed text-amber-100">
-                  אמרת לאבא או אמא? מחכים שהם יאשרו עם הקוד הסודי שלהם! 🤫
+                  סיימתם את המשימות! הורים — הזינו את הקוד כדי לאשר את הגלגל 🤫
                 </p>
+                <BedtimeRoutineEmergencyExit variant="inline" showParentApprove />
               </motion.div>
             ) : showSpunMessage ? (
               <motion.div
@@ -511,6 +513,7 @@ export function BedtimeRoutineZone({ className, compact = false }: Props) {
               ) : null}
             </div>
           </div>
+
         </div>
       </section>
 

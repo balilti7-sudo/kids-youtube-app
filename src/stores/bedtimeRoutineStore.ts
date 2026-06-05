@@ -1,14 +1,15 @@
 import { create } from 'zustand'
 
-export const BEDTIME_ROUTINE_COUNTDOWN_MINUTES = 5
-export const BEDTIME_ROUTINE_COUNTDOWN_MS = BEDTIME_ROUTINE_COUNTDOWN_MINUTES * 60 * 1000
-
+/**
+ * Client state for bedtime UI only (dismiss/skip for tonight).
+ * Grace timer is server-driven: grace_countdown_started_at + grace_period_minutes (migration 054).
+ * No startCountdown / isRoutineActive — see bedtimeRoutinePhase.ts + BedtimeRoutineGate.
+ */
 const STORAGE_KEY = 'safetube_bedtime_routine_v1'
 
 type Persisted = {
   deviceId: string
-  countdownEndsAt: number | null
-  isRoutineActive: boolean
+  dismissedRoutineDate: string | null
 }
 
 function readPersisted(): Persisted | null {
@@ -40,126 +41,77 @@ function clearPersisted() {
 }
 
 export type BedtimeRoutineStore = {
-  isRoutineActive: boolean
-  countdownEndsAt: number | null
   activeDeviceId: string | null
-  /** Seconds left in the pre-routine countdown (0 when inactive or expired). */
-  countdownRemainingSeconds: number
-  startCountdown: (deviceId: string, minutes?: number) => void
-  activateRoutine: () => void
-  deactivateRoutine: () => void
-  syncCountdownTick: (now?: number) => void
+  /** Parent PIN-skipped routine for this calendar date (client-only until tomorrow). */
+  dismissedRoutineDate: string | null
+  dismissRoutineWithParentPin: (deviceId: string, routineDate: string) => void
+  clearDismissedRoutineDate: () => void
+  isRoutineDismissedForDate: (routineDate: string | null | undefined) => boolean
   hydrateForDevice: (deviceId: string | null) => void
+  resetForDevice: () => void
 }
 
 export const useBedtimeRoutineStore = create<BedtimeRoutineStore>((set, get) => ({
-  isRoutineActive: false,
-  countdownEndsAt: null,
   activeDeviceId: null,
-  countdownRemainingSeconds: 0,
+  dismissedRoutineDate: null,
 
-  startCountdown: (deviceId, minutes = BEDTIME_ROUTINE_COUNTDOWN_MINUTES) => {
-    const trimmed = deviceId.trim()
-    if (!trimmed) return
-    const endsAt = Date.now() + Math.max(1, minutes) * 60 * 1000
+  dismissRoutineWithParentPin: (deviceId, routineDate) => {
+    const trimmedDevice = deviceId.trim()
+    const trimmedDate = routineDate.trim()
+    if (!trimmedDevice || !trimmedDate) return
     set({
-      activeDeviceId: trimmed,
-      countdownEndsAt: endsAt,
-      isRoutineActive: false,
-      countdownRemainingSeconds: Math.ceil((endsAt - Date.now()) / 1000),
+      activeDeviceId: trimmedDevice,
+      dismissedRoutineDate: trimmedDate,
     })
     writePersisted({
-      deviceId: trimmed,
-      countdownEndsAt: endsAt,
-      isRoutineActive: false,
+      deviceId: trimmedDevice,
+      dismissedRoutineDate: trimmedDate,
     })
   },
 
-  activateRoutine: () => {
-    const deviceId = get().activeDeviceId
-    if (!deviceId) return
-    set({
-      isRoutineActive: true,
-      countdownEndsAt: null,
-      countdownRemainingSeconds: 0,
-    })
-    writePersisted({
-      deviceId,
-      countdownEndsAt: null,
-      isRoutineActive: true,
-    })
+  clearDismissedRoutineDate: () => {
+    const { activeDeviceId, dismissedRoutineDate } = get()
+    if (!dismissedRoutineDate) return
+    set({ dismissedRoutineDate: null })
+    if (activeDeviceId) {
+      writePersisted({
+        deviceId: activeDeviceId,
+        dismissedRoutineDate: null,
+      })
+    }
   },
 
-  deactivateRoutine: () => {
-    clearPersisted()
-    set({
-      isRoutineActive: false,
-      countdownEndsAt: null,
-      activeDeviceId: null,
-      countdownRemainingSeconds: 0,
-    })
-  },
-
-  syncCountdownTick: (now = Date.now()) => {
-    const { countdownEndsAt, isRoutineActive, activeDeviceId } = get()
-    if (isRoutineActive || !countdownEndsAt || !activeDeviceId) {
-      if (get().countdownRemainingSeconds !== 0) {
-        set({ countdownRemainingSeconds: 0 })
-      }
-      return
-    }
-    const remainingMs = countdownEndsAt - now
-    if (remainingMs <= 0) {
-      get().activateRoutine()
-      return
-    }
-    const seconds = Math.ceil(remainingMs / 1000)
-    if (seconds !== get().countdownRemainingSeconds) {
-      set({ countdownRemainingSeconds: seconds })
-    }
+  isRoutineDismissedForDate: (routineDate) => {
+    const dismissed = get().dismissedRoutineDate
+    if (!dismissed || !routineDate) return false
+    return dismissed === routineDate.trim()
   },
 
   hydrateForDevice: (deviceId) => {
     const trimmed = deviceId?.trim() || null
     if (!trimmed) {
-      get().deactivateRoutine()
+      get().resetForDevice()
       return
     }
     const saved = readPersisted()
     if (!saved || saved.deviceId !== trimmed) {
       set({
         activeDeviceId: trimmed,
-        isRoutineActive: false,
-        countdownEndsAt: null,
-        countdownRemainingSeconds: 0,
+        dismissedRoutineDate: null,
       })
       return
     }
-    if (saved.isRoutineActive) {
-      set({
-        activeDeviceId: trimmed,
-        isRoutineActive: true,
-        countdownEndsAt: null,
-        countdownRemainingSeconds: 0,
-      })
-      return
-    }
-    if (saved.countdownEndsAt && saved.countdownEndsAt > Date.now()) {
-      set({
-        activeDeviceId: trimmed,
-        isRoutineActive: false,
-        countdownEndsAt: saved.countdownEndsAt,
-        countdownRemainingSeconds: Math.ceil((saved.countdownEndsAt - Date.now()) / 1000),
-      })
-      get().syncCountdownTick()
-      return
-    }
-    clearPersisted()
     set({
       activeDeviceId: trimmed,
-      isRoutineActive: false,
-      countdownEndsAt: null,
-      countdownRemainingSeconds: 0,
+      dismissedRoutineDate: saved.dismissedRoutineDate ?? null,
+    })
+  },
+
+  resetForDevice: () => {
+    clearPersisted()
+    set({
+      activeDeviceId: null,
+      dismissedRoutineDate: null,
     })
   },
 }))

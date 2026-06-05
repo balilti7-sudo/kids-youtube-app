@@ -1,36 +1,37 @@
 import { useEffect, type ReactNode } from 'react'
 import { useChildRuntimeOptional } from '../../contexts/ChildRuntimeContext'
 import { isBedtimeRoutineVisible } from '../../lib/childRuntime'
-import { useBedtimeRoutineCountdown } from '../../hooks/useBedtimeRoutineCountdown'
-import {
-  BEDTIME_ROUTINE_COUNTDOWN_MINUTES,
-  useBedtimeRoutineStore,
-} from '../../stores/bedtimeRoutineStore'
+import { getBedtimeRoutinePhase } from '../../lib/bedtimeRoutinePhase'
+import { useBedtimeGraceCountdown } from '../../hooks/useBedtimeRoutineCountdown'
+import { useBedtimeRoutineStore } from '../../stores/bedtimeRoutineStore'
 import { BedtimeRoutineCountdownBanner } from './BedtimeRoutineCountdownBanner'
+import { BedtimeRoutinePassiveWait } from './BedtimeRoutinePassiveWait'
 import { BedtimeRoutineView } from './BedtimeRoutineView'
 
 type Props = {
   children: ReactNode
-  /** Active child device id for this page. */
   deviceId: string | null
 }
 
 /**
- * When bedtime is enabled: starts a 5-minute countdown, then switches to full Routine View
- * (hiding channels / video). Clears when tonight's wheel has been spun.
+ * Bedtime flow (parent-controlled):
+ * 1. passive — "time for sleep", watching allowed, no timer
+ * 2. countdown — after parent PIN starts grace (server timestamp)
+ * 3. routine — full-screen tasks / wheel
  */
 export function BedtimeRoutineGate({ children, deviceId }: Props) {
   const runtime = useChildRuntimeOptional()
   const bedtime = runtime?.bedtimeState
   const ready = runtime?.ready ?? false
 
-  const isRoutineActive = useBedtimeRoutineStore((s) => s.isRoutineActive)
-  const countdownEndsAt = useBedtimeRoutineStore((s) => s.countdownEndsAt)
   const hydrateForDevice = useBedtimeRoutineStore((s) => s.hydrateForDevice)
-  const startCountdown = useBedtimeRoutineStore((s) => s.startCountdown)
-  const deactivateRoutine = useBedtimeRoutineStore((s) => s.deactivateRoutine)
+  const resetForDevice = useBedtimeRoutineStore((s) => s.resetForDevice)
+  const clearDismissedRoutineDate = useBedtimeRoutineStore((s) => s.clearDismissedRoutineDate)
+  const isRoutineDismissedForDate = useBedtimeRoutineStore((s) => s.isRoutineDismissedForDate)
+  const dismissed = isRoutineDismissedForDate(bedtime?.routineDate)
 
-  useBedtimeRoutineCountdown()
+  // Re-render each second during parent-started grace so phase can flip to full routine.
+  useBedtimeGraceCountdown(bedtime)
 
   useEffect(() => {
     hydrateForDevice(deviceId)
@@ -39,32 +40,22 @@ export function BedtimeRoutineGate({ children, deviceId }: Props) {
   useEffect(() => {
     if (!ready || !deviceId || !bedtime) return
 
-    if (!isBedtimeRoutineVisible(bedtime)) {
-      deactivateRoutine()
-      return
+    if (!isBedtimeRoutineVisible(bedtime) || bedtime.wheelSpun) {
+      clearDismissedRoutineDate()
+      resetForDevice()
     }
+  }, [ready, deviceId, bedtime, clearDismissedRoutineDate, resetForDevice])
 
-    if (bedtime.wheelSpun) {
-      deactivateRoutine()
-      return
-    }
+  const phase = getBedtimeRoutinePhase(bedtime, { dismissedForTonight: dismissed })
 
-    const store = useBedtimeRoutineStore.getState()
-    if (store.isRoutineActive) return
-    if (store.countdownEndsAt && store.countdownEndsAt > Date.now()) return
-
-    startCountdown(deviceId, BEDTIME_ROUTINE_COUNTDOWN_MINUTES)
-  }, [ready, deviceId, bedtime, deactivateRoutine, startCountdown])
-
-  if (isRoutineActive) {
+  if (phase === 'routine') {
     return <BedtimeRoutineView />
   }
 
-  const showCountdownBanner = Boolean(countdownEndsAt) && !isRoutineActive
-
   return (
     <>
-      {showCountdownBanner ? (
+      {phase === 'passive' ? <BedtimeRoutinePassiveWait /> : null}
+      {phase === 'countdown' ? (
         <div className="sticky top-0 z-[60] px-3 pt-2 sm:px-4">
           <BedtimeRoutineCountdownBanner />
         </div>

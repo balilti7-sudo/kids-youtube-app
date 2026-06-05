@@ -400,8 +400,11 @@ function parseBridgeSearchJson(text: string, url: string, status: number, conten
       contentType.toLowerCase().includes('text/html') ||
       trimmed.startsWith('<!DOCTYPE') ||
       trimmed.startsWith('<html')
+    const devBridgeHint = import.meta.env.DEV
+      ? ' בפיתוח: הגדירו VITE_STREAM_API_USE_VITE_PROXY=true, הריצו `npm run dev:api` (8787) ו-`npm run dev`, והפעילו מחדש את Vite.'
+      : ''
     const hint = looksHtml
-      ? `שרת החיפוש החזיר HTML במקום JSON (בדרך כלל 404 מ-Vite/Hosting). ודאו ש-VITE_STREAM_API_BASE הוא origin של Media Bridge כולל פורט (למשל http://127.0.0.1:8787), לא אתר ה-frontend. URL: ${url}`
+      ? `שרת החיפוש החזיר HTML במקום JSON (404). ב-production: VITE_STREAM_API_BASE חייב להיות origin של Media Bridge, לא Vercel. בפיתוח: השתמשו בפרוקסי Vite (VITE_STREAM_API_USE_VITE_PROXY=true).${devBridgeHint} URL: ${url}`
       : 'שרת החיפוש החזיר תשובה לא תקינה.'
     throw new Error(`${hint} (${status})`)
   }
