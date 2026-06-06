@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { PostgrestError } from '@supabase/supabase-js'
 import type { Device, EducationalBreakIntervalMinutes } from '../types'
+import { DEFAULT_DEVICE_BREAK_INTERVAL_MINUTES } from '../lib/breakIntervalOptions'
 import { getChildDeviceState } from '../lib/childDevice'
 import { parentUpdateDeviceSettings } from '../lib/deviceSettings'
 import { supabase } from '../lib/supabase'
@@ -210,7 +211,14 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   addDevice: async ({ userId, name, device_type, pairing_code }) => {
-    const row = { user_id: userId, name, device_type, pairing_code }
+    const row = {
+      user_id: userId,
+      name,
+      device_type,
+      pairing_code,
+      // Explicit valid value — legacy DB defaults/triggers may set 2/3/5 from educational_intercept_frequency.
+      break_interval_minutes: DEFAULT_DEVICE_BREAK_INTERVAL_MINUTES,
+    }
     const { data, error } = await supabase.from('devices').insert(row).select().single()
     if (error) {
       console.error('Connection Error:', error)

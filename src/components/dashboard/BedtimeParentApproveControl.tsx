@@ -159,13 +159,7 @@ export function BedtimeParentApproveControl({ deviceId, className }: Props) {
             variant="secondary"
             className="mb-2 w-full justify-center gap-2 py-2.5 text-sm font-bold"
             disabled={startingGrace}
-            onClick={() => {
-              if (usePinFlow) {
-                setGracePinOpen(true)
-                return
-              }
-              void runStartGrace()
-            }}
+            onClick={() => setGracePinOpen(true)}
           >
             <Timer className="h-4 w-4 shrink-0" aria-hidden />
             {startingGrace ? 'מתחיל…' : `התחל טיימר (${graceMinutes} דק׳)`}

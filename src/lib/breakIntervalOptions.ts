@@ -3,6 +3,9 @@ import {
   type EducationalBreakIntervalMinutes,
 } from '../types'
 
+/** Matches Supabase `devices.break_interval_minutes` default + CHECK (5,10,15,30,45,60). */
+export const DEFAULT_DEVICE_BREAK_INTERVAL_MINUTES: EducationalBreakIntervalMinutes = 30
+
 const BREAK_INTERVAL_LABELS: Record<EducationalBreakIntervalMinutes, string> = {
   5: '5 דקות',
   10: '10 דקות',

@@ -237,7 +237,9 @@ export function normalizeBreakIntervalFromDevice(raw: unknown): EducationalBreak
   if ((EDUCATIONAL_BREAK_INTERVAL_MINUTES as readonly number[]).includes(n)) {
     return n as EducationalBreakIntervalMinutes
   }
+  // Legacy educational_intercept_frequency video-count codes (2/3/5) → minutes.
   if (n === 2) return 15
   if (n === 3) return 30
-  return 15
+  if (n === 5) return 45
+  return 30
 }

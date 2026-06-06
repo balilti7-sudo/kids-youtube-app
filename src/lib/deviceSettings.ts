@@ -1,4 +1,6 @@
 import { supabase } from './supabase'
+import { DEFAULT_DEVICE_BREAK_INTERVAL_MINUTES } from './breakIntervalOptions'
+import { normalizeBreakIntervalFromDevice } from './educationalIntercept'
 import type { EducationalBreakIntervalMinutes } from '../types'
 
 export type DeviceSettingsUpdate = {
@@ -18,7 +20,9 @@ function mapDeviceSettingsRow(row: Record<string, unknown>): DeviceSettingsRow {
   return {
     deviceId: String(row.id ?? row.device_id ?? row.deviceId ?? ''),
     allowShorts: Boolean(row.allow_shorts ?? row.allowShorts),
-    breakIntervalMinutes: Number(row.break_interval_minutes ?? row.breakIntervalMinutes ?? 15) as EducationalBreakIntervalMinutes,
+    breakIntervalMinutes: normalizeBreakIntervalFromDevice(
+      row.break_interval_minutes ?? row.breakIntervalMinutes ?? DEFAULT_DEVICE_BREAK_INTERVAL_MINUTES
+    ),
     educationalInterceptEnabled: Boolean(
       row.educational_intercept_enabled ?? row.educationalInterceptEnabled
     ),
