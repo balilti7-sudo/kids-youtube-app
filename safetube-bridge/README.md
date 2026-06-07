@@ -17,29 +17,23 @@ scripts/check-health.ps1      ← triage from the VPS or remotely
 
 ## What each fix does
 
-### (1) yt-dlp now actually calls the POT provider
-The flag `--youtube-search-pot-provider` mentioned in your status note **does
-not exist** in yt-dlp. The correct integration on Windows (where
-`yt-dlp.exe` doesn't auto-load Python plugins) is to:
+### (1) yt-dlp uses the bgutil POT *plugin* (recommended)
+When `server/yt-dlp-plugins/` contains `bgutil-ytdlp-pot-provider.zip` (from
+`npm run download-tools` in the main `server/` folder, or manual download),
+yt-dlp loads the plugin and fetches **video-bound** PO tokens automatically:
 
-1. Have the bridge fetch a PO token from `http://127.0.0.1:4416/get_pot` itself.
-2. Pass the result into yt-dlp via `--extractor-args`:
-   ```
-   --extractor-args "youtube:player_client=web_embedded;po_token=web_embedded.gvs+<TOKEN>;visitor_data=<VD>"
-   ```
+```
+--plugin-dirs server/yt-dlp-plugins
+--extractor-args "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"
+```
 
-`server/pot-client.js` handles the HTTP dance and caches the credentials for
-5 hours (below YouTube's ~6 hour rotation).
+Set `YT_DLP_BGUTIL_POT_BASE_URL` (or `POT_URL` on Render) to your bgutil HTTP
+provider. **Do not** set `YOUTUBE_PO_TOKEN` / `YOUTUBE_VISITOR_DATA` — they are
+deprecated (tokens are bound to video ID, not a static env pair).
 
-### (2) visitor_data + po_token refresh
-- On boot, the bridge warms up credentials (you'll see
-  `[bridge] POT credentials warmed up.` in the log).
-- Every video request reuses cached creds until TTL expires.
-- If yt-dlp returns a "Sign in to confirm you're not a bot" / 403 error,
-  the bridge calls `getCredentials({ force: true })`, which hits
-  `/invalidate_caches` on the POT server, mints a fresh visitor_data, and
-  retries. You can also trigger this manually with
-  `POST /admin/refresh-pot`.
+### (2) Manual fallback (no plugin zip)
+If the plugin directory is missing, `pot-client.js` mints a fresh PO token per
+video via `POST /get_pot` with `content_binding=<videoId>`.
 
 ### (3) External binding
 `app.listen(PORT, '0.0.0.0', …)` — driven by `HOST=0.0.0.0` env var set in

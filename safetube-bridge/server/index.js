@@ -1,14 +1,9 @@
-// server/index.js — SafeTube Bridge
+// server/index.js — SafeTube Bridge (VPS fix pack)
 //
-// Fixes addressed in this version:
-//   (1) Every yt-dlp call carries po_token + visitor_data via --extractor-args,
-//       fetched from the local bgutil POT provider (http://127.0.0.1:4416).
-//   (2) Credentials are auto-refreshed (TTL cache) and forcibly re-minted on
-//       'Sign in to confirm you're not a bot' errors.
-//   (3) Express listens on 0.0.0.0:3001 so 176.9.82.81 / www.box.co.il can
-//       reach it from outside the VPS.
-//   (4) Default yt-dlp client is web_embedded (most challenge-resistant for
-//       embedded playback); tv is offered as a fallback chain.
+//   (1) yt-dlp bgutil POT plugin — per-video tokens via youtubepot-bgutilhttp
+//   (2) Manual fallback: video-bound PO tokens from POT HTTP provider (no env PO pair)
+//   (3) Express listens on 0.0.0.0
+//   (4) Default client chain: web_embedded → tv → web_safari
 
 'use strict';
 
@@ -20,17 +15,26 @@ const fs = require('fs');
 
 const potClient = require('./pot-client');
 
-// ─── Config ──────────────────────────────────────────────────────────────────
 const PORT = Number(process.env.PORT || 3001);
-const HOST = process.env.HOST || '0.0.0.0';                  // fix #3
+const HOST = process.env.HOST || '0.0.0.0';
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp.exe';
 const YT_DLP_FORMAT = process.env.YT_DLP_FORMAT || 'best[height<=720][ext=mp4]/best[ext=mp4]/best';
-const COOKIES_FILE = process.env.COOKIES_FILE || '';         // optional /path/to/cookies.txt
-const PROXY_URL = process.env.PROXY_URL || '';               // optional http://user:pass@host:port
-// Ordered fallback chain — first client wins, but if YT challenges we'll retry the next.
+const COOKIES_FILE = process.env.COOKIES_FILE || '';
+const PROXY_URL = process.env.PROXY_URL || '';
+
+const YT_DLP_BGUTIL_POT_BASE_URL = (() => {
+  const raw =
+    process.env.YT_DLP_BGUTIL_POT_BASE_URL ??
+    process.env.POT_URL ??
+    process.env.POT_PROVIDER_URL;
+  if (raw === undefined || raw === null) return 'http://127.0.0.1:4416';
+  const t = String(raw).trim();
+  if (!t || /^(0|off|false|none)$/i.test(t)) return '';
+  return t.replace(/\/$/, '');
+})();
+
 const CLIENT_CHAIN = (process.env.YT_CLIENT_CHAIN || 'web_embedded,tv,web_safari').split(',');
 
-/** Chrome Mobile on Android — aligns with InnerTube `android` / mobile clients. Override: YT_DLP_USER_AGENT */
 const DEFAULT_ANDROID_YOUTUBE_UA =
   'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36';
 const YT_DLP_USER_AGENT = (process.env.YT_DLP_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
@@ -38,12 +42,10 @@ const YT_DLP_USER_AGENT = (process.env.YT_DLP_USER_AGENT || '').trim() || DEFAUL
 const YT_DLP_CLIENT_CERT = (process.env.YT_DLP_CLIENT_CERT || '').trim();
 const YT_DLP_CLIENT_KEY = (process.env.YT_DLP_CLIENT_KEY || '').trim();
 
-// ─── App setup ───────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors({ origin: true, credentials: false }));
 app.use(express.json({ limit: '1mb' }));
 
-// Simple request log so we can see who's hitting the bridge.
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}  from=${req.ip}`);
   next();
@@ -54,25 +56,59 @@ function resolveBridgePath(p) {
   return path.isAbsolute(p) ? p : path.join(__dirname, p);
 }
 
-// ─── yt-dlp invocation ───────────────────────────────────────────────────────
+function resolvePluginDirs() {
+  const dirs = [];
+  const bundled = path.join(__dirname, 'yt-dlp-plugins');
+  if (fs.existsSync(bundled)) dirs.push(bundled);
+  const extra = (process.env.YT_DLP_PLUGIN_DIRS || '').trim();
+  if (extra) {
+    for (const seg of extra.split(/[;,]/)) {
+      const d = seg.trim();
+      if (!d) continue;
+      const resolved = path.isAbsolute(d) ? d : path.join(__dirname, d);
+      if (fs.existsSync(resolved)) dirs.push(resolved);
+    }
+  }
+  return dirs;
+}
 
-/**
- * Build the yt-dlp argv for a given videoId + client, injecting POT creds.
- */
-function buildYtDlpArgs({ videoId, client, poToken, visitorData, jsonOnly }) {
+function shouldUsePotPlugin() {
+  const override = String(process.env.YT_DLP_USE_POT_PLUGIN || '').trim();
+  if (/^(0|off|false|none)$/i.test(override)) return false;
+  if (!YT_DLP_BGUTIL_POT_BASE_URL) return false;
+  return resolvePluginDirs().length > 0;
+}
+
+function buildYtDlpPluginPotArgs() {
+  const out = [];
+  for (const d of resolvePluginDirs()) out.push('--plugin-dirs', d);
+  out.push('--extractor-args', `youtubepot-bgutilhttp:base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`);
+  return out;
+}
+
+function buildYtDlpArgs({ videoId, client, poToken, visitorData, jsonOnly, usePlugin }) {
   const args = [
     '--no-warnings',
     '--no-playlist',
     '--no-check-certificates',
     '--no-cookies',
-    '-f', YT_DLP_FORMAT,
-    // (1) + (2) + (4): pass POT creds and pin the client used.
-    '--extractor-args',
-    `youtube:player_client=${client};po_token=${client}.gvs+${poToken};visitor_data=${visitorData}`,
-    '--user-agent',
-    YT_DLP_USER_AGENT,
-    '--add-header', 'Accept-Language:en-US,en;q=0.9',
+    '-f',
+    YT_DLP_FORMAT,
   ];
+
+  if (usePlugin) {
+    args.push(...buildYtDlpPluginPotArgs());
+    args.push('--extractor-args', `youtube:player_client=${client}`);
+  } else if (poToken && visitorData) {
+    args.push(
+      '--extractor-args',
+      `youtube:player_client=${client};po_token=${client}.gvs+${poToken};visitor_data=${visitorData}`
+    );
+  } else {
+    args.push('--extractor-args', `youtube:player_client=${client}`);
+  }
+
+  args.push('--user-agent', YT_DLP_USER_AGENT, '--add-header', 'Accept-Language:en-US,en;q=0.9');
 
   const cert = resolveBridgePath(YT_DLP_CLIENT_CERT);
   const key = resolveBridgePath(YT_DLP_CLIENT_KEY);
@@ -81,17 +117,12 @@ function buildYtDlpArgs({ videoId, client, poToken, visitorData, jsonOnly }) {
   }
 
   const cookiesPath = COOKIES_FILE ? resolveBridgePath(COOKIES_FILE) : '';
-  if (cookiesPath && fs.existsSync(cookiesPath)) {
-    args.push('--cookies', cookiesPath);
-  }
-  if (PROXY_URL) {
-    args.push('--proxy', PROXY_URL);
-  }
-  if (jsonOnly) {
-    args.push('--dump-single-json', '--skip-download');
-  } else {
-    args.push('--get-url'); // direct media URL for the frontend to stream
-  }
+  if (cookiesPath && fs.existsSync(cookiesPath)) args.push('--cookies', cookiesPath);
+  if (PROXY_URL) args.push('--proxy', PROXY_URL);
+
+  if (jsonOnly) args.push('--dump-single-json', '--skip-download');
+  else args.push('--get-url');
+
   args.push(`https://www.youtube.com/watch?v=${videoId}`);
   return args;
 }
@@ -115,21 +146,32 @@ function runYtDlp(args) {
   });
 }
 
-/**
- * High-level resolver: tries each client in CLIENT_CHAIN, refreshing POT on
- * 'not a bot' style errors.
- */
 async function resolveVideo(videoId, { jsonOnly = false } = {}) {
   let lastErr;
+  const usePlugin = shouldUsePotPlugin();
+
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { poToken, visitorData } = await potClient.getCredentials({
-      force: attempt > 0,
-    });
+    let poToken = null;
+    let visitorData = null;
+
+    if (!usePlugin) {
+      ({ poToken, visitorData } = await potClient.getCredentials({ videoId, force: attempt > 0 }));
+    } else if (attempt > 0) {
+      await potClient.invalidateCaches().catch(() => {});
+    }
+
     for (const client of CLIENT_CHAIN) {
-      const args = buildYtDlpArgs({ videoId, client, poToken, visitorData, jsonOnly });
+      const args = buildYtDlpArgs({
+        videoId,
+        client: String(client).trim(),
+        poToken,
+        visitorData,
+        jsonOnly,
+        usePlugin,
+      });
       try {
         const { stdout } = await runYtDlp(args);
-        return { client, output: stdout };
+        return { client: String(client).trim(), output: stdout };
       } catch (err) {
         lastErr = err;
         const s = (err.stderr || '') + (err.message || '');
@@ -139,7 +181,7 @@ async function resolveVideo(videoId, { jsonOnly = false } = {}) {
           /requires authentication/i.test(s) ||
           /HTTP Error 403/i.test(s);
         console.warn(`[ytdlp] client=${client} attempt=${attempt} failed: ${err.message.split('\n')[0]}`);
-        if (!challenged) break; // non-challenge error → try next client only if we still have one
+        if (!challenged) break;
       }
     }
   }
@@ -159,20 +201,22 @@ async function resolveLiveMeta(videoId) {
   return readLiveMetaFromInfo(info);
 }
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
-
 app.get('/health', async (_req, res) => {
   const potUp = await potClient.ping();
   res.json({
     ok: true,
     bridge: { port: PORT, host: HOST },
-    pot: { url: potClient.POT_BASE_URL, reachable: potUp },
+    pot: {
+      url: YT_DLP_BGUTIL_POT_BASE_URL || potClient.POT_BASE_URL,
+      reachable: potUp,
+      pluginMode: shouldUsePotPlugin(),
+      pluginDirs: resolvePluginDirs(),
+    },
     ytDlp: YT_DLP_PATH,
     clientChain: CLIENT_CHAIN,
   });
 });
 
-// Returns a direct, playable media URL for the given videoId.
 app.get('/api/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!/^[\w-]{11}$/.test(videoId)) {
@@ -200,7 +244,6 @@ app.get('/api/stream/:videoId', async (req, res) => {
   }
 });
 
-// Full metadata (title, duration, thumbnails, formats).
 app.get('/api/info/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!/^[\w-]{11}$/.test(videoId)) {
@@ -239,13 +282,19 @@ app.get('/api/info/:videoId', async (req, res) => {
   }
 });
 
-// Manual cache flush — useful for ops.
-app.post('/admin/refresh-pot', async (_req, res) => {
+app.post('/admin/refresh-pot', async (req, res) => {
   potClient.clearCache();
   try {
-    const creds = await potClient.getCredentials({ force: true });
+    await potClient.invalidateCaches();
+    const videoId =
+      typeof req.body?.videoId === 'string' && /^[\w-]{11}$/.test(req.body.videoId)
+        ? req.body.videoId
+        : 'dQw4w9WgXcQ';
+    const creds = await potClient.getCredentials({ videoId, force: true });
     res.json({
       ok: true,
+      videoId,
+      pluginMode: shouldUsePotPlugin(),
       visitorData: creds.visitorData.slice(0, 16) + '…',
       poToken: creds.poToken.slice(0, 16) + '…',
     });
@@ -254,23 +303,25 @@ app.post('/admin/refresh-pot', async (_req, res) => {
   }
 });
 
-// ─── Boot ────────────────────────────────────────────────────────────────────
-app.listen(PORT, HOST, async () => {                            // fix #3
+app.listen(PORT, HOST, async () => {
   console.log(`[bridge] listening on http://${HOST}:${PORT}`);
-  console.log(`[bridge] POT provider: ${potClient.POT_BASE_URL}`);
+  console.log(`[bridge] POT provider: ${YT_DLP_BGUTIL_POT_BASE_URL || potClient.POT_BASE_URL}`);
+  if (shouldUsePotPlugin()) {
+    console.log(`[bridge] yt-dlp POT plugin: youtubepot-bgutilhttp base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`);
+    console.log(`[bridge] plugin dirs: ${resolvePluginDirs().join(', ')}`);
+  } else {
+    console.warn('[bridge] POT plugin unavailable — per-video manual POT fallback active');
+  }
+
   const potUp = await potClient.ping();
   if (!potUp) {
-    console.error('[bridge] WARNING: POT provider unreachable. ' +
-      'Check that the SafeTubeBgutilPot service is running on 4416.');
-  } else {
+    console.error('[bridge] WARNING: POT provider unreachable.');
+  } else if (!shouldUsePotPlugin()) {
     try {
-      await potClient.getCredentials();
-      console.log('[bridge] POT credentials warmed up.');
+      await potClient.getCredentials({ videoId: 'dQw4w9WgXcQ' });
+      console.log('[bridge] POT manual fallback warmed up.');
     } catch (err) {
       console.error('[bridge] initial POT warmup failed:', err.message);
     }
   }
 });
-
-process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err));
-process.on('uncaughtException',  (err) => console.error('[uncaughtException]',  err));

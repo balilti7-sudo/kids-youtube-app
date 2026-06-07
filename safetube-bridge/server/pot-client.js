@@ -1,41 +1,36 @@
-// server/pot-client.js
-// Client for bgutil-ytdlp-pot-provider HTTP server (Rust or Node build).
-// Handles:
-//   - visitor_data acquisition + caching
-//   - PO token minting bound to visitor_data
-//   - automatic refresh on expiry/failure
-//
-// HTTP API reference (bgutil-pot >= 0.8):
-//   POST /get_pot                { content_binding: "<visitor_data>" } -> { po_token, content_binding }
-//   POST /invalidate_caches      {}
-//   GET  /ping                   -> 200 OK when alive
-//
-// Older builds expose /generate_visitor_data; if not present we fall back to a
-// lightweight bootstrap call against youtube.com (no auth required) to mint one.
+// server/pot-client.js — see server/pot-client.cjs in the main bridge (kept in sync).
 
 'use strict';
 
 const http = require('http');
+const https = require('https');
 
-const POT_BASE_URL = process.env.POT_PROVIDER_URL || 'http://127.0.0.1:4416';
-const TOKEN_TTL_MS = Number(process.env.POT_TOKEN_TTL_MS || 5 * 60 * 60 * 1000); // 5h, below YT's ~6h
+const POT_BASE_URL = (
+  process.env.YT_DLP_BGUTIL_POT_BASE_URL ||
+  process.env.POT_URL ||
+  process.env.POT_PROVIDER_URL ||
+  'http://127.0.0.1:4416'
+)
+  .trim()
+  .replace(/\/$/, '');
+
+const TOKEN_TTL_MS = Number(process.env.POT_TOKEN_TTL_MS || 45 * 60 * 1000);
 const REQUEST_TIMEOUT_MS = 15_000;
 
-let cached = {
-  visitorData: null,
-  poToken: null,
-  fetchedAt: 0,
-};
+/** @type {Map<string, { poToken: string, visitorData: string, fetchedAt: number }>} */
+const videoCache = new Map();
 
 function httpJson(method, url, body) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body ? Buffer.from(JSON.stringify(body)) : null;
-    const req = http.request(
+    const isHttps = u.protocol === 'https:';
+    const lib = isHttps ? https : http;
+    const req = lib.request(
       {
         method,
         hostname: u.hostname,
-        port: u.port || 80,
+        port: u.port || (isHttps ? 443 : 80),
         path: u.pathname + u.search,
         headers: {
           'Content-Type': 'application/json',
@@ -53,9 +48,9 @@ function httpJson(method, url, body) {
             return reject(new Error(`POT ${method} ${u.pathname} -> ${res.statusCode}: ${text}`));
           }
           if (!text) return resolve(null);
-          try { resolve(JSON.parse(text)); } catch (e) { resolve(text); }
+          try { resolve(JSON.parse(text)); } catch { resolve(text); }
         });
-      },
+      }
     );
     req.on('timeout', () => req.destroy(new Error('POT request timeout')));
     req.on('error', reject);
@@ -75,16 +70,11 @@ async function ping() {
 }
 
 async function fetchVisitorData() {
-  // First try the provider's own endpoint (newer builds).
   try {
     const r = await httpJson('POST', `${POT_BASE_URL}/generate_visitor_data`, {});
     if (r && r.visitor_data) return r.visitor_data;
-  } catch (_) { /* fall through */ }
+  } catch { /* fall through */ }
 
-  // Fallback: InnerTube /visitor_id (public, no auth). YouTube stopped including
-  // visitorData in sw.js_data, so we mint a fresh visitor identity via the WEB
-  // client InnerTube call (same strategy as generate-po-token.mjs).
-  const https = require('https');
   return await new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify({
       context: {
@@ -122,18 +112,16 @@ async function fetchVisitorData() {
         res.on('end', () => {
           const body = Buffer.concat(chunks).toString('utf8');
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            return reject(new Error(
-              `InnerTube /visitor_id HTTP ${res.statusCode}: ${body.slice(0, 200)}`,
-            ));
+            return reject(new Error(`InnerTube /visitor_id HTTP ${res.statusCode}: ${body.slice(0, 200)}`));
           }
           let data;
           try { data = JSON.parse(body); }
-          catch (e) { return reject(new Error(`InnerTube /visitor_id non-JSON response: ${body.slice(0, 200)}`)); }
-          const vd = data && data.responseContext && data.responseContext.visitorData;
+          catch { return reject(new Error(`InnerTube /visitor_id non-JSON: ${body.slice(0, 200)}`)); }
+          const vd = data?.responseContext?.visitorData;
           if (typeof vd === 'string' && vd.length >= 20) return resolve(vd);
           reject(new Error('InnerTube /visitor_id response missing visitorData'));
         });
-      },
+      }
     );
     req.on('timeout', () => req.destroy(new Error('InnerTube /visitor_id timeout')));
     req.on('error', reject);
@@ -142,46 +130,43 @@ async function fetchVisitorData() {
   });
 }
 
-async function mintPoToken(visitorData) {
+async function mintPoToken(contentBinding, { bypassCache = false } = {}) {
   const r = await httpJson('POST', `${POT_BASE_URL}/get_pot`, {
-    content_binding: visitorData,
+    content_binding: contentBinding,
+    bypass_cache: bypassCache,
   });
-  // bgutil-ytdlp-pot-provider (Python) returns `po_token` (snake_case);
-  // bgutil-ytdlp-pot-provider-rs (Rust) returns `poToken` (camelCase). Accept both.
   const token = r && (r.po_token || r.poToken);
-  if (!token) {
-    throw new Error(`POT response missing po_token/poToken: ${JSON.stringify(r)}`);
-  }
+  if (!token) throw new Error(`POT response missing po_token/poToken: ${JSON.stringify(r)}`);
   return token;
 }
 
-/**
- * Get a fresh { poToken, visitorData } pair, cached for TOKEN_TTL_MS.
- * Call `force: true` to bypass cache (e.g. after a 'Sign in to confirm' error).
- */
-async function getCredentials({ force = false } = {}) {
-  const age = Date.now() - cached.fetchedAt;
-  if (!force && cached.poToken && age < TOKEN_TTL_MS) {
-    return { poToken: cached.poToken, visitorData: cached.visitorData };
+async function invalidateCaches() {
+  videoCache.clear();
+  try { await httpJson('POST', `${POT_BASE_URL}/invalidate_caches`, {}); } catch { /* optional */ }
+}
+
+async function getCredentials({ videoId, force = false } = {}) {
+  if (!videoId) {
+    throw new Error('getCredentials requires videoId');
   }
 
-  if (force) {
-    try { await httpJson('POST', `${POT_BASE_URL}/invalidate_caches`, {}); } catch (_) {}
+  const cachedEntry = videoCache.get(videoId);
+  const age = cachedEntry ? Date.now() - cachedEntry.fetchedAt : Infinity;
+  if (!force && cachedEntry && age < TOKEN_TTL_MS) {
+    return { poToken: cachedEntry.poToken, visitorData: cachedEntry.visitorData };
   }
 
-  const visitorData = cached.visitorData && !force ? cached.visitorData : await fetchVisitorData();
-  const poToken = await mintPoToken(visitorData);
+  if (force) await invalidateCaches();
 
-  cached = { visitorData, poToken, fetchedAt: Date.now() };
-  console.log(
-    `[pot] refreshed credentials (visitor=${visitorData.slice(0, 12)}…, ` +
-    `pot=${poToken.slice(0, 12)}…)`,
-  );
+  const visitorData = await fetchVisitorData();
+  const poToken = await mintPoToken(videoId, { bypassCache: force });
+  videoCache.set(videoId, { poToken, visitorData, fetchedAt: Date.now() });
+  console.log(`[pot] video=${videoId} refreshed (pot=${poToken.slice(0, 12)}…)`);
   return { poToken, visitorData };
 }
 
 function clearCache() {
-  cached = { visitorData: null, poToken: null, fetchedAt: 0 };
+  videoCache.clear();
 }
 
-module.exports = { ping, getCredentials, clearCache, POT_BASE_URL };
+module.exports = { ping, getCredentials, invalidateCaches, clearCache, POT_BASE_URL };

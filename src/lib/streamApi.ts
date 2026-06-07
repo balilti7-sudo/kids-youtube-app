@@ -647,7 +647,7 @@ async function doFetchStreamInfo(
       }
       if (res.status === 428 && errorCode === 'AUTH_COOKIES_INVALID') {
         throw new StreamApiError(
-          'YouTube חסם את הבקשה. ודאו ש-YOUTUBE_PO_TOKEN ו-YOUTUBE_VISITOR_DATA מוגדרים בשרת הגשר (אותה סשן).',
+          'YouTube חסם את הבקשה. ודאו ששרת הגשר (Media Bridge) מחובר ל-bgutil POT provider וש-yt-dlp plugin מותקן (npm run download-tools).',
           res.status,
           detail
         )

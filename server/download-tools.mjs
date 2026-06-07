@@ -67,29 +67,37 @@ async function main() {
 
   if (process.platform !== 'win32') {
     console.log('Skipping ffmpeg auto-download on non-Windows; install ffmpeg via your OS package manager if yt-dlp needs it.')
-    return
+  } else {
+    const zipPath = path.join(SERVER_ROOT, '.ffmpeg-download.zip')
+    const extractDir = path.join(SERVER_ROOT, '.ffmpeg-extract')
+    const ffmpegUrl =
+      'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+
+    console.log('Downloading ffmpeg (win64) …')
+    await downloadFile(ffmpegUrl, zipPath)
+    rmSync(extractDir, { recursive: true, force: true })
+    mkdirSync(extractDir, { recursive: true })
+    await expandZipWindows(zipPath, extractDir)
+
+    const found = findFileRecursive(extractDir, 'ffmpeg.exe')
+    if (!found) {
+      throw new Error('ffmpeg.exe not found inside archive')
+    }
+    const outExe = path.join(SERVER_ROOT, 'ffmpeg.exe')
+    copyFileSync(found, outExe)
+    rmSync(zipPath, { force: true })
+    rmSync(extractDir, { recursive: true, force: true })
+    console.log('Wrote', outExe)
   }
 
-  const zipPath = path.join(SERVER_ROOT, '.ffmpeg-download.zip')
-  const extractDir = path.join(SERVER_ROOT, '.ffmpeg-extract')
-  const ffmpegUrl =
-    'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
-
-  console.log('Downloading ffmpeg (win64) …')
-  await downloadFile(ffmpegUrl, zipPath)
-  rmSync(extractDir, { recursive: true, force: true })
-  mkdirSync(extractDir, { recursive: true })
-  await expandZipWindows(zipPath, extractDir)
-
-  const found = findFileRecursive(extractDir, 'ffmpeg.exe')
-  if (!found) {
-    throw new Error('ffmpeg.exe not found inside archive')
-  }
-  const outExe = path.join(SERVER_ROOT, 'ffmpeg.exe')
-  copyFileSync(found, outExe)
-  rmSync(zipPath, { force: true })
-  rmSync(extractDir, { recursive: true, force: true })
-  console.log('Wrote', outExe)
+  const pluginsDir = path.join(SERVER_ROOT, 'yt-dlp-plugins')
+  mkdirSync(pluginsDir, { recursive: true })
+  const pluginZip = path.join(pluginsDir, 'bgutil-ytdlp-pot-provider.zip')
+  const pluginUrl =
+    'https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/latest/download/bgutil-ytdlp-pot-provider.zip'
+  console.log('Downloading bgutil yt-dlp POT plugin …')
+  await downloadFile(pluginUrl, pluginZip)
+  console.log('Wrote', pluginZip)
 }
 
 main().catch((e) => {

@@ -2,10 +2,9 @@
 //
 // Updated fixes:
 //   ✓ tv + web_embedded first in CLIENT_CHAIN, then ios / android
-//   ✓ Correct po_token injection (without .gvs+)
-//   ✓ Better resistance against "Sign in to confirm you're not a bot"
+//   ✓ bgutil POT yt-dlp plugin (per-video tokens via youtubepot-bgutilhttp)
+//   ✓ Manual fallback: video-bound PO tokens from POT HTTP provider (no env PO pair)
 //   ✓ External access enabled on 0.0.0.0
-//   ✓ POT auto-refresh (POT_URL on Render, else POT_PROVIDER_URL, else :4416)
 
 'use strict';
 
@@ -46,6 +45,18 @@ const YT_DLP_FORMAT = process.env.YT_DLP_FORMAT || DEFAULT_YT_DLP_FORMAT;
 const COOKIES_FILE_ENV =
   (process.env.COOKIES_FILE || process.env.YT_DLP_COOKIES_FILE || './cookies.txt').trim();
 const PROXY_URL = process.env.PROXY_URL || '';
+
+/** bgutil POT HTTP server for yt-dlp plugin (`youtubepot-bgutilhttp:base_url=…`). Set `off` to disable. */
+const YT_DLP_BGUTIL_POT_BASE_URL = (() => {
+  const raw =
+    process.env.YT_DLP_BGUTIL_POT_BASE_URL ??
+    process.env.POT_URL ??
+    process.env.POT_PROVIDER_URL;
+  if (raw === undefined || raw === null) return 'http://127.0.0.1:4416';
+  const t = String(raw).trim();
+  if (!t || /^(0|off|false|none)$/i.test(t)) return '';
+  return t.replace(/\/$/, '');
+})();
 
 /** Chrome Mobile on Android — aligns with InnerTube `android` / mobile clients (not desktop Windows). */
 const DEFAULT_ANDROID_YOUTUBE_UA =
@@ -125,6 +136,44 @@ function resolveYtDlpPath() {
 
 const YT_DLP_PATH = resolveYtDlpPath();
 
+function resolvePluginDirs() {
+  const dirs = [];
+  const bundled = path.join(__dirname, 'yt-dlp-plugins');
+  if (fs.existsSync(bundled)) dirs.push(bundled);
+
+  const extra = (process.env.YT_DLP_PLUGIN_DIRS || '').trim();
+  if (extra) {
+    for (const seg of extra.split(/[;,]/)) {
+      const d = seg.trim();
+      if (!d) continue;
+      const resolved = path.isAbsolute(d) ? d : path.join(__dirname, d);
+      if (fs.existsSync(resolved)) dirs.push(resolved);
+    }
+  }
+
+  return dirs;
+}
+
+/** yt-dlp bgutil POT plugin — preferred; fetches video-bound tokens automatically. */
+function shouldUsePotPlugin() {
+  const override = String(process.env.YT_DLP_USE_POT_PLUGIN || '').trim();
+  if (/^(0|off|false|none)$/i.test(override)) return false;
+  if (!YT_DLP_BGUTIL_POT_BASE_URL) return false;
+  return resolvePluginDirs().length > 0;
+}
+
+function buildYtDlpPluginPotArgs() {
+  const out = [];
+  for (const d of resolvePluginDirs()) {
+    out.push('--plugin-dirs', d);
+  }
+  out.push(
+    '--extractor-args',
+    `youtubepot-bgutilhttp:base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`
+  );
+  return out;
+}
+
 // ─── yt-dlp invocation ───────────────────────────────────────────────────────
 
 /**
@@ -161,6 +210,7 @@ function buildYtDlpArgs({
   poToken,
   visitorData,
   jsonOnly,
+  usePlugin,
 }) {
   const cookiesPath = resolveCookiesPath();
 
@@ -176,19 +226,25 @@ function buildYtDlpArgs({
     args.push('--no-cookies');
   }
 
+  args.push('-f', YT_DLP_FORMAT);
+
+  if (usePlugin) {
+    args.push(...buildYtDlpPluginPotArgs());
+    args.push('--extractor-args', `youtube:player_client=${client}`);
+  } else if (poToken && visitorData) {
+    args.push(
+      '--extractor-args',
+      `youtube:player_client=${client};po_token=${client}.gvs+${poToken};visitor_data=${visitorData}`
+    );
+  } else {
+    args.push('--extractor-args', `youtube:player_client=${client}`);
+  }
+
   args.push(
-    '-f',
-    YT_DLP_FORMAT,
-
-    // FIXED TOKEN INJECTION
-    '--extractor-args',
-    `youtube:player_client=${client};po_token=${poToken};visitor_data=${visitorData}`,
-
     '--user-agent',
     YT_DLP_USER_AGENT,
-
     '--add-header',
-    'Accept-Language:en-US,en;q=0.9',
+    'Accept-Language:en-US,en;q=0.9'
   );
 
   const cert = resolveBridgePath(YT_DLP_CLIENT_CERT);
@@ -258,20 +314,29 @@ function runYtDlp(args) {
 
 async function resolveVideo(videoId, { jsonOnly = false } = {}) {
   let lastErr;
+  const usePlugin = shouldUsePotPlugin();
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { poToken, visitorData } =
-      await potClient.getCredentials({
+    let poToken = null;
+    let visitorData = null;
+
+    if (!usePlugin) {
+      ({ poToken, visitorData } = await potClient.getCredentials({
+        videoId,
         force: attempt > 0,
-      });
+      }));
+    } else if (attempt > 0) {
+      await potClient.invalidateCaches().catch(() => {});
+    }
 
     for (const client of CLIENT_CHAIN) {
       const args = buildYtDlpArgs({
         videoId,
-        client,
+        client: String(client).trim(),
         poToken,
         visitorData,
         jsonOnly,
+        usePlugin,
       });
 
       try {
@@ -510,8 +575,10 @@ app.get('/health', async (_req, res) => {
       host: HOST,
     },
     pot: {
-      url: potClient.POT_BASE_URL,
+      url: YT_DLP_BGUTIL_POT_BASE_URL || potClient.POT_BASE_URL,
       reachable: potUp,
+      pluginMode: shouldUsePotPlugin(),
+      pluginDirs: resolvePluginDirs(),
     },
     ytDlp: YT_DLP_PATH,
     ytDlpFormat: YT_DLP_FORMAT,
@@ -688,22 +755,24 @@ app.get('/api/info/:videoId', async (req, res) => {
   }
 });
 
-app.post('/admin/refresh-pot', async (_req, res) => {
+app.post('/admin/refresh-pot', async (req, res) => {
   potClient.clearCache();
 
   try {
-    const creds =
-      await potClient.getCredentials({
-        force: true,
-      });
+    await potClient.invalidateCaches();
+    const videoId =
+      typeof req.body?.videoId === 'string' && /^[\w-]{11}$/.test(req.body.videoId)
+        ? req.body.videoId
+        : 'dQw4w9WgXcQ';
+
+    const creds = await potClient.getCredentials({ videoId, force: true });
 
     res.json({
       ok: true,
-      visitorData:
-        creds.visitorData.slice(0, 16) + '…',
-
-      poToken:
-        creds.poToken.slice(0, 16) + '…',
+      videoId,
+      pluginMode: shouldUsePotPlugin(),
+      visitorData: creds.visitorData.slice(0, 16) + '…',
+      poToken: creds.poToken.slice(0, 16) + '…',
     });
   } catch (err) {
     res.status(500).json({
@@ -721,8 +790,20 @@ app.listen(PORT, HOST, async () => {
   );
 
   console.log(
-    `[bridge] POT provider: ${potClient.POT_BASE_URL}`
+    `[bridge] POT provider: ${YT_DLP_BGUTIL_POT_BASE_URL || potClient.POT_BASE_URL}`
   );
+
+  if (shouldUsePotPlugin()) {
+    console.log(
+      `[bridge] yt-dlp POT plugin: youtubepot-bgutilhttp base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`
+    );
+    console.log(`[bridge] plugin dirs: ${resolvePluginDirs().join(', ')}`);
+  } else {
+    console.warn(
+      '[bridge] POT plugin unavailable — using per-video manual POT fallback. ' +
+        'Run npm run download-tools to fetch bgutil-ytdlp-pot-provider.zip into server/yt-dlp-plugins/.'
+    );
+  }
 
   console.log(`[bridge] yt-dlp format: ${YT_DLP_FORMAT}`);
   console.log(`[bridge] yt-dlp binary: ${YT_DLP_PATH}`);
@@ -748,19 +829,15 @@ app.listen(PORT, HOST, async () => {
     console.error(
       '[bridge] WARNING: POT provider unreachable.'
     );
-  } else {
+  } else if (!shouldUsePotPlugin()) {
     try {
-      await potClient.getCredentials();
-
-      console.log(
-        '[bridge] POT credentials warmed up.'
-      );
+      await potClient.getCredentials({ videoId: 'dQw4w9WgXcQ' });
+      console.log('[bridge] POT manual fallback warmed up (test video).');
     } catch (err) {
-      console.error(
-        '[bridge] initial POT warmup failed:',
-        err.message
-      );
+      console.error('[bridge] initial POT warmup failed:', err.message);
     }
+  } else {
+    console.log('[bridge] POT plugin mode — tokens minted per request by yt-dlp.');
   }
 });
 

@@ -18,9 +18,9 @@ services:
         sync: false
       - key: YT_DLP_PATH
         value: ./yt-dlp
-      - key: YOUTUBE_PO_TOKEN
+      - key: YT_DLP_BGUTIL_POT_BASE_URL
         sync: false
-      - key: YOUTUBE_VISITOR_DATA
+      - key: POT_URL
         sync: false
       - key: SUPABASE_URL
         sync: false
