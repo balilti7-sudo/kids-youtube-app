@@ -29,8 +29,6 @@ const { searchYouTube } = require('./youtube-search.cjs');
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || '0.0.0.0';
 
-const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp.exe';
-
 /**
  * Muxed progressive MP4 only — required for --get-url + HTML5 <video>.
  * Do NOT use bestvideo+bestaudio here: that yields two URLs (or audio-only itag 140
@@ -98,6 +96,34 @@ function resolveCookiesPath() {
   const resolved = resolveBridgePath(COOKIES_FILE_ENV);
   return fs.existsSync(resolved) ? resolved : '';
 }
+
+/**
+ * Resolve yt-dlp binary: env YT_DLP_PATH → bundled server/yt-dlp (from download-tools) → PATH name.
+ * Render often sets YT_DLP_PATH=/yt-dlp which does not exist; fall back to npm run download-tools output.
+ */
+function resolveYtDlpPath() {
+  const bundledName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+  const bundledPath = path.join(__dirname, bundledName);
+
+  const envRaw = (process.env.YT_DLP_PATH || '').trim();
+  if (envRaw) {
+    const resolved = resolveBridgePath(envRaw);
+    if (fs.existsSync(resolved)) {
+      return resolved;
+    }
+    console.warn(
+      `[bridge] YT_DLP_PATH "${envRaw}" not found — falling back to bundled ${bundledPath}`
+    );
+  }
+
+  if (fs.existsSync(bundledPath)) {
+    return bundledPath;
+  }
+
+  return bundledName;
+}
+
+const YT_DLP_PATH = resolveYtDlpPath();
 
 // ─── yt-dlp invocation ───────────────────────────────────────────────────────
 
@@ -699,6 +725,13 @@ app.listen(PORT, HOST, async () => {
   );
 
   console.log(`[bridge] yt-dlp format: ${YT_DLP_FORMAT}`);
+  console.log(`[bridge] yt-dlp binary: ${YT_DLP_PATH}`);
+  if (!fs.existsSync(YT_DLP_PATH)) {
+    console.error(
+      `[bridge] WARNING: yt-dlp binary missing at "${YT_DLP_PATH}" — /api/stream will return 502. ` +
+        'Run npm run download-tools in server/ or fix YT_DLP_PATH on Render.'
+    );
+  }
 
   const cookiesPath = resolveCookiesPath();
   if (cookiesPath) {
