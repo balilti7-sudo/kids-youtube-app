@@ -371,11 +371,103 @@ export type YouTubeVideoSearchResult = {
 }
 
 type BridgeSearchResponse = {
-  videos?: YouTubeVideoResult[]
+  videos?: unknown[]
+  results?: unknown[]
+  items?: unknown[]
   continuation?: string | null
   hasMore?: boolean
   error?: string
   detail?: string
+}
+
+function isElevenCharVideoId(value: unknown): value is string {
+  return typeof value === 'string' && /^[\w-]{11}$/.test(value.trim())
+}
+
+function readThumbnailFromRecord(raw: Record<string, unknown>, videoId: string): string {
+  if (typeof raw.thumbnail === 'string' && raw.thumbnail.trim()) return raw.thumbnail.trim()
+  if (typeof raw.thumbnail_url === 'string' && raw.thumbnail_url.trim()) return raw.thumbnail_url.trim()
+
+  const snippet = raw.snippet
+  if (snippet && typeof snippet === 'object' && !Array.isArray(snippet)) {
+    const thumbs = (snippet as { thumbnails?: Record<string, { url?: string } | undefined> }).thumbnails
+    if (thumbs && typeof thumbs === 'object') {
+      const url =
+        thumbs.medium?.url ??
+        thumbs.default?.url ??
+        thumbs.high?.url ??
+        thumbs.standard?.url
+      if (url) return url
+    }
+  }
+
+  const best = raw.bestThumbnail
+  if (best && typeof best === 'object' && !Array.isArray(best)) {
+    const url = (best as { url?: string }).url
+    if (url) return url
+  }
+
+  if (Array.isArray(raw.thumbnails)) {
+    const first = raw.thumbnails[0]
+    if (first && typeof first === 'object' && typeof (first as { url?: string }).url === 'string') {
+      return (first as { url: string }).url
+    }
+  }
+
+  return videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : ''
+}
+
+function extractVideoIdFromSearchRow(raw: Record<string, unknown>): string {
+  const candidates = [raw.videoId, raw.video_id, raw.youtube_video_id, raw.id]
+  for (const candidate of candidates) {
+    if (isElevenCharVideoId(candidate)) return candidate.trim()
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      const nested = candidate as Record<string, unknown>
+      const nestedId = nested.videoId ?? nested.video_id
+      if (isElevenCharVideoId(nestedId)) return nestedId.trim()
+    }
+  }
+  return ''
+}
+
+/** Normalize bridge / YouTube Data API / legacy rows into UI-friendly search results. */
+export function normalizeYouTubeVideoSearchResults(raw: unknown): YouTubeVideoResult[] {
+  if (!Array.isArray(raw)) return []
+
+  const out: YouTubeVideoResult[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Record<string, unknown>
+    const videoId = extractVideoIdFromSearchRow(row)
+    if (!videoId) continue
+
+    let title = ''
+    if (typeof row.title === 'string' && row.title.trim()) {
+      title = row.title.trim()
+    } else if (row.snippet && typeof row.snippet === 'object' && !Array.isArray(row.snippet)) {
+      const snippetTitle = (row.snippet as { title?: string }).title
+      if (typeof snippetTitle === 'string' && snippetTitle.trim()) title = snippetTitle.trim()
+    }
+    if (!title) title = 'ללא כותרת'
+
+    let channelTitle = ''
+    if (typeof row.channelTitle === 'string') channelTitle = row.channelTitle
+    else if (typeof row.channel_title === 'string') channelTitle = row.channel_title
+    else if (typeof row.channel_name === 'string') channelTitle = row.channel_name
+    else if (row.snippet && typeof row.snippet === 'object' && !Array.isArray(row.snippet)) {
+      channelTitle = String((row.snippet as { channelTitle?: string }).channelTitle ?? '')
+    } else if (row.author && typeof row.author === 'object' && !Array.isArray(row.author)) {
+      channelTitle = String((row.author as { name?: string }).name ?? '')
+    }
+
+    out.push({
+      videoId,
+      title,
+      thumbnail: readThumbnailFromRecord(row, videoId),
+      channelTitle,
+    })
+  }
+  return out
 }
 
 function previewResponseBody(body: string): string {
@@ -464,7 +556,8 @@ export async function searchYouTubeVideos(
       throw new Error(msg)
     }
 
-    const videos = Array.isArray(json.videos) ? json.videos : []
+    const rawList = json.videos ?? json.results ?? json.items
+    const videos = normalizeYouTubeVideoSearchResults(Array.isArray(rawList) ? rawList : [])
     return {
       data: videos,
       error: null,
