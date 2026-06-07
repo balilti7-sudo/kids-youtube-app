@@ -158,6 +158,11 @@ function viteProxyOrigin(): string {
   return window.location.origin.replace(/\/$/, '')
 }
 
+/** Ephemeral quick tunnels expire; never bake them into production builds. */
+function isEphemeralTryCloudflareTunnel(hostname: string): boolean {
+  return hostname.toLowerCase().endsWith('.trycloudflare.com')
+}
+
 function resolveProductionBridgeOrigin(): string {
   const v = import.meta.env.VITE_STREAM_API_BASE?.trim() ?? ''
   const parsed = parseValidHttpBaseOrNull(v)
@@ -166,6 +171,17 @@ function resolveProductionBridgeOrigin(): string {
       '[streamApi] VITE_STREAM_API_BASE is missing in production — falling back to Render Media Bridge.'
     )
     return CANONICAL_MEDIA_BRIDGE_ORIGIN
+  }
+  try {
+    if (isEphemeralTryCloudflareTunnel(new URL(parsed).hostname)) {
+      console.error(
+        `[streamApi] VITE_STREAM_API_BASE uses an expired ephemeral Cloudflare tunnel ("${parsed}") — ` +
+          `using ${CANONICAL_MEDIA_BRIDGE_ORIGIN}. Update Vercel env to the stable bridge URL.`
+      )
+      return CANONICAL_MEDIA_BRIDGE_ORIGIN
+    }
+  } catch {
+    /* fall through */
   }
   if (isLikelyFrontendDeploymentOrigin(parsed)) {
     console.error(

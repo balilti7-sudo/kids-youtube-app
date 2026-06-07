@@ -1,5 +1,4 @@
-import type { EducationalBreakIntervalMinutes, WhitelistedChannel } from '../types'
-import { normalizeBreakIntervalFromDevice } from './educationalIntercept'
+import type { WhitelistedChannel } from '../types'
 import { supabase } from './supabase'
 import { clearLocalParentSession } from './localParentAdmin'
 import { clearAppMode } from './appMode'
@@ -12,8 +11,6 @@ export interface ChildDeviceState {
   is_blocked: boolean
   is_online: boolean
   last_seen_at: string | null
-  educational_intercept_enabled: boolean
-  break_interval_minutes: EducationalBreakIntervalMinutes
   allow_shorts: boolean
 }
 
@@ -121,12 +118,6 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
       is_blocked: Boolean(r.is_blocked),
       is_online: Boolean(r.is_online),
       last_seen_at: r.last_seen_at != null ? String(r.last_seen_at) : null,
-      educational_intercept_enabled: Boolean(
-        r.educational_intercept_enabled ?? r.educational_intercepts_enabled
-      ),
-      break_interval_minutes: normalizeBreakIntervalFromDevice(
-        r.break_interval_minutes ?? r.educational_intercept_frequency
-      ),
       allow_shorts: Boolean(r.allow_shorts ?? r.allowShorts),
     },
     error: null,

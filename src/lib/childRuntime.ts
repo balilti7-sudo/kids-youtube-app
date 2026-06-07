@@ -1,9 +1,3 @@
-import type { EducationalBreakIntervalMinutes } from '../types'
-import {
-  EDUCATIONAL_BREAKS_RUNTIME_ENABLED,
-  normalizeBreakIntervalFromDevice,
-  type InterceptPendingVideo,
-} from './educationalIntercept'
 import { getSavedChildAccessToken } from './childDevice'
 import { supabase } from './supabase'
 
@@ -18,29 +12,12 @@ export type ServerChildRuntime = {
   remainingSeconds: number | null
   playbackBlocked: boolean
   challengeTask: string | null
-  interceptActive: boolean
-  /** @deprecated Legacy; use interceptWatchSeconds */
-  interceptVideoCount: number
-  interceptWatchSeconds: number
-  interceptPendingVideo: InterceptPendingVideo | null
-  interceptSceneProgress: string[]
   lionLevel: number
   lionXp: number
   lionActiveOutfit: string
-  educationalInterceptEnabled: boolean
-  breakIntervalMinutes: EducationalBreakIntervalMinutes
-}
-
-export type CompleteInterceptResult = {
-  lionLevel: number
-  lionXp: number
-  leveledUp: boolean
-  levelsGained: number
-  xpGained: number
 }
 
 export type RaffleTicketSource =
-  | 'educational_intercept'
   | 'lion_level_up'
   | 'screen_time_challenge'
   | 'manual_parent'
@@ -68,309 +45,7 @@ export type AwardRaffleTicketResult = {
   alreadyExisted: boolean
 }
 
-export type BedtimeTask = 'teeth' | 'bathroom'
-
-export type ChildBedtimeState = {
-  serverNow: string
-  routineDate: string
-  weekStart: string
-  enabled: boolean
-  /** Minutes of watching allowed after parent starts grace (from device_bedtime_settings). */
-  gracePeriodMinutes: number
-  /** Set by parent via parent_start_bedtime_grace — null until parent explicitly starts. */
-  graceCountdownStartedAt: string | null
-  teethConfirmed: boolean
-  bathroomConfirmed: boolean
-  tasksCompleted: boolean
-  parentApproved: boolean
-  canSpinWheel: boolean
-  wheelSpun: boolean
-  wheelPointsToday: number
-  weeklyTotalPoints: number
-  treasureThreshold: number
-  treasureEligible: boolean
-  treasureWindowOpen: boolean
-  treasureOpened: boolean
-  treasureClaimed: boolean
-  treasurePrizeTitle: string
-  treasurePrizeDescription: string
-}
-
-export type BedtimeTaskConfirmResult = {
-  routineDate: string
-  teethConfirmed: boolean
-  bathroomConfirmed: boolean
-  tasksCompleted: boolean
-}
-
-export type DailyWheelSpinResult = {
-  routineDate: string
-  weekStart: string
-  pointsWon: number
-  weeklyTotalPoints: number
-  spinsToday: number
-  alreadySpun: boolean
-}
-
-export type TreasureClaimResult = {
-  weekStart: string
-  weeklyTotalPoints: number
-  treasureThreshold: number
-  treasurePrizeTitle: string
-  treasurePrizeDescription: string
-  claimedAt: string
-}
-
-export type ParentBedtimeApproveResult = {
-  deviceId: string
-  routineDate: string
-  parentApprovedAt: string | null
-  canSpinWheel: boolean
-}
-
-export type ParentBedtimeState = {
-  routineDate: string
-  weekStart: string
-  enabled: boolean
-  gracePeriodMinutes: number
-  graceCountdownStartedAt: string | null
-  teethConfirmed: boolean
-  bathroomConfirmed: boolean
-  tasksCompleted: boolean
-  parentApproved: boolean
-  parentApprovedAt: string | null
-  wheelSpun: boolean
-  wheelPointsToday: number
-  weeklyTotalPoints: number
-  treasureThreshold: number
-  treasurePrizeTitle: string
-  treasurePrizeDescription: string
-}
-
-export type ParentBedtimeGraceStartResult = {
-  routineDate: string
-  gracePeriodMinutes: number
-  graceCountdownStartedAt: string
-}
-
-export type BedtimeSettings = {
-  deviceId: string
-  enabled: boolean
-  gracePeriodMinutes: number
-  treasurePointsThreshold: number
-  treasurePrizeTitle: string
-  treasurePrizeDescription: string
-  createdAt: string
-  updatedAt: string
-}
-
-export const BEDTIME_ROUTINE_FORCE_ENABLED = false
-
-export const BEDTIME_CHANGED_EVENT = 'safetube-bedtime-changed'
-
-export function notifyBedtimeChanged() {
-  try {
-    window.dispatchEvent(new CustomEvent(BEDTIME_CHANGED_EVENT))
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Show bedtime UI when an active child profile (device) is selected in the single-app flow. */
-export function shouldShowBedtimeRoutineUi(activeDeviceId: string | null | undefined): boolean {
-  return Boolean(activeDeviceId?.trim())
-}
-
-export function isBedtimeRoutineVisible(state: ChildBedtimeState | null | undefined): boolean {
-  if (!state) return false
-  return BEDTIME_ROUTINE_FORCE_ENABLED || state.enabled
-}
-
-/** Kid cannot browse channels until evening tasks are done and a parent approves. */
-export function bedtimeBlocksChannelBrowse(state: ChildBedtimeState | null | undefined): boolean {
-  if (!isBedtimeRoutineVisible(state)) return false
-  return !state!.tasksCompleted || !state!.parentApproved
-}
-
-const BEDTIME_TASKS = new Set<BedtimeTask>(['teeth', 'bathroom'])
-
-function normalizeBedtimeTask(task: BedtimeTask): BedtimeTask {
-  return BEDTIME_TASKS.has(task) ? task : 'teeth'
-}
-
-function rowBool(row: Record<string, unknown>, ...keys: string[]): boolean {
-  for (const key of keys) {
-    if (typeof row[key] === 'boolean') return row[key]
-  }
-  return false
-}
-
-function rowInt(row: Record<string, unknown>, fallback: number, ...keys: string[]): number {
-  for (const key of keys) {
-    if (typeof row[key] === 'number' && Number.isFinite(row[key])) {
-      return Math.max(0, Math.round(row[key] as number))
-    }
-  }
-  return fallback
-}
-
-function rowStr(row: Record<string, unknown>, fallback = '', ...keys: string[]): string {
-  for (const key of keys) {
-    if (typeof row[key] === 'string') return row[key]
-    if (row[key] != null && typeof row[key] !== 'object') return String(row[key])
-  }
-  return fallback
-}
-
-function rowStrOrNull(row: Record<string, unknown>, ...keys: string[]): string | null {
-  for (const key of keys) {
-    if (typeof row[key] === 'string') return row[key]
-    if (row[key] == null) return null
-  }
-  return null
-}
-
-function mapChildBedtimeStateRow(row: Record<string, unknown>): ChildBedtimeState {
-  const enabledFromRow = typeof row.enabled === 'boolean' ? row.enabled : true
-
-  return {
-    serverNow: rowStr(row, new Date().toISOString(), 'server_now', 'serverNow'),
-    routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
-    weekStart: rowStr(row, '', 'week_start', 'weekStart'),
-    enabled: BEDTIME_ROUTINE_FORCE_ENABLED || enabledFromRow,
-    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
-    graceCountdownStartedAt: rowStrOrNull(
-      row,
-      'grace_countdown_started_at',
-      'graceCountdownStartedAt'
-    ),
-    teethConfirmed: rowBool(row, 'teeth_confirmed', 'teethConfirmed'),
-    bathroomConfirmed: rowBool(row, 'bathroom_confirmed', 'bathroomConfirmed'),
-    tasksCompleted: rowBool(row, 'tasks_completed', 'tasksCompleted'),
-    parentApproved: rowBool(row, 'parent_approved', 'parentApproved'),
-    canSpinWheel: rowBool(row, 'can_spin_wheel', 'canSpinWheel'),
-    wheelSpun: rowBool(row, 'wheel_spun', 'wheelSpun'),
-    wheelPointsToday: rowInt(row, 0, 'wheel_points_today', 'wheelPointsToday'),
-    weeklyTotalPoints: rowInt(row, 0, 'weekly_total_points', 'weeklyTotalPoints'),
-    treasureThreshold: rowInt(row, 100, 'treasure_threshold', 'treasureThreshold'),
-    treasureEligible: rowBool(row, 'treasure_eligible', 'treasureEligible'),
-    treasureWindowOpen: rowBool(row, 'treasure_window_open', 'treasureWindowOpen'),
-    treasureOpened: rowBool(row, 'treasure_opened', 'treasureOpened'),
-    treasureClaimed: rowBool(row, 'treasure_claimed', 'treasureClaimed'),
-    treasurePrizeTitle: rowStr(row, '', 'treasure_prize_title', 'treasurePrizeTitle'),
-    treasurePrizeDescription: rowStr(row, '', 'treasure_prize_description', 'treasurePrizeDescription'),
-  }
-}
-
-function mapBedtimeTaskConfirmRow(row: Record<string, unknown>): BedtimeTaskConfirmResult {
-  return {
-    routineDate: rowStr(row, '', 'out_routine_date', 'routine_date', 'routineDate'),
-    teethConfirmed: rowBool(row, 'out_teeth_confirmed', 'teeth_confirmed', 'teethConfirmed'),
-    bathroomConfirmed: rowBool(row, 'out_bathroom_confirmed', 'bathroom_confirmed', 'bathroomConfirmed'),
-    tasksCompleted: rowBool(row, 'out_tasks_completed', 'tasks_completed', 'tasksCompleted'),
-  }
-}
-
-function mapDailyWheelSpinRow(row: Record<string, unknown>): DailyWheelSpinResult {
-  return {
-    routineDate: rowStr(row, '', 'out_routine_date', 'routine_date', 'routineDate'),
-    weekStart: rowStr(row, '', 'out_week_start', 'week_start', 'weekStart'),
-    pointsWon: rowInt(row, 0, 'out_points_won', 'points_won', 'pointsWon'),
-    weeklyTotalPoints: rowInt(row, 0, 'out_weekly_total_points', 'weekly_total_points', 'weeklyTotalPoints'),
-    spinsToday: rowInt(row, 0, 'out_spins_today', 'spins_today', 'spinsToday'),
-    alreadySpun: rowBool(row, 'out_already_spun', 'already_spun', 'alreadySpun'),
-  }
-}
-
-function mapTreasureClaimRow(row: Record<string, unknown>): TreasureClaimResult {
-  return {
-    weekStart: rowStr(row, '', 'out_week_start', 'week_start', 'weekStart'),
-    weeklyTotalPoints: rowInt(row, 0, 'out_weekly_total_points', 'weekly_total_points', 'weeklyTotalPoints'),
-    treasureThreshold: rowInt(row, 100, 'out_treasure_threshold', 'treasure_threshold', 'treasureThreshold'),
-    treasurePrizeTitle: rowStr(row, '', 'out_treasure_prize_title', 'treasure_prize_title', 'treasurePrizeTitle'),
-    treasurePrizeDescription: rowStr(
-      row,
-      '',
-      'out_treasure_prize_description',
-      'treasure_prize_description',
-      'treasurePrizeDescription'
-    ),
-    claimedAt: rowStr(row, '', 'out_claimed_at', 'claimed_at', 'claimedAt'),
-  }
-}
-
-function mapParentBedtimeApproveRow(row: Record<string, unknown>): ParentBedtimeApproveResult {
-  return {
-    deviceId: rowStr(row, '', 'out_device_id', 'device_id', 'deviceId'),
-    routineDate: rowStr(row, '', 'out_routine_date', 'routine_date', 'routineDate'),
-    parentApprovedAt: rowStrOrNull(
-      row,
-      'out_parent_approved_at',
-      'parent_approved_at',
-      'parentApprovedAt'
-    ),
-    canSpinWheel: rowBool(row, 'out_can_spin_wheel', 'can_spin_wheel', 'canSpinWheel'),
-  }
-}
-
-function mapParentBedtimeStateRow(row: Record<string, unknown>): ParentBedtimeState {
-  return {
-    routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
-    weekStart: rowStr(row, '', 'week_start', 'weekStart'),
-    enabled: rowBool(row, 'enabled'),
-    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
-    graceCountdownStartedAt: rowStrOrNull(
-      row,
-      'grace_countdown_started_at',
-      'graceCountdownStartedAt'
-    ),
-    teethConfirmed: rowBool(row, 'teeth_confirmed', 'teethConfirmed'),
-    bathroomConfirmed: rowBool(row, 'bathroom_confirmed', 'bathroomConfirmed'),
-    tasksCompleted: rowBool(row, 'tasks_completed', 'tasksCompleted'),
-    parentApproved: rowBool(row, 'parent_approved', 'parentApproved'),
-    parentApprovedAt: rowStrOrNull(row, 'parent_approved_at', 'parentApprovedAt'),
-    wheelSpun: rowBool(row, 'wheel_spun', 'wheelSpun'),
-    wheelPointsToday: rowInt(row, 0, 'wheel_points_today', 'wheelPointsToday'),
-    weeklyTotalPoints: rowInt(row, 0, 'weekly_total_points', 'weeklyTotalPoints'),
-    treasureThreshold: rowInt(row, 100, 'treasure_threshold', 'treasureThreshold'),
-    treasurePrizeTitle: rowStr(row, '', 'treasure_prize_title', 'treasurePrizeTitle'),
-    treasurePrizeDescription: rowStr(row, '', 'treasure_prize_description', 'treasurePrizeDescription'),
-  }
-}
-
-function mapParentBedtimeGraceStartRow(row: Record<string, unknown>): ParentBedtimeGraceStartResult {
-  return {
-    routineDate: rowStr(row, '', 'routine_date', 'routineDate'),
-    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
-    graceCountdownStartedAt: rowStr(
-      row,
-      '',
-      'grace_countdown_started_at',
-      'graceCountdownStartedAt'
-    ),
-  }
-}
-
-function mapBedtimeSettingsRow(row: Record<string, unknown>): BedtimeSettings {
-  return {
-    deviceId: rowStr(row, '', 'device_id', 'deviceId'),
-    enabled: rowBool(row, 'enabled'),
-    gracePeriodMinutes: rowInt(row, 5, 'grace_period_minutes', 'gracePeriodMinutes'),
-    treasurePointsThreshold: rowInt(row, 100, 'treasure_points_threshold', 'treasurePointsThreshold'),
-    treasurePrizeTitle: rowStr(row, 'Weekly treasure prize!', 'treasure_prize_title', 'treasurePrizeTitle'),
-    treasurePrizeDescription: rowStr(
-      row,
-      'Great job with bedtime routine!',
-      'treasure_prize_description',
-      'treasurePrizeDescription'
-    ),
-    createdAt: rowStr(row, '', 'created_at', 'createdAt'),
-    updatedAt: rowStr(row, '', 'updated_at', 'updatedAt'),
-  }
-}
-
 const RAFFLE_SOURCES = new Set<RaffleTicketSource>([
-  'educational_intercept',
   'lion_level_up',
   'screen_time_challenge',
   'manual_parent',
@@ -378,7 +53,7 @@ const RAFFLE_SOURCES = new Set<RaffleTicketSource>([
 
 function normalizeRaffleSource(raw: unknown): RaffleTicketSource {
   const s = String(raw ?? '').trim() as RaffleTicketSource
-  return RAFFLE_SOURCES.has(s) ? s : 'educational_intercept'
+  return RAFFLE_SOURCES.has(s) ? s : 'manual_parent'
 }
 
 function parseRaffleTicket(raw: unknown): RaffleTicket | null {
@@ -442,25 +117,6 @@ function mapAwardRaffleTicketRow(row: Record<string, unknown>): AwardRaffleTicke
 
 const RUNTIME_CACHE_KEY = 'safetube_child_runtime_cache_v1'
 
-
-function parsePendingVideo(raw: unknown): InterceptPendingVideo | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const v = raw as Record<string, unknown>
-  const videoId = typeof v.videoId === 'string' ? v.videoId : typeof v.video_id === 'string' ? v.video_id : ''
-  if (!videoId.trim()) return null
-  return {
-    videoId: videoId.trim(),
-    title: typeof v.title === 'string' ? v.title : undefined,
-    channelTitle: typeof v.channelTitle === 'string' ? v.channelTitle : undefined,
-    posterUrl: typeof v.posterUrl === 'string' ? v.posterUrl : null,
-  }
-}
-
-function parseSceneProgress(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return []
-  return raw.filter((id): id is string => typeof id === 'string')
-}
-
 export function mapChildRuntimeRow(row: Record<string, unknown>): ServerChildRuntime {
   const phase = row.screen_time_phase
   const validPhase: ScreenTimePhase =
@@ -468,10 +124,6 @@ export function mapChildRuntimeRow(row: Record<string, unknown>): ServerChildRun
 
   const isBlocked = Boolean(row.is_blocked)
   const screenTimeBlocksPlayback = validPhase === 'challenge' || validPhase === 'locked'
-  const interceptActive = EDUCATIONAL_BREAKS_RUNTIME_ENABLED ? Boolean(row.intercept_active) : false
-  const playbackBlocked = EDUCATIONAL_BREAKS_RUNTIME_ENABLED
-    ? Boolean(row.playback_blocked)
-    : isBlocked || screenTimeBlocksPlayback
 
   return {
     serverNow: String(row.server_now ?? new Date().toISOString()),
@@ -486,28 +138,11 @@ export function mapChildRuntimeRow(row: Record<string, unknown>): ServerChildRun
       typeof row.remaining_seconds === 'number' && Number.isFinite(row.remaining_seconds)
         ? Math.max(0, Math.round(row.remaining_seconds))
         : null,
-    playbackBlocked,
+    playbackBlocked: Boolean(row.playback_blocked) || isBlocked || screenTimeBlocksPlayback,
     challengeTask: typeof row.challenge_task === 'string' ? row.challenge_task : null,
-    interceptActive,
-    interceptVideoCount:
-      typeof row.intercept_video_count === 'number' && row.intercept_video_count >= 0
-        ? row.intercept_video_count
-        : 0,
-    interceptWatchSeconds:
-      typeof row.intercept_watch_seconds === 'number' && row.intercept_watch_seconds >= 0
-        ? row.intercept_watch_seconds
-        : typeof row.intercept_video_count === 'number' && row.intercept_video_count >= 0
-          ? row.intercept_video_count
-          : 0,
-    interceptPendingVideo: parsePendingVideo(row.intercept_pending_video),
-    interceptSceneProgress: parseSceneProgress(row.intercept_scene_progress),
     lionLevel: typeof row.lion_level === 'number' && row.lion_level >= 1 ? row.lion_level : 1,
     lionXp: typeof row.lion_xp === 'number' && row.lion_xp >= 0 ? row.lion_xp : 0,
     lionActiveOutfit: typeof row.lion_active_outfit === 'string' ? row.lion_active_outfit : 'cub',
-    educationalInterceptEnabled: Boolean(row.educational_intercept_enabled),
-    breakIntervalMinutes: normalizeBreakIntervalFromDevice(
-      row.break_interval_minutes ?? row.educational_intercept_frequency
-    ),
   }
 }
 
@@ -534,16 +169,9 @@ export function writeCachedChildRuntime(runtime: ServerChildRuntime) {
         remaining_seconds: runtime.remainingSeconds,
         playback_blocked: runtime.playbackBlocked,
         challenge_task: runtime.challengeTask,
-        intercept_active: runtime.interceptActive,
-        intercept_video_count: runtime.interceptVideoCount,
-        intercept_watch_seconds: runtime.interceptWatchSeconds,
-        intercept_pending_video: runtime.interceptPendingVideo,
-        intercept_scene_progress: runtime.interceptSceneProgress,
         lion_level: runtime.lionLevel,
         lion_xp: runtime.lionXp,
         lion_active_outfit: runtime.lionActiveOutfit,
-        educational_intercept_enabled: runtime.educationalInterceptEnabled,
-        break_interval_minutes: runtime.breakIntervalMinutes,
       })
     )
   } catch {
@@ -611,87 +239,6 @@ export async function childAssertPlaybackAllowed(accessToken: string): Promise<{
   }
 }
 
-export async function childTryBeginPlayback(
-  accessToken: string,
-  pendingVideo: InterceptPendingVideo | null
-): Promise<{ allowed: boolean; interceptActivated: boolean; error: Error | null }> {
-  if (!EDUCATIONAL_BREAKS_RUNTIME_ENABLED) {
-    return { allowed: true, interceptActivated: false, error: null }
-  }
-  const { data, error } = await supabase.rpc('child_try_begin_playback', {
-    p_access_token: accessToken,
-    p_pending_video: pendingVideo,
-  })
-  if (error) return { allowed: false, interceptActivated: false, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { allowed: false, interceptActivated: false, error: null }
-  const r = row as Record<string, unknown>
-  return {
-    allowed: Boolean(r.allowed),
-    interceptActivated: Boolean(r.intercept_activated),
-    error: null,
-  }
-}
-
-export async function childReportVideoPlaybackStarted(
-  accessToken: string,
-  videoId: string
-): Promise<{ count: number; error: Error | null }> {
-  const { data, error } = await supabase.rpc('child_report_video_playback_started', {
-    p_access_token: accessToken,
-    p_video_id: videoId,
-  })
-  if (error) return { count: 0, error: new Error(error.message) }
-  return { count: typeof data === 'number' ? data : 0, error: null }
-}
-
-export async function childAddInterceptWatchSeconds(
-  accessToken: string,
-  seconds: number
-): Promise<{ watchSeconds: number; error: Error | null }> {
-  const { data, error } = await supabase.rpc('child_add_intercept_watch_seconds', {
-    p_access_token: accessToken,
-    p_seconds: seconds,
-  })
-  if (error) return { watchSeconds: 0, error: new Error(error.message) }
-  return { watchSeconds: typeof data === 'number' ? data : 0, error: null }
-}
-
-export async function childMarkInterceptItemFixed(
-  accessToken: string,
-  itemId: string
-): Promise<{ progress: string[]; error: Error | null }> {
-  const { data, error } = await supabase.rpc('child_mark_intercept_item_fixed', {
-    p_access_token: accessToken,
-    p_item_id: itemId,
-  })
-  if (error) return { progress: [], error: new Error(error.message) }
-  return { progress: parseSceneProgress(data), error: null }
-}
-
-export async function childCompleteIntercept(accessToken: string): Promise<{
-  data: CompleteInterceptResult | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('child_complete_intercept', {
-    p_access_token: accessToken,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  const r = row as Record<string, unknown>
-  return {
-    data: {
-      lionLevel: typeof r.lion_level === 'number' ? r.lion_level : 1,
-      lionXp: typeof r.lion_xp === 'number' ? r.lion_xp : 0,
-      leveledUp: Boolean(r.leveled_up),
-      levelsGained: typeof r.levels_gained === 'number' ? r.levels_gained : 0,
-      xpGained: typeof r.xp_gained === 'number' ? r.xp_gained : 50,
-    },
-    error: null,
-  }
-}
-
 export async function childEquipLionOutfit(
   accessToken: string,
   outfitId: string
@@ -735,233 +282,6 @@ export async function childAwardRaffleTicket(
   return { data: mapAwardRaffleTicketRow(row as Record<string, unknown>), error: null }
 }
 
-export async function childGetBedtimeState(accessToken: string): Promise<{
-  data: ChildBedtimeState | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('child_get_bedtime_state', {
-    p_access_token: accessToken,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapChildBedtimeStateRow(row as Record<string, unknown>), error: null }
-}
-
-export async function childConfirmBedtimeTask(
-  accessToken: string,
-  task: BedtimeTask
-): Promise<{ data: BedtimeTaskConfirmResult | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('child_confirm_bedtime_task', {
-    p_access_token: accessToken,
-    p_task: normalizeBedtimeTask(task),
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapBedtimeTaskConfirmRow(row as Record<string, unknown>), error: null }
-}
-
-export async function childSpinDailyWheel(accessToken: string): Promise<{
-  data: DailyWheelSpinResult | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('child_spin_daily_wheel', {
-    p_access_token: accessToken,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapDailyWheelSpinRow(row as Record<string, unknown>), error: null }
-}
-
-export async function childClaimTreasureChest(accessToken: string): Promise<{
-  data: TreasureClaimResult | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('child_claim_treasure_chest', {
-    p_access_token: accessToken,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapTreasureClaimRow(row as Record<string, unknown>), error: null }
-}
-
-export async function ownerGetBedtimeState(deviceId: string): Promise<{
-  data: ChildBedtimeState | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('owner_get_bedtime_state', {
-    p_device_id: deviceId,
-  })
-  if (error) {
-    console.error('[Bedtime] owner_get_bedtime_state RPC error', {
-      deviceId,
-      message: error.message,
-      code: error.code,
-      details: error.details,
-    })
-    return { data: null, error: new Error(error.message) }
-  }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapChildBedtimeStateRow(row as Record<string, unknown>), error: null }
-}
-
-export async function ownerConfirmBedtimeTask(
-  deviceId: string,
-  task: BedtimeTask
-): Promise<{ data: BedtimeTaskConfirmResult | null; error: Error | null }> {
-  const { data: sessionWrap } = await supabase.auth.getSession()
-  if (!sessionWrap.session) {
-    const err = new Error('AUTH_SESSION_MISSING')
-    console.error('[Bedtime] owner_confirm_bedtime_task: no Supabase auth session', {
-      deviceId,
-      task,
-    })
-    return { data: null, error: err }
-  }
-
-  console.info('[Bedtime] owner_confirm_bedtime_task RPC start', {
-    deviceId,
-    task,
-    userId: sessionWrap.session.user.id,
-  })
-
-  const { data, error } = await supabase.rpc('owner_confirm_bedtime_task', {
-    p_device_id: deviceId,
-    p_task: normalizeBedtimeTask(task),
-  })
-
-  if (error) {
-    console.error('[Bedtime] owner_confirm_bedtime_task RPC error', {
-      deviceId,
-      task,
-      message: error.message,
-      code: error.code,
-      details: error.details,
-      hint: error.hint,
-    })
-    return { data: null, error: new Error(error.message) }
-  }
-
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) {
-    console.error('[Bedtime] owner_confirm_bedtime_task RPC returned no row', {
-      deviceId,
-      task,
-      raw: data,
-    })
-    return { data: null, error: new Error('EMPTY_RPC_RESPONSE') }
-  }
-
-  const mapped = mapBedtimeTaskConfirmRow(row as Record<string, unknown>)
-  console.info('[Bedtime] owner_confirm_bedtime_task RPC ok', { deviceId, task, mapped })
-  return { data: mapped, error: null }
-}
-
-export async function ownerSpinDailyWheel(deviceId: string): Promise<{
-  data: DailyWheelSpinResult | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('owner_spin_daily_wheel', {
-    p_device_id: deviceId,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapDailyWheelSpinRow(row as Record<string, unknown>), error: null }
-}
-
-export async function ownerClaimTreasureChest(deviceId: string): Promise<{
-  data: TreasureClaimResult | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('owner_claim_treasure_chest', {
-    p_device_id: deviceId,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapTreasureClaimRow(row as Record<string, unknown>), error: null }
-}
-
-export async function parentApproveBedtime(
-  deviceId: string,
-  routineDate?: string | null
-): Promise<{ data: ParentBedtimeApproveResult | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('parent_approve_bedtime', {
-    p_device_id: deviceId,
-    p_routine_date: routineDate?.trim() ? routineDate.trim() : null,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapParentBedtimeApproveRow(row as Record<string, unknown>), error: null }
-}
-
-export async function parentGetBedtimeState(
-  deviceId: string,
-  routineDate?: string | null
-): Promise<{ data: ParentBedtimeState | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('parent_get_bedtime_state', {
-    p_device_id: deviceId,
-    p_routine_date: routineDate?.trim() ? routineDate.trim() : null,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row) return { data: null, error: null }
-  return { data: mapParentBedtimeStateRow(row as Record<string, unknown>), error: null }
-}
-
-export async function parentStartBedtimeGrace(
-  deviceId: string,
-  routineDate?: string | null
-): Promise<{ data: ParentBedtimeGraceStartResult | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('parent_start_bedtime_grace', {
-    p_device_id: deviceId,
-    p_routine_date: routineDate?.trim() ? routineDate.trim() : null,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row || typeof row !== 'object') return { data: null, error: null }
-  return { data: mapParentBedtimeGraceStartRow(row as Record<string, unknown>), error: null }
-}
-
-export async function parentUpdateBedtimeSettings(
-  deviceId: string,
-  updates: {
-    enabled?: boolean
-    gracePeriodMinutes?: number
-    treasurePointsThreshold?: number
-    treasurePrizeTitle?: string
-    treasurePrizeDescription?: string
-  }
-): Promise<{ data: BedtimeSettings | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('parent_update_bedtime_settings', {
-    p_device_id: deviceId,
-    p_enabled: updates.enabled ?? null,
-    p_grace_period_minutes:
-      typeof updates.gracePeriodMinutes === 'number'
-        ? Math.round(updates.gracePeriodMinutes)
-        : null,
-    p_treasure_points_threshold:
-      typeof updates.treasurePointsThreshold === 'number'
-        ? Math.round(updates.treasurePointsThreshold)
-        : null,
-    p_treasure_prize_title: updates.treasurePrizeTitle?.trim() ? updates.treasurePrizeTitle.trim() : null,
-    p_treasure_prize_description: updates.treasurePrizeDescription?.trim()
-      ? updates.treasurePrizeDescription.trim()
-      : null,
-  })
-  if (error) return { data: null, error: new Error(error.message) }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { data: null, error: null }
-  }
-  return { data: mapBedtimeSettingsRow(data as Record<string, unknown>), error: null }
-}
-
 export class ChildPlaybackBlockedError extends Error {
   readonly reason: string | null
   constructor(reason: string | null) {
@@ -970,9 +290,7 @@ export class ChildPlaybackBlockedError extends Error {
         ? 'הצפייה חסומה מההורה.'
         : reason === 'SCREEN_TIME_BLOCKED'
           ? 'זמן הצפייה הסתיים.'
-          : reason === 'INTERCEPT_ACTIVE'
-            ? 'יש להשלים את ההפסקה החינוכית.'
-            : 'הניגון חסום כרגע.'
+          : 'הניגון חסום כרגע.'
     )
     this.name = 'ChildPlaybackBlockedError'
     this.reason = reason

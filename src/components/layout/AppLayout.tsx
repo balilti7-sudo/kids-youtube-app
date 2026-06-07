@@ -2,9 +2,7 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BYPASS_AUTH } from '../../config/dev'
 import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
-import { useChildRuntimeOptional } from '../../contexts/ChildRuntimeContext'
-import { getBedtimeRoutinePhase } from '../../lib/bedtimeRoutinePhase'
-import { useBedtimeRoutineStore } from '../../stores/bedtimeRoutineStore'
+import { JuicyUiProvider } from '../../contexts/JuicyUiContext'
 import { getSavedChildAccessToken } from '../../lib/childDevice'
 import { LOCK_MANAGEMENT_APP_EVENT, lockManagementAppShell } from '../../lib/lockParentApp'
 import { consumeParentEntryIntent } from '../../lib/parentEntryIntent'
@@ -29,7 +27,6 @@ import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
 import { ParentManagementBanner } from './ParentManagementBanner'
 import { ProfileSwitcher } from './ProfileSwitcher'
-import { JuicyUiProvider } from '../../contexts/JuicyUiContext'
 
 export function AppLayout() {
   const location = useLocation()
@@ -116,14 +113,6 @@ export function AppLayout() {
   const showGate = !BYPASS_AUTH && !managementUnlocked && pathRequiresParentUnlock
   const showParentManagementChrome = pathRequiresParentUnlock
   const juicyChildUi = location.pathname === '/channels'
-  const childRuntime = useChildRuntimeOptional()
-  const bedtimeDismissed = useBedtimeRoutineStore((s) =>
-    s.isRoutineDismissedForDate(childRuntime?.bedtimeState?.routineDate)
-  )
-  const bedtimeRoutineActive =
-    getBedtimeRoutinePhase(childRuntime?.bedtimeState, { dismissedForTonight: bedtimeDismissed }) ===
-    'routine'
-  const hideBottomNav = bedtimeRoutineActive && location.pathname === '/channels'
 
   return (
     <JuicyUiProvider enabled={juicyChildUi}>
@@ -156,7 +145,7 @@ export function AppLayout() {
               <ParentAppFooter />
             </div>
           </main>
-          {hideBottomNav ? null : <BottomNav />}
+          <BottomNav />
         </>
       ) : null}
     </div>

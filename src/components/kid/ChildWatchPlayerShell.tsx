@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import type { VideoFormat } from '../../lib/videoFormatClassification'
-import { EducationalBreakPlayerChrome } from './EducationalBreakPlayerChrome'
+import { CleanPlayer } from '../player/CleanPlayer'
 
 export type ChildWatchPlayerShellProps = {
   videoId: string
@@ -35,7 +35,7 @@ function ChildWatchPlayerShellInner({
     >
       <div className={`relative w-full ${isShort ? 'pt-[177.78%]' : 'pt-[56.25%]'}`}>
         <div className="absolute inset-0 min-h-0">
-          <EducationalBreakPlayerChrome
+          <CleanPlayer
             videoId={videoId}
             title={title}
             channelTitle={channelTitle}

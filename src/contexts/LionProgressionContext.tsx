@@ -61,7 +61,7 @@ export function LionProgressionProvider({ children }: Props) {
 
   const awardXpHandler = useCallback(
     (amount: number): AwardXpResult => {
-      // XP is awarded server-side on intercept complete; this is a UI-only fallback.
+      // UI-only fallback; server-side XP is awarded on screen-time challenge complete.
       return {
         level,
         xp,

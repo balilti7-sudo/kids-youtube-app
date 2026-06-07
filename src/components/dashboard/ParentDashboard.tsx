@@ -8,7 +8,6 @@ import { ParentGlobalVideoSearchSection } from './ParentGlobalVideoSearchSection
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ChannelManager } from '../channels/ChannelManager'
 import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
-import { ParentVoiceMessageCard } from './ParentVoiceMessageCard'
 
 function ParentDashboardInner() {
   const devices = useDeviceStore((s) => s.devices)
@@ -47,7 +46,6 @@ function ParentDashboardInner() {
 
       <StatsGrid devices={devices} />
       <ParentGlobalVideoSearchSection devices={devices} />
-      <ParentVoiceMessageCard />
       <LocalScreenTimeParentCard />
       <DashboardDevicesSection activeManagementDeviceId={managedDeviceId} onManageChannels={setManagedDeviceId} />
       {managedDeviceId ? (

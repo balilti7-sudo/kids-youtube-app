@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type { PostgrestError } from '@supabase/supabase-js'
-import type { Device, EducationalBreakIntervalMinutes } from '../types'
-import { DEFAULT_DEVICE_BREAK_INTERVAL_MINUTES } from '../lib/breakIntervalOptions'
+import type { Device } from '../types'
 import { getChildDeviceState } from '../lib/childDevice'
 import { parentUpdateDeviceSettings } from '../lib/deviceSettings'
 import { supabase } from '../lib/supabase'
@@ -19,11 +18,6 @@ interface DeviceState {
   fetchDeviceFromChildToken: (accessToken: string) => Promise<void>
   fetchDevices: (userId: string) => Promise<void>
   toggleBlock: (deviceId: string, isBlocked: boolean) => Promise<{ error: Error | null }>
-  updateEducationalInterceptSettings: (
-    deviceId: string,
-    enabled: boolean,
-    intervalMinutes: EducationalBreakIntervalMinutes
-  ) => Promise<{ error: Error | null }>
   updateAllowShorts: (deviceId: string, allowShorts: boolean) => Promise<{ error: Error | null }>
   addDevice: (payload: {
     userId: string
@@ -67,8 +61,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         created_at: new Date(0).toISOString(),
         updated_at: new Date(0).toISOString(),
         channel_count: 0,
-        educational_intercept_enabled: data.educational_intercept_enabled,
-        break_interval_minutes: data.break_interval_minutes,
         allow_shorts: data.allow_shorts,
       }
       set({ devices: [device], loading: false })
@@ -121,7 +113,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       const { data, error } = await supabase
         .from('devices')
         .select(
-          'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, educational_intercept_enabled, educational_intercept_frequency, break_interval_minutes, allow_shorts'
+          'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts'
         )
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
@@ -167,32 +159,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     return { error: null }
   },
 
-  updateEducationalInterceptSettings: async (deviceId, enabled, intervalMinutes) => {
-    const { data, error } = await parentUpdateDeviceSettings(deviceId, {
-      breakIntervalMinutes: intervalMinutes,
-      educationalInterceptEnabled: enabled,
-    })
-    if (error) {
-      console.error('[deviceStore.updateEducationalInterceptSettings]', error)
-      return { error }
-    }
-    const row = data
-    const savedInterval = row?.breakIntervalMinutes ?? intervalMinutes
-    const savedEnabled = row?.educationalInterceptEnabled ?? enabled
-    set({
-      devices: get().devices.map((d) =>
-        d.id === deviceId
-          ? {
-              ...d,
-              educational_intercept_enabled: savedEnabled,
-              break_interval_minutes: savedInterval,
-            }
-          : d
-      ),
-    })
-    return { error: null }
-  },
-
   updateAllowShorts: async (deviceId, allowShorts) => {
     const { data, error } = await parentUpdateDeviceSettings(deviceId, { allowShorts })
     if (error) {
@@ -211,15 +177,14 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   addDevice: async ({ userId, name, device_type, pairing_code }) => {
-    const row = {
-      user_id: userId,
-      name,
-      device_type,
-      pairing_code,
-      // Explicit valid value — legacy DB defaults/triggers may set 2/3/5 from educational_intercept_frequency.
-      break_interval_minutes: DEFAULT_DEVICE_BREAK_INTERVAL_MINUTES,
-    }
-    const { data, error } = await supabase.from('devices').insert(row).select().single()
+    const row = { user_id: userId, name, device_type, pairing_code }
+    const { data, error } = await supabase
+      .from('devices')
+      .insert(row)
+      .select(
+        'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts'
+      )
+      .single()
     if (error) {
       console.error('Connection Error:', error)
       return { data: null, error: new Error(formatSupabaseError(error)) }
