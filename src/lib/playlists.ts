@@ -87,6 +87,38 @@ export async function listPlaylistsForUser(userId: string): Promise<{
   return { data: mapped, error: null }
 }
 
+/** Parent: fetch a single owned playlist (validates ownership via RLS). */
+export async function getPlaylistByIdForUser(
+  userId: string,
+  playlistId: string
+): Promise<{ data: UserPlaylist | null; error: Error | null }> {
+  const { data, error } = await supabase
+    .from('playlists')
+    .select('id, name, updated_at, playlist_videos(count)')
+    .eq('user_id', userId)
+    .eq('id', playlistId)
+    .maybeSingle()
+
+  if (error) return { data: null, error: new Error(error.message) }
+  if (!data) return { data: null, error: null }
+
+  const r = data as {
+    id: string
+    name: string
+    updated_at: string
+    playlist_videos?: { count: number }[]
+  }
+  return {
+    data: {
+      id: r.id,
+      name: r.name,
+      video_count: r.playlist_videos?.[0]?.count ?? 0,
+      updated_at: r.updated_at,
+    },
+    error: null,
+  }
+}
+
 export async function createPlaylistForUser(
   userId: string,
   name: string
@@ -135,6 +167,32 @@ export async function listPlaylistVideos(playlistId: string): Promise<{
     .map(mapVideoRow)
     .filter((r): r is PlaylistVideo => r !== null)
   return { data: mapped, error: null }
+}
+
+/** Parent (authenticated): add video via RPC with server-side ownership checks. */
+export async function addVideoToPlaylistViaRpc(
+  playlistId: string,
+  payload: PlaylistVideoPayload
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase.rpc('parent_add_video_to_playlist', {
+    p_playlist_id: playlistId,
+    p_youtube_video_id: payload.youtube_video_id,
+    p_title: payload.title,
+    p_thumbnail_url: payload.thumbnail_url ?? null,
+    p_youtube_channel_id: payload.youtube_channel_id ?? null,
+    p_channel_name: payload.channel_name ?? null,
+  })
+
+  if (!error) return { error: null }
+
+  const msg = error.message
+  if (msg.includes('PLAYLIST_NOT_FOUND')) {
+    return { error: new Error('PLAYLIST_NOT_FOUND') }
+  }
+  if (msg.includes('AUTH_REQUIRED')) {
+    return { error: new Error('לא מחובר') }
+  }
+  return { error: new Error(msg) }
 }
 
 export async function addVideoToPlaylist(

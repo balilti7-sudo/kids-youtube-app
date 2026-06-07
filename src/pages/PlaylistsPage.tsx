@@ -5,6 +5,7 @@ import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { usePlaylists } from '../hooks/usePlaylists'
 import type { PlaylistVideo, UserPlaylist } from '../lib/playlists'
 import { deletePlaylistForUser } from '../lib/playlists'
+import { clearActivePlaylistIdIfMatches, getSavedActivePlaylistId, saveActivePlaylistId } from '../lib/activePlaylistSelection'
 import { CleanPlayer } from '../components/player/CleanPlayer'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -26,7 +27,7 @@ export function PlaylistsPage() {
     childAccessToken: null,
   })
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(() => getSavedActivePlaylistId())
   const [videos, setVideos] = useState<PlaylistVideo[]>([])
   const [videosLoading, setVideosLoading] = useState(false)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
@@ -72,6 +73,23 @@ export function PlaylistsPage() {
   )
 
   useEffect(() => {
+    if (playlists.length === 0) return
+    const saved = getSavedActivePlaylistId()
+    if (saved && playlists.some((p) => p.id === saved)) {
+      if (selectedId !== saved) setSelectedId(saved)
+      return
+    }
+    if (selectedId && !playlists.some((p) => p.id === selectedId)) {
+      setSelectedId(null)
+    }
+  }, [playlists, selectedId])
+
+  const selectPlaylist = useCallback((playlistId: string) => {
+    setSelectedId(playlistId)
+    saveActivePlaylistId(playlistId)
+  }, [])
+
+  useEffect(() => {
     if (!selectedId) {
       setVideos([])
       setActiveVideoId(null)
@@ -96,7 +114,7 @@ export function PlaylistsPage() {
     setNewName('')
     setCreateOpen(false)
     await refresh()
-    if (data?.id) setSelectedId(data.id)
+    if (data?.id) selectPlaylist(data.id)
   }
 
   const cancelCreate = () => {
@@ -112,7 +130,10 @@ export function PlaylistsPage() {
       toast.error(error.message)
       return
     }
-    if (selectedId === pl.id) setSelectedId(null)
+    if (selectedId === pl.id) {
+      clearActivePlaylistIdIfMatches(pl.id)
+      setSelectedId(null)
+    }
     await refresh()
   }
 
@@ -220,7 +241,7 @@ export function PlaylistsPage() {
               <li key={pl.id} className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedId(pl.id)}
+                  onClick={() => selectPlaylist(pl.id)}
                   className={cn(
                     'min-w-0 flex-1 rounded-2xl border px-4 py-3 text-right shadow-sm transition',
                     selectedId === pl.id
@@ -229,7 +250,10 @@ export function PlaylistsPage() {
                   )}
                 >
                   <span className="block truncate font-bold text-zinc-100">{pl.name}</span>
-                  <span className="mt-1 block text-xs text-zinc-500">{pl.video_count} סרטונים</span>
+                  <span className="mt-1 block text-xs text-zinc-500">
+                    {pl.video_count} סרטונים
+                    {selectedId === pl.id ? ' · פלייליסט פעיל' : ''}
+                  </span>
                 </button>
                 <button
                   type="button"

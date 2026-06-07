@@ -20,6 +20,7 @@ import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
 import { QuickBlockButton } from './QuickBlockButton'
 import { useHideVideoContext } from '../../hooks/useHideVideoContext'
+import { ChannelManagerVideoSearch } from './ChannelManagerVideoSearch'
 import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
@@ -407,6 +408,9 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>
       ) : (
         <div className="flex flex-col gap-2">
+          {user?.id || ownerUserId ? (
+            <ChannelManagerVideoSearch userId={ownerUserId ?? user?.id ?? null} />
+          ) : null}
           <WhitelistView
             channels={whitelist}
             onRemoveRequest={requestRemoveChannel}
