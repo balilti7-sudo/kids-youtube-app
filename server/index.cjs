@@ -1,15 +1,9 @@
-// server/index.js — SafeTube Bridge
-//
-// Updated fixes:
-//   ✓ tv + web_embedded first in CLIENT_CHAIN, then ios / android
-//   ✓ bgutil POT yt-dlp plugin (per-video tokens via youtubepot-bgutilhttp)
-//   ✓ Manual fallback: video-bound PO tokens from POT HTTP provider (no env PO pair)
-//   ✓ External access enabled on 0.0.0.0
+// server/index.cjs — SafeTube Media Bridge
+// YouTube playback via RapidAPI (no yt-dlp).
 
 'use strict';
 
 const path = require('path');
-// Load server/.env when running standalone (NSSM start-bridge.ps1 already injects env).
 try {
   require('dotenv').config({ path: path.join(__dirname, '.env') });
 } catch (_) { /* dotenv optional */ }
@@ -18,365 +12,34 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const https = require('https');
-const { spawn } = require('child_process');
-const fs = require('fs');
 
-const potClient = require('./pot-client.cjs');
+const rapidApi = require('./rapidapi-youtube.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
 
-// ─── Config ──────────────────────────────────────────────────────────────────
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || '0.0.0.0';
 
-/**
- * Muxed progressive MP4 only — required for --get-url + HTML5 <video>.
- * Do NOT use bestvideo+bestaudio here: that yields two URLs (or audio-only itag 140
- * on tv client), which the browser cannot decode as a single stream.
- */
-const DEFAULT_YT_DLP_FORMAT =
-  'best[height<=720][ext=mp4][vcodec!=none][acodec!=none]/' +
-  'best[ext=mp4][vcodec!=none][acodec!=none]/' +
-  '22/18/' +
-  'best[height<=720][ext=mp4]/best[ext=mp4]';
-
-const YT_DLP_FORMAT = process.env.YT_DLP_FORMAT || DEFAULT_YT_DLP_FORMAT;
-
-/** Netscape cookie file for yt-dlp (--cookies). Env: COOKIES_FILE or YT_DLP_COOKIES_FILE; default ./cookies.txt */
-const COOKIES_FILE_ENV =
-  (process.env.COOKIES_FILE || process.env.YT_DLP_COOKIES_FILE || './cookies.txt').trim();
-const PROXY_URL = process.env.PROXY_URL || '';
-
-/** bgutil POT HTTP server for yt-dlp plugin (`youtubepot-bgutilhttp:base_url=…`). Set `off` to disable. */
-const YT_DLP_BGUTIL_POT_BASE_URL = (() => {
-  const raw =
-    process.env.YT_DLP_BGUTIL_POT_BASE_URL ??
-    process.env.POT_URL ??
-    process.env.POT_PROVIDER_URL;
-  if (raw === undefined || raw === null) return 'http://127.0.0.1:4416';
-  const t = String(raw).trim();
-  if (!t || /^(0|off|false|none)$/i.test(t)) return '';
-  return t.replace(/\/$/, '');
-})();
-
-/** Chrome Mobile on Android — aligns with InnerTube `android` / mobile clients (not desktop Windows). */
 const DEFAULT_ANDROID_YOUTUBE_UA =
   'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36';
-const YT_DLP_USER_AGENT = (process.env.YT_DLP_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
+const MEDIA_USER_AGENT = (process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
 
-/** Optional mTLS for yt-dlp; both files must exist. */
-const YT_DLP_CLIENT_CERT = (process.env.YT_DLP_CLIENT_CERT || '').trim();
-const YT_DLP_CLIENT_KEY = (process.env.YT_DLP_CLIENT_KEY || '').trim();
-
-// FIXED CLIENT CHAIN
-const CLIENT_CHAIN = (
-  process.env.YT_CLIENT_CHAIN ||
-  'tv,web_embedded,ios,android'
-).split(',');
-
-// ─── App setup ───────────────────────────────────────────────────────────────
 const app = express();
 
-app.use(cors({
-  origin: true,
-  credentials: false,
-}));
-
+app.use(cors({ origin: true, credentials: false }));
 app.use(express.json({ limit: '1mb' }));
 
 void import('./register-email-routes.mjs')
   .then(({ registerBridgeEmailRoutes }) => registerBridgeEmailRoutes(app))
   .catch((err) => {
-    console.warn('[bridge] email routes not registered:', err?.message || err)
-  })
+    console.warn('[bridge] email routes not registered:', err?.message || err);
+  });
 
 app.use((req, _res, next) => {
-  console.log(
-    `[${new Date().toISOString()}] ${req.method} ${req.url} from=${req.ip}`
-  );
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from=${req.ip}`);
   next();
 });
 
-function resolveBridgePath(p) {
-  if (!p) return '';
-  return path.isAbsolute(p) ? p : path.join(__dirname, p);
-}
-
-/** Resolved absolute path to Netscape cookies.txt, or '' if missing/disabled. */
-function resolveCookiesPath() {
-  if (!COOKIES_FILE_ENV) return '';
-  const resolved = resolveBridgePath(COOKIES_FILE_ENV);
-  return fs.existsSync(resolved) ? resolved : '';
-}
-
-/**
- * Resolve yt-dlp binary: env YT_DLP_PATH → bundled server/yt-dlp (from download-tools) → PATH name.
- * Render often sets YT_DLP_PATH=/yt-dlp which does not exist; fall back to npm run download-tools output.
- */
-function resolveYtDlpPath() {
-  const bundledName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-  const bundledPath = path.join(__dirname, bundledName);
-
-  const envRaw = (process.env.YT_DLP_PATH || '').trim();
-  if (envRaw) {
-    const resolved = resolveBridgePath(envRaw);
-    if (fs.existsSync(resolved)) {
-      return resolved;
-    }
-    console.warn(
-      `[bridge] YT_DLP_PATH "${envRaw}" not found — falling back to bundled ${bundledPath}`
-    );
-  }
-
-  if (fs.existsSync(bundledPath)) {
-    return bundledPath;
-  }
-
-  return bundledName;
-}
-
-const YT_DLP_PATH = resolveYtDlpPath();
-
-function resolvePluginDirs() {
-  const dirs = [];
-  const bundled = path.join(__dirname, 'yt-dlp-plugins');
-  if (fs.existsSync(bundled)) dirs.push(bundled);
-
-  const extra = (process.env.YT_DLP_PLUGIN_DIRS || '').trim();
-  if (extra) {
-    for (const seg of extra.split(/[;,]/)) {
-      const d = seg.trim();
-      if (!d) continue;
-      const resolved = path.isAbsolute(d) ? d : path.join(__dirname, d);
-      if (fs.existsSync(resolved)) dirs.push(resolved);
-    }
-  }
-
-  return dirs;
-}
-
-/** yt-dlp bgutil POT plugin — preferred; fetches video-bound tokens automatically. */
-function shouldUsePotPlugin() {
-  const override = String(process.env.YT_DLP_USE_POT_PLUGIN || '').trim();
-  if (/^(0|off|false|none)$/i.test(override)) return false;
-  if (!YT_DLP_BGUTIL_POT_BASE_URL) return false;
-  return resolvePluginDirs().length > 0;
-}
-
-function buildYtDlpPluginPotArgs() {
-  const out = [];
-  for (const d of resolvePluginDirs()) {
-    out.push('--plugin-dirs', d);
-  }
-  out.push(
-    '--extractor-args',
-    `youtubepot-bgutilhttp:base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`
-  );
-  return out;
-}
-
-// ─── yt-dlp invocation ───────────────────────────────────────────────────────
-
-/**
- * --get-url may print multiple lines for DASH; pick a muxed video URL the browser can play.
- */
-function pickBrowserPlayableStreamUrl(stdout) {
-  const lines = stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  if (lines.length === 0) return '';
-  if (lines.length === 1) return lines[0];
-
-  const isAudioOnly = (u) =>
-    /[?&]itag=140(?:&|$)/.test(u) ||
-    /mime=audio/i.test(u) ||
-    /acodec=[^&]*&[^&]*vcodec=none/i.test(u);
-
-  const isMuxedVideo = (u) =>
-    /mime=video/i.test(u) ||
-    (/googlevideo\.com/i.test(u) && !isAudioOnly(u));
-
-  const muxed = lines.find(isMuxedVideo);
-  if (muxed) return muxed;
-
-  const notAudio = lines.find((u) => !isAudioOnly(u));
-  return notAudio || lines[lines.length - 1];
-}
-
-function buildYtDlpArgs({
-  videoId,
-  client,
-  poToken,
-  visitorData,
-  jsonOnly,
-  usePlugin,
-}) {
-  const cookiesPath = resolveCookiesPath();
-
-  const args = [
-    '--no-warnings',
-    '--no-playlist',
-    '--no-check-certificates',
-  ];
-
-  // Only disable cookies when no Netscape file is configured. Passing both
-  // --no-cookies and --cookies can prevent yt-dlp from loading the file.
-  if (!cookiesPath) {
-    args.push('--no-cookies');
-  }
-
-  args.push('-f', YT_DLP_FORMAT);
-
-  if (usePlugin) {
-    args.push(...buildYtDlpPluginPotArgs());
-    args.push('--extractor-args', `youtube:player_client=${client}`);
-  } else if (poToken && visitorData) {
-    args.push(
-      '--extractor-args',
-      `youtube:player_client=${client};po_token=${client}.gvs+${poToken};visitor_data=${visitorData}`
-    );
-  } else {
-    args.push('--extractor-args', `youtube:player_client=${client}`);
-  }
-
-  args.push(
-    '--user-agent',
-    YT_DLP_USER_AGENT,
-    '--add-header',
-    'Accept-Language:en-US,en;q=0.9'
-  );
-
-  const cert = resolveBridgePath(YT_DLP_CLIENT_CERT);
-  const key = resolveBridgePath(YT_DLP_CLIENT_KEY);
-  if (cert && key && fs.existsSync(cert) && fs.existsSync(key)) {
-    args.push('--client-certificate', cert, '--client-key', key);
-  }
-
-  if (cookiesPath) {
-    args.push('--cookies', cookiesPath);
-  }
-
-  if (PROXY_URL) {
-    args.push('--proxy', PROXY_URL);
-  }
-
-  if (jsonOnly) {
-    args.push('--dump-single-json', '--skip-download');
-  } else {
-    args.push('--get-url');
-  }
-
-  args.push(`https://www.youtube.com/watch?v=${videoId}`);
-
-  return args;
-}
-
-function runYtDlp(args) {
-  return new Promise((resolve, reject) => {
-    const ps = spawn(YT_DLP_PATH, args, {
-      windowsHide: true,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    ps.stdout.on('data', (d) => {
-      stdout += d;
-    });
-
-    ps.stderr.on('data', (d) => {
-      stderr += d;
-    });
-
-    ps.on('error', reject);
-
-    ps.on('close', (code) => {
-      if (code === 0) {
-        return resolve({
-          stdout: stdout.trim(),
-          stderr,
-        });
-      }
-
-      const err = new Error(
-        `yt-dlp exited ${code}: ${stderr.trim() || stdout.trim()}`
-      );
-
-      err.stderr = stderr;
-      err.stdout = stdout;
-      err.code = code;
-
-      reject(err);
-    });
-  });
-}
-
-async function resolveVideo(videoId, { jsonOnly = false } = {}) {
-  let lastErr;
-  const usePlugin = shouldUsePotPlugin();
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    let poToken = null;
-    let visitorData = null;
-
-    if (!usePlugin) {
-      ({ poToken, visitorData } = await potClient.getCredentials({
-        videoId,
-        force: attempt > 0,
-      }));
-    } else if (attempt > 0) {
-      await potClient.invalidateCaches().catch(() => {});
-    }
-
-    for (const client of CLIENT_CHAIN) {
-      const args = buildYtDlpArgs({
-        videoId,
-        client: String(client).trim(),
-        poToken,
-        visitorData,
-        jsonOnly,
-        usePlugin,
-      });
-
-      try {
-        const { stdout } = await runYtDlp(args);
-
-        return {
-          client,
-          output: stdout,
-        };
-      } catch (err) {
-        lastErr = err;
-
-        const s =
-          (err.stderr || '') +
-          (err.message || '');
-
-        const challenged =
-          /Sign in to confirm.*not a bot/i.test(s) ||
-          /confirm you'?re not a robot/i.test(s) ||
-          /requires authentication/i.test(s) ||
-          /HTTP Error 403/i.test(s);
-
-        console.warn(
-          `[ytdlp] client=${client} attempt=${attempt} failed: ${
-            err.message.split('\n')[0]
-          }`
-        );
-
-        if (!challenged) {
-          break;
-        }
-      }
-    }
-  }
-
-  throw lastErr || new Error('resolveVideo: unknown failure');
-}
-
-/** Cache googlevideo URLs so `/api/stream` + `/api/media` share one yt-dlp resolve. */
-const RESOLVE_CACHE_TTL_MS = Number(process.env.RESOLVE_CACHE_TTL_MS || 15 * 60 * 1000);
+const RESOLVE_CACHE_TTL_MS = Number(process.env.RESOLVE_CACHE_TTL_MS || 8 * 60 * 1000);
 const resolveCache = new Map();
 
 function resolveCacheGet(videoId) {
@@ -388,51 +51,39 @@ function resolveCacheGet(videoId) {
   return hit;
 }
 
-function resolveCacheSet(videoId, upstreamUrl, client) {
+function resolveCacheSet(videoId, upstreamUrl, meta = {}) {
   resolveCache.set(videoId, {
     upstreamUrl,
-    client,
+    quality: meta.quality || null,
+    mime: meta.mime || 'video/mp4',
     expiresAt: Date.now() + RESOLVE_CACHE_TTL_MS,
   });
 }
 
 async function getCachedUpstreamUrl(videoId) {
-  const hit = resolveCacheGet(videoId);
-  if (hit) return hit;
+  const hit = resolveCache.get(videoId);
+  if (hit && hit.expiresAt > Date.now()) return hit;
 
-  const { client, output } = await resolveVideo(videoId, { jsonOnly: false });
-  const upstreamUrl = pickBrowserPlayableStreamUrl(output);
-  if (!upstreamUrl) {
-    throw new Error('yt-dlp returned no playable URL');
+  const resolved = await rapidApi.resolveVideoDownloadUrl(videoId);
+  if (!resolved.url) {
+    throw new Error('RapidAPI returned no playable URL');
   }
-  resolveCacheSet(videoId, upstreamUrl, client);
+
+  resolveCacheSet(videoId, resolved.url, resolved);
   return resolveCacheGet(videoId);
 }
 
-function inferStreamMetadata(upstreamUrl) {
-  const format = /\.m3u8(\?|$)/i.test(upstreamUrl) ? 'hls' : 'direct';
-  let mimeType = 'video/mp4';
-  const mimeParam = upstreamUrl.match(/[?&]mime=([^&]+)/i);
-  if (mimeParam) {
-    try {
-      mimeType = decodeURIComponent(mimeParam[1].replace(/\+/g, '%20'));
-    } catch {
-      mimeType = mimeParam[1];
-    }
-  } else if (format === 'hls') {
-    mimeType = 'application/vnd.apple.mpegurl';
-  }
-
-  let quality = null;
-  const itag = upstreamUrl.match(/[?&]itag=(\d+)/)?.[1];
-  if (itag === '18') quality = '360p';
-  else if (itag === '22') quality = '720p';
-
-  return { format, mimeType, quality };
+function inferStreamMetadata(upstreamUrl, cached = {}) {
+  const mime = cached.mime || 'video/mp4';
+  const format = /\.m3u8(\?|$)/i.test(upstreamUrl) || /mpegurl/i.test(mime) ? 'hls' : 'direct';
+  return {
+    format,
+    mimeType: mime,
+    quality: cached.quality || null,
+  };
 }
 
 function publicBridgeOrigin(req) {
-  // Cloudflare Tunnel / reverse proxy: use the HTTPS host the browser sees.
   const forwardedHost = (req.get('x-forwarded-host') || req.get('host') || '')
     .split(',')[0]
     .trim();
@@ -463,18 +114,13 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
   try {
     upstream = new URL(upstreamUrl);
   } catch (err) {
-    return res.status(502).json({
-      error: 'proxy_failed',
-      detail: err.message,
-    });
+    return res.status(502).json({ error: 'proxy_failed', detail: err.message });
   }
 
   const lib = upstream.protocol === 'https:' ? https : http;
   const headers = {
-    'User-Agent': YT_DLP_USER_AGENT,
+    'User-Agent': MEDIA_USER_AGENT,
     Accept: '*/*',
-    Referer: 'https://www.youtube.com/',
-    Origin: 'https://www.youtube.com',
   };
   if (req.headers.range) headers.Range = req.headers.range;
 
@@ -484,7 +130,6 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
     (proxyRes) => {
       const status = proxyRes.statusCode || 502;
 
-      // googlevideo often 302s to the edge node — <video> cannot follow that itself.
       if (status >= 300 && status < 400) {
         const location = proxyRes.headers.location;
         proxyRes.resume();
@@ -502,10 +147,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
           nextUrl = new URL(location, upstream).href;
         } catch (err) {
           if (!res.headersSent) {
-            res.status(502).json({
-              error: 'proxy_failed',
-              detail: err.message,
-            });
+            res.status(502).json({ error: 'proxy_failed', detail: err.message });
           }
           return;
         }
@@ -516,7 +158,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
       }
 
       if (status >= 400) {
-        if (videoId && (status === 403 || status === 410)) {
+        if (videoId && (status === 403 || status === 404 || status === 410)) {
           resolveCache.delete(videoId);
         }
         if (!res.headersSent) res.status(status);
@@ -553,41 +195,25 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
   proxyReq.on('error', (err) => {
     console.error('[/api/media] proxy error:', err.message);
     if (!res.headersSent) {
-      res.status(502).json({
-        error: 'proxy_failed',
-        detail: err.message,
-      });
+      res.status(502).json({ error: 'proxy_failed', detail: err.message });
     }
   });
 
   proxyReq.end();
 }
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
-
-app.get('/health', async (_req, res) => {
-  const potUp = await potClient.ping();
-
+app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    bridge: {
-      port: PORT,
-      host: HOST,
-    },
-    pot: {
-      url: YT_DLP_BGUTIL_POT_BASE_URL || potClient.POT_BASE_URL,
-      reachable: potUp,
-      pluginMode: shouldUsePotPlugin(),
-      pluginDirs: resolvePluginDirs(),
-    },
-    ytDlp: YT_DLP_PATH,
-    ytDlpFormat: YT_DLP_FORMAT,
-    clientChain: CLIENT_CHAIN,
-    cookiesFile: resolveCookiesPath() || null,
+    bridge: { port: PORT, host: HOST },
+    resolver: 'rapidapi',
+    rapidApiHost: rapidApi.RAPIDAPI_HOST,
+    rapidApiKeyConfigured: Boolean(
+      process.env.RAPIDAPI_KEY || process.env.RAPIDAPI_YOUTUBE_KEY
+    ),
   });
 });
 
-/** Scraped YouTube video search — no Data API quota. Supports cursor pagination via `continuation`. */
 app.get('/api/youtube/search', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const continuation =
@@ -629,29 +255,16 @@ app.get('/api/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
 
   if (!/^[\w-]{11}$/.test(videoId)) {
-    return res.status(400).json({
-      error: 'invalid videoId',
-    });
+    return res.status(400).json({ error: 'invalid videoId' });
   }
 
   try {
     const cached = await getCachedUpstreamUrl(videoId);
-    const upstreamUrl = cached.upstreamUrl;
-    const client = cached.client;
-
-    if (/[?&]itag=140(?:&|$)/.test(upstreamUrl) || /mime=audio/i.test(upstreamUrl)) {
-      console.warn(
-        `[api/stream] WARNING: URL looks audio-only (itag=140); check YT_DLP_FORMAT — ${upstreamUrl.slice(0, 120)}…`
-      );
-    } else {
-      console.log(
-        `[api/stream] ${videoId} client=${client} muxed url (${upstreamUrl.length} chars)`
-      );
-    }
-
-    const { format, mimeType, quality } = inferStreamMetadata(upstreamUrl);
+    const { format, mimeType, quality } = inferStreamMetadata(cached.upstreamUrl, cached);
     const origin = publicBridgeOrigin(req);
     const playbackUrl = `${origin}/api/media/${encodeURIComponent(videoId)}`;
+
+    console.log(`[api/stream] ${videoId} rapidapi quality=${quality || 'unknown'}`);
 
     res.json({
       videoId,
@@ -659,14 +272,14 @@ app.get('/api/stream/:videoId', async (req, res) => {
       format,
       mimeType,
       quality,
-      source: `ytdlp:${client}`,
+      source: 'rapidapi',
       proxied: true,
     });
   } catch (err) {
     const msg = err?.message || String(err);
     console.error('[/api/stream] failed:', msg);
 
-    if (/live|premiere|upcoming|not yet started|scheduled|will begin in/i.test(msg)) {
+    if (/live|premiere|upcoming|not yet started|scheduled|isLiveContent/i.test(msg)) {
       return res.status(422).json({
         error: 'LIVE_UPCOMING',
         detail: msg.split('\n').slice(0, 3).join(' '),
@@ -680,14 +293,11 @@ app.get('/api/stream/:videoId', async (req, res) => {
   }
 });
 
-/** Proxied progressive MP4 / HLS for `<video src>` — supports Range seeks. */
 app.get('/api/media/:videoId', async (req, res) => {
   const { videoId } = req.params;
 
   if (!/^[\w-]{11}$/.test(videoId)) {
-    return res.status(400).json({
-      error: 'invalid videoId',
-    });
+    return res.status(400).json({ error: 'invalid videoId' });
   }
 
   try {
@@ -706,147 +316,49 @@ app.get('/api/info/:videoId', async (req, res) => {
   const { videoId } = req.params;
 
   if (!/^[\w-]{11}$/.test(videoId)) {
-    return res.status(400).json({
-      error: 'invalid videoId',
-    });
+    return res.status(400).json({ error: 'invalid videoId' });
   }
 
   try {
-    const { client, output } =
-      await resolveVideo(videoId, {
-        jsonOnly: true,
-      });
-
-    const info = JSON.parse(output);
+    const info = await rapidApi.getVideoInfo(videoId);
+    const thumb =
+      Array.isArray(info.thumbnail) && info.thumbnail.length > 0
+        ? info.thumbnail[info.thumbnail.length - 1].url
+        : null;
 
     res.json({
       videoId,
-      client,
       title: info.title,
-      duration: info.duration,
-      uploader: info.uploader,
-      channel_id: info.channel_id,
-      thumbnail: info.thumbnail,
-
-      formats: (info.formats || [])
-        .filter((f) => f.url)
-        .map((f) => ({
-          format_id: f.format_id,
-          ext: f.ext,
-          height: f.height,
-          fps: f.fps,
-          vcodec: f.vcodec,
-          acodec: f.acodec,
-          url: f.url,
-        })),
+      duration: info.lengthSeconds ? Number(info.lengthSeconds) : null,
+      uploader: info.author || info.ownerChannelName,
+      channel_id: info.externalChannelId,
+      thumbnail: thumb,
+      live_status: info.isLiveContent ? 'is_live' : 'not_live',
+      is_live: Boolean(info.liveBroadcastDetails?.isLiveNow),
+      is_upcoming: false,
+      formats: [],
     });
   } catch (err) {
-    console.error(
-      '[/api/info] failed:',
-      err.message
-    );
-
+    console.error('[/api/info] failed:', err.message);
     res.status(502).json({
       error: 'resolve_failed',
-      detail: err.message
-        .split('\n')
-        .slice(0, 3),
+      detail: err.message.split('\n').slice(0, 3),
     });
   }
 });
 
-app.post('/admin/refresh-pot', async (req, res) => {
-  potClient.clearCache();
+app.post('/admin/clear-resolve-cache', (_req, res) => {
+  resolveCache.clear();
+  res.json({ ok: true });
+});
 
-  try {
-    await potClient.invalidateCaches();
-    const videoId =
-      typeof req.body?.videoId === 'string' && /^[\w-]{11}$/.test(req.body.videoId)
-        ? req.body.videoId
-        : 'dQw4w9WgXcQ';
-
-    const creds = await potClient.getCredentials({ videoId, force: true });
-
-    res.json({
-      ok: true,
-      videoId,
-      pluginMode: shouldUsePotPlugin(),
-      visitorData: creds.visitorData.slice(0, 16) + '…',
-      poToken: creds.poToken.slice(0, 16) + '…',
-    });
-  } catch (err) {
-    res.status(500).json({
-      ok: false,
-      error: err.message,
-    });
+app.listen(PORT, HOST, () => {
+  console.log(`[bridge] listening on http://${HOST}:${PORT}`);
+  console.log(`[bridge] YouTube resolver: RapidAPI (${rapidApi.RAPIDAPI_HOST})`);
+  if (!process.env.RAPIDAPI_KEY && !process.env.RAPIDAPI_YOUTUBE_KEY) {
+    console.error('[bridge] WARNING: RAPIDAPI_KEY is not set — /api/stream will fail.');
   }
 });
 
-// ─── Boot ────────────────────────────────────────────────────────────────────
-
-app.listen(PORT, HOST, async () => {
-  console.log(
-    `[bridge] listening on http://${HOST}:${PORT}`
-  );
-
-  console.log(
-    `[bridge] POT provider: ${YT_DLP_BGUTIL_POT_BASE_URL || potClient.POT_BASE_URL}`
-  );
-
-  if (shouldUsePotPlugin()) {
-    console.log(
-      `[bridge] yt-dlp POT plugin: youtubepot-bgutilhttp base_url=${YT_DLP_BGUTIL_POT_BASE_URL}`
-    );
-    console.log(`[bridge] plugin dirs: ${resolvePluginDirs().join(', ')}`);
-  } else {
-    console.warn(
-      '[bridge] POT plugin unavailable — using per-video manual POT fallback. ' +
-        'Run npm run download-tools to fetch bgutil-ytdlp-pot-provider.zip into server/yt-dlp-plugins/.'
-    );
-  }
-
-  console.log(`[bridge] yt-dlp format: ${YT_DLP_FORMAT}`);
-  console.log(`[bridge] yt-dlp binary: ${YT_DLP_PATH}`);
-  if (!fs.existsSync(YT_DLP_PATH)) {
-    console.error(
-      `[bridge] WARNING: yt-dlp binary missing at "${YT_DLP_PATH}" — /api/stream will return 502. ` +
-        'Run npm run download-tools in server/ or fix YT_DLP_PATH on Render.'
-    );
-  }
-
-  const cookiesPath = resolveCookiesPath();
-  if (cookiesPath) {
-    console.log(`[bridge] yt-dlp cookies: ${cookiesPath}`);
-  } else {
-    console.warn(
-      `[bridge] yt-dlp cookies: NOT FOUND (expected ${resolveBridgePath(COOKIES_FILE_ENV)}) — bot challenges likely`
-    );
-  }
-
-  const potUp = await potClient.ping();
-
-  if (!potUp) {
-    console.error(
-      '[bridge] WARNING: POT provider unreachable.'
-    );
-  } else if (!shouldUsePotPlugin()) {
-    try {
-      await potClient.getCredentials({ videoId: 'dQw4w9WgXcQ' });
-      console.log('[bridge] POT manual fallback warmed up (test video).');
-    } catch (err) {
-      console.error('[bridge] initial POT warmup failed:', err.message);
-    }
-  } else {
-    console.log('[bridge] POT plugin mode — tokens minted per request by yt-dlp.');
-  }
-});
-
-process.on(
-  'unhandledRejection',
-  (err) => console.error('[unhandledRejection]', err)
-);
-
-process.on(
-  'uncaughtException',
-  (err) => console.error('[uncaughtException]', err)
-);
+process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err));
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err));

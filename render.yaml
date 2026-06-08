@@ -4,7 +4,7 @@ services:
     runtime: node
     rootDir: server
     plan: free
-    buildCommand: npm install && npm run download-tools
+    buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -16,11 +16,7 @@ services:
         sync: false
       - key: PUBLIC_BASE_URL
         sync: false
-      - key: YT_DLP_PATH
-        value: ./yt-dlp
-      - key: YT_DLP_BGUTIL_POT_BASE_URL
-        sync: false
-      - key: POT_URL
+      - key: RAPIDAPI_KEY
         sync: false
       - key: SUPABASE_URL
         sync: false

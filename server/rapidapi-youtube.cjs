@@ -1,0 +1,166 @@
+'use strict';
+
+const axios = require('axios');
+
+const RAPIDAPI_HOST =
+  (process.env.RAPIDAPI_YOUTUBE_HOST || 'youtube-video-fast-downloader-24-7.p.rapidapi.com').trim();
+const RAPIDAPI_BASE = `https://${RAPIDAPI_HOST}`;
+const RAPIDAPI_KEY = (
+  process.env.RAPIDAPI_KEY ||
+  process.env.RAPIDAPI_YOUTUBE_KEY ||
+  ''
+).trim();
+
+const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
+const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 45_000);
+const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
+
+function requireApiKey() {
+  if (!RAPIDAPI_KEY) {
+    throw new Error('RAPIDAPI_KEY is not set on the Media Bridge');
+  }
+}
+
+function rapidHeaders() {
+  requireApiKey();
+  return {
+    'x-rapidapi-key': RAPIDAPI_KEY,
+    'x-rapidapi-host': RAPIDAPI_HOST,
+  };
+}
+
+function parseHeight(quality) {
+  const m = String(quality || '').match(/(\d+)\s*p/i);
+  return m ? Number(m[1]) : 0;
+}
+
+/** Pick a muxed-friendly video quality id (prefer MP4, max 720p). */
+function pickVideoQualityId(qualities) {
+  const videos = (Array.isArray(qualities) ? qualities : []).filter(
+    (q) => q && q.type === 'video' && q.id != null
+  );
+  if (videos.length === 0) return null;
+
+  const mp4 = videos.filter((q) => /mp4/i.test(String(q.mime || '')));
+  const pool = mp4.length > 0 ? mp4 : videos;
+
+  const capped = pool.filter((q) => {
+    const h = parseHeight(q.quality);
+    return h === 0 || h <= 720;
+  });
+  const ranked = (capped.length > 0 ? capped : pool).sort((a, b) => {
+    const ah = parseHeight(a.quality);
+    const bh = parseHeight(b.quality);
+    return bh - ah;
+  });
+
+  return ranked[0]?.id ?? null;
+}
+
+async function getAvailableQualities(videoId) {
+  const res = await axios.get(`${RAPIDAPI_BASE}/get_available_quality/${videoId}`, {
+    headers: rapidHeaders(),
+    timeout: 30_000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (res.status >= 400) {
+    throw new Error(`RapidAPI get_available_quality HTTP ${res.status}`);
+  }
+
+  return Array.isArray(res.data) ? res.data : [];
+}
+
+async function requestDownloadMeta(videoId, qualityId) {
+  const res = await axios.get(`${RAPIDAPI_BASE}/download_video/${videoId}`, {
+    params: { quality: qualityId },
+    headers: rapidHeaders(),
+    timeout: 60_000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (res.status >= 400) {
+    const detail =
+      typeof res.data === 'string'
+        ? res.data.slice(0, 200)
+        : JSON.stringify(res.data || {}).slice(0, 200);
+    throw new Error(`RapidAPI download_video HTTP ${res.status}: ${detail}`);
+  }
+
+  const file = res.data && res.data.file;
+  if (!file || typeof file !== 'string') {
+    throw new Error('RapidAPI download_video response missing file URL');
+  }
+
+  return {
+    file,
+    quality: res.data.quality || null,
+    mime: res.data.mime || 'video/mp4',
+    id: res.data.id,
+  };
+}
+
+async function waitForFileReady(fileUrl) {
+  const deadline = Date.now() + FILE_READY_MAX_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      const head = await axios.head(fileUrl, {
+        timeout: 12_000,
+        maxRedirects: 5,
+        validateStatus: (s) => s < 500,
+      });
+      if (head.status === 200) return;
+    } catch {
+      /* file may still be preparing */
+    }
+    await new Promise((r) => setTimeout(r, FILE_READY_POLL_MS));
+  }
+}
+
+/**
+ * Resolve a direct playable URL for a YouTube videoId via RapidAPI.
+ * @returns {Promise<{ url: string, quality: string|null, mime: string }>}
+ */
+async function resolveVideoDownloadUrl(videoId) {
+  let qualityId = DEFAULT_QUALITY;
+
+  if (!qualityId) {
+    const qualities = await getAvailableQualities(videoId);
+    qualityId = pickVideoQualityId(qualities);
+  }
+
+  if (!qualityId) {
+    throw new Error('No suitable RapidAPI video quality found');
+  }
+
+  const meta = await requestDownloadMeta(videoId, qualityId);
+  await waitForFileReady(meta.file);
+
+  return {
+    url: meta.file,
+    quality: meta.quality,
+    mime: meta.mime,
+  };
+}
+
+async function getVideoInfo(videoId) {
+  const res = await axios.get(`${RAPIDAPI_BASE}/get-video-info/${videoId}`, {
+    headers: rapidHeaders(),
+    timeout: 30_000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (res.status >= 400) {
+    throw new Error(`RapidAPI get-video-info HTTP ${res.status}`);
+  }
+
+  return res.data || {};
+}
+
+module.exports = {
+  RAPIDAPI_HOST,
+  resolveVideoDownloadUrl,
+  getVideoInfo,
+  pickVideoQualityId,
+};
