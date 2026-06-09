@@ -14,6 +14,31 @@ const RAPIDAPI_KEY = (
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
 const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 60_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
+const RAPIDAPI_429_MAX_RETRIES = Number(process.env.RAPIDAPI_429_MAX_RETRIES || 4);
+const RAPIDAPI_429_BASE_MS = Number(process.env.RAPIDAPI_429_BASE_MS || 2_000);
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function rapidApiGet(url, config = {}, { label = 'request' } = {}) {
+  let lastRes = null;
+  for (let attempt = 0; attempt <= RAPIDAPI_429_MAX_RETRIES; attempt++) {
+    const res = await axios.get(url, { ...config, validateStatus: () => true });
+    lastRes = res;
+    if (res.status === 429) {
+      if (attempt >= RAPIDAPI_429_MAX_RETRIES) {
+        throw new Error(`RapidAPI ${label} HTTP 429 after ${attempt + 1} attempts (rate limited)`);
+      }
+      const delayMs = RAPIDAPI_429_BASE_MS * 2 ** attempt;
+      console.warn(`[rapidapi] ${label} HTTP 429 — retry ${attempt + 1}/${RAPIDAPI_429_MAX_RETRIES} in ${delayMs}ms`);
+      await sleep(delayMs);
+      continue;
+    }
+    return res;
+  }
+  return lastRes;
+}
 
 function requireApiKey() {
   if (!RAPIDAPI_KEY) throw new Error('RAPIDAPI_KEY is not set on the Media Bridge');
@@ -50,22 +75,21 @@ function pickVideoQualityId(qualities) {
 }
 
 async function getAvailableQualities(videoId) {
-  const res = await axios.get(`${RAPIDAPI_BASE}/get_available_quality/${videoId}`, {
-    headers: rapidHeaders(),
-    timeout: 30_000,
-    validateStatus: (s) => s < 500,
-  });
+  const res = await rapidApiGet(
+    `${RAPIDAPI_BASE}/get_available_quality/${videoId}`,
+    { headers: rapidHeaders(), timeout: 30_000 },
+    { label: `get_available_quality/${videoId}` }
+  );
   if (res.status >= 400) throw new Error(`RapidAPI get_available_quality HTTP ${res.status}`);
   return Array.isArray(res.data) ? res.data : [];
 }
 
 async function requestDownloadMeta(videoId, qualityId) {
-  const res = await axios.get(`${RAPIDAPI_BASE}/download_video/${videoId}`, {
-    params: { quality: qualityId },
-    headers: rapidHeaders(),
-    timeout: 60_000,
-    validateStatus: (s) => s < 500,
-  });
+  const res = await rapidApiGet(
+    `${RAPIDAPI_BASE}/download_video/${videoId}`,
+    { params: { quality: qualityId }, headers: rapidHeaders(), timeout: 60_000 },
+    { label: `download_video/${videoId}` }
+  );
   if (res.status >= 400) {
     throw new Error(`RapidAPI download_video HTTP ${res.status}`);
   }
@@ -129,11 +153,11 @@ async function resolveVideoDownloadUrl(videoId) {
 }
 
 async function getVideoInfo(videoId) {
-  const res = await axios.get(`${RAPIDAPI_BASE}/get-video-info/${videoId}`, {
-    headers: rapidHeaders(),
-    timeout: 30_000,
-    validateStatus: (s) => s < 500,
-  });
+  const res = await rapidApiGet(
+    `${RAPIDAPI_BASE}/get-video-info/${videoId}`,
+    { headers: rapidHeaders(), timeout: 30_000 },
+    { label: `get-video-info/${videoId}` }
+  );
   if (res.status >= 400) throw new Error(`RapidAPI get-video-info HTTP ${res.status}`);
   return res.data || {};
 }

@@ -412,6 +412,41 @@ export function normalizeStreamApiResponse(
  */
 const STREAM_INFO_TIMEOUT_MS = 120_000
 
+/** Max concurrent Media Bridge fetches from this browser tab (stream + metadata). */
+const MEDIA_BRIDGE_MAX_CONCURRENT = 2
+
+let mediaBridgeInFlight = 0
+const mediaBridgeWaitQueue: Array<() => void> = []
+
+function acquireMediaBridgeSlot(): Promise<void> {
+  if (mediaBridgeInFlight < MEDIA_BRIDGE_MAX_CONCURRENT) {
+    mediaBridgeInFlight += 1
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    mediaBridgeWaitQueue.push(() => {
+      mediaBridgeInFlight += 1
+      resolve()
+    })
+  })
+}
+
+function releaseMediaBridgeSlot(): void {
+  mediaBridgeInFlight = Math.max(0, mediaBridgeInFlight - 1)
+  const next = mediaBridgeWaitQueue.shift()
+  if (next) next()
+}
+
+/** Limits parallel `/api/stream`, `/api/info`, etc. to reduce Render + RapidAPI overload. */
+async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  await acquireMediaBridgeSlot()
+  try {
+    return await fetch(input, init)
+  } finally {
+    releaseMediaBridgeSlot()
+  }
+}
+
 /** Delays before 2nd, 3rd, and 4th stream resolution attempts after `Failed to fetch` (Render cold start). */
 const STREAM_TRANSIENT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const
 const STREAM_RESOLVE_MAX_ATTEMPTS = 1 + STREAM_TRANSIENT_RETRY_DELAYS_MS.length
@@ -468,7 +503,7 @@ export async function fetchVideoInfo(
   }
 
   try {
-    const res = await fetch(url, { credentials: 'omit', headers: { accept: 'application/json' }, signal: controller.signal })
+    const res = await bridgeFetch(url, { credentials: 'omit', headers: { accept: 'application/json' }, signal: controller.signal })
     if (!res.ok) {
       let errorCode: string | null = null
       let detail: string | null = null
@@ -595,7 +630,7 @@ async function doFetchStreamInfo(
       if (accessToken && accessToken.split('.').length === 3) {
         headers.set('authorization', `Bearer ${accessToken}`)
       }
-      res = await fetch(url, {
+      res = await bridgeFetch(url, {
         credentials: 'omit',
         headers,
         signal: controller.signal,
