@@ -12,7 +12,7 @@ const RAPIDAPI_KEY = (
 ).trim();
 
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
-const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 45_000);
+const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 60_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
 
 function requireApiKey() {
@@ -76,19 +76,45 @@ async function requestDownloadMeta(videoId, qualityId) {
   return { file, quality: res.data.quality || null, mime: res.data.mime || 'video/mp4' };
 }
 
-async function waitForFileReady(fileUrl) {
-  const deadline = Date.now() + FILE_READY_MAX_MS;
+async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
+  const startedAt = Date.now();
+  const deadline = startedAt + FILE_READY_MAX_MS;
+  let lastStatus = null;
+  let attempts = 0;
+
   while (Date.now() < deadline) {
+    attempts += 1;
     try {
       const head = await axios.head(fileUrl, {
         timeout: 12_000,
         maxRedirects: 5,
-        validateStatus: (s) => s < 500,
+        validateStatus: () => true,
       });
-      if (head.status === 200) return;
-    } catch { /* still preparing */ }
-    await new Promise((r) => setTimeout(r, FILE_READY_POLL_MS));
+      lastStatus = head.status;
+      if (head.status === 200) {
+        console.log(
+          `[rapidapi] file ready video=${videoId || '?'} after ${Date.now() - startedAt}ms (attempt ${attempts})`
+        );
+        return;
+      }
+      console.warn(
+        `[rapidapi] file not ready video=${videoId || '?'} attempt=${attempts} HTTP ${head.status}`
+      );
+    } catch (err) {
+      lastStatus = err.message;
+      console.warn(`[rapidapi] file HEAD error video=${videoId || '?'} attempt=${attempts}: ${err.message}`);
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await new Promise((r) => setTimeout(r, Math.min(FILE_READY_POLL_MS, remaining)));
   }
+
+  const waitedMs = Date.now() - startedAt;
+  const msg =
+    `RapidAPI file URL not ready after ${waitedMs}ms (limit ${FILE_READY_MAX_MS}ms, ` +
+    `${attempts} attempts, lastStatus=${lastStatus ?? 'unknown'}).`;
+  console.error(`[rapidapi] ${msg} video=${videoId || '?'}`);
+  throw new Error(msg);
 }
 
 async function resolveVideoDownloadUrl(videoId) {
@@ -98,7 +124,7 @@ async function resolveVideoDownloadUrl(videoId) {
   }
   if (!qualityId) throw new Error('No suitable RapidAPI video quality found');
   const meta = await requestDownloadMeta(videoId, qualityId);
-  await waitForFileReady(meta.file);
+  await waitForFileReady(meta.file, { videoId });
   return { url: meta.file, quality: meta.quality, mime: meta.mime };
 }
 

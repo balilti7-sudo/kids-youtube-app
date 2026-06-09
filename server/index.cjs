@@ -22,6 +22,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 const DEFAULT_ANDROID_YOUTUBE_UA =
   'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36';
 const MEDIA_USER_AGENT = (process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
+/** Max wait for upstream CDN bytes when proxying /api/media (ms). */
+const MEDIA_PROXY_TIMEOUT_MS = Number(process.env.MEDIA_PROXY_TIMEOUT_MS || 90_000);
 
 const app = express();
 
@@ -126,7 +128,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
 
   const proxyReq = lib.request(
     upstream,
-    { method: 'GET', headers },
+    { method: 'GET', headers, timeout: MEDIA_PROXY_TIMEOUT_MS },
     (proxyRes) => {
       const status = proxyRes.statusCode || 502;
 
@@ -161,6 +163,9 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
         if (videoId && (status === 403 || status === 404 || status === 410)) {
           resolveCache.delete(videoId);
         }
+        console.error(
+          `[/api/media] upstream HTTP ${status} video=${videoId || '?'} url=${upstreamUrl.slice(0, 96)}…`
+        );
         if (!res.headersSent) res.status(status);
         proxyRes.resume();
         return res.end();
@@ -189,13 +194,41 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
         res.setHeader('Content-Type', 'video/mp4');
       }
       proxyRes.pipe(res);
+
+      proxyRes.on('error', (err) => {
+        console.error('[/api/media] upstream stream error:', err.message);
+        if (!res.headersSent) {
+          res.status(502).json({ error: 'proxy_failed', detail: err.message });
+        } else {
+          res.destroy();
+        }
+      });
     }
   );
+
+  proxyReq.setTimeout(MEDIA_PROXY_TIMEOUT_MS, () => {
+    proxyReq.destroy();
+    console.error(
+      `[/api/media] upstream timeout after ${MEDIA_PROXY_TIMEOUT_MS}ms video=${videoId || '?'}`
+    );
+    if (!res.headersSent) {
+      res.status(504).json({
+        error: 'proxy_timeout',
+        detail: `upstream timed out after ${MEDIA_PROXY_TIMEOUT_MS}ms`,
+      });
+    }
+  });
 
   proxyReq.on('error', (err) => {
     console.error('[/api/media] proxy error:', err.message);
     if (!res.headersSent) {
       res.status(502).json({ error: 'proxy_failed', detail: err.message });
+    }
+  });
+
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      proxyReq.destroy();
     }
   });
 
