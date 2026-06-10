@@ -21,6 +21,10 @@ import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
 import { QuickBlockButton } from './QuickBlockButton'
 import { useHideVideoContext } from '../../hooks/useHideVideoContext'
 import { ChannelManagerVideoSearch } from './ChannelManagerVideoSearch'
+import {
+  CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
+  CHANNEL_MANAGER_SEARCH_SHELL_CLASS,
+} from './channelManagerSearchStyles'
 import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
@@ -391,15 +395,22 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             ))}
           </select>
         ) : null}
-        <div className="rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-3 shadow-inner ring-1 ring-zinc-800/80">
+        <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
           <Button
             type="button"
-            className="min-h-[52px] w-full justify-center rounded-2xl bg-zinc-800 px-5 text-center text-base font-black tracking-tight text-zinc-50 shadow-lg shadow-black/25 ring-1 ring-white/10 transition hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400"
+            className={CHANNEL_MANAGER_SEARCH_CONTROL_CLASS}
             onClick={requestOpenChannelSearch}
           >
             חיפוש ערוץ
           </Button>
         </div>
+        {user?.id || ownerUserId || localParent.localAccessToken ? (
+          <ChannelManagerVideoSearch
+            userId={user?.id ? (ownerUserId ?? user.id) : null}
+            childAccessToken={user?.id ? null : localParent.localAccessToken}
+            mode={user?.id ? 'parent' : 'kid'}
+          />
+        ) : null}
       </header>
 
       {devLoading || listLoading ? (
@@ -408,9 +419,6 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {user?.id || ownerUserId ? (
-            <ChannelManagerVideoSearch userId={ownerUserId ?? user?.id ?? null} />
-          ) : null}
           <WhitelistView
             channels={whitelist}
             onRemoveRequest={requestRemoveChannel}

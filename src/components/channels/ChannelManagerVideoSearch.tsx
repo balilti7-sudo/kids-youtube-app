@@ -1,48 +1,40 @@
 import { useCallback, useState, type FormEvent } from 'react'
-import { Loader2, Search, Video } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { searchYouTubeVideos } from '../../lib/youtube'
-import type { PlaylistVideoPayload } from '../../lib/playlists'
+import { playlistVideoPayloadFromSearchResult } from '../../lib/playlistVideoPayload'
 import type { YouTubeVideoResult } from '../../types'
+import type { PlaylistMode } from '../../hooks/usePlaylists'
 import { cn } from '../../lib/utils'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
+import {
+  CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
+  CHANNEL_MANAGER_SEARCH_SHELL_CLASS,
+} from './channelManagerSearchStyles'
 
 type Props = {
   userId: string | null
+  childAccessToken?: string | null
+  mode?: PlaylistMode
   className?: string
 }
 
-/** Matches the full-width "חיפוש ערוץ" control in ChannelManager header. */
-const CHANNEL_SEARCH_SHELL_CLASS =
-  'rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-3 shadow-inner ring-1 ring-zinc-800/80'
-
-const CHANNEL_SEARCH_CONTROL_CLASS =
-  'min-h-[52px] w-full rounded-2xl bg-zinc-800 text-base font-black tracking-tight text-zinc-50 shadow-lg shadow-black/25 ring-1 ring-white/10 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400'
-
-function isValidYoutubeVideoId(value: string | null | undefined): value is string {
-  return typeof value === 'string' && /^[\w-]{11}$/.test(value.trim())
-}
-
-function toPlaylistVideoPayload(video: YouTubeVideoResult): PlaylistVideoPayload | null {
-  if (!isValidYoutubeVideoId(video.videoId)) return null
-  const youtube_video_id = video.videoId.trim()
-  return {
-    youtube_video_id,
-    title: video.title?.trim() || youtube_video_id,
-    thumbnail_url: video.thumbnail?.trim() || null,
-    channel_name: video.channelTitle?.trim() || null,
-  }
-}
-
 /**
- * Search YouTube from channel management and add results to a parent playlist.
+ * YouTube video search from channel management — same shell/control styling as "חיפוש ערוץ".
  */
-export function ChannelManagerVideoSearch({ userId, className }: Props) {
+export function ChannelManagerVideoSearch({
+  userId,
+  childAccessToken = null,
+  mode = 'parent',
+  className,
+}: Props) {
   const [input, setInput] = useState('')
   const [query, setQuery] = useState<string | null>(null)
   const [results, setResults] = useState<YouTubeVideoResult[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const canAddToPlaylist = Boolean(userId || childAccessToken)
 
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim()
@@ -59,7 +51,7 @@ export function ChannelManagerVideoSearch({ userId, className }: Props) {
         setResults([])
         return
       }
-      const valid = (data ?? []).filter((video) => toPlaylistVideoPayload(video) !== null)
+      const valid = (data ?? []).filter((video) => playlistVideoPayloadFromSearchResult(video) !== null)
       setResults(valid)
       if (valid.length === 0 && (data?.length ?? 0) > 0) {
         setError('לא נמצאו מזהי סרטון תקינים בתוצאות החיפוש')
@@ -80,66 +72,30 @@ export function ChannelManagerVideoSearch({ userId, className }: Props) {
     [input, runSearch]
   )
 
-  if (!userId) {
-    return null
-  }
-
   const showResultsPanel = Boolean(query || loading)
 
   return (
-    <section className={cn('w-full', className)} aria-labelledby="channel-manager-video-search-title">
-      <div className="mb-2 flex items-start gap-2">
-        <span
-          className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25"
-          aria-hidden
-        >
-          <Video className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1 text-right">
-          <h2 id="channel-manager-video-search-title" className="text-sm font-bold text-zinc-50">
-            חיפוש סרטונים
-          </h2>
-          <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">
-            חפשו ב-YouTube והוסיפו סרטונים בודדים לפלייליסט.
-          </p>
-        </div>
-      </div>
-
-      <div className={CHANNEL_SEARCH_SHELL_CLASS}>
-        <form onSubmit={handleSubmit} className="flex w-full flex-col gap-2 sm:flex-row sm:items-stretch">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              className="pointer-events-none absolute start-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400"
-              aria-hidden
-            />
-            <input
-              type="search"
-              dir="auto"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="חפשו סרטון ב-YouTube…"
-              aria-label="חיפוש סרטונים"
-              className={cn(
-                CHANNEL_SEARCH_CONTROL_CLASS,
-                'py-3 pe-4 ps-12 text-right placeholder:text-base placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-400 hover:bg-zinc-700'
-              )}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
+    <section className={cn('w-full', className)} aria-label="חיפוש סרטונים">
+      <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
+        <form onSubmit={handleSubmit} className="relative w-full">
+          <input
+            type="search"
+            dir="auto"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="חיפוש סרטונים…"
+            aria-label="חיפוש סרטונים"
+            disabled={loading}
             className={cn(
-              CHANNEL_SEARCH_CONTROL_CLASS,
-              'flex shrink-0 items-center justify-center gap-2 px-6 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[7.5rem]'
+              CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
+              'border-0 placeholder:text-base placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-400 disabled:cursor-wait disabled:opacity-80'
             )}
-          >
-            {loading ? (
+          />
+          {loading ? (
+            <span className="pointer-events-none absolute start-4 top-1/2 -translate-y-1/2">
               <LoadingSpinner className="h-5 w-5 border-2 border-zinc-300 border-t-transparent" />
-            ) : (
-              <Search className="h-5 w-5" aria-hidden />
-            )}
-            חפש
-          </button>
+            </span>
+          ) : null}
         </form>
       </div>
 
@@ -159,7 +115,7 @@ export function ChannelManagerVideoSearch({ userId, className }: Props) {
           ) : null}
 
           {loading ? (
-            <div className="flex min-h-[52px] items-center justify-center gap-2 py-4 text-sm text-zinc-400">
+            <div className={cn(CHANNEL_MANAGER_SEARCH_CONTROL_CLASS, 'flex items-center justify-center gap-2 bg-zinc-900/80 py-3 text-sm font-normal text-zinc-400')}>
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               מחפש ב-YouTube…
             </div>
@@ -170,7 +126,7 @@ export function ChannelManagerVideoSearch({ userId, className }: Props) {
           ) : (
             <ul className="premium-scrollbar max-h-80 space-y-2 overflow-y-auto">
               {results.map((video) => {
-                const payload = toPlaylistVideoPayload(video)
+                const payload = playlistVideoPayloadFromSearchResult(video)
                 if (!payload) return null
                 return (
                   <li
@@ -198,13 +154,16 @@ export function ChannelManagerVideoSearch({ userId, className }: Props) {
                         ) : null}
                       </div>
                     </div>
-                    <AddToPlaylistButton
-                      mode="parent"
-                      userId={userId}
-                      childAccessToken={null}
-                      video={payload}
-                      className="w-full sm:w-auto"
-                    />
+                    {canAddToPlaylist ? (
+                      <AddToPlaylistButton
+                        mode={mode}
+                        userId={userId}
+                        childAccessToken={childAccessToken}
+                        compact
+                        video={payload}
+                        className="w-full sm:w-auto"
+                      />
+                    ) : null}
                   </li>
                 )
               })}

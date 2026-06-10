@@ -8,7 +8,7 @@ import { LoadingSpinner } from '../ui/LoadingSpinner'
 import type { PlaylistMode } from '../../hooks/usePlaylists'
 import type { PlaylistVideoPayload, UserPlaylist } from '../../lib/playlists'
 import {
-  addVideoToPlaylist,
+  addVideoToPlaylistViaRpc,
   addVideoToPlaylistForChild,
   createPlaylistForChild,
   createPlaylistForUser,
@@ -172,7 +172,7 @@ export function AddToPlaylistModal({
     for (const pid of toAdd) {
       const res =
         mode === 'parent'
-          ? await addVideoToPlaylist(pid, video)
+          ? await addVideoToPlaylistViaRpc(pid, video)
           : childAccessToken
             ? await addVideoToPlaylistForChild(childAccessToken, pid, video)
             : { error: new Error('לא מחובר') }
