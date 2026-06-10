@@ -17,6 +17,8 @@ const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 60_00
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
 const RAPIDAPI_429_MAX_RETRIES = Number(process.env.RAPIDAPI_429_MAX_RETRIES || 4);
 const RAPIDAPI_429_BASE_MS = Number(process.env.RAPIDAPI_429_BASE_MS || 2_000);
+const FILE_NOT_READY_MAX_ATTEMPTS = Number(process.env.RAPIDAPI_FILE_NOT_READY_MAX_RETRIES || 4);
+const FILE_NOT_READY_WAIT_MS = Number(process.env.RAPIDAPI_FILE_NOT_READY_WAIT_MS || 12_000);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -58,6 +60,25 @@ function parseHeight(quality) {
   return m ? Number(m[1]) : 0;
 }
 
+function responseBodyText(res) {
+  if (typeof res.data === 'string') return res.data;
+  if (res.data && typeof res.data === 'object') {
+    try {
+      return JSON.stringify(res.data);
+    } catch {
+      return String(res.data);
+    }
+  }
+  return '';
+}
+
+function isFileNotReadyHttpResponse(res) {
+  const detail = responseBodyText(res).toLowerCase();
+  if (/file not ready|not ready|still processing|processing|try again/i.test(detail)) return true;
+  if (res.status === 524) return true;
+  return false;
+}
+
 function pickVideoQualityId(qualities) {
   const videos = (Array.isArray(qualities) ? qualities : []).filter(
     (q) => q && q.type === 'video' && q.id != null
@@ -86,19 +107,35 @@ async function getAvailableQualities(videoId) {
 }
 
 async function requestDownloadMeta(videoId, qualityId) {
-  const res = await rapidApiGet(
-    `${RAPIDAPI_BASE}/download_video/${videoId}`,
-    { params: { quality: qualityId }, headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
-    { label: `download_video/${videoId}` }
-  );
-  if (res.status >= 400) {
-    throw new Error(`RapidAPI download_video HTTP ${res.status}`);
+  let lastDetail = '';
+  for (let attempt = 1; attempt <= FILE_NOT_READY_MAX_ATTEMPTS; attempt++) {
+    const res = await rapidApiGet(
+      `${RAPIDAPI_BASE}/download_video/${videoId}`,
+      { params: { quality: qualityId }, headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
+      { label: `download_video/${videoId}` }
+    );
+    if (res.status >= 400) {
+      lastDetail = responseBodyText(res).slice(0, 200);
+      if (isFileNotReadyHttpResponse(res) && attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
+        console.warn(
+          `[rapidapi] download_video file not ready video=${videoId} attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} — retry in ${FILE_NOT_READY_WAIT_MS}ms`
+        );
+        await sleep(FILE_NOT_READY_WAIT_MS);
+        continue;
+      }
+      throw new Error(`RapidAPI download_video HTTP ${res.status}: ${lastDetail}`);
+    }
+    const file = res.data && res.data.file;
+    if (!file || typeof file !== 'string') {
+      if (attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
+        await sleep(FILE_NOT_READY_WAIT_MS);
+        continue;
+      }
+      throw new Error('RapidAPI download_video response missing file URL');
+    }
+    return { file, quality: res.data.quality || null, mime: res.data.mime || 'video/mp4' };
   }
-  const file = res.data && res.data.file;
-  if (!file || typeof file !== 'string') {
-    throw new Error('RapidAPI download_video response missing file URL');
-  }
-  return { file, quality: res.data.quality || null, mime: res.data.mime || 'video/mp4' };
+  throw new Error(`RapidAPI download_video file not ready after ${FILE_NOT_READY_MAX_ATTEMPTS} attempts`);
 }
 
 async function waitForFileReady(fileUrl, { videoId = '' } = {}) {

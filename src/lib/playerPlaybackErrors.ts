@@ -45,8 +45,11 @@ export function classifyPlaybackFailure(err: unknown): PlaybackFailureResult {
     err instanceof ChildPlaybackBlockedError
       ? false
       : err instanceof StreamApiError
-        ? err.status == null || err.status >= 500 || err.status === 429
-        : /Failed to fetch|NetworkError|Load failed|ERR_CONNECTION|Timeout/i.test(msg)
+        ? err.status == null ||
+          err.status >= 500 ||
+          err.status === 429 ||
+          err.message === 'FILE_NOT_READY'
+        : /Failed to fetch|NetworkError|Load failed|ERR_CONNECTION|Timeout|file not ready/i.test(msg)
 
   return {
     phase: 'error',

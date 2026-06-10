@@ -319,6 +319,14 @@ app.get('/api/stream/:videoId', async (req, res) => {
       });
     }
 
+    if (/file not ready|not ready after|still processing/i.test(msg)) {
+      return res.status(503).json({
+        error: 'FILE_NOT_READY',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+        retryAfterSec: 15,
+      });
+    }
+
     res.status(502).json({
       error: 'resolve_failed',
       detail: msg.split('\n').slice(0, 3),

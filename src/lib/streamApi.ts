@@ -450,7 +450,7 @@ export function normalizeStreamApiResponse(
  * server always wins the race and returns a structured response. The extra headroom
  * absorbs Render free-tier cold starts (~30–60s) for the first request after idle.
  */
-const STREAM_INFO_TIMEOUT_MS = 120_000
+const STREAM_INFO_TIMEOUT_MS = 150_000
 
 /** Max concurrent Media Bridge fetches from this browser tab (stream + metadata). */
 const MEDIA_BRIDGE_MAX_CONCURRENT = 2
@@ -524,6 +524,26 @@ export type FetchStreamTransientRetryInfo = {
   nextAttempt: number
   totalAttempts: number
   delayBeforeNextMs: number
+}
+
+export type FetchStreamFilePreparingInfo = {
+  nextAttempt: number
+  totalAttempts: number
+  delayBeforeNextMs: number
+}
+
+/** Max client-side retries when the bridge reports the CDN file is still processing. */
+const FILE_PREPARE_MAX_ATTEMPTS = 4
+const FILE_PREPARE_RETRY_DELAYS_MS = [12_000, 12_000, 15_000] as const
+
+function isFileNotReadyStreamError(err: unknown): boolean {
+  if (!(err instanceof StreamApiError)) return false
+  const blob = `${err.message} ${err.detail ?? ''}`.toLowerCase()
+  return (
+    err.status === 503 ||
+    err.status === 404 ||
+    /file_not_ready|file not ready|not ready after|still processing/.test(blob)
+  )
 }
 
 /** Heuristic: treat these network-layer failures as transient (multi-attempt backoff in `fetchStreamInfo`). */
@@ -621,20 +641,24 @@ export async function fetchStreamInfo(
     signal,
     timeoutMs = STREAM_INFO_TIMEOUT_MS,
     onTransientRetry,
+    onFilePreparing,
   }: {
     signal?: AbortSignal
     timeoutMs?: number
     /** Called before each backoff wait (not called before the first attempt). */
     onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
+    /** Called when RapidAPI/CDN says the file is still being prepared — keep showing the spinner. */
+    onFilePreparing?: (info: FetchStreamFilePreparingInfo) => void
   } = {}
 ): Promise<StreamApiResponse> {
   let lastErr: unknown
-  for (let i = 0; i < STREAM_RESOLVE_MAX_ATTEMPTS; i++) {
-    if (i > 0) {
-      const delayBeforeNextMs = STREAM_TRANSIENT_RETRY_DELAYS_MS[i - 1]
-      onTransientRetry?.({
-        nextAttempt: i + 1,
-        totalAttempts: STREAM_RESOLVE_MAX_ATTEMPTS,
+
+  for (let fileAttempt = 0; fileAttempt < FILE_PREPARE_MAX_ATTEMPTS; fileAttempt++) {
+    if (fileAttempt > 0) {
+      const delayBeforeNextMs = FILE_PREPARE_RETRY_DELAYS_MS[fileAttempt - 1] ?? 15_000
+      onFilePreparing?.({
+        nextAttempt: fileAttempt + 1,
+        totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
         delayBeforeNextMs,
       })
       await sleepWithAbort(delayBeforeNextMs, signal)
@@ -643,19 +667,50 @@ export async function fetchStreamInfo(
         throw r instanceof Error ? r : new DOMException('Aborted', 'AbortError')
       }
     }
-    try {
-      return await doFetchStreamInfo(videoId, { signal, timeoutMs })
-    } catch (err) {
-      if (signal?.aborted) throw err
-      if (!isTransientFetchError(err)) throw err
-      lastErr = err
-      const isLast = i === STREAM_RESOLVE_MAX_ATTEMPTS - 1
-      if (isLast) break
-      console.warn(
-        '[streamApi] transient network error, scheduling retry (Render cold start?):',
-        err instanceof Error ? err.message : err
-      )
+
+    for (let i = 0; i < STREAM_RESOLVE_MAX_ATTEMPTS; i++) {
+      if (i > 0) {
+        const delayBeforeNextMs = STREAM_TRANSIENT_RETRY_DELAYS_MS[i - 1]
+        onTransientRetry?.({
+          nextAttempt: i + 1,
+          totalAttempts: STREAM_RESOLVE_MAX_ATTEMPTS,
+          delayBeforeNextMs,
+        })
+        await sleepWithAbort(delayBeforeNextMs, signal)
+        if (signal?.aborted) {
+          const r = signal.reason
+          throw r instanceof Error ? r : new DOMException('Aborted', 'AbortError')
+        }
+      }
+      try {
+        return await doFetchStreamInfo(videoId, { signal, timeoutMs })
+      } catch (err) {
+        if (signal?.aborted) throw err
+        if (isFileNotReadyStreamError(err)) {
+          lastErr = err
+          console.warn(
+            '[streamApi] file still preparing on CDN, will retry stream resolve:',
+            err instanceof Error ? err.message : err
+          )
+          onFilePreparing?.({
+            nextAttempt: fileAttempt + 2,
+            totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
+            delayBeforeNextMs: FILE_PREPARE_RETRY_DELAYS_MS[fileAttempt] ?? 15_000,
+          })
+          break
+        }
+        if (!isTransientFetchError(err)) throw err
+        lastErr = err
+        const isLast = i === STREAM_RESOLVE_MAX_ATTEMPTS - 1
+        if (isLast) break
+        console.warn(
+          '[streamApi] transient network error, scheduling retry (Render cold start?):',
+          err instanceof Error ? err.message : err
+        )
+      }
     }
+
+    if (lastErr && !isFileNotReadyStreamError(lastErr)) break
   }
 
   if (lastErr instanceof StreamApiError) throw lastErr
@@ -758,6 +813,15 @@ async function doFetchStreamInfo(
       }
       if (res.status === 422 && errorCode === 'LIVE_UPCOMING') {
         throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, res.status, detail)
+      }
+      if (res.status === 503 && errorCode === 'FILE_NOT_READY') {
+        throw new StreamApiError('FILE_NOT_READY', res.status, detail)
+      }
+      if (
+        (res.status === 404 || res.status === 503) &&
+        /file not ready|not ready|still processing/i.test(`${detail ?? ''} ${errMsg}`)
+      ) {
+        throw new StreamApiError('FILE_NOT_READY', res.status, detail)
       }
       if (streamErrorLooksLikeUpcomingLive(detail ?? errMsg)) {
         throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, res.status, detail)

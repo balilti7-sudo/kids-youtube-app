@@ -459,6 +459,7 @@ function CleanPlayerMediaBridge({
   const [phase, setPhase] = useState<PlayerPhase>({ kind: 'resolving' })
   const [retryNonce, setRetryNonce] = useState(0)
   const [bridgeWaking, setBridgeWaking] = useState(false)
+  const [filePreparing, setFilePreparing] = useState(false)
   const [pipActive, setPipActive] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
   const [loopEnabled, setLoopEnabled] = useState(false)
@@ -597,6 +598,7 @@ function CleanPlayerMediaBridge({
 
     setPhase({ kind: 'resolving' })
     setBridgeWaking(false)
+    setFilePreparing(false)
     hlsJsActiveRef.current = false
     ac = new AbortController()
     const signal = ac.signal
@@ -615,8 +617,13 @@ function CleanPlayerMediaBridge({
             if (cancelled || signal.aborted) return
             setBridgeWaking(true)
           },
+          onFilePreparing: () => {
+            if (cancelled || signal.aborted) return
+            setFilePreparing(true)
+          },
         })
         setBridgeWaking(false)
+        setFilePreparing(false)
         if (cancelled || signal.aborted) return
 
         console.info(
@@ -691,6 +698,7 @@ function CleanPlayerMediaBridge({
         tryAttach()
       } catch (e) {
         setBridgeWaking(false)
+        setFilePreparing(false)
         if (cancelled || signal.aborted) return
         applyPlaybackFailure(e, 'resolve failed', setPhase)
       }
@@ -703,6 +711,12 @@ function CleanPlayerMediaBridge({
       detachHls()
     }
   }, [videoId, retryNonce, isLimitReached])
+
+  useEffect(() => {
+    if (phase.kind !== 'resolving') return
+    const timer = window.setTimeout(() => setFilePreparing(true), 3_000)
+    return () => window.clearTimeout(timer)
+  }, [phase.kind, videoId, retryNonce])
 
   useEffect(() => {
     if (!isLimitReached) return
@@ -1009,7 +1023,11 @@ function CleanPlayerMediaBridge({
         >
           <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={sanitizeYoutubeVideoId(videoId)} />
           <p className="relative z-10 drop-shadow">
-            {bridgeWaking ? 'השרת מתעורר... מיד מתחילים' : 'מכין את הוידאו…'}
+            {bridgeWaking
+              ? 'השרת מתעורר... מיד מתחילים'
+              : filePreparing
+                ? 'הסרטון בהכנה, זה עשוי לקחת דקה…'
+                : 'מכין את הוידאו…'}
           </p>
         </div>
       ) : null}
