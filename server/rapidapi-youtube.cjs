@@ -12,6 +12,7 @@ const RAPIDAPI_KEY = (
 ).trim();
 
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
+const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 60_000);
 const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 60_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
 const RAPIDAPI_429_MAX_RETRIES = Number(process.env.RAPIDAPI_429_MAX_RETRIES || 4);
@@ -103,7 +104,7 @@ function pickVideoQualityId(qualities) {
 async function getAvailableQualities(videoId) {
   const res = await rapidApiGet(
     `${RAPIDAPI_BASE}/get_available_quality/${videoId}`,
-    { headers: rapidHeaders(), timeout: 30_000 },
+    { headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
     { label: `get_available_quality/${videoId}` }
   );
 
@@ -120,7 +121,7 @@ async function requestDownloadMeta(videoId, qualityId) {
     {
       params: { quality: qualityId },
       headers: rapidHeaders(),
-      timeout: 60_000,
+      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
     },
     { label: `download_video/${videoId}` }
   );
@@ -224,7 +225,7 @@ async function resolveVideoDownloadUrl(videoId) {
 async function getVideoInfo(videoId) {
   const res = await rapidApiGet(
     `${RAPIDAPI_BASE}/get-video-info/${videoId}`,
-    { headers: rapidHeaders(), timeout: 30_000 },
+    { headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
     { label: `get-video-info/${videoId}` }
   );
 

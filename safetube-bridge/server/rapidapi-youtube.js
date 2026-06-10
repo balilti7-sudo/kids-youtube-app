@@ -12,6 +12,7 @@ const RAPIDAPI_KEY = (
 ).trim();
 
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
+const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 60_000);
 const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 60_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
 const RAPIDAPI_429_MAX_RETRIES = Number(process.env.RAPIDAPI_429_MAX_RETRIES || 4);
@@ -77,7 +78,7 @@ function pickVideoQualityId(qualities) {
 async function getAvailableQualities(videoId) {
   const res = await rapidApiGet(
     `${RAPIDAPI_BASE}/get_available_quality/${videoId}`,
-    { headers: rapidHeaders(), timeout: 30_000 },
+    { headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
     { label: `get_available_quality/${videoId}` }
   );
   if (res.status >= 400) throw new Error(`RapidAPI get_available_quality HTTP ${res.status}`);
@@ -87,7 +88,7 @@ async function getAvailableQualities(videoId) {
 async function requestDownloadMeta(videoId, qualityId) {
   const res = await rapidApiGet(
     `${RAPIDAPI_BASE}/download_video/${videoId}`,
-    { params: { quality: qualityId }, headers: rapidHeaders(), timeout: 60_000 },
+    { params: { quality: qualityId }, headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
     { label: `download_video/${videoId}` }
   );
   if (res.status >= 400) {
@@ -155,7 +156,7 @@ async function resolveVideoDownloadUrl(videoId) {
 async function getVideoInfo(videoId) {
   const res = await rapidApiGet(
     `${RAPIDAPI_BASE}/get-video-info/${videoId}`,
-    { headers: rapidHeaders(), timeout: 30_000 },
+    { headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
     { label: `get-video-info/${videoId}` }
   );
   if (res.status >= 400) throw new Error(`RapidAPI get-video-info HTTP ${res.status}`);
