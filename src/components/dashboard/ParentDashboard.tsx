@@ -4,7 +4,6 @@ import { useDeviceStore } from '../../stores/deviceStore'
 import { clearActiveChildProfileIdIfMatches } from '../../lib/activeDeviceSelection'
 import { ChildRuntimeProvider } from '../../contexts/ChildRuntimeContext'
 import { StatsGrid } from './StatsGrid'
-import { ParentGlobalVideoSearchSection } from './ParentGlobalVideoSearchSection'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ChannelManager } from '../channels/ChannelManager'
 import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
@@ -45,7 +44,6 @@ function ParentDashboardInner() {
       </header>
 
       <StatsGrid devices={devices} />
-      <ParentGlobalVideoSearchSection devices={devices} />
       <LocalScreenTimeParentCard />
       <DashboardDevicesSection activeManagementDeviceId={managedDeviceId} onManageChannels={setManagedDeviceId} />
       {managedDeviceId ? (
