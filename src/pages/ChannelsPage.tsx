@@ -21,7 +21,7 @@ import { buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
 import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
-import { prefetchStreamInfo } from '../lib/streamApi'
+import { logPlaybackStreamRequest, prefetchStreamInfo } from '../lib/streamApi'
 import {
   enrichVideosWithFormat,
   filterVideosRespectingAllowShorts,
@@ -357,6 +357,7 @@ function ChannelsPageInner() {
         if (childRuntime?.isBlocked) return
 
         if (snapshot) setPlayingVideo(snapshot)
+        logPlaybackStreamRequest(videoId, 'ChannelsPage.selectWatchVideo (play tap)')
         prefetchStreamInfo(videoId)
         setWatchStarted(true)
         setActiveVideoId(videoId)

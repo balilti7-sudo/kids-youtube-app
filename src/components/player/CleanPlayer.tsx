@@ -608,9 +608,7 @@ function CleanPlayerMediaBridge({
      */
     void (async () => {
       try {
-        if (import.meta.env.DEV) {
-          console.info(`[CleanPlayer] fetching stream metadata → ${getStreamApiBaseUrl()}/api/stream/… (${videoId})`)
-        }
+        console.info(`[CleanPlayer] resolving stream for ${videoId} via ${getStreamApiBaseUrl()}/api/stream/…`)
         const info = await fetchStreamInfo(videoId, {
           signal,
           onTransientRetry: () => {

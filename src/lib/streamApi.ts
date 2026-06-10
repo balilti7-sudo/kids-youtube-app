@@ -286,8 +286,9 @@ export function preWarmMediaBridge(): void {
 /** Warm stream resolution before the player mounts (e.g. on video card tap). */
 export function prefetchStreamInfo(videoId: string): void {
   if (!videoId.trim()) return
-  void fetchStreamInfo(videoId).catch(() => {
-    /* best-effort — CleanPlayer will retry */
+  logPlaybackStreamRequest(videoId, 'prefetchStreamInfo')
+  void fetchStreamInfo(videoId).catch((err) => {
+    console.warn('[streamApi] prefetchStreamInfo failed', err instanceof Error ? err.message : err)
   })
 }
 
@@ -339,6 +340,45 @@ function buildStreamApiUrl(pathname: string): string {
 /** `GET /api/media/:videoId` on the same origin as the bridge — use for `<video src>`. */
 export function getMediaBridgeMediaUrl(videoId: string): string {
   return buildStreamApiUrl(`/api/media/${encodeURIComponent(videoId)}`)
+}
+
+/** Full `GET /api/stream/:videoId` URL the browser will request. */
+export function getStreamResolveUrl(videoId: string): string {
+  return buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}`)
+}
+
+/**
+ * Log the exact stream URL and bridge config when the user taps play (DevTools → Console).
+ * Helps verify production points at Render and spot CORS / wrong-origin issues before fetch runs.
+ */
+export function logPlaybackStreamRequest(videoId: string, trigger: string): void {
+  const trimmed = videoId.trim()
+  if (!trimmed) return
+
+  const bridgeOrigin = getMediaBridgeRequestOrigin()
+  const streamUrl = getStreamResolveUrl(trimmed)
+  const infoUrl = buildMediaBridgeApiUrl(`/api/info/${encodeURIComponent(trimmed)}`)
+  const pageOrigin =
+    typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '(no window)'
+  const crossOrigin = pageOrigin !== '(no window)' && bridgeOrigin !== pageOrigin
+
+  console.log('[streamApi] ▶ playback request', {
+    trigger,
+    videoId: trimmed,
+    streamUrl,
+    infoUrl,
+    bridgeOrigin,
+    viteEnv: import.meta.env.VITE_STREAM_API_BASE ?? '(unset)',
+    useViteProxy: import.meta.env.VITE_STREAM_API_USE_VITE_PROXY ?? '(unset)',
+    buildMode: import.meta.env.DEV ? 'development' : 'production',
+    pageOrigin,
+    crossOrigin,
+    fetchWillUse: { method: 'GET', mode: 'cors', credentials: 'omit' },
+    renderHint:
+      bridgeOrigin === CANONICAL_MEDIA_BRIDGE_ORIGIN
+        ? 'requests should appear in safetube-media-bridge Render logs'
+        : `bridge origin is NOT Render canonical (${CANONICAL_MEDIA_BRIDGE_ORIGIN})`,
+  })
 }
 
 function mimeToVideoJsType(mime: string | null, format: StreamApiResponse['format']): string {
@@ -439,9 +479,37 @@ function releaseMediaBridgeSlot(): void {
 
 /** Limits parallel `/api/stream`, `/api/info`, etc. to reduce Render + RapidAPI overload. */
 async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const url =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input instanceof Request
+          ? input.url
+          : String(input)
+
   await acquireMediaBridgeSlot()
   try {
-    return await fetch(input, init)
+    console.log('[streamApi] bridgeFetch →', url, {
+      method: init?.method ?? 'GET',
+      mode: 'cors',
+      credentials: init?.credentials ?? 'omit',
+    })
+    return await fetch(input, { ...init, mode: init?.mode ?? 'cors' })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const likelyCorsOrNetwork = /Failed to fetch|NetworkError|Load failed|CORS/i.test(message)
+    console.error('[streamApi] bridgeFetch failed before response', {
+      url,
+      message,
+      likelyCorsOrNetwork,
+      bridgeOrigin: getMediaBridgeRequestOrigin(),
+      pageOrigin: typeof window !== 'undefined' ? window.location.origin : null,
+      hint: likelyCorsOrNetwork
+        ? 'Browser blocked or could not reach the bridge — check VITE_STREAM_API_BASE on Vercel and Render CORS.'
+        : 'See error message above.',
+    })
+    throw err
   } finally {
     releaseMediaBridgeSlot()
   }
@@ -608,7 +676,8 @@ async function doFetchStreamInfo(
   await assertChildPlaybackAllowedForStream()
   await assertLiveStreamPlayable(videoId, signal)
 
-  const url = buildStreamApiUrl(`/api/stream/${encodeURIComponent(videoId)}`)
+  const url = getStreamResolveUrl(videoId)
+  logPlaybackStreamRequest(videoId, 'fetchStreamInfo')
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), timeoutMs)

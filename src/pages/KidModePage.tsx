@@ -50,6 +50,7 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { CleanPlayer } from '../components/player/CleanPlayer'
+import { logPlaybackStreamRequest } from '../lib/streamApi'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import type { Html5Qrcode } from 'html5-qrcode'
@@ -328,6 +329,7 @@ function KidModePageInner() {
   const handleSelectVideo = useCallback(
     (videoId: string) => {
       if (childRuntime?.isBlocked) return
+      logPlaybackStreamRequest(videoId, 'KidModePage.handleSelectVideo (play tap)')
       setActiveVideoId(videoId)
     },
     [childRuntime?.isBlocked]
