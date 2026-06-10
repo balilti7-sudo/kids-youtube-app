@@ -29,6 +29,13 @@ async function rapidApiGet(url, config = {}, { label = 'request' } = {}) {
   let lastRes = null;
 
   for (let attempt = 0; attempt <= RAPIDAPI_429_MAX_RETRIES; attempt++) {
+    const params = config.params || {};
+    const query = new URLSearchParams(params).toString();
+    const fullUrl = query ? `${url}?${query}` : url;
+    console.log(
+      `[rapidapi] GET ${label} attempt=${attempt + 1} url=${fullUrl} params=${JSON.stringify(params)}`
+    );
+
     const res = await axios.get(url, {
       ...config,
       validateStatus: () => true,
