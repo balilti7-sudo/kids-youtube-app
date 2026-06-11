@@ -26,6 +26,7 @@ import {
   CHANNEL_MANAGER_SEARCH_SHELL_CLASS,
 } from './channelManagerSearchStyles'
 import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
+import { usePrefetchFirstUncachedStream } from '../../hooks/usePrefetchFirstUncachedStream'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
@@ -321,6 +322,12 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     [filteredPreviewVideos, hiddenVideoIds]
   )
 
+  const prefetchPreviewVideoIds = useMemo(
+    () => visiblePreviewVideos.map((v) => v.videoId),
+    [visiblePreviewVideos]
+  )
+  usePrefetchFirstUncachedStream(prefetchPreviewVideoIds)
+
   const activePreviewVideo = useMemo(() => {
     if (!activePreviewVideoId) return null
     const video = previewVideos.find((v) => v.videoId === activePreviewVideoId)
@@ -531,7 +538,6 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                                 layout="row"
                                 title={v.title}
                                 thumbnail={v.thumbnail}
-                                prefetchVideoId={v.videoId}
                                 active={isCurrent}
                                 playingLabel="מנגן"
                                 onClick={() => handlePickPreviewVideo(v.videoId)}

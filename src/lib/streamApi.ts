@@ -329,17 +329,43 @@ function waitForAbortSignal(signal: AbortSignal): Promise<never> {
   })
 }
 
-/** Warm stream resolution when a list card is visible (deduped + cached for playback). */
+/** At most one background prefetch at a time — avoids RapidAPI overload from many visible cards. */
+let activePrefetchId: string | null = null
+
+export function isStreamInfoWarm(videoId: string): boolean {
+  const id = normalizeStreamVideoId(videoId)
+  if (!id) return false
+  return Boolean(getCachedStreamInfo(id) || streamInfoInflight.has(id))
+}
+
+/** Warm stream resolution (deduped + cached for playback). Only one prefetch runs at a time. */
 export function prefetchStreamInfo(videoId: string): void {
   const id = normalizeStreamVideoId(videoId)
   if (!id) return
   if (getCachedStreamInfo(id)) return
   if (streamInfoInflight.has(id)) return
+  if (activePrefetchId && activePrefetchId !== id) return
 
+  activePrefetchId = id
   logPlaybackStreamRequest(id, 'prefetchStreamInfo')
-  void fetchStreamInfo(id).catch((err) => {
-    console.warn('[streamApi] prefetchStreamInfo failed', err instanceof Error ? err.message : err)
-  })
+  void fetchStreamInfo(id)
+    .catch((err) => {
+      console.warn('[streamApi] prefetchStreamInfo failed', err instanceof Error ? err.message : err)
+    })
+    .finally(() => {
+      if (activePrefetchId === id) activePrefetchId = null
+    })
+}
+
+/** Prefetch only the first list item that is not cached or already resolving. */
+export function prefetchFirstUncachedStream(orderedVideoIds: readonly string[]): void {
+  if (activePrefetchId) return
+  for (const raw of orderedVideoIds) {
+    const id = normalizeStreamVideoId(raw)
+    if (!id || isStreamInfoWarm(id)) continue
+    prefetchStreamInfo(id)
+    return
+  }
 }
 
 async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {

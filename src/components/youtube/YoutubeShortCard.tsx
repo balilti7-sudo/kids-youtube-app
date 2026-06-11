@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { JUICY_THUMB_INNER_CLASS, useJuicyPointerBurst, useJuicyUiEnabled, juicyPressableClass } from '../../contexts/JuicyUiContext'
-import { usePrefetchStreamWhenVisible } from '../../hooks/usePrefetchStreamWhenVisible'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -9,8 +8,6 @@ type Props = {
   active?: boolean
   onClick?: () => void
   actionSlot?: ReactNode
-  /** When set, `/api/stream` is prefetched once the card is near the viewport. */
-  prefetchVideoId?: string | null
   className?: string
   /** Horizontal shelf vs sidebar row */
   variant?: 'shelf' | 'row'
@@ -22,13 +19,11 @@ export function YoutubeShortCard({
   active,
   onClick,
   actionSlot,
-  prefetchVideoId,
   className,
   variant = 'shelf',
 }: Props) {
   const juicy = useJuicyUiEnabled()
   const juicyBurst = useJuicyPointerBurst()
-  const prefetchRef = usePrefetchStreamWhenVisible(prefetchVideoId)
   const wrapClick = (handler?: () => void) => ({
     onPointerDown: juicyBurst,
     onClick: handler,
@@ -64,7 +59,7 @@ export function YoutubeShortCard({
 
   if (variant === 'row') {
     return (
-      <article ref={prefetchRef} className={cn('group flex w-full items-start gap-2', className)}>
+      <article className={cn('group flex w-full items-start gap-2', className)}>
         {thumb}
         <div className="flex min-w-0 flex-1 items-start gap-1">
           <button type="button" {...wrapClick(onClick)} className={juicyPressableClass(juicy, 'min-w-0 flex-1 py-1 text-start')}>
@@ -78,7 +73,7 @@ export function YoutubeShortCard({
   }
 
   return (
-    <article ref={prefetchRef} className={cn('flex w-[132px] shrink-0 flex-col sm:w-[148px]', className)}>
+    <article className={cn('flex w-[132px] shrink-0 flex-col sm:w-[148px]', className)}>
       {thumb}
       <button type="button" {...wrapClick(onClick)} className={juicyPressableClass(juicy, 'mt-2 w-full text-start')}>
         <h3 className="line-clamp-2 text-xs font-bold leading-snug text-zinc-100">{title}</h3>

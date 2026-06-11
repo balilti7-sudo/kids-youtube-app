@@ -21,6 +21,7 @@ import { buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
 import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
+import { usePrefetchFirstUncachedStream } from '../hooks/usePrefetchFirstUncachedStream'
 import { logPlaybackStreamRequest, prefetchStreamInfo } from '../lib/streamApi'
 import {
   enrichVideosWithFormat,
@@ -318,6 +319,12 @@ function ChannelsPageInner() {
     }
   }, [watchStarted, selectedChannel, filteredVideos, activeVideoId, activeVideo])
 
+  const prefetchRecommendationIds = useMemo(
+    () => channelRecommendations.map((v) => v.youtube_video_id),
+    [channelRecommendations]
+  )
+  usePrefetchFirstUncachedStream(prefetchRecommendationIds)
+
   const playlistCountInChannel = useMemo(
     () => channelScopedVideos.filter((video) => savedPlaylistIds.has(video.youtube_video_id)).length,
     [channelScopedVideos, savedPlaylistIds]
@@ -602,7 +609,6 @@ function ChannelsPageInner() {
                             variant="row"
                             title={video.title}
                             thumbnail={video.thumbnail_url}
-                            prefetchVideoId={video.youtube_video_id}
                             onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
                           />
@@ -612,7 +618,6 @@ function ChannelsPageInner() {
                             title={video.title}
                             thumbnail={video.thumbnail_url}
                             channelName={video.channelName}
-                            prefetchVideoId={video.youtube_video_id}
                             active={false}
                             onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}

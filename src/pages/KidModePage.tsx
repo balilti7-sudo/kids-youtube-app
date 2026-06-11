@@ -50,6 +50,7 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { CleanPlayer } from '../components/player/CleanPlayer'
+import { usePrefetchFirstUncachedStream } from '../hooks/usePrefetchFirstUncachedStream'
 import { logPlaybackStreamRequest, prefetchStreamInfo } from '../lib/streamApi'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
@@ -180,6 +181,12 @@ function KidModePageInner() {
     })
     return childSafe
   }, [channelVideos, videoSearch, device?.allow_shorts])
+
+  const prefetchListVideoIds = useMemo(
+    () => filteredVideos.map((v) => v.videoId),
+    [filteredVideos]
+  )
+  usePrefetchFirstUncachedStream(prefetchListVideoIds)
 
   const verifyKidGlobalSearchPin = useCallback(
     async (pin: string) => {
@@ -1467,7 +1474,6 @@ function KidModePageInner() {
                                     layout="row"
                                     title={video.title}
                                     thumbnail={video.thumbnail}
-                                    prefetchVideoId={video.videoId}
                                     active={isCurrent}
                                     playingLabel="מנגן"
                                     onClick={() => handleSelectVideo(video.videoId)}
