@@ -21,8 +21,7 @@ import { buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
 import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
-import { usePrefetchFirstUncachedStream } from '../hooks/usePrefetchFirstUncachedStream'
-import { logPlaybackStreamRequest, prefetchStreamInfo } from '../lib/streamApi'
+import { logPlaybackStreamRequest } from '../lib/streamApi'
 import {
   enrichVideosWithFormat,
   filterVideosRespectingAllowShorts,
@@ -319,12 +318,6 @@ function ChannelsPageInner() {
     }
   }, [watchStarted, selectedChannel, filteredVideos, activeVideoId, activeVideo])
 
-  const prefetchRecommendationIds = useMemo(
-    () => channelRecommendations.map((v) => v.youtube_video_id),
-    [channelRecommendations]
-  )
-  usePrefetchFirstUncachedStream(prefetchRecommendationIds)
-
   const playlistCountInChannel = useMemo(
     () => channelScopedVideos.filter((video) => savedPlaylistIds.has(video.youtube_video_id)).length,
     [channelScopedVideos, savedPlaylistIds]
@@ -365,7 +358,6 @@ function ChannelsPageInner() {
 
         if (snapshot) setPlayingVideo(snapshot)
         logPlaybackStreamRequest(videoId, 'ChannelsPage.selectWatchVideo (play tap)')
-        prefetchStreamInfo(videoId)
         setWatchStarted(true)
         setActiveVideoId(videoId)
         window.scrollTo({ top: 0, behavior: 'smooth' })

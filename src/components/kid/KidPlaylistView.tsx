@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ListMusic, Plus, X } from 'lucide-react'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
@@ -11,7 +11,6 @@ import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
 import { usePlaylists } from '../../hooks/usePlaylists'
-import { usePrefetchFirstUncachedStream } from '../../hooks/usePrefetchFirstUncachedStream'
 import type { PlaylistVideo, UserPlaylist } from '../../lib/playlists'
 import type { ParentPinVerifyResult } from '../../lib/verifyParentManagementPin'
 import { cn } from '../../lib/utils'
@@ -45,12 +44,6 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
   const loadRequestRef = useRef(0)
 
   const selected = playlists.find((p) => p.id === selectedId) ?? null
-
-  const prefetchPlaylistVideoIds = useMemo(
-    () => videos.map((v) => v.youtube_video_id),
-    [videos]
-  )
-  usePrefetchFirstUncachedStream(prefetchPlaylistVideoIds)
 
   useEffect(() => {
     if (playlists.length > 0 && !selectedId) {

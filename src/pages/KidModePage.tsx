@@ -50,8 +50,7 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { CleanPlayer } from '../components/player/CleanPlayer'
-import { usePrefetchFirstUncachedStream } from '../hooks/usePrefetchFirstUncachedStream'
-import { logPlaybackStreamRequest, prefetchStreamInfo } from '../lib/streamApi'
+import { logPlaybackStreamRequest } from '../lib/streamApi'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import type { Html5Qrcode } from 'html5-qrcode'
@@ -181,12 +180,6 @@ function KidModePageInner() {
     })
     return childSafe
   }, [channelVideos, videoSearch, device?.allow_shorts])
-
-  const prefetchListVideoIds = useMemo(
-    () => filteredVideos.map((v) => v.videoId),
-    [filteredVideos]
-  )
-  usePrefetchFirstUncachedStream(prefetchListVideoIds)
 
   const verifyKidGlobalSearchPin = useCallback(
     async (pin: string) => {
@@ -337,7 +330,6 @@ function KidModePageInner() {
     (videoId: string) => {
       if (childRuntime?.isBlocked) return
       logPlaybackStreamRequest(videoId, 'KidModePage.handleSelectVideo (play tap)')
-      prefetchStreamInfo(videoId)
       setActiveVideoId(videoId)
     },
     [childRuntime?.isBlocked]

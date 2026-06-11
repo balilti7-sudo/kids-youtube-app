@@ -4,7 +4,6 @@ import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import type { WatchableVideoBase } from '../../lib/videoFormatClassification'
 import { partitionVideosForBrowse } from '../../lib/videoFormatClassification'
 import { usePortraitVideoThumbnailIds } from '../../hooks/usePortraitVideoThumbnailIds'
-import { usePrefetchFirstUncachedStream } from '../../hooks/usePrefetchFirstUncachedStream'
 
 type Props = {
   videos: WatchableVideoBase[]
@@ -27,12 +26,6 @@ export function ChannelVideoBrowseRows({
     [videos, portraitThumbnailIds]
   )
   const showShorts = allowShorts && shorts.length > 0
-
-  const prefetchOrderIds = useMemo(
-    () => [...longForm, ...(showShorts ? shorts : [])].map((v) => v.youtube_video_id),
-    [longForm, shorts, showShorts]
-  )
-  usePrefetchFirstUncachedStream(prefetchOrderIds)
 
   return (
     <div className="flex flex-col gap-5 px-1 pb-2 sm:px-0">
