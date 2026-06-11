@@ -531,6 +531,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                                 layout="row"
                                 title={v.title}
                                 thumbnail={v.thumbnail}
+                                prefetchVideoId={v.videoId}
                                 active={isCurrent}
                                 playingLabel="מנגן"
                                 onClick={() => handlePickPreviewVideo(v.videoId)}

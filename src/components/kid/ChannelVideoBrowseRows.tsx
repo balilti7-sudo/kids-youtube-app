@@ -38,6 +38,7 @@ export function ChannelVideoBrowseRows({
                 <YoutubeVideoCard
                   title={video.title}
                   thumbnail={video.thumbnail_url}
+                  prefetchVideoId={video.youtube_video_id}
                   active={activeVideoId === video.youtube_video_id}
                   onClick={() => onSelectVideo(video)}
                   actionSlot={renderAction?.(video)}
@@ -57,6 +58,7 @@ export function ChannelVideoBrowseRows({
                 <YoutubeShortCard
                   title={video.title}
                   thumbnail={video.thumbnail_url}
+                  prefetchVideoId={video.youtube_video_id}
                   active={activeVideoId === video.youtube_video_id}
                   onClick={() => onSelectVideo(video)}
                   actionSlot={renderAction?.(video)}

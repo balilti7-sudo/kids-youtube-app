@@ -50,7 +50,7 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { CleanPlayer } from '../components/player/CleanPlayer'
-import { logPlaybackStreamRequest } from '../lib/streamApi'
+import { logPlaybackStreamRequest, prefetchStreamInfo } from '../lib/streamApi'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import type { Html5Qrcode } from 'html5-qrcode'
@@ -330,6 +330,7 @@ function KidModePageInner() {
     (videoId: string) => {
       if (childRuntime?.isBlocked) return
       logPlaybackStreamRequest(videoId, 'KidModePage.handleSelectVideo (play tap)')
+      prefetchStreamInfo(videoId)
       setActiveVideoId(videoId)
     },
     [childRuntime?.isBlocked]
@@ -1466,6 +1467,7 @@ function KidModePageInner() {
                                     layout="row"
                                     title={video.title}
                                     thumbnail={video.thumbnail}
+                                    prefetchVideoId={video.videoId}
                                     active={isCurrent}
                                     playingLabel="מנגן"
                                     onClick={() => handleSelectVideo(video.videoId)}

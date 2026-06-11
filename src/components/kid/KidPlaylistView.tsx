@@ -330,6 +330,7 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
                       title={video.title}
                       thumbnail={video.thumbnail_url}
                       channelName={video.channel_name}
+                      prefetchVideoId={video.youtube_video_id}
                       active={isCurrent}
                       playingLabel="מנגן"
                       onClick={() => handleSelectVideo(video.youtube_video_id)}

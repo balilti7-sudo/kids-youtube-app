@@ -602,6 +602,7 @@ function ChannelsPageInner() {
                             variant="row"
                             title={video.title}
                             thumbnail={video.thumbnail_url}
+                            prefetchVideoId={video.youtube_video_id}
                             onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
                           />
@@ -611,6 +612,7 @@ function ChannelsPageInner() {
                             title={video.title}
                             thumbnail={video.thumbnail_url}
                             channelName={video.channelName}
+                            prefetchVideoId={video.youtube_video_id}
                             active={false}
                             onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}

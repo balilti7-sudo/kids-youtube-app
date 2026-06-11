@@ -283,11 +283,61 @@ export function preWarmMediaBridge(): void {
   })
 }
 
-/** Warm stream resolution before the player mounts (e.g. on video card tap). */
+/** How long a successful `/api/stream` response stays reusable (proxy URL is stable per videoId). */
+const STREAM_INFO_CACHE_TTL_MS = 20 * 60 * 1000
+
+type StreamInfoCacheEntry = { data: StreamApiResponse; cachedAt: number }
+
+const streamInfoCache = new Map<string, StreamInfoCacheEntry>()
+const streamInfoInflight = new Map<string, Promise<StreamApiResponse>>()
+
+function normalizeStreamVideoId(videoId: string): string {
+  return videoId.trim()
+}
+
+function getCachedStreamInfo(videoId: string): StreamApiResponse | null {
+  const id = normalizeStreamVideoId(videoId)
+  if (!id) return null
+  const entry = streamInfoCache.get(id)
+  if (!entry) return null
+  if (Date.now() - entry.cachedAt > STREAM_INFO_CACHE_TTL_MS) {
+    streamInfoCache.delete(id)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedStreamInfo(videoId: string, data: StreamApiResponse): void {
+  const id = normalizeStreamVideoId(videoId)
+  if (!id) return
+  streamInfoCache.set(id, { data, cachedAt: Date.now() })
+}
+
+function waitForAbortSignal(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    signal.addEventListener(
+      'abort',
+      () => {
+        reject(signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
+      },
+      { once: true }
+    )
+  })
+}
+
+/** Warm stream resolution when a list card is visible (deduped + cached for playback). */
 export function prefetchStreamInfo(videoId: string): void {
-  if (!videoId.trim()) return
-  logPlaybackStreamRequest(videoId, 'prefetchStreamInfo')
-  void fetchStreamInfo(videoId).catch((err) => {
+  const id = normalizeStreamVideoId(videoId)
+  if (!id) return
+  if (getCachedStreamInfo(id)) return
+  if (streamInfoInflight.has(id)) return
+
+  logPlaybackStreamRequest(id, 'prefetchStreamInfo')
+  void fetchStreamInfo(id).catch((err) => {
     console.warn('[streamApi] prefetchStreamInfo failed', err instanceof Error ? err.message : err)
   })
 }
@@ -634,7 +684,7 @@ async function assertLiveStreamPlayable(videoId: string, signal?: AbortSignal): 
  *
  * `credentials: 'omit'` — the bridge does not use cookies; keeps CORS simple (no preflight credential dance).
  */
-export async function fetchStreamInfo(
+async function fetchStreamInfoWithRetries(
   videoId: string,
   {
     signal,
@@ -644,11 +694,9 @@ export async function fetchStreamInfo(
   }: {
     signal?: AbortSignal
     timeoutMs?: number
-    /** Called before each backoff wait (not called before the first attempt). */
     onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
-    /** Called when RapidAPI/CDN says the file is still being prepared — keep showing the spinner. */
     onFilePreparing?: (info: FetchStreamFilePreparingInfo) => void
-  } = {}
+  }
 ): Promise<StreamApiResponse> {
   let lastErr: unknown
 
@@ -721,6 +769,59 @@ export async function fetchStreamInfo(
     )
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+}
+
+/**
+ * Resolves a YouTube videoId to stream metadata via the bridge.
+ * Successful results are cached and in-flight requests are deduped (prefetch + play share one fetch).
+ */
+export async function fetchStreamInfo(
+  videoId: string,
+  {
+    signal,
+    timeoutMs = STREAM_INFO_TIMEOUT_MS,
+    onTransientRetry,
+    onFilePreparing,
+  }: {
+    signal?: AbortSignal
+    timeoutMs?: number
+    /** Called before each backoff wait (not called before the first attempt). */
+    onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
+    /** Called when RapidAPI/CDN says the file is still being prepared — keep showing the spinner. */
+    onFilePreparing?: (info: FetchStreamFilePreparingInfo) => void
+  } = {}
+): Promise<StreamApiResponse> {
+  const id = normalizeStreamVideoId(videoId)
+  if (!id) {
+    throw new StreamApiError('חסר מזהה סרטון')
+  }
+
+  const cached = getCachedStreamInfo(id)
+  if (cached) {
+    console.info('[streamApi] stream cache hit', { videoId: id })
+    return cached
+  }
+
+  const existing = streamInfoInflight.get(id)
+  if (existing) {
+    if (signal) {
+      return Promise.race([existing, waitForAbortSignal(signal)])
+    }
+    return existing
+  }
+
+  const options = { signal, timeoutMs, onTransientRetry, onFilePreparing }
+  const promise = fetchStreamInfoWithRetries(id, options)
+    .then((data) => {
+      setCachedStreamInfo(id, data)
+      return data
+    })
+    .finally(() => {
+      streamInfoInflight.delete(id)
+    })
+
+  streamInfoInflight.set(id, promise)
+  return promise
 }
 
 async function doFetchStreamInfo(

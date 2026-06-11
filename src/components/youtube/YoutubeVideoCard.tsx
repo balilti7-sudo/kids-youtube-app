@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { JUICY_THUMB_INNER_CLASS, useJuicyPointerBurst, useJuicyUiEnabled, juicyPressableClass } from '../../contexts/JuicyUiContext'
+import { usePrefetchStreamWhenVisible } from '../../hooks/usePrefetchStreamWhenVisible'
 import { cn } from '../../lib/utils'
 
 export type YoutubeVideoCardProps = {
@@ -14,6 +15,8 @@ export type YoutubeVideoCardProps = {
   actionSlot?: ReactNode
   /** Parent quick-block overlay — top-start of thumbnail (RTL). */
   thumbnailAction?: ReactNode
+  /** When set, `/api/stream` is prefetched once the card is near the viewport. */
+  prefetchVideoId?: string | null
   className?: string
 }
 
@@ -60,10 +63,12 @@ export function YoutubeVideoCard({
   onClick,
   actionSlot,
   thumbnailAction,
+  prefetchVideoId,
   className,
 }: YoutubeVideoCardProps) {
   const juicy = useJuicyUiEnabled()
   const juicyBurst = useJuicyPointerBurst()
+  const prefetchRef = usePrefetchStreamWhenVisible(prefetchVideoId)
 
   const wrapClick = (handler?: () => void) => ({
     onPointerDown: juicyBurst,
@@ -101,6 +106,7 @@ export function YoutubeVideoCard({
   if (layout === 'row') {
     return (
       <article
+        ref={prefetchRef}
         className={cn(
           'group flex w-full items-start gap-2 rounded-sm py-1 transition-colors duration-150',
           active ? 'bg-yt-surface/90' : 'hover:bg-yt-surface/70',
@@ -135,7 +141,7 @@ export function YoutubeVideoCard({
   }
 
   return (
-    <article className={cn('group flex w-full flex-col', className)}>
+    <article ref={prefetchRef} className={cn('group flex w-full flex-col', className)}>
       <div className={cn('relative aspect-video w-full overflow-hidden rounded-xl bg-yt-surfaceHover', juicy && 'group/juicy')}>
         <button
           type="button"
