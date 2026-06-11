@@ -131,7 +131,7 @@ export const KidGlobalSearchSection = memo(function KidGlobalSearchSection({
                         טוען…
                       </span>
                     ) : (
-                      'טען סרטונים נוספים'
+                      'טען עוד'
                     )}
                   </Button>
                 </div>
