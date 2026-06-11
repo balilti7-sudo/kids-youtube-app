@@ -9,7 +9,7 @@ import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { requestWelcomeEmail } from '../../lib/requestWelcomeEmail'
 import { savePendingParentPin } from '../../lib/pendingParentPin'
-import { PARENT_PIN_DIGIT_MAX, PARENT_PIN_DIGIT_MIN } from '../../lib/parentPin'
+import { PARENT_PIN_DIGIT_MAX } from '../../lib/parentPin'
 
 const schema = z
   .object({
@@ -18,8 +18,8 @@ const schema = z
     parentPin: z
       .string()
       .regex(/^\d+$/, 'קוד הורה — ספרות בלבד')
-      .refine((s) => s.length >= PARENT_PIN_DIGIT_MIN && s.length <= PARENT_PIN_DIGIT_MAX, {
-        message: `קוד הורה: ${PARENT_PIN_DIGIT_MIN}–${PARENT_PIN_DIGIT_MAX} ספרות`,
+      .refine((s) => s.length === PARENT_PIN_DIGIT_MAX, {
+        message: `קוד הורה: ${PARENT_PIN_DIGIT_MAX} ספרות`,
       }),
     confirmParentPin: z.string().min(1, 'אשרו את קוד ההורה'),
   })
@@ -114,7 +114,7 @@ export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void 
       <div className="rounded-xl border border-brand-200/80 bg-brand-50/50 p-3 dark:border-brand-900/40 dark:bg-brand-950/20">
         <p className="mb-2 text-sm font-semibold text-slate-800 dark:text-zinc-100">קוד הורה (ניהול ערוצים)</p>
         <p className="mb-3 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-          בחרו קוד בן {PARENT_PIN_DIGIT_MIN}–{PARENT_PIN_DIGIT_MAX} ספרות. הוא יידרש לערוצים והגדרות, ויישלח אליכם במייל אחרי
+          בחרו קוד בן {PARENT_PIN_DIGIT_MAX} ספרות. הוא יידרש לערוצים והגדרות, ויישלח אליכם במייל אחרי
           האימות.
         </p>
         <div className="space-y-2">

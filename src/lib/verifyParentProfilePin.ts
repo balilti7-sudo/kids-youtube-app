@@ -36,8 +36,8 @@ export async function verifyLoggedInUserParentPin(userId: string, pin: string): 
     return { ok: true }
   }
 
-  if (trimmed.length < 4 || trimmed.length > 6) {
-    return { ok: false, errorMessage: 'נא להזין בין 4 ל-6 ספרות' }
+  if (trimmed.length !== 6) {
+    return { ok: false, errorMessage: 'נא להזין 6 ספרות' }
   }
 
   const { data, error } = await supabase

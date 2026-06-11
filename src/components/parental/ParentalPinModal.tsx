@@ -6,8 +6,6 @@ import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/
 import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
 import type { ParentPinVerifyResult } from '../../lib/verifyParentProfilePin'
-import { Button } from '../ui/Button'
-
 type DigitSlot = '' | string
 type SixDigit = [DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot]
 
@@ -21,7 +19,7 @@ export function ParentalPinModal({
   onVerified,
   verifyPin,
   title = 'אימות הורה',
-  description = 'הזינו את קוד ההורה (4–6 ספרות). הפעולה תתבצע רק אחרי אימות מוצלח.',
+  description = 'הזינו את קוד ההורה בן 6 הספרות. לאחר מילוי כל הספרות האימות יתבצע אוטומטית.',
 }: {
   open: boolean
   onClose: () => void
@@ -92,6 +90,13 @@ export function ParentalPinModal({
     })
   }
 
+  useEffect(() => {
+    const pin = contiguousDigitsFromPinSlots(digits)
+    if (pin.length !== 6) return
+    if (!isValidParentPinDigits(pin) && !isEmergencyParentManagementBypass(pin)) return
+    void tryVerify(pin)
+  }, [digits, tryVerify])
+
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace') {
       if (digitsRef.current[index]) return
@@ -118,7 +123,12 @@ export function ParentalPinModal({
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault()
     if (inFlightRef.current) return
-    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
+    const digitsOnly = e.clipboardData.getData('text').replace(/\D/g, '')
+    if (isEmergencyParentManagementBypass(digitsOnly)) {
+      void tryVerify(digitsOnly)
+      return
+    }
+    const text = digitsOnly.slice(0, 6)
     if (!text) return
     const arr: SixDigit = ['', '', '', '', '', '']
     for (let i = 0; i < 6; i++) {
@@ -131,10 +141,6 @@ export function ParentalPinModal({
       inputRefs.current[focusIdx]?.focus()
     })
   }
-
-  const pinContiguous = contiguousDigitsFromPinSlots(digits)
-  const canSubmitPin =
-    isValidParentPinDigits(pinContiguous) || isEmergencyParentManagementBypass(pinContiguous)
 
   const modal = (
     <AnimatePresence>
@@ -210,15 +216,6 @@ export function ParentalPinModal({
                   />
                 ))}
               </div>
-
-              <Button
-                type="button"
-                className="w-full"
-                disabled={verifying || !canSubmitPin}
-                onClick={() => void tryVerify(pinContiguous)}
-              >
-                אישור
-              </Button>
 
               {verifying ? (
                 <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-zinc-400">

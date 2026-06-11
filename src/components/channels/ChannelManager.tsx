@@ -625,7 +625,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         verifyPin={verifyChannelParentPin}
         onVerified={(pin) => runAfterVerifiedPin(pin.replace(/\D/g, '').trim())}
         title="אימות הורה"
-        description="הזינו את קוד ההורה (4–6 ספרות). הקוד נבדק מול הפרופיל שלכם. רק אחרי אימות מוצלח תתבצע הפעולה (חיפוש / הוספת ערוץ / בקשת הסרה)."
+        description="הזינו את קוד ההורה בן 6 הספרות. לאחר מילוי כל הספרות האימות והפעולה יתבצעו אוטומטית."
       />
 
       <Modal

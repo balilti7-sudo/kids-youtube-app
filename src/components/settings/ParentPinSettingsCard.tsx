@@ -7,7 +7,6 @@ import {
   isProfileParentPinMissing,
   isValidParentPinDigits,
   PARENT_PIN_DIGIT_MAX,
-  PARENT_PIN_DIGIT_MIN,
 } from '../../lib/parentPin'
 import { requestPinChangedEmail } from '../../lib/requestPinChangedEmail'
 import { Button } from '../ui/Button'
@@ -30,13 +29,13 @@ export function ParentPinSettingsCard() {
 
     if (pinAlreadyConfigured) {
       if (!isValidParentPinDigits(currentDigits)) {
-        toast.error(`נא להזין את קוד PIN הנוכחי (${PARENT_PIN_DIGIT_MIN}–${PARENT_PIN_DIGIT_MAX} ספרות)`)
+        toast.error(`נא להזין את קוד PIN הנוכחי (${PARENT_PIN_DIGIT_MAX} ספרות)`)
         return
       }
     }
 
     if (!isValidParentPinDigits(newDigits)) {
-      toast.error(`הקוד החדש חייב להכיל בין ${PARENT_PIN_DIGIT_MIN} ל-${PARENT_PIN_DIGIT_MAX} ספרות`)
+      toast.error(`הקוד החדש חייב להכיל ${PARENT_PIN_DIGIT_MAX} ספרות`)
       return
     }
 
@@ -155,7 +154,7 @@ export function ParentPinSettingsCard() {
             : 'mt-2 text-xs text-slate-500 dark:text-zinc-500'
         }
       >
-        הקוד חייב להכיל בין {PARENT_PIN_DIGIT_MIN} ל-{PARENT_PIN_DIGIT_MAX} ספרות
+        הקוד חייב להכיל {PARENT_PIN_DIGIT_MAX} ספרות
       </p>
       <Button
         className="mt-3 w-full"

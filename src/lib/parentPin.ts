@@ -14,13 +14,13 @@ export function getResolvedParentPin(): string {
   return '1234'
 }
 
-/** קוד הורה במסד ובטפסים: 4–6 ספרות. */
-export const PARENT_PIN_DIGIT_MIN = 4
+/** קוד הורה במסד ובטפסים: בדיוק 6 ספרות. */
+export const PARENT_PIN_DIGIT_MIN = 6
 export const PARENT_PIN_DIGIT_MAX = 6
 
 export function isValidParentPinDigits(raw: string): boolean {
   const d = raw.replace(/\D/g, '')
-  return /^\d+$/.test(d) && d.length >= PARENT_PIN_DIGIT_MIN && d.length <= PARENT_PIN_DIGIT_MAX
+  return /^\d{6}$/.test(d)
 }
 
 /** PIN רציף משדות ספרה בודדות (עוצרים במקום הריק הראשון). */

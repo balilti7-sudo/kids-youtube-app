@@ -7,7 +7,7 @@ import { SafeTubeLogo } from '../components/branding/SafeTubeLogo'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
-import { isProfileParentPinMissing, PARENT_PIN_DIGIT_MAX, PARENT_PIN_DIGIT_MIN } from '../lib/parentPin'
+import { isProfileParentPinMissing, PARENT_PIN_DIGIT_MAX } from '../lib/parentPin'
 import { clearPendingParentPin, readPendingParentPin } from '../lib/pendingParentPin'
 import { requestPinEmail } from '../lib/requestPinEmail'
 import { setSkipParentalManagementGateOnce } from '../lib/parentalGateSkipOnce'
@@ -15,8 +15,8 @@ import { setSkipParentalManagementGateOnce } from '../lib/parentalGateSkipOnce'
 const pinSchema = z
   .string()
   .regex(/^\d+$/, 'הקוד חייב להכיל ספרות בלבד')
-  .refine((s) => s.length >= PARENT_PIN_DIGIT_MIN && s.length <= PARENT_PIN_DIGIT_MAX, {
-    message: `הקוד חייב להכיל בין ${PARENT_PIN_DIGIT_MIN} ל-${PARENT_PIN_DIGIT_MAX} ספרות`,
+  .refine((s) => s.length === PARENT_PIN_DIGIT_MAX, {
+    message: `הקוד חייב להכיל ${PARENT_PIN_DIGIT_MAX} ספרות`,
   })
 
 export function SetParentPinPage() {
@@ -90,7 +90,7 @@ export function SetParentPinPage() {
         <SafeTubeLogo size="sm" className="mb-4" />
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-100">הגדרת קוד הורה</h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
-          לפני כניסה לדשבורד, הגדירו קוד הורה ({PARENT_PIN_DIGIT_MIN}–{PARENT_PIN_DIGIT_MAX} ספרות). אם בחרתם קוד בהרשמה — הוא
+          לפני כניסה לדשבורד, הגדירו קוד הורה ({PARENT_PIN_DIGIT_MAX} ספרות). אם בחרתם קוד בהרשמה — הוא
           מופיע למטה; אחרי השמירה נשלח אליכם מייל עם הקוד לשמירה.
         </p>
 
@@ -105,12 +105,12 @@ export function SetParentPinPage() {
               maxLength={PARENT_PIN_DIGIT_MAX}
               value={pin}
               onChange={(ev) => setPin(ev.target.value.replace(/\D/g, '').slice(0, PARENT_PIN_DIGIT_MAX))}
-              placeholder="••••"
+              placeholder="••••••"
               className="tracking-widest"
               autoFocus
             />
             <p className="mt-1.5 text-xs text-slate-500 dark:text-zinc-500">
-              {PARENT_PIN_DIGIT_MIN}–{PARENT_PIN_DIGIT_MAX} ספרות בלבד.
+              {PARENT_PIN_DIGIT_MAX} ספרות בלבד.
             </p>
           </div>
 

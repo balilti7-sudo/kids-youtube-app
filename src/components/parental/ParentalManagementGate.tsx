@@ -101,6 +101,13 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
     })
   }
 
+  useEffect(() => {
+    const pin = contiguousDigitsFromPinSlots(digits)
+    if (pin.length !== 6) return
+    if (!isValidParentPinDigits(pin) && !isEmergencyParentManagementBypass(pin)) return
+    void tryVerify(pin)
+  }, [digits, tryVerify])
+
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace') {
       if (digitsRef.current[index]) return
@@ -146,8 +153,6 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
     })
   }
 
-  const pinContiguous = contiguousDigitsFromPinSlots(digits)
-  const canSubmitPin = isValidParentPinDigits(pinContiguous) || isEmergencyParentManagementBypass(pinContiguous)
   const canUseForgotPin = true
 
   return (
@@ -190,7 +195,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
           <div className="space-y-5 px-5 py-6">
             <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-              כדי לגשת לבקרת ההורים ולהגדרות — הזינו את קוד ההורה (4–6 ספרות) מהפרופיל. כשאתם מחוברים, הקוד נבדק מול מסד הנתונים (שדה parent_pin).
+              כדי לגשת לבקרת ההורים ולהגדרות — הזינו את קוד ההורה בן 6 הספרות מהפרופיל. לאחר מילוי כל הספרות הכניסה תתבצע אוטומטית.
             </p>
 
             <div dir="ltr" className="flex flex-wrap justify-center gap-2" onPaste={handlePaste}>
@@ -219,15 +224,6 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
                 />
               ))}
             </div>
-
-            <Button
-              type="button"
-              className="w-full"
-              disabled={verifying || !canSubmitPin}
-              onClick={() => void tryVerify(pinContiguous)}
-            >
-              אישור
-            </Button>
 
             {canUseForgotPin ? (
               <div className="text-center">
