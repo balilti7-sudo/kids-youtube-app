@@ -20,6 +20,8 @@ interface ImportMetaEnv {
   readonly VITE_STREAM_API_USE_VITE_PROXY?: string
   /** Optional override for vite.config.ts proxy target (default http://127.0.0.1:8787). */
   readonly VITE_MEDIA_BRIDGE_PROXY_TARGET?: string
+  /** Max ms to wait for Media Bridge `GET /api/stream/:videoId` (default 180000). */
+  readonly VITE_STREAM_INFO_TIMEOUT_MS?: string
   /** When `"true"`, CleanPlayer uses youtube-nocookie iframe with modestbranding=1&rel=0 instead of Media Bridge */
   readonly VITE_YOUTUBE_IFRAME_PLAYER?: string
   /** Must match `MEDIA_BRIDGE_WELCOME_KEY` on Render — allows POST /api/email/welcome and POST /api/email/pairing-reminder without JWT from the kid device */

@@ -445,12 +445,11 @@ export function normalizeStreamApiResponse(
 }
 
 /**
- * Default budget for resolving a stream via the Media Bridge (Piped / ytdl / yt-dlp).
- * Larger than the server's own resolve budget (`OVERALL_RESOLVE_BUDGET_MS`, ~70s) so the
- * server always wins the race and returns a structured response. The extra headroom
- * absorbs Render free-tier cold starts (~30–60s) for the first request after idle.
+ * Client wait budget for `GET /api/stream/:videoId` only (not `/api/info` preflight).
+ * Must exceed server RapidAPI resolve + file-ready retries (~60–90s worst case) and
+ * Render cold starts. Override: `VITE_STREAM_INFO_TIMEOUT_MS`.
  */
-const STREAM_INFO_TIMEOUT_MS = 150_000
+const STREAM_INFO_TIMEOUT_MS = Number(import.meta.env.VITE_STREAM_INFO_TIMEOUT_MS || 180_000)
 
 /** Max concurrent Media Bridge fetches from this browser tab (stream + metadata). */
 const MEDIA_BRIDGE_MAX_CONCURRENT = 2
@@ -729,13 +728,19 @@ async function doFetchStreamInfo(
   { signal, timeoutMs }: { signal?: AbortSignal; timeoutMs: number }
 ): Promise<StreamApiResponse> {
   await assertChildPlaybackAllowedForStream()
-  await assertLiveStreamPlayable(videoId, signal)
+
+  // Live metadata is best-effort — do not block /api/stream (Shorts were timing out while
+  // /api/info waited in the bridge queue or on RapidAPI).
+  void assertLiveStreamPlayable(videoId).catch(() => {})
 
   const url = getStreamResolveUrl(videoId)
   logPlaybackStreamRequest(videoId, 'fetchStreamInfo')
 
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), timeoutMs)
+  const timeout = setTimeout(() => {
+    console.warn(`[streamApi] /api/stream timeout after ${timeoutMs}ms video=${videoId}`)
+    controller.abort(new DOMException('Timeout', 'TimeoutError'))
+  }, timeoutMs)
   const abortForwarded = () => controller.abort(signal?.reason)
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason)
