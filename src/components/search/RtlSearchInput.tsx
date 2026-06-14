@@ -13,6 +13,9 @@ export type RtlSearchInputProps = {
   inputClassName?: string
   onFocusChange?: (focused: boolean) => void
   'aria-label'?: string
+  'aria-expanded'?: boolean
+  'aria-controls'?: string
+  'aria-autocomplete'?: 'none' | 'inline' | 'list' | 'both'
 }
 
 /**
@@ -28,6 +31,9 @@ export const RtlSearchInput = memo(function RtlSearchInput({
   onSubmit,
   onFocusChange,
   'aria-label': ariaLabel,
+  'aria-expanded': ariaExpanded,
+  'aria-controls': ariaControls,
+  'aria-autocomplete': ariaAutocomplete,
 }: RtlSearchInputProps) {
   const autoId = useId()
   const inputId = idProp ?? autoId
@@ -99,6 +105,9 @@ export const RtlSearchInput = memo(function RtlSearchInput({
         spellCheck={false}
         dir="rtl"
         enterKeyHint="search"
+        aria-expanded={ariaExpanded}
+        aria-controls={ariaControls}
+        aria-autocomplete={ariaAutocomplete}
         className={cn(
           'min-w-0 flex-1 bg-transparent px-4 text-sm font-normal text-yt-text outline-none placeholder:text-yt-textMuted',
           hasQuery ? 'pl-2' : '',

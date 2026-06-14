@@ -276,6 +276,15 @@ function ChannelsPageInner() {
     const withoutUpcoming = bySearch.filter((video) => !shouldHideFromChildBrowse(video.title))
     return filterVideosRespectingAllowShorts(withoutUpcoming, allowShorts)
   }, [playlistSourceVideos, videoSearch, allowShorts])
+  const channelSearchDropdownItems = useMemo(
+    () =>
+      filteredVideos.map((video) => ({
+        id: video.youtube_video_id,
+        title: video.title,
+        thumbnail: video.thumbnail_url ?? null,
+      })),
+    [filteredVideos]
+  )
   const activeVideo = useMemo(() => {
     if (!activeVideoId) return null
     const fromChannel = channelScopedVideos.find((video) => video.youtube_video_id === activeVideoId)
@@ -499,6 +508,10 @@ function ChannelsPageInner() {
               filteredCount={filteredVideos.length}
               channelLabel={selectedChannel.channel_name}
               className="rounded-2xl border border-zinc-800/90 bg-zinc-950/70 p-3 shadow-inner shadow-black/20"
+              dropdownResults={channelSearchDropdownItems}
+              activeResultId={activeVideoId}
+              onSelectResult={(videoId) => selectWatchVideo(videoId)}
+              dropdownLoading={videosLoading}
             />
           </div>
         ) : null}

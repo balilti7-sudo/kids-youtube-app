@@ -181,6 +181,16 @@ function KidModePageInner() {
     return childSafe
   }, [channelVideos, videoSearch, device?.allow_shorts])
 
+  const channelSearchDropdownItems = useMemo(
+    () =>
+      filteredVideos.map((video) => ({
+        id: video.videoId,
+        title: video.title,
+        thumbnail: video.thumbnail ?? null,
+      })),
+    [filteredVideos]
+  )
+
   const verifyKidGlobalSearchPin = useCallback(
     async (pin: string) => {
       const token = accessToken ?? getSavedChildAccessToken()
@@ -1359,8 +1369,11 @@ function KidModePageInner() {
                     totalCount={channelVideos.length}
                     filteredCount={filteredVideos.length}
                     channelLabel={activeChannel?.channel_name ?? null}
+                    dropdownResults={channelSearchDropdownItems}
+                    activeResultId={activeVideoId}
+                    onSelectResult={handleSelectVideo}
+                    dropdownLoading={channelLoading}
                   />
-                  
                 </div>
 
                 <YoutubeWatchLayout
@@ -1454,6 +1467,10 @@ function KidModePageInner() {
                         filteredCount={filteredVideos.length}
                         channelLabel={activeChannel?.channel_name ?? null}
                         className="mb-3 hidden lg:block"
+                        dropdownResults={channelSearchDropdownItems}
+                        activeResultId={activeVideoId}
+                        onSelectResult={handleSelectVideo}
+                        dropdownLoading={channelLoading}
                       />
                       
                       <YoutubeSuggestedList title="סרטונים מומלצים">
