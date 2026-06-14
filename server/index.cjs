@@ -59,13 +59,25 @@ function normalizeStreamQuality(raw, fallback = '360p') {
   return ALLOWED_STREAM_QUALITIES.has(q) ? q : fallback;
 }
 
-function resolveCacheKey(videoId, quality) {
-  return `${videoId}:${normalizeStreamQuality(quality)}`;
+function resolveCacheKey(videoId, rawQuality, fallback = '360p') {
+  const q = normalizeStreamQuality(rawQuality, fallback);
+  return `${videoId}:${q}`;
 }
 
-function playbackMediaPath(videoId, quality) {
-  const q = normalizeStreamQuality(quality);
+function playbackMediaPath(videoId, rawQuality, fallback = '360p') {
+  const q = normalizeStreamQuality(rawQuality, fallback);
   return `/api/media/${encodeURIComponent(videoId)}?quality=${encodeURIComponent(q)}`;
+}
+
+function buildResolveCacheEntry(upstreamUrl, meta = {}) {
+  return {
+    upstreamUrl,
+    quality: meta.quality || null,
+    mime: meta.mime || 'video/mp4',
+    source: meta.source || null,
+    requestedQuality: meta.requestedQuality || null,
+    expiresAt: Date.now() + RESOLVE_CACHE_TTL_MS,
+  };
 }
 
 function resolveCacheGet(cacheKey) {
@@ -77,15 +89,33 @@ function resolveCacheGet(cacheKey) {
   return hit;
 }
 
+/** Look up a cached upstream URL using the same key scheme as /api/stream. */
+function lookupResolveCacheEntry(videoId, rawQuality, fallback = '360p') {
+  const cacheKey = resolveCacheKey(videoId, rawQuality, fallback);
+  const primary = resolveCacheGet(cacheKey);
+  if (primary) {
+    return { entry: primary, cacheKey, lookup: 'primary' };
+  }
+
+  const prefix = `${videoId}:`;
+  for (const [key, value] of resolveCache.entries()) {
+    if (!key.startsWith(prefix)) continue;
+    if (value.expiresAt > Date.now()) {
+      return { entry: value, cacheKey: key, lookup: 'alias' };
+    }
+    resolveCache.delete(key);
+  }
+
+  const legacy = resolveCacheGet(videoId);
+  if (legacy) {
+    return { entry: legacy, cacheKey: videoId, lookup: 'legacy' };
+  }
+
+  return { entry: null, cacheKey, lookup: 'miss' };
+}
+
 function resolveCacheSet(cacheKey, upstreamUrl, meta = {}) {
-  resolveCache.set(cacheKey, {
-    upstreamUrl,
-    quality: meta.quality || null,
-    mime: meta.mime || 'video/mp4',
-    source: meta.source || null,
-    requestedQuality: meta.requestedQuality || null,
-    expiresAt: Date.now() + RESOLVE_CACHE_TTL_MS,
-  });
+  resolveCache.set(cacheKey, buildResolveCacheEntry(upstreamUrl, meta));
 }
 
 /**
@@ -142,14 +172,15 @@ async function getVideoInfo(videoId) {
   return rapidApi.getVideoInfo(videoId);
 }
 
-async function getCachedUpstreamUrl(videoId, quality = '360p', { forceRefresh = false } = {}) {
-  const targetQuality = normalizeStreamQuality(quality);
-  const cacheKey = resolveCacheKey(videoId, targetQuality);
-  if (forceRefresh) {
-    resolveCache.delete(cacheKey);
+async function getCachedUpstreamUrl(videoId, rawQuality = '360p', { forceRefresh = false } = {}) {
+  const targetQuality = normalizeStreamQuality(rawQuality, '360p');
+  const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
+
+  if (!forceRefresh) {
+    const cached = lookupResolveCacheEntry(videoId, rawQuality, '360p');
+    if (cached.entry) return cached.entry;
   } else {
-    const hit = resolveCache.get(cacheKey);
-    if (hit && hit.expiresAt > Date.now()) return hit;
+    resolveCache.delete(cacheKey);
   }
 
   const resolved = await resolveVideoDownloadUrl(videoId, targetQuality);
@@ -157,8 +188,11 @@ async function getCachedUpstreamUrl(videoId, quality = '360p', { forceRefresh = 
     throw new Error('No playable URL from SocialKit or RapidAPI');
   }
 
-  resolveCacheSet(cacheKey, resolved.url, { ...resolved, requestedQuality: targetQuality });
-  return resolveCacheGet(cacheKey);
+  resolveCacheSet(cacheKey, resolved.url, {
+    ...resolved,
+    requestedQuality: targetQuality,
+  });
+  return resolveCache.get(cacheKey);
 }
 
 function inferStreamMetadata(upstreamUrl, cached = {}) {
@@ -413,14 +447,18 @@ app.get('/api/stream/:videoId', async (req, res) => {
   }
 
   try {
-    const quality = normalizeStreamQuality(req.query.quality, '360p');
-    const cached = await getCachedUpstreamUrl(videoId, quality);
+    const rawQuality = req.query.quality;
+    const quality = normalizeStreamQuality(rawQuality, '360p');
+    const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
+    const cached = await getCachedUpstreamUrl(videoId, rawQuality);
     const { format, mimeType, quality: resolvedQuality } = inferStreamMetadata(cached.upstreamUrl, cached);
     const origin = publicBridgeOrigin(req);
-    const playbackUrl = `${origin}${playbackMediaPath(videoId, quality)}`;
+    const playbackUrl = `${origin}${playbackMediaPath(videoId, rawQuality, '360p')}`;
 
     const source = cached.source || 'unknown';
-    console.log(`[api/stream] ${videoId} ${source} quality=${resolvedQuality || quality}`);
+    console.log(
+      `[api/stream] ${videoId} ${source} requested=${quality} cache=${cacheKey} resolved=${resolvedQuality || quality}`
+    );
 
     res.json({
       videoId,
@@ -464,19 +502,25 @@ app.get('/api/media/:videoId', async (req, res) => {
     return res.status(400).json({ error: 'invalid videoId' });
   }
 
-  const quality = normalizeStreamQuality(req.query.quality, '360p');
-  const cacheKey = resolveCacheKey(videoId, quality);
+  const rawQuality = req.query.quality;
+  const quality = normalizeStreamQuality(rawQuality, '360p');
+  const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
 
   try {
-    const cached = await getCachedUpstreamUrl(videoId, quality);
-    console.log(`[/api/media] ${videoId} quality=${quality} cache=${cacheKey}`);
+    const lookup = lookupResolveCacheEntry(videoId, rawQuality, '360p');
+    const cached =
+      lookup.entry || (await getCachedUpstreamUrl(videoId, rawQuality));
+
+    console.log(
+      `[/api/media] ${videoId} requested=${quality} cache=${cacheKey} lookup=${lookup.lookup} hit=${Boolean(cached?.upstreamUrl)}`
+    );
 
     proxyUpstreamMedia(req, res, cached.upstreamUrl, {
       videoId,
       quality,
       cacheKey,
       refreshUpstream: async () => {
-        const fresh = await getCachedUpstreamUrl(videoId, quality, { forceRefresh: true });
+        const fresh = await getCachedUpstreamUrl(videoId, rawQuality, { forceRefresh: true });
         return fresh && fresh.upstreamUrl ? fresh.upstreamUrl : null;
       },
     });
