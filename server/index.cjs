@@ -77,12 +77,13 @@ function resolveCacheGet(cacheKey) {
   return hit;
 }
 
-function resolveCacheSet(videoId, upstreamUrl, meta = {}) {
-  resolveCache.set(videoId, {
+function resolveCacheSet(cacheKey, upstreamUrl, meta = {}) {
+  resolveCache.set(cacheKey, {
     upstreamUrl,
     quality: meta.quality || null,
     mime: meta.mime || 'video/mp4',
     source: meta.source || null,
+    requestedQuality: meta.requestedQuality || null,
     expiresAt: Date.now() + RESOLVE_CACHE_TTL_MS,
   });
 }
@@ -141,11 +142,15 @@ async function getVideoInfo(videoId) {
   return rapidApi.getVideoInfo(videoId);
 }
 
-async function getCachedUpstreamUrl(videoId, quality = '360p') {
+async function getCachedUpstreamUrl(videoId, quality = '360p', { forceRefresh = false } = {}) {
   const targetQuality = normalizeStreamQuality(quality);
   const cacheKey = resolveCacheKey(videoId, targetQuality);
-  const hit = resolveCache.get(cacheKey);
-  if (hit && hit.expiresAt > Date.now()) return hit;
+  if (forceRefresh) {
+    resolveCache.delete(cacheKey);
+  } else {
+    const hit = resolveCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit;
+  }
 
   const resolved = await resolveVideoDownloadUrl(videoId, targetQuality);
   if (!resolved.url) {
@@ -185,7 +190,16 @@ function publicBridgeOrigin(req) {
 
 const MAX_MEDIA_REDIRECTS = 8;
 
-function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 } = {}) {
+function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
+  const {
+    videoId,
+    quality,
+    cacheKey,
+    redirectCount = 0,
+    retried = false,
+    refreshUpstream,
+  } = proxyOpts;
+
   if (redirectCount > MAX_MEDIA_REDIRECTS) {
     return res.status(502).json({
       error: 'proxy_failed',
@@ -235,18 +249,44 @@ function proxyUpstreamMedia(req, res, upstreamUrl, { videoId, redirectCount = 0 
           return;
         }
         return proxyUpstreamMedia(req, res, nextUrl, {
-          videoId,
+          ...proxyOpts,
           redirectCount: redirectCount + 1,
         });
       }
 
       if (status >= 400) {
-        if (videoId && (status === 403 || status === 404 || status === 410)) {
-          resolveCache.delete(videoId);
+        const staleUpstream = status === 403 || status === 404 || status === 410;
+        if (staleUpstream && cacheKey) {
+          resolveCache.delete(cacheKey);
         }
         console.error(
-          `[/api/media] upstream HTTP ${status} video=${videoId || '?'} url=${upstreamUrl.slice(0, 96)}…`
+          `[/api/media] upstream HTTP ${status} video=${videoId || '?'} quality=${quality || '?'} url=${upstreamUrl.slice(0, 96)}…`
         );
+
+        if (
+          staleUpstream &&
+          !retried &&
+          typeof refreshUpstream === 'function' &&
+          !res.headersSent
+        ) {
+          proxyRes.resume();
+          return Promise.resolve(refreshUpstream())
+            .then((freshUrl) => {
+              if (!freshUrl || res.headersSent) return;
+              console.log(
+                `[/api/media] retry after stale upstream video=${videoId || '?'} quality=${quality || '?'}`
+              );
+              proxyUpstreamMedia(req, res, freshUrl, { ...proxyOpts, retried: true });
+            })
+            .catch((err) => {
+              console.error('[/api/media] refresh after stale upstream failed:', err.message);
+              if (!res.headersSent) {
+                res.status(status);
+                res.end();
+              }
+            });
+        }
+
         if (!res.headersSent) res.status(status);
         proxyRes.resume();
         return res.end();
@@ -424,12 +464,24 @@ app.get('/api/media/:videoId', async (req, res) => {
     return res.status(400).json({ error: 'invalid videoId' });
   }
 
+  const quality = normalizeStreamQuality(req.query.quality, '360p');
+  const cacheKey = resolveCacheKey(videoId, quality);
+
   try {
-    const quality = normalizeStreamQuality(req.query.quality, '360p');
     const cached = await getCachedUpstreamUrl(videoId, quality);
-    proxyUpstreamMedia(req, res, cached.upstreamUrl, { videoId });
+    console.log(`[/api/media] ${videoId} quality=${quality} cache=${cacheKey}`);
+
+    proxyUpstreamMedia(req, res, cached.upstreamUrl, {
+      videoId,
+      quality,
+      cacheKey,
+      refreshUpstream: async () => {
+        const fresh = await getCachedUpstreamUrl(videoId, quality, { forceRefresh: true });
+        return fresh && fresh.upstreamUrl ? fresh.upstreamUrl : null;
+      },
+    });
   } catch (err) {
-    console.error('[/api/media] failed:', err.message);
+    console.error(`[/api/media] failed video=${videoId} quality=${quality}:`, err.message);
     res.status(502).json({
       error: 'resolve_failed',
       detail: err.message.split('\n').slice(0, 3),
