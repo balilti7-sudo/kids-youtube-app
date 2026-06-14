@@ -13,7 +13,7 @@ const cors = require('cors');
 const http = require('http');
 const https = require('https');
 
-const rapidApi = require('./rapidapi-youtube.cjs');
+const youtubeResolver = require('./socialkit-youtube.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
 
 const PORT = Number(process.env.PORT || 3001);
@@ -66,9 +66,9 @@ async function getCachedUpstreamUrl(videoId) {
   const hit = resolveCache.get(videoId);
   if (hit && hit.expiresAt > Date.now()) return hit;
 
-  const resolved = await rapidApi.resolveVideoDownloadUrl(videoId);
+  const resolved = await youtubeResolver.resolveVideoDownloadUrl(videoId);
   if (!resolved.url) {
-    throw new Error('RapidAPI returned no playable URL');
+    throw new Error('SocialKit returned no playable URL');
   }
 
   resolveCacheSet(videoId, resolved.url, resolved);
@@ -239,10 +239,10 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     bridge: { port: PORT, host: HOST },
-    resolver: 'rapidapi',
-    rapidApiHost: rapidApi.RAPIDAPI_HOST,
-    rapidApiKeyConfigured: Boolean(
-      process.env.RAPIDAPI_KEY || process.env.RAPIDAPI_YOUTUBE_KEY
+    resolver: 'socialkit',
+    socialKitBase: youtubeResolver.SOCIALKIT_BASE,
+    socialKitKeyConfigured: Boolean(
+      process.env.SOCIALKIT_ACCESS_KEY || process.env.SOCIALKIT_API_KEY
     ),
   });
 });
@@ -297,7 +297,7 @@ app.get('/api/stream/:videoId', async (req, res) => {
     const origin = publicBridgeOrigin(req);
     const playbackUrl = `${origin}/api/media/${encodeURIComponent(videoId)}`;
 
-    console.log(`[api/stream] ${videoId} rapidapi quality=${quality || 'unknown'}`);
+    console.log(`[api/stream] ${videoId} socialkit quality=${quality || 'unknown'}`);
 
     res.json({
       videoId,
@@ -305,7 +305,7 @@ app.get('/api/stream/:videoId', async (req, res) => {
       format,
       mimeType,
       quality,
-      source: 'rapidapi',
+      source: 'socialkit',
       proxied: true,
     });
   } catch (err) {
@@ -361,7 +361,7 @@ app.get('/api/info/:videoId', async (req, res) => {
   }
 
   try {
-    const info = await rapidApi.getVideoInfo(videoId);
+    const info = await youtubeResolver.getVideoInfo(videoId);
     const thumb =
       Array.isArray(info.thumbnail) && info.thumbnail.length > 0
         ? info.thumbnail[info.thumbnail.length - 1].url
@@ -395,9 +395,9 @@ app.post('/admin/clear-resolve-cache', (_req, res) => {
 
 app.listen(PORT, HOST, () => {
   console.log(`[bridge] listening on http://${HOST}:${PORT}`);
-  console.log(`[bridge] YouTube resolver: RapidAPI (${rapidApi.RAPIDAPI_HOST})`);
-  if (!process.env.RAPIDAPI_KEY && !process.env.RAPIDAPI_YOUTUBE_KEY) {
-    console.error('[bridge] WARNING: RAPIDAPI_KEY is not set — /api/stream will fail.');
+  console.log(`[bridge] YouTube resolver: SocialKit (${youtubeResolver.SOCIALKIT_BASE})`);
+  if (!process.env.SOCIALKIT_ACCESS_KEY && !process.env.SOCIALKIT_API_KEY) {
+    console.error('[bridge] WARNING: SOCIALKIT_ACCESS_KEY is not set — /api/stream will fail.');
   }
 });
 
