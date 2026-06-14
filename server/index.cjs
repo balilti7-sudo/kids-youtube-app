@@ -52,10 +52,26 @@ app.use((req, _res, next) => {
 const RESOLVE_CACHE_TTL_MS = Number(process.env.RESOLVE_CACHE_TTL_MS || 8 * 60 * 1000);
 const resolveCache = new Map();
 
-function resolveCacheGet(videoId) {
-  const hit = resolveCache.get(videoId);
+const ALLOWED_STREAM_QUALITIES = new Set(['240p', '360p', '480p', '720p', '1080p']);
+
+function normalizeStreamQuality(raw, fallback = '360p') {
+  const q = String(raw || fallback).trim().toLowerCase();
+  return ALLOWED_STREAM_QUALITIES.has(q) ? q : fallback;
+}
+
+function resolveCacheKey(videoId, quality) {
+  return `${videoId}:${normalizeStreamQuality(quality)}`;
+}
+
+function playbackMediaPath(videoId, quality) {
+  const q = normalizeStreamQuality(quality);
+  return `/api/media/${encodeURIComponent(videoId)}?quality=${encodeURIComponent(q)}`;
+}
+
+function resolveCacheGet(cacheKey) {
+  const hit = resolveCache.get(cacheKey);
   if (!hit || hit.expiresAt <= Date.now()) {
-    if (hit) resolveCache.delete(videoId);
+    if (hit) resolveCache.delete(cacheKey);
     return null;
   }
   return hit;
@@ -75,19 +91,21 @@ function resolveCacheSet(videoId, upstreamUrl, meta = {}) {
  * Try SocialKit (mp4/360p) first; on failure or file-size limit, fall back to RapidAPI.
  * @returns {Promise<{ url: string, quality: string|null, mime: string, source: 'socialkit'|'rapidapi' }>}
  */
-async function resolveVideoDownloadUrl(videoId) {
+async function resolveVideoDownloadUrl(videoId, quality = '360p') {
+  const targetQuality = normalizeStreamQuality(quality);
+
   if (SOCIALKIT_CONFIGURED) {
     try {
-      const resolved = await socialKit.resolveVideoDownloadUrl(videoId);
+      const resolved = await socialKit.resolveVideoDownloadUrl(videoId, targetQuality);
       if (!resolved.url) {
         throw new Error('SocialKit returned no playable URL');
       }
       return { ...resolved, source: 'socialkit' };
     } catch (err) {
       const msg = err?.message || String(err);
-      console.warn(`[resolve] SocialKit failed video=${videoId}: ${msg}`);
+      console.warn(`[resolve] SocialKit failed video=${videoId} quality=${targetQuality}: ${msg}`);
       if (!RAPIDAPI_CONFIGURED) throw err;
-      console.log(`[resolve] falling back to RapidAPI video=${videoId}`);
+      console.log(`[resolve] falling back to RapidAPI video=${videoId} quality=${targetQuality}`);
     }
   }
 
@@ -99,7 +117,7 @@ async function resolveVideoDownloadUrl(videoId) {
     );
   }
 
-  const resolved = await rapidApi.resolveVideoDownloadUrl(videoId);
+  const resolved = await rapidApi.resolveVideoDownloadUrl(videoId, targetQuality);
   if (!resolved.url) {
     throw new Error('RapidAPI returned no playable URL');
   }
@@ -123,17 +141,19 @@ async function getVideoInfo(videoId) {
   return rapidApi.getVideoInfo(videoId);
 }
 
-async function getCachedUpstreamUrl(videoId) {
-  const hit = resolveCache.get(videoId);
+async function getCachedUpstreamUrl(videoId, quality = '360p') {
+  const targetQuality = normalizeStreamQuality(quality);
+  const cacheKey = resolveCacheKey(videoId, targetQuality);
+  const hit = resolveCache.get(cacheKey);
   if (hit && hit.expiresAt > Date.now()) return hit;
 
-  const resolved = await resolveVideoDownloadUrl(videoId);
+  const resolved = await resolveVideoDownloadUrl(videoId, targetQuality);
   if (!resolved.url) {
     throw new Error('No playable URL from SocialKit or RapidAPI');
   }
 
-  resolveCacheSet(videoId, resolved.url, resolved);
-  return resolveCacheGet(videoId);
+  resolveCacheSet(cacheKey, resolved.url, { ...resolved, requestedQuality: targetQuality });
+  return resolveCacheGet(cacheKey);
 }
 
 function inferStreamMetadata(upstreamUrl, cached = {}) {
@@ -353,20 +373,21 @@ app.get('/api/stream/:videoId', async (req, res) => {
   }
 
   try {
-    const cached = await getCachedUpstreamUrl(videoId);
-    const { format, mimeType, quality } = inferStreamMetadata(cached.upstreamUrl, cached);
+    const quality = normalizeStreamQuality(req.query.quality, '360p');
+    const cached = await getCachedUpstreamUrl(videoId, quality);
+    const { format, mimeType, quality: resolvedQuality } = inferStreamMetadata(cached.upstreamUrl, cached);
     const origin = publicBridgeOrigin(req);
-    const playbackUrl = `${origin}/api/media/${encodeURIComponent(videoId)}`;
+    const playbackUrl = `${origin}${playbackMediaPath(videoId, quality)}`;
 
     const source = cached.source || 'unknown';
-    console.log(`[api/stream] ${videoId} ${source} quality=${quality || 'unknown'}`);
+    console.log(`[api/stream] ${videoId} ${source} quality=${resolvedQuality || quality}`);
 
     res.json({
       videoId,
       url: playbackUrl,
       format,
       mimeType,
-      quality,
+      quality: resolvedQuality || quality,
       source,
       proxied: true,
     });
@@ -404,7 +425,8 @@ app.get('/api/media/:videoId', async (req, res) => {
   }
 
   try {
-    const cached = await getCachedUpstreamUrl(videoId);
+    const quality = normalizeStreamQuality(req.query.quality, '360p');
+    const cached = await getCachedUpstreamUrl(videoId, quality);
     proxyUpstreamMedia(req, res, cached.upstreamUrl, { videoId });
   } catch (err) {
     console.error('[/api/media] failed:', err.message);

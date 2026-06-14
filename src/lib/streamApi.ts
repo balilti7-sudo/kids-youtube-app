@@ -283,6 +283,11 @@ export function preWarmMediaBridge(): void {
   })
 }
 
+export type StreamPlaybackQuality = '240p' | '360p' | '480p' | '720p' | '1080p'
+
+export const STREAM_START_QUALITY: StreamPlaybackQuality = '360p'
+export const STREAM_UPGRADE_QUALITY: StreamPlaybackQuality = '720p'
+
 /** How long a successful `/api/stream` response stays reusable (proxy URL is stable per videoId). */
 const STREAM_INFO_CACHE_TTL_MS = 20 * 60 * 1000
 
@@ -295,22 +300,28 @@ function normalizeStreamVideoId(videoId: string): string {
   return videoId.trim()
 }
 
-function getCachedStreamInfo(videoId: string): StreamApiResponse | null {
+function streamInfoCacheKey(videoId: string, quality?: string | null): string {
+  const q = (quality || STREAM_START_QUALITY).trim().toLowerCase()
+  return `${normalizeStreamVideoId(videoId)}:${q}`
+}
+
+function getCachedStreamInfo(videoId: string, quality?: string | null): StreamApiResponse | null {
   const id = normalizeStreamVideoId(videoId)
   if (!id) return null
-  const entry = streamInfoCache.get(id)
+  const key = streamInfoCacheKey(id, quality)
+  const entry = streamInfoCache.get(key)
   if (!entry) return null
   if (Date.now() - entry.cachedAt > STREAM_INFO_CACHE_TTL_MS) {
-    streamInfoCache.delete(id)
+    streamInfoCache.delete(key)
     return null
   }
   return entry.data
 }
 
-function setCachedStreamInfo(videoId: string, data: StreamApiResponse): void {
+function setCachedStreamInfo(videoId: string, data: StreamApiResponse, quality?: string | null): void {
   const id = normalizeStreamVideoId(videoId)
   if (!id) return
-  streamInfoCache.set(id, { data, cachedAt: Date.now() })
+  streamInfoCache.set(streamInfoCacheKey(id, quality ?? data.quality), { data, cachedAt: Date.now() })
 }
 
 function waitForAbortSignal(signal: AbortSignal): Promise<never> {
@@ -374,14 +385,16 @@ function buildStreamApiUrl(pathname: string): string {
   return buildMediaBridgeApiUrl(pathname)
 }
 
-/** `GET /api/media/:videoId` on the same origin as the bridge — use for `<video src>`. */
-export function getMediaBridgeMediaUrl(videoId: string): string {
-  return buildStreamApiUrl(`/api/media/${encodeURIComponent(videoId)}`)
+/** Full `GET /api/media/:videoId` URL the browser will request. */
+export function getMediaBridgeMediaUrl(videoId: string, quality?: string | null): string {
+  const q = (quality || STREAM_START_QUALITY).trim().toLowerCase()
+  return buildMediaBridgeApiUrl(`/api/media/${encodeURIComponent(videoId.trim())}`, { quality: q })
 }
 
 /** Full `GET /api/stream/:videoId` URL the browser will request. */
-export function getStreamResolveUrl(videoId: string): string {
-  return buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}`)
+export function getStreamResolveUrl(videoId: string, quality?: string | null): string {
+  const q = (quality || STREAM_START_QUALITY).trim().toLowerCase()
+  return buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}`, { quality: q })
 }
 
 /**
@@ -434,7 +447,9 @@ function mimeToVideoJsType(mime: string | null, format: StreamApiResponse['forma
  * Fall back to computed `/api/media/:videoId` path for backward compatibility.
  */
 export function streamResponseToSource(data: StreamApiResponse): { src: string; type: string } {
-  const src = data.url?.startsWith('http') ? data.url : getMediaBridgeMediaUrl(data.videoId)
+  const src = data.url?.startsWith('http')
+    ? data.url
+    : getMediaBridgeMediaUrl(data.videoId, data.quality)
   return { src, type: mimeToVideoJsType(data.mimeType, data.format) }
 }
 
@@ -676,11 +691,13 @@ async function fetchStreamInfoWithRetries(
   {
     signal,
     timeoutMs = STREAM_INFO_TIMEOUT_MS,
+    quality = STREAM_START_QUALITY,
     onTransientRetry,
     onFilePreparing,
   }: {
     signal?: AbortSignal
     timeoutMs?: number
+    quality?: string
     onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
     onFilePreparing?: (info: FetchStreamFilePreparingInfo) => void
   }
@@ -717,7 +734,7 @@ async function fetchStreamInfoWithRetries(
         }
       }
       try {
-        return await doFetchStreamInfo(videoId, { signal, timeoutMs })
+        return await doFetchStreamInfo(videoId, { signal, timeoutMs, quality })
       } catch (err) {
         if (signal?.aborted) throw err
         if (isFileNotReadyStreamError(err)) {
@@ -767,11 +784,14 @@ export async function fetchStreamInfo(
   {
     signal,
     timeoutMs = STREAM_INFO_TIMEOUT_MS,
+    quality = STREAM_START_QUALITY,
     onTransientRetry,
     onFilePreparing,
   }: {
     signal?: AbortSignal
     timeoutMs?: number
+    /** Requested playback quality (360p start, 720p upgrade). */
+    quality?: StreamPlaybackQuality | string
     /** Called before each backoff wait (not called before the first attempt). */
     onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
     /** Called when RapidAPI/CDN says the file is still being prepared — keep showing the spinner. */
@@ -783,13 +803,16 @@ export async function fetchStreamInfo(
     throw new StreamApiError('חסר מזהה סרטון')
   }
 
-  const cached = getCachedStreamInfo(id)
+  const requestedQuality = String(quality || STREAM_START_QUALITY).trim().toLowerCase()
+
+  const cached = getCachedStreamInfo(id, requestedQuality)
   if (cached) {
-    console.info('[streamApi] stream cache hit', { videoId: id })
+    console.info('[streamApi] stream cache hit', { videoId: id, quality: requestedQuality })
     return cached
   }
 
-  const existing = streamInfoInflight.get(id)
+  const inflightKey = streamInfoCacheKey(id, requestedQuality)
+  const existing = streamInfoInflight.get(inflightKey)
   if (existing) {
     if (signal) {
       return Promise.race([existing, waitForAbortSignal(signal)])
@@ -797,23 +820,27 @@ export async function fetchStreamInfo(
     return existing
   }
 
-  const options = { signal, timeoutMs, onTransientRetry, onFilePreparing }
+  const options = { signal, timeoutMs, quality: requestedQuality, onTransientRetry, onFilePreparing }
   const promise = fetchStreamInfoWithRetries(id, options)
     .then((data) => {
-      setCachedStreamInfo(id, data)
+      setCachedStreamInfo(id, data, requestedQuality)
       return data
     })
     .finally(() => {
-      streamInfoInflight.delete(id)
+      streamInfoInflight.delete(inflightKey)
     })
 
-  streamInfoInflight.set(id, promise)
+  streamInfoInflight.set(inflightKey, promise)
   return promise
 }
 
 async function doFetchStreamInfo(
   videoId: string,
-  { signal, timeoutMs }: { signal?: AbortSignal; timeoutMs: number }
+  {
+    signal,
+    timeoutMs,
+    quality = STREAM_START_QUALITY,
+  }: { signal?: AbortSignal; timeoutMs: number; quality?: string }
 ): Promise<StreamApiResponse> {
   await assertChildPlaybackAllowedForStream()
 
@@ -821,7 +848,7 @@ async function doFetchStreamInfo(
   // /api/info waited in the bridge queue or on RapidAPI).
   void assertLiveStreamPlayable(videoId).catch(() => {})
 
-  const url = getStreamResolveUrl(videoId)
+  const url = getStreamResolveUrl(videoId, quality)
   logPlaybackStreamRequest(videoId, 'fetchStreamInfo')
 
   const controller = new AbortController()

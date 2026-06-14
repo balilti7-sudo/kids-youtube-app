@@ -57,7 +57,7 @@ async function rapidApiGet(url, config = {}, { label = 'request' } = {}) {
       }
       const delayMs = RAPIDAPI_429_BASE_MS * 2 ** attempt;
       console.warn(
-        `[rapidapi] ${label} HTTP 429 — retry ${attempt + 1}/${RAPIDAPI_429_MAX_RETRIES} in ${delayMs}ms`
+        `[rapidapi] ${label} HTTP 429 ? retry ${attempt + 1}/${RAPIDAPI_429_MAX_RETRIES} in ${delayMs}ms`
       );
       await sleep(delayMs);
       continue;
@@ -109,7 +109,7 @@ function isFileNotReadyHttpResponse(res) {
   return false;
 }
 
-function pickVideoQualityId(qualities) {
+function pickVideoQualityId(qualities, targetQuality = null) {
   const videos = (Array.isArray(qualities) ? qualities : []).filter(
     (q) => q && q.type === 'video' && q.id != null
   );
@@ -118,9 +118,13 @@ function pickVideoQualityId(qualities) {
   const mp4 = videos.filter((q) => /mp4/i.test(String(q.mime || '')));
   const pool = mp4.length > 0 ? mp4 : videos;
 
+  const targetHeight = parseHeight(targetQuality);
+  const maxHeight = targetHeight > 0 ? targetHeight : 720;
+
   const capped = pool.filter((q) => {
     const h = parseHeight(q.quality);
-    return h === 0 || h <= 720;
+    if (h === 0) return true;
+    return h <= maxHeight;
   });
   const ranked = (capped.length > 0 ? capped : pool).sort((a, b) => {
     const ah = parseHeight(a.quality);
@@ -165,7 +169,7 @@ async function requestDownloadMeta(videoId, qualityId) {
       if (isFileNotReadyHttpResponse(res) && attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
         console.warn(
           `[rapidapi] download_video file not ready video=${videoId} ` +
-            `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} HTTP ${res.status} — ` +
+            `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} HTTP ${res.status} ? ` +
             `retry in ${FILE_NOT_READY_WAIT_MS}ms (${lastDetail || 'no body'})`
         );
         await sleep(FILE_NOT_READY_WAIT_MS);
@@ -181,7 +185,7 @@ async function requestDownloadMeta(videoId, qualityId) {
       if (attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
         console.warn(
           `[rapidapi] download_video missing file URL video=${videoId} ` +
-            `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} — retry in ${FILE_NOT_READY_WAIT_MS}ms`
+            `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} ? retry in ${FILE_NOT_READY_WAIT_MS}ms`
         );
         await sleep(FILE_NOT_READY_WAIT_MS);
         continue;
@@ -232,7 +236,7 @@ async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
       }
       console.warn(
         `[rapidapi] file not ready video=${videoId || '?'} attempt=${attempts} HTTP ${head.status} ` +
-          `— retry in ${FILE_READY_POLL_MS}ms`
+          `? retry in ${FILE_READY_POLL_MS}ms`
       );
     } catch (err) {
       lastStatus = err.message;
@@ -250,9 +254,9 @@ async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
   const msg =
     `RapidAPI file URL not ready after ${waitedMs}ms (limit ${FILE_READY_MAX_MS}ms, ` +
     `${attempts} attempts, lastStatus=${lastStatus ?? 'unknown'}). ` +
-    'The CDN file may still be processing — retry in 15–30 seconds.';
+    'The CDN file may still be processing ? retry in 15?30 seconds.';
   console.error(
-    `[rapidapi] ${msg} video=${videoId || '?'} url=${String(fileUrl).slice(0, 96)}…`
+    `[rapidapi] ${msg} video=${videoId || '?'} url=${String(fileUrl).slice(0, 96)}?`
   );
   throw new Error(msg);
 }
@@ -261,12 +265,13 @@ async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
  * Resolve a direct playable URL for a YouTube videoId via RapidAPI.
  * @returns {Promise<{ url: string, quality: string|null, mime: string }>}
  */
-async function resolveVideoDownloadUrl(videoId) {
-  let qualityId = DEFAULT_QUALITY;
+async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
+  const targetQuality = normalizeStreamQuality(requestedQuality);
+  const qualities = await getAvailableQualities(videoId);
+  let qualityId = pickVideoQualityId(qualities, targetQuality);
 
-  if (!qualityId) {
-    const qualities = await getAvailableQualities(videoId);
-    qualityId = pickVideoQualityId(qualities);
+  if (!qualityId && DEFAULT_QUALITY) {
+    qualityId = DEFAULT_QUALITY;
   }
 
   if (!qualityId) {
@@ -278,9 +283,15 @@ async function resolveVideoDownloadUrl(videoId) {
 
   return {
     url: meta.file,
-    quality: meta.quality,
+    quality: meta.quality || targetQuality,
     mime: meta.mime,
   };
+}
+
+function normalizeStreamQuality(raw, fallback = '360p') {
+  const allowed = new Set(['240p', '360p', '480p', '720p', '1080p']);
+  const q = String(raw || fallback).trim().toLowerCase();
+  return allowed.has(q) ? q : fallback;
 }
 
 async function getVideoInfo(videoId) {

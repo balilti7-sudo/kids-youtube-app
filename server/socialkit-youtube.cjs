@@ -81,12 +81,13 @@ function mimeForFormat(format) {
  * Resolve a direct playable URL for a YouTube videoId via SocialKit.
  * @returns {Promise<{ url: string, quality: string|null, mime: string }>}
  */
-async function resolveVideoDownloadUrl(videoId) {
+async function resolveVideoDownloadUrl(videoId, requestedQuality = DEFAULT_QUALITY) {
   requireApiKey();
 
+  const targetQuality = String(requestedQuality || DEFAULT_QUALITY).trim().toLowerCase();
   const watchUrl = youtubeWatchUrl(videoId);
   console.log(
-    `[socialkit] POST /youtube/download video=${videoId} format=${DEFAULT_FORMAT} quality=${DEFAULT_QUALITY}`
+    `[socialkit] POST /youtube/download video=${videoId} format=${DEFAULT_FORMAT} quality=${targetQuality}`
   );
 
   const res = await axios.post(
@@ -95,7 +96,7 @@ async function resolveVideoDownloadUrl(videoId) {
       access_key: SOCIALKIT_ACCESS_KEY,
       url: watchUrl,
       format: DEFAULT_FORMAT,
-      quality: DEFAULT_QUALITY,
+      quality: targetQuality,
     },
     {
       timeout: REQUEST_TIMEOUT_MS,

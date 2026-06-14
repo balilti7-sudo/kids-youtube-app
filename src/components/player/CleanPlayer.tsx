@@ -16,6 +16,8 @@ import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/y
 import {
   fetchStreamInfo,
   getStreamApiBaseUrl,
+  STREAM_START_QUALITY,
+  STREAM_UPGRADE_QUALITY,
   streamResponseToSource,
   type StreamApiResponse,
 } from '../../lib/streamApi'
@@ -27,6 +29,56 @@ import { assertChildPlaybackAllowedForStream } from '../../lib/childRuntime'
 import { useDailyWatchBudgetStore } from '../../stores/dailyWatchBudgetStore'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
+
+function playbackQualityHeight(raw: string | null | undefined): number {
+  const m = String(raw || '').match(/(\d+)\s*p/i)
+  return m ? Number(m[1]) : 0
+}
+
+async function swapVideoSourcePreservingTime(
+  el: HTMLVideoElement,
+  info: StreamApiResponse,
+  detachHls: () => void
+): Promise<boolean> {
+  const { src } = streamResponseToSource(info)
+  const savedTime = el.currentTime
+  const wasPlaying = !el.paused && !el.ended
+
+  detachHls()
+  el.removeAttribute('src')
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      el.removeEventListener('loadedmetadata', onReady)
+      el.removeEventListener('error', onErr)
+    }
+
+    const onReady = () => {
+      cleanup()
+      try {
+        const duration = Number.isFinite(el.duration) ? el.duration : savedTime
+        el.currentTime = Math.min(Math.max(0, savedTime), duration)
+      } catch {
+        /* ignore seek errors */
+      }
+      if (wasPlaying) {
+        void el.play().finally(() => resolve(true))
+      } else {
+        resolve(true)
+      }
+    }
+
+    const onErr = () => {
+      cleanup()
+      resolve(false)
+    }
+
+    el.addEventListener('loadedmetadata', onReady, { once: true })
+    el.addEventListener('error', onErr, { once: true })
+    el.src = src
+    el.load()
+  })
+}
 
 export type CleanPlayerProps = {
   videoId: string
@@ -612,6 +664,7 @@ function CleanPlayerMediaBridge({
       try {
         console.info(`[CleanPlayer] resolving stream for ${videoId} via ${getStreamApiBaseUrl()}/api/stream/…`)
         const info = await fetchStreamInfo(videoId, {
+          quality: STREAM_START_QUALITY,
           signal,
           onTransientRetry: () => {
             if (cancelled || signal.aborted) return
@@ -711,6 +764,55 @@ function CleanPlayerMediaBridge({
       detachHls()
     }
   }, [videoId, retryNonce, isLimitReached])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+
+    const startHeight = playbackQualityHeight(phase.info.quality)
+    const upgradeHeight = playbackQualityHeight(STREAM_UPGRADE_QUALITY)
+    if (startHeight >= upgradeHeight) return
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const upgrade = await fetchStreamInfo(videoId, { quality: STREAM_UPGRADE_QUALITY })
+        if (cancelled) return
+
+        const resolvedHeight = playbackQualityHeight(upgrade.quality)
+        if (resolvedHeight <= startHeight) return
+
+        const el = videoRef.current
+        if (!el) return
+
+        console.info(
+          `[CleanPlayer] upgrading ${videoId} ${phase.info.quality || STREAM_START_QUALITY} -> ${upgrade.quality || STREAM_UPGRADE_QUALITY}`
+        )
+
+        const ok = await swapVideoSourcePreservingTime(el, upgrade, () => {
+          if (hlsRef.current) {
+            hlsRef.current.destroy()
+            hlsRef.current = null
+          }
+        })
+        if (!ok || cancelled) return
+
+        hlsJsActiveRef.current = false
+        setPhase({ kind: 'playing', info: upgrade })
+      } catch (err) {
+        if (!cancelled) {
+          console.warn(
+            '[CleanPlayer] quality upgrade skipped:',
+            err instanceof Error ? err.message : err
+          )
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [videoId, phase])
 
   useEffect(() => {
     if (phase.kind !== 'resolving') return
