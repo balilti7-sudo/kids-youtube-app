@@ -11,13 +11,15 @@ type Props = {
   onClose: () => void
   /** Pre-fill when known from Supabase session */
   defaultEmail?: string
+  /** When true, email is read-only (logged-in parent on management gate) */
+  lockEmail?: boolean
 }
 
 /**
  * Forgot parent PIN: email-only reset. New PIN is generated server-side and sent by email.
  * Manual PIN change lives under Settings (after full parent login).
  */
-export function ParentalForgotPinModal({ open, onClose, defaultEmail = '' }: Props) {
+export function ParentalForgotPinModal({ open, onClose, defaultEmail = '', lockEmail = false }: Props) {
   const [email, setEmail] = useState(defaultEmail)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -124,8 +126,9 @@ export function ParentalForgotPinModal({ open, onClose, defaultEmail = '' }: Pro
               ) : (
                 <>
                   <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-                    נשלח לכתובת האימייל של חשבון ההורה <strong>קוד חדש</strong> (נוצר אוטומטית בשרת). לא מזינים כאן סיסמה
-                    או קוד חדש — רק מבקשים מייל.
+                    {lockEmail
+                      ? 'נשלח קוד הורה חדש בן 6 ספרות לכתובת האימייל של החשבון המחובר.'
+                      : 'נשלח לכתובת האימייל של חשבון ההורה קוד חדש (נוצר אוטומטית בשרת). לא מזינים כאן סיסמה או קוד חדש — רק מבקשים מייל.'}
                   </p>
                   <div>
                     <label htmlFor="forgot-pin-email" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-zinc-300">
@@ -138,7 +141,8 @@ export function ParentalForgotPinModal({ open, onClose, defaultEmail = '' }: Pro
                       dir="ltr"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      disabled={busy}
+                      disabled={busy || lockEmail}
+                      readOnly={lockEmail}
                       placeholder="parent@example.com"
                       onKeyDown={(e) => e.key === 'Enter' && void handleSend()}
                     />

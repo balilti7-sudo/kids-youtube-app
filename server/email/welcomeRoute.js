@@ -305,41 +305,86 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseSer
       return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
     }
 
-    const email = normalizeEmail(req.body?.email)
-    if (!email || !EMAIL_RE.test(email)) {
-      return res.status(400).json({ ok: false, error: 'Invalid email' })
-    }
-
-    const headerKey = String(req.get('x-media-bridge-welcome-key') || '').trim()
-    if (!welcomeKey || !safeEqualKey(headerKey, welcomeKey)) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized' })
-    }
-
     const ip = getClientIp(req)
     if (!rateLimitOk(ip)) {
       return res.status(429).json({ ok: false, error: 'Too many requests' })
-    }
-
-    pruneDedupe()
-    const now = Date.now()
-    if (dedupePinReset.has(email) && dedupePinReset.get(email) > now) {
-      return res.status(200).json({ ok: true, sent: false, message: 'deduped' })
     }
 
     if (!supabaseServiceClient) {
       return res.status(503).json({ ok: false, error: 'Service database not configured' })
     }
 
-    try {
-      const { data: profile, error: qErr } = await supabaseServiceClient
-        .from('profiles')
-        .select('id, email, full_name, parent_pin')
-        .ilike('email', email)
-        .maybeSingle()
+    const bearer = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim()
+    const headerKey = String(req.get('x-media-bridge-welcome-key') || '').trim()
+    const welcomeOk = welcomeKey && safeEqualKey(headerKey, welcomeKey)
 
-      if (qErr) {
-        console.error('[email/pin-reset-request] profile', qErr.message)
-        return res.status(200).json({ ok: true, sent: false })
+    let email = normalizeEmail(req.body?.email)
+    let profile = null
+
+    try {
+      if (bearer && supabaseAuthClient) {
+        const { data: userData, error: userError } = await supabaseAuthClient.auth.getUser(bearer)
+        if (userError || !userData.user?.id) {
+          return res.status(401).json({ ok: false, error: 'Unauthorized' })
+        }
+
+        const accountEmail = normalizeEmail(userData.user.email)
+        if (email && accountEmail && email !== accountEmail) {
+          return res.status(403).json({ ok: false, error: 'Email mismatch' })
+        }
+
+        const { data: jwtProfile, error: jwtErr } = await supabaseServiceClient
+          .from('profiles')
+          .select('id, email, full_name, parent_pin')
+          .eq('id', userData.user.id)
+          .maybeSingle()
+
+        if (jwtErr) {
+          console.error('[email/pin-reset-request] jwt profile', jwtErr.message)
+          return res.status(502).json({ ok: false, error: 'Update failed' })
+        }
+
+        if (!jwtProfile?.id) {
+          return res.status(404).json({ ok: false, error: 'Profile not found' })
+        }
+
+        profile = jwtProfile
+        email = normalizeEmail(jwtProfile.email || accountEmail)
+      } else {
+        if (!welcomeOk) {
+          return res.status(401).json({ ok: false, error: 'Unauthorized' })
+        }
+
+        if (!email || !EMAIL_RE.test(email)) {
+          return res.status(400).json({ ok: false, error: 'Invalid email' })
+        }
+
+        const { data: emailProfile, error: qErr } = await supabaseServiceClient
+          .from('profiles')
+          .select('id, email, full_name, parent_pin')
+          .ilike('email', email)
+          .maybeSingle()
+
+        if (qErr) {
+          console.error('[email/pin-reset-request] profile', qErr.message)
+          return res.status(200).json({ ok: true, sent: false })
+        }
+
+        if (!emailProfile?.id) {
+          return res.status(200).json({ ok: true, sent: false })
+        }
+
+        profile = emailProfile
+      }
+
+      if (!email || !EMAIL_RE.test(email)) {
+        return res.status(400).json({ ok: false, error: 'Invalid email' })
+      }
+
+      pruneDedupe()
+      const now = Date.now()
+      if (dedupePinReset.has(email) && dedupePinReset.get(email) > now) {
+        return res.status(200).json({ ok: true, sent: false, message: 'deduped' })
       }
 
       if (!profile?.id) {

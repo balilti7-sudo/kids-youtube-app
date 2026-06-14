@@ -12,13 +12,16 @@ function mapPinResetError(raw: string): string {
     return 'שליחת המייל לא מוגדרת בשרת. פנו לתמיכה או נסו שוב מאוחר יותר.'
   }
   if (/unauthorized|Unauthorized|invalid.*secret/i.test(err)) {
-    return 'שירות שחזור הקוד לא מוגדר באפליקציה (מפתח אבטחה חסר).'
+    return 'לא ניתן לאמת את החשבון. התנתקו והתחברו מחדש, ונסו שוב.'
   }
   if (/service_database_not_configured|Service database not configured/i.test(err)) {
     return 'שירות השחזור לא זמין כרגע. נסו שוב מאוחר יותר.'
   }
   if (/invalid_email|Invalid email/i.test(err)) {
     return 'נא להזין כתובת אימייל תקינה.'
+  }
+  if (/email_mismatch|Email mismatch/i.test(err)) {
+    return 'יש להשתמש באימייל של חשבון ההורה המחובר.'
   }
   if (/update_failed|email_send_failed|resend_failed/i.test(err)) {
     return 'לא הצלחנו לשלוח את המייל. נסו שוב בעוד מספר דקות.'
@@ -44,13 +47,16 @@ function parseResetBody(body: unknown): { ok: boolean; sent?: boolean; error?: s
 
 async function requestViaSupabaseFunction(
   email: string,
-  welcomeKey: string
+  opts: { welcomeKey?: string; accessToken?: string | null }
 ): Promise<ParentPinResetResult | null> {
   if (!isSupabaseConfigured) return null
 
+  const headers: Record<string, string> = {}
+  if (opts.welcomeKey) Object.assign(headers, welcomeKeyHeaders(opts.welcomeKey))
+
   const { data, error } = await supabase.functions.invoke('request-parent-pin-reset', {
     body: { email },
-    headers: welcomeKeyHeaders(welcomeKey),
+    headers,
   })
 
   if (error) {
@@ -78,18 +84,24 @@ async function requestViaSupabaseFunction(
   return parsed.sent ? { ok: true, sent: true } : { ok: true, sent: false }
 }
 
-async function requestViaMediaBridge(email: string, welcomeKey: string): Promise<ParentPinResetResult> {
+async function requestViaMediaBridge(
+  email: string,
+  opts: { welcomeKey?: string; accessToken?: string | null }
+): Promise<ParentPinResetResult> {
   const base = getStreamApiBaseUrl()
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    'Content-Type': 'application/json',
+  }
+  if (opts.accessToken) headers.authorization = `Bearer ${opts.accessToken}`
+  if (opts.welcomeKey) Object.assign(headers, welcomeKeyHeaders(opts.welcomeKey))
+
   let res: Response
   try {
     res = await fetch(`${base}/api/email/pin-reset-request`, {
       method: 'POST',
       credentials: 'omit',
-      headers: {
-        accept: 'application/json',
-        'Content-Type': 'application/json',
-        ...welcomeKeyHeaders(welcomeKey),
-      },
+      headers,
       body: JSON.stringify({ email }),
     })
   } catch (e) {
@@ -115,18 +127,29 @@ async function requestViaMediaBridge(email: string, welcomeKey: string): Promise
 
 /**
  * Request a new parent management PIN by email (server generates PIN; never shown in gate UI).
- * Prefers Supabase Edge Function (Resend secrets on Supabase); falls back to Media Bridge.
+ * Logged-in parents use their Supabase session (no extra app secret). Falls back to welcome key + Media Bridge.
  */
 export async function requestParentPinResetEmail(emailRaw: string): Promise<ParentPinResetResult> {
   const email = emailRaw.trim().toLowerCase()
   const welcomeKey = (import.meta.env.VITE_MEDIA_BRIDGE_WELCOME_KEY as string | undefined)?.trim()
 
-  if (!welcomeKey) {
-    return { ok: false, error: 'שירות שחזור הקוד לא מוגדר באפליקציה.' }
+  let accessToken: string | null = null
+  if (isSupabaseConfigured) {
+    const { data } = await supabase.auth.getSession()
+    accessToken = data.session?.access_token ?? null
   }
 
-  const viaSupabase = await requestViaSupabaseFunction(email, welcomeKey)
-  if (viaSupabase) return viaSupabase
+  if (accessToken || welcomeKey) {
+    const viaSupabase = await requestViaSupabaseFunction(email, { welcomeKey, accessToken })
+    if (viaSupabase) return viaSupabase
 
-  return requestViaMediaBridge(email, welcomeKey)
+    if (accessToken || welcomeKey) {
+      return requestViaMediaBridge(email, { welcomeKey, accessToken })
+    }
+  }
+
+  return {
+    ok: false,
+    error: 'יש להתחבר לחשבון ההורה כדי לשחזר את הקוד, או לפנות לתמיכה.',
+  }
 }

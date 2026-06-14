@@ -117,6 +117,10 @@ function buildPinEmailHtml(pin: string, logoUrl: string) {
 </html>`.trim()
 }
 
+function bearerToken(req: Request): string {
+  return req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() || ''
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS })
@@ -130,43 +134,88 @@ serve(async (req) => {
     return json(503, { ok: false, error: 'missing_resend_api_key' })
   }
 
-  if (!requestSecretOk(req)) {
-    return json(401, { ok: false, error: 'unauthorized' })
-  }
-
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return json(503, { ok: false, error: 'service_database_not_configured' })
-  }
-
-  let body: { email?: string }
-  try {
-    body = (await req.json()) as { email?: string }
-  } catch {
-    return json(400, { ok: false, error: 'invalid_json' })
-  }
-
-  const email = normalizeEmail(body.email)
-  if (!email || !EMAIL_RE.test(email)) {
-    return json(400, { ok: false, error: 'invalid_email' })
   }
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const { data: profile, error: qErr } = await admin
-    .from('profiles')
-    .select('id, email, full_name, parent_pin')
-    .ilike('email', email)
-    .maybeSingle()
+  let body: { email?: string } = {}
+  try {
+    body = (await req.json()) as { email?: string }
+  } catch {
+    return json(400, { ok: false, error: 'invalid_json' })
+  }
 
-  if (qErr) {
-    console.error('[request-parent-pin-reset] profile', qErr.message)
-    return json(200, { ok: true, sent: false })
+  let profile: { id: string; email: string | null; full_name: string | null; parent_pin: string | null } | null =
+    null
+
+  const token = bearerToken(req)
+  if (token) {
+    const { data: userData, error: userErr } = await admin.auth.getUser(token)
+    if (userErr || !userData.user?.id) {
+      return json(401, { ok: false, error: 'unauthorized' })
+    }
+
+    const { data: jwtProfile, error: jwtErr } = await admin
+      .from('profiles')
+      .select('id, email, full_name, parent_pin')
+      .eq('id', userData.user.id)
+      .maybeSingle()
+
+    if (jwtErr) {
+      console.error('[request-parent-pin-reset] jwt profile', jwtErr.message)
+      return json(502, { ok: false, error: 'update_failed' })
+    }
+
+    if (!jwtProfile?.id) {
+      return json(404, { ok: false, error: 'profile_not_found' })
+    }
+
+    const requestedEmail = normalizeEmail(body.email)
+    const accountEmail = normalizeEmail(userData.user.email || jwtProfile.email || '')
+    if (requestedEmail && accountEmail && requestedEmail !== accountEmail) {
+      return json(403, { ok: false, error: 'email_mismatch' })
+    }
+
+    profile = jwtProfile
+  } else {
+    if (!requestSecretOk(req)) {
+      return json(401, { ok: false, error: 'unauthorized' })
+    }
+
+    const email = normalizeEmail(body.email)
+    if (!email || !EMAIL_RE.test(email)) {
+      return json(400, { ok: false, error: 'invalid_email' })
+    }
+
+    const { data: emailProfile, error: qErr } = await admin
+      .from('profiles')
+      .select('id, email, full_name, parent_pin')
+      .ilike('email', email)
+      .maybeSingle()
+
+    if (qErr) {
+      console.error('[request-parent-pin-reset] profile', qErr.message)
+      return json(200, { ok: true, sent: false })
+    }
+
+    if (!emailProfile?.id) {
+      return json(200, { ok: true, sent: false })
+    }
+
+    profile = emailProfile
   }
 
   if (!profile?.id) {
     return json(200, { ok: true, sent: false })
+  }
+
+  const email = normalizeEmail(profile.email || '')
+  if (!email || !EMAIL_RE.test(email)) {
+    return json(502, { ok: false, error: 'update_failed' })
   }
 
   const newPin = generateParentPinDigits()

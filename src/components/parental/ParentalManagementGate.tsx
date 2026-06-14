@@ -226,18 +226,19 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
             </div>
 
             {canUseForgotPin ? (
-              <div className="text-center">
-                <button
+              <div className="flex flex-col items-center gap-2">
+                <Button
                   type="button"
+                  variant="secondary"
                   disabled={verifying}
                   onClick={() => setForgotPinOpen(true)}
-                  className={cn(
-                    'text-sm font-medium text-brand-600 underline-offset-2 hover:underline',
-                    'disabled:cursor-not-allowed disabled:opacity-50 dark:text-brand-400'
-                  )}
+                  className="w-full max-w-xs"
                 >
-                  שכחתי קוד
-                </button>
+                  שכחתי קוד — שלחו לי קוד חדש במייל
+                </Button>
+                <p className="text-center text-xs text-slate-500 dark:text-zinc-500">
+                  נשלח קוד חדש בן 6 ספרות לכתובת האימייל של חשבון ההורה
+                </p>
               </div>
             ) : null}
 
@@ -272,6 +273,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
         open={forgotPinOpen}
         onClose={() => setForgotPinOpen(false)}
         defaultEmail={user?.email ?? ''}
+        lockEmail={Boolean(user?.email)}
       />
     </AnimatePresence>
   )
