@@ -279,6 +279,15 @@ async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
   }
 
   const meta = await requestDownloadMeta(videoId, qualityId);
+  const targetHeight = parseHeight(targetQuality);
+  if (targetHeight > 0 && targetHeight <= 480) {
+    return {
+      url: meta.file,
+      quality: meta.quality || targetQuality,
+      mime: meta.mime,
+    };
+  }
+
   await waitForFileReady(meta.file, { videoId });
 
   return {

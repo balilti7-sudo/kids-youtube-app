@@ -35,6 +35,68 @@ function playbackQualityHeight(raw: string | null | undefined): number {
   return m ? Number(m[1]) : 0
 }
 
+function scheduleQualityUpgrade(
+  el: HTMLVideoElement,
+  vid: string,
+  startInfo: StreamApiResponse,
+  detachHls: () => void,
+  onUpgraded: (info: StreamApiResponse) => void
+): () => void {
+  const startHeight = playbackQualityHeight(startInfo.quality || STREAM_START_QUALITY)
+  const upgradeHeight = playbackQualityHeight(STREAM_UPGRADE_QUALITY)
+  if (startHeight >= upgradeHeight) {
+    return () => {}
+  }
+
+  let cancelled = false
+
+  const runUpgrade = () => {
+    if (cancelled) return
+    void (async () => {
+      try {
+        const upgrade = await fetchStreamInfo(vid, { quality: STREAM_UPGRADE_QUALITY })
+        if (cancelled) return
+
+        const resolvedHeight = playbackQualityHeight(upgrade.quality)
+        if (resolvedHeight <= startHeight) return
+
+        console.info(
+          `[CleanPlayer] upgrading ${vid} ${startInfo.quality || STREAM_START_QUALITY} -> ${upgrade.quality || STREAM_UPGRADE_QUALITY}`
+        )
+
+        const ok = await swapVideoSourcePreservingTime(el, upgrade, detachHls)
+        if (!ok || cancelled) return
+
+        onUpgraded(upgrade)
+      } catch (err) {
+        if (!cancelled) {
+          console.warn(
+            '[CleanPlayer] quality upgrade skipped:',
+            err instanceof Error ? err.message : err
+          )
+        }
+      }
+    })()
+  }
+
+  const onCanPlay = () => {
+    el.removeEventListener('canplay', onCanPlay)
+    if (cancelled) return
+    window.setTimeout(runUpgrade, 800)
+  }
+
+  if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+    window.setTimeout(runUpgrade, 800)
+  } else {
+    el.addEventListener('canplay', onCanPlay, { once: true })
+  }
+
+  return () => {
+    cancelled = true
+    el.removeEventListener('canplay', onCanPlay)
+  }
+}
+
 async function swapVideoSourcePreservingTime(
   el: HTMLVideoElement,
   info: StreamApiResponse,
@@ -502,6 +564,8 @@ function CleanPlayerMediaBridge({
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  /** Cancels deferred 720p upgrade when the video changes or unmounts. */
+  const upgradeCleanupRef = useRef<(() => void) | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
   const wasPlayingBeforeHiddenRef = useRef(false)
@@ -633,6 +697,9 @@ function CleanPlayerMediaBridge({
       }
     }
 
+    upgradeCleanupRef.current?.()
+    upgradeCleanupRef.current = null
+
     if (!videoId.trim()) {
       applyPlaybackFailure(new Error('missing videoId'), 'invalid videoId', setPhase)
       return () => {
@@ -688,10 +755,27 @@ function CleanPlayerMediaBridge({
 
         const applyToElement = (el: HTMLVideoElement) => {
           detachHls()
+          upgradeCleanupRef.current?.()
+          upgradeCleanupRef.current = null
           el.removeAttribute('src')
           el.load()
 
           const { src: playbackSrc } = streamResponseToSource(info)
+          const safeId = sanitizeYoutubeVideoId(videoId)
+
+          const attachUpgradeAfterStart = () => {
+            if (!safeId) return
+            upgradeCleanupRef.current = scheduleQualityUpgrade(
+              el,
+              safeId,
+              info,
+              detachHls,
+              (upgrade) => {
+                hlsJsActiveRef.current = false
+                setPhase({ kind: 'playing', info: upgrade })
+              }
+            )
+          }
 
           if (info.format === 'hls' && !canPlayNativeHls()) {
             if (!Hls.isSupported()) {
@@ -723,6 +807,7 @@ function CleanPlayerMediaBridge({
             hls.loadSource(playbackSrc)
             hls.attachMedia(el)
             setPhase({ kind: 'playing', info })
+            attachUpgradeAfterStart()
             return
           }
 
@@ -731,6 +816,7 @@ function CleanPlayerMediaBridge({
             console.info('[CleanPlayer] <video src>', playbackSrc)
           }
           setPhase({ kind: 'playing', info })
+          attachUpgradeAfterStart()
         }
 
         const tryAttach = () => {
@@ -761,58 +847,11 @@ function CleanPlayerMediaBridge({
       cancelled = true
       if (attachRafId != null) cancelAnimationFrame(attachRafId)
       ac?.abort()
+      upgradeCleanupRef.current?.()
+      upgradeCleanupRef.current = null
       detachHls()
     }
   }, [videoId, retryNonce, isLimitReached])
-
-  useEffect(() => {
-    if (phase.kind !== 'playing') return
-
-    const startHeight = playbackQualityHeight(phase.info.quality)
-    const upgradeHeight = playbackQualityHeight(STREAM_UPGRADE_QUALITY)
-    if (startHeight >= upgradeHeight) return
-
-    let cancelled = false
-
-    void (async () => {
-      try {
-        const upgrade = await fetchStreamInfo(videoId, { quality: STREAM_UPGRADE_QUALITY })
-        if (cancelled) return
-
-        const resolvedHeight = playbackQualityHeight(upgrade.quality)
-        if (resolvedHeight <= startHeight) return
-
-        const el = videoRef.current
-        if (!el) return
-
-        console.info(
-          `[CleanPlayer] upgrading ${videoId} ${phase.info.quality || STREAM_START_QUALITY} -> ${upgrade.quality || STREAM_UPGRADE_QUALITY}`
-        )
-
-        const ok = await swapVideoSourcePreservingTime(el, upgrade, () => {
-          if (hlsRef.current) {
-            hlsRef.current.destroy()
-            hlsRef.current = null
-          }
-        })
-        if (!ok || cancelled) return
-
-        hlsJsActiveRef.current = false
-        setPhase({ kind: 'playing', info: upgrade })
-      } catch (err) {
-        if (!cancelled) {
-          console.warn(
-            '[CleanPlayer] quality upgrade skipped:',
-            err instanceof Error ? err.message : err
-          )
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [videoId, phase])
 
   useEffect(() => {
     if (phase.kind !== 'resolving') return

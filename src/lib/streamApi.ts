@@ -849,7 +849,7 @@ async function doFetchStreamInfo(
   void assertLiveStreamPlayable(videoId).catch(() => {})
 
   const url = getStreamResolveUrl(videoId, quality)
-  logPlaybackStreamRequest(videoId, 'fetchStreamInfo')
+  logPlaybackStreamRequest(videoId, `fetchStreamInfo:${quality}`)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => {
