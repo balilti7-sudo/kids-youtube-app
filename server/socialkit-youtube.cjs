@@ -2,7 +2,10 @@
 
 const axios = require('axios');
 
-const SOCIALKIT_BASE = (process.env.SOCIALKIT_API_BASE || 'https://api.socialkit.dev').replace(/\/+$/, '');
+const SOCIALKIT_BASE = (process.env.SOCIALKIT_API_BASE || 'https://api.socialkit.dev').replace(
+  /\/+$/,
+  ''
+);
 const SOCIALKIT_ACCESS_KEY = (
   process.env.SOCIALKIT_ACCESS_KEY ||
   process.env.SOCIALKIT_API_KEY ||
@@ -11,12 +14,14 @@ const SOCIALKIT_ACCESS_KEY = (
 
 const DEFAULT_FORMAT = (process.env.SOCIALKIT_FORMAT || 'mp4').trim().toLowerCase();
 const DEFAULT_QUALITY = (process.env.SOCIALKIT_QUALITY || '360p').trim().toLowerCase();
-const REQUEST_TIMEOUT_MS = Number(process.env.SOCIALKIT_REQUEST_TIMEOUT_MS || 90_000);
-/** SocialKit docs: max ~10MB per download — oversize triggers RapidAPI fallback in index.cjs */
+const REQUEST_TIMEOUT_MS = Number(process.env.SOCIALKIT_REQUEST_TIMEOUT_MS || 90000);
+/** SocialKit max ~10MB per download; oversize triggers RapidAPI fallback in index.cjs */
 const SOCIALKIT_MAX_FILE_BYTES = Number(process.env.SOCIALKIT_MAX_FILE_BYTES || 10 * 1024 * 1024);
 
 function isSocialKitSizeLimitError(message) {
-  return /file size|too large|maximum|10\s*mb|size limit|exceed|exceeds limit/i.test(String(message || ''));
+  return /file size|too large|maximum|10\s*mb|size limit|exceed|exceeds limit/i.test(
+    String(message || '')
+  );
 }
 
 function requireApiKey() {
@@ -50,13 +55,14 @@ function channelIdFromLink(channelLink) {
 }
 
 function socialKitErrorMessage(res) {
-  const body = res?.data;
+  const body = res && res.data;
   if (body && typeof body === 'object') {
     if (typeof body.message === 'string' && body.message.trim()) return body.message.trim();
     if (typeof body.error === 'string' && body.error.trim()) return body.error.trim();
   }
   if (typeof body === 'string' && body.trim()) return body.trim().slice(0, 200);
-  return `HTTP ${res?.status ?? 'unknown'}`;
+  const status = res && res.status != null ? res.status : 'unknown';
+  return `HTTP ${status}`;
 }
 
 function mimeForFormat(format) {
@@ -98,7 +104,7 @@ async function resolveVideoDownloadUrl(videoId) {
     }
   );
 
-  if (res.status >= 400 || res.data?.success === false) {
+  if (res.status >= 400 || (res.data && res.data.success === false)) {
     const detail = socialKitErrorMessage(res);
     if (isSocialKitSizeLimitError(detail)) {
       throw new Error(`SocialKit file size limit: ${detail}`);
@@ -106,8 +112,8 @@ async function resolveVideoDownloadUrl(videoId) {
     throw new Error(`SocialKit download failed: ${detail}`);
   }
 
-  const data = res.data?.data;
-  const downloadUrl = data?.downloadUrl;
+  const data = res.data && res.data.data ? res.data.data : null;
+  const downloadUrl = data && data.downloadUrl;
   if (!downloadUrl || typeof downloadUrl !== 'string') {
     throw new Error('SocialKit download response missing downloadUrl');
   }
@@ -121,7 +127,7 @@ async function resolveVideoDownloadUrl(videoId) {
 
   console.log(
     `[socialkit] download ready video=${videoId} quality=${data.quality || DEFAULT_QUALITY} ` +
-      `size=${data.fileSizeMB || '?'} url=${downloadUrl.slice(0, 96)}…`
+      `size=${data.fileSizeMB || '?'} url=${downloadUrl.slice(0, 96)}...`
   );
 
   return {
@@ -131,7 +137,7 @@ async function resolveVideoDownloadUrl(videoId) {
   };
 }
 
-/** Metadata for `/api/info/:videoId` via SocialKit stats (no download). */
+/** Metadata for /api/info/:videoId via SocialKit stats (no download). */
 async function getVideoInfo(videoId) {
   requireApiKey();
 
@@ -148,11 +154,11 @@ async function getVideoInfo(videoId) {
     headers: { accept: 'application/json' },
   });
 
-  if (res.status >= 400 || res.data?.success === false) {
+  if (res.status >= 400 || (res.data && res.data.success === false)) {
     throw new Error(`SocialKit stats failed: ${socialKitErrorMessage(res)}`);
   }
 
-  const data = res.data?.data || {};
+  const data = (res.data && res.data.data) || {};
   const durationSeconds =
     parseDurationSeconds(data.duration) ?? parseDurationSeconds(data.durationSeconds);
 
