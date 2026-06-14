@@ -12,6 +12,12 @@ const SOCIALKIT_ACCESS_KEY = (
 const DEFAULT_FORMAT = (process.env.SOCIALKIT_FORMAT || 'mp4').trim().toLowerCase();
 const DEFAULT_QUALITY = (process.env.SOCIALKIT_QUALITY || '360p').trim().toLowerCase();
 const REQUEST_TIMEOUT_MS = Number(process.env.SOCIALKIT_REQUEST_TIMEOUT_MS || 90_000);
+/** SocialKit docs: max ~10MB per download — oversize triggers RapidAPI fallback in index.cjs */
+const SOCIALKIT_MAX_FILE_BYTES = Number(process.env.SOCIALKIT_MAX_FILE_BYTES || 10 * 1024 * 1024);
+
+function isSocialKitSizeLimitError(message) {
+  return /file size|too large|maximum|10\s*mb|size limit|exceed|exceeds limit/i.test(String(message || ''));
+}
 
 function requireApiKey() {
   if (!SOCIALKIT_ACCESS_KEY) {
@@ -93,13 +99,24 @@ async function resolveVideoDownloadUrl(videoId) {
   );
 
   if (res.status >= 400 || res.data?.success === false) {
-    throw new Error(`SocialKit download failed: ${socialKitErrorMessage(res)}`);
+    const detail = socialKitErrorMessage(res);
+    if (isSocialKitSizeLimitError(detail)) {
+      throw new Error(`SocialKit file size limit: ${detail}`);
+    }
+    throw new Error(`SocialKit download failed: ${detail}`);
   }
 
   const data = res.data?.data;
   const downloadUrl = data?.downloadUrl;
   if (!downloadUrl || typeof downloadUrl !== 'string') {
     throw new Error('SocialKit download response missing downloadUrl');
+  }
+
+  const fileSizeBytes = Number(data.fileSize);
+  if (Number.isFinite(fileSizeBytes) && fileSizeBytes > SOCIALKIT_MAX_FILE_BYTES) {
+    throw new Error(
+      `SocialKit file size ${fileSizeBytes} bytes exceeds limit (${SOCIALKIT_MAX_FILE_BYTES} bytes)`
+    );
   }
 
   console.log(
@@ -155,6 +172,8 @@ async function getVideoInfo(videoId) {
 
 module.exports = {
   SOCIALKIT_BASE,
+  SOCIALKIT_MAX_FILE_BYTES,
+  isSocialKitSizeLimitError,
   resolveVideoDownloadUrl,
   getVideoInfo,
 };
