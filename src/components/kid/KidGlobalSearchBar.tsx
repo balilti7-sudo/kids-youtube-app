@@ -8,6 +8,7 @@ export type KidGlobalSearchBarProps = {
   onChange: (value: string) => void
   onSubmit: (query: string) => void
   className?: string
+  onFocusChange?: (focused: boolean) => void
 }
 
 /**
@@ -20,6 +21,7 @@ export const KidGlobalSearchBar = memo(function KidGlobalSearchBar({
   onChange,
   onSubmit,
   className,
+  onFocusChange,
 }: KidGlobalSearchBarProps) {
   return (
     <section className={cn('w-full', className)} aria-label="חיפוש ב-YouTube">
@@ -34,6 +36,7 @@ export const KidGlobalSearchBar = memo(function KidGlobalSearchBar({
         value={value}
         onChange={onChange}
         onSubmit={onSubmit}
+        onFocusChange={onFocusChange}
         placeholder="חפשו בכל YouTube…"
         aria-label="חיפוש גלובלי ב-YouTube"
       />

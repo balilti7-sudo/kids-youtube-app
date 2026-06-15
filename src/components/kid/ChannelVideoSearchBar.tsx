@@ -1,7 +1,10 @@
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { cn } from '../../lib/utils'
+import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { RtlSearchInput } from '../search/RtlSearchInput'
+
+const DROPDOWN_PAGE_SIZE = 12
 
 export type ChannelVideoSearchDropdownItem = {
   id: string
@@ -43,9 +46,21 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   const listboxId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(DROPDOWN_PAGE_SIZE)
 
   const hasQuery = value.trim().length > 0
   const showDropdown = Boolean(dropdownResults) && hasQuery && focused
+  const totalResults = dropdownResults?.length ?? 0
+  const visibleResults = dropdownResults?.slice(0, visibleCount) ?? []
+  const hasMoreResults = totalResults > visibleCount
+
+  useEffect(() => {
+    setVisibleCount(DROPDOWN_PAGE_SIZE)
+  }, [value, totalResults])
+
+  const loadMoreResults = useCallback(() => {
+    setVisibleCount((count) => count + DROPDOWN_PAGE_SIZE)
+  }, [])
 
   const handleFocusChange = useCallback(
     (next: boolean) => {
@@ -117,8 +132,9 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
             ) : dropdownResults!.length === 0 ? (
               <p className="px-3 py-4 text-center text-sm text-yt-textMuted">לא נמצאו סרטונים בערוץ.</p>
             ) : (
-              <ul className="max-h-[min(50vh,280px)] overflow-y-auto py-1">
-                {dropdownResults!.map((video) => {
+              <>
+                <ul className="max-h-[min(50vh,280px)] overflow-y-auto py-1">
+                  {visibleResults.map((video) => {
                   const selected = video.id === activeResultId
                   return (
                     <li key={video.id} role="presentation">
@@ -156,8 +172,22 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
                       </button>
                     </li>
                   )
-                })}
-              </ul>
+                  })}
+                </ul>
+                {hasMoreResults ? (
+                  <div className="border-t border-yt-border p-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="!min-h-9 w-full text-xs font-semibold"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={loadMoreResults}
+                    >
+                      טען עוד ({totalResults - visibleCount} נוספים)
+                    </Button>
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
         ) : null}
