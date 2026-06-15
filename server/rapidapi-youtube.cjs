@@ -12,63 +12,56 @@ const RAPIDAPI_KEY = (
 ).trim();
 
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
-const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 60_000);
+/** Fail-fast: max 2s per RapidAPI HTTP call (override via RAPIDAPI_REQUEST_TIMEOUT_MS). */
+const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 2000);
 const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 120_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
-const RAPIDAPI_429_MAX_RETRIES = Number(process.env.RAPIDAPI_429_MAX_RETRIES || 4);
-const RAPIDAPI_429_BASE_MS = Number(process.env.RAPIDAPI_429_BASE_MS || 2_000);
 /** Retries when RapidAPI/CDN says the file is still being prepared (HTTP 404 + message). */
 const FILE_NOT_READY_MAX_ATTEMPTS = Number(process.env.RAPIDAPI_FILE_NOT_READY_MAX_RETRIES || 4);
 const FILE_NOT_READY_WAIT_MS = Number(process.env.RAPIDAPI_FILE_NOT_READY_WAIT_MS || 12_000);
 /** Optional query param for quality/info endpoints (default|url). */
 const RAPIDAPI_RESPONSE_MODE = (process.env.RAPIDAPI_RESPONSE_MODE || '').trim();
+const RESOLVER = 'RapidAPI';
+const QUOTA_EXCEEDED_MESSAGE = '[RapidAPI] Quota exceeded (429). Plan upgrade required';
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function isQuotaExceededResponse(res) {
+  if (!res) return false;
+  if (res.status === 429) return true;
+  const text = responseBodyText(res).toLowerCase();
+  return text.includes('quota') || text.includes('exceeded');
+}
+
+function assertQuotaAvailable(res, label = 'request') {
+  if (!isQuotaExceededResponse(res)) return;
+  console.error(
+    `[${RESOLVER}] Quota exceeded on ${label} HTTP ${res.status}: ${responseBodyText(res).slice(0, 300)}`
+  );
+  throw new Error(QUOTA_EXCEEDED_MESSAGE);
+}
+
 /**
- * Axios GET with exponential backoff on RapidAPI HTTP 429 (rate limit).
+ * Axios GET ? fail fast on quota (429); no retry loop.
  */
 async function rapidApiGet(url, config = {}, { label = 'request' } = {}) {
-  let lastRes = null;
+  const params = config.params || {};
+  const query = new URLSearchParams(params).toString();
+  const fullUrl = query ? `${url}?${query}` : url;
+  console.log(
+    `[rapidapi] GET ${label} url=${fullUrl} params=${JSON.stringify(params)} timeout=${RAPIDAPI_REQUEST_TIMEOUT_MS}ms`
+  );
 
-  for (let attempt = 0; attempt <= RAPIDAPI_429_MAX_RETRIES; attempt++) {
-    const params = config.params || {};
-    const query = new URLSearchParams(params).toString();
-    const fullUrl = query ? `${url}?${query}` : url;
-    console.log(
-      `[rapidapi] GET ${label} attempt=${attempt + 1} url=${fullUrl} params=${JSON.stringify(params)}`
-    );
+  const res = await axios.get(url, {
+    timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
+    ...config,
+    validateStatus: () => true,
+  });
 
-    const res = await axios.get(url, {
-      ...config,
-      validateStatus: () => true,
-    });
-    lastRes = res;
-
-    if (res.status === 429) {
-      if (attempt >= RAPIDAPI_429_MAX_RETRIES) {
-        const detail =
-          typeof res.data === 'string'
-            ? res.data.slice(0, 200)
-            : JSON.stringify(res.data || {}).slice(0, 200);
-        throw new Error(
-          `RapidAPI ${label} HTTP 429 after ${attempt + 1} attempts (rate limited): ${detail}`
-        );
-      }
-      const delayMs = RAPIDAPI_429_BASE_MS * 2 ** attempt;
-      console.warn(
-        `[rapidapi] ${label} HTTP 429 ? retry ${attempt + 1}/${RAPIDAPI_429_MAX_RETRIES} in ${delayMs}ms`
-      );
-      await sleep(delayMs);
-      continue;
-    }
-
-    return res;
-  }
-
-  return lastRes;
+  assertQuotaAvailable(res, label);
+  return res;
 }
 
 function requireApiKey() {
@@ -166,6 +159,7 @@ async function unwrapResponseModeUrl(data) {
     timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
     validateStatus: () => true,
   });
+  assertQuotaAvailable(res, 'response_mode url');
   console.log(
     `[rapidapi] response_mode url HTTP ${res.status} body=${rapidApiBodyPreview(res.data, 800)}`
   );
@@ -217,7 +211,6 @@ async function fetchQualitiesFromPath(videoId, pathLabel, pathSuffix) {
     `${RAPIDAPI_BASE}/${pathSuffix}/${videoId}`,
     {
       headers: rapidHeaders(),
-      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
       params: qualityEndpointParams(),
     },
     { label: `${pathLabel}/${videoId}` }
@@ -259,7 +252,6 @@ async function getAvailableQualities(videoId) {
     `${RAPIDAPI_BASE}/get-video-info/${videoId}`,
     {
       headers: rapidHeaders(),
-      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
       params: qualityEndpointParams(),
     },
     { label: `get-video-info/${videoId}` }
@@ -303,7 +295,6 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
       {
         params: { quality: qualityId },
         headers: rapidHeaders(),
-        timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
       },
       { label: `${path}/${videoId}` }
     );
@@ -385,10 +376,11 @@ async function requestDownloadMetaWithFallback(videoId, qualityId, isShortHint =
 async function probeFileUrl(fileUrl) {
   try {
     const head = await axios.head(fileUrl, {
-      timeout: 12_000,
+      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
       maxRedirects: 5,
       validateStatus: () => true,
     });
+    assertQuotaAvailable(head, 'cdn HEAD probe');
     return head.status || 0;
   } catch (err) {
     console.warn(`[rapidapi] file HEAD probe error: ${err.message}`);
@@ -406,10 +398,11 @@ async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
     attempts += 1;
     try {
       const head = await axios.head(fileUrl, {
-        timeout: 12_000,
+        timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
         maxRedirects: 5,
         validateStatus: () => true,
       });
+      assertQuotaAvailable(head, 'cdn HEAD wait');
       lastStatus = head.status;
       if (head.status === 200) {
         console.log(
@@ -513,7 +506,7 @@ function normalizeStreamQuality(raw, fallback = '360p') {
 async function getVideoInfo(videoId) {
   const res = await rapidApiGet(
     `${RAPIDAPI_BASE}/get-video-info/${videoId}`,
-    { headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
+    { headers: rapidHeaders() },
     { label: `get-video-info/${videoId}` }
   );
 

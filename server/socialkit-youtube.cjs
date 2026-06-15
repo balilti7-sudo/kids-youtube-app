@@ -14,9 +14,49 @@ const SOCIALKIT_ACCESS_KEY = (
 
 const DEFAULT_FORMAT = (process.env.SOCIALKIT_FORMAT || 'mp4').trim().toLowerCase();
 const DEFAULT_QUALITY = (process.env.SOCIALKIT_QUALITY || '360p').trim().toLowerCase();
-const REQUEST_TIMEOUT_MS = Number(process.env.SOCIALKIT_REQUEST_TIMEOUT_MS || 90000);
+/** Fail-fast: max 2s per SocialKit HTTP call (override via SOCIALKIT_REQUEST_TIMEOUT_MS). */
+const REQUEST_TIMEOUT_MS = Number(process.env.SOCIALKIT_REQUEST_TIMEOUT_MS || 2000);
 /** SocialKit max ~10MB per download; oversize triggers RapidAPI fallback in index.cjs */
 const SOCIALKIT_MAX_FILE_BYTES = Number(process.env.SOCIALKIT_MAX_FILE_BYTES || 10 * 1024 * 1024);
+const RESOLVER = 'SocialKit';
+
+function responseBodyText(data) {
+  if (data == null) return '';
+  if (typeof data === 'string') return data;
+  if (typeof data === 'object') {
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return String(data);
+    }
+  }
+  return String(data);
+}
+
+function isGeoBlockedText(text) {
+  const t = String(text || '').toLowerCase();
+  return (
+    t.includes('not made this video available in your country') || t.includes('available in')
+  );
+}
+
+function throwResolverError(message, logExtra = '') {
+  console.error(`[${RESOLVER}] ${logExtra || message}`);
+  throw new Error(message);
+}
+
+/** Detect YouTube region restrictions before parsing a successful-looking payload. */
+function assertNotGeoBlocked(res, { videoId = '', endpoint = '' } = {}) {
+  const detail = socialKitErrorMessage(res);
+  const bodyText = responseBodyText(res && res.data);
+  const combined = `${detail}\n${bodyText}`;
+  if (isGeoBlockedText(combined)) {
+    throwResolverError(
+      '[SocialKit] Geo-blocked: Video is region-restricted (Israel only)',
+      `Geo-blocked video=${videoId || '?'} endpoint=${endpoint || '?'} detail=${detail.slice(0, 200)}`
+    );
+  }
+}
 
 function isSocialKitSizeLimitError(message) {
   return /file size|too large|maximum|10\s*mb|size limit|exceed|exceeds limit/i.test(
@@ -105,6 +145,8 @@ async function resolveVideoDownloadUrl(videoId, requestedQuality = DEFAULT_QUALI
     }
   );
 
+  assertNotGeoBlocked(res, { videoId, endpoint: '/youtube/download' });
+
   if (res.status >= 400 || (res.data && res.data.success === false)) {
     const detail = socialKitErrorMessage(res);
     if (isSocialKitSizeLimitError(detail)) {
@@ -154,6 +196,8 @@ async function getVideoInfo(videoId) {
     validateStatus: () => true,
     headers: { accept: 'application/json' },
   });
+
+  assertNotGeoBlocked(res, { videoId, endpoint: '/youtube/stats' });
 
   if (res.status >= 400 || (res.data && res.data.success === false)) {
     throw new Error(`SocialKit stats failed: ${socialKitErrorMessage(res)}`);
