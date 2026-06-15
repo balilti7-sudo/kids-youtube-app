@@ -30,8 +30,13 @@ const HOST = process.env.HOST || '0.0.0.0';
 const DEFAULT_ANDROID_YOUTUBE_UA =
   'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36';
 const MEDIA_USER_AGENT = (process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
-/** Max wait for upstream CDN bytes when proxying /api/media (ms). */
 const MEDIA_PROXY_TIMEOUT_MS = Number(process.env.MEDIA_PROXY_TIMEOUT_MS || 90_000);
+/** Wait before re-resolving RapidAPI CDN URLs that returned 404 during /api/media proxy. */
+const RAPIDAPI_MEDIA_RETRY_WAIT_MS = Number(process.env.RAPIDAPI_MEDIA_RETRY_WAIT_MS || 12_000);
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const app = express();
 
@@ -229,6 +234,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
     videoId,
     quality,
     cacheKey,
+    source,
     redirectCount = 0,
     retried = false,
     refreshUpstream,
@@ -294,7 +300,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
           resolveCache.delete(cacheKey);
         }
         console.error(
-          `[/api/media] upstream HTTP ${status} video=${videoId || '?'} quality=${quality || '?'} url=${upstreamUrl.slice(0, 96)}…`
+          `[/api/media] upstream HTTP ${status} video=${videoId || '?'} quality=${quality || '?'} source=${source || '?'} url=${upstreamUrl.slice(0, 96)}…`
         );
 
         if (
@@ -304,26 +310,46 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
           !res.headersSent
         ) {
           proxyRes.resume();
-          return Promise.resolve(refreshUpstream())
+          return sleepMs(source === 'rapidapi' ? RAPIDAPI_MEDIA_RETRY_WAIT_MS : 0)
+            .then(() => refreshUpstream())
             .then((freshUrl) => {
               if (!freshUrl || res.headersSent) return;
               console.log(
-                `[/api/media] retry after stale upstream video=${videoId || '?'} quality=${quality || '?'}`
+                `[/api/media] retry after stale upstream video=${videoId || '?'} quality=${quality || '?'} source=${source || '?'}`
               );
               proxyUpstreamMedia(req, res, freshUrl, { ...proxyOpts, retried: true });
             })
             .catch((err) => {
               console.error('[/api/media] refresh after stale upstream failed:', err.message);
               if (!res.headersSent) {
-                res.status(status);
-                res.end();
+                if (source === 'rapidapi' && status === 404) {
+                  res.status(503).json({
+                    error: 'FILE_NOT_READY',
+                    detail: err.message.split('\n').slice(0, 2).join(' '),
+                    retryAfterSec: 15,
+                  });
+                } else {
+                  res.status(status);
+                  res.end();
+                }
               }
             });
         }
 
-        if (!res.headersSent) res.status(status);
+        if (!res.headersSent) {
+          if (staleUpstream && source === 'rapidapi' && status === 404) {
+            res.status(503).json({
+              error: 'FILE_NOT_READY',
+              detail: 'Upstream CDN file not ready yet (large video may still be processing)',
+              retryAfterSec: 15,
+            });
+          } else {
+            res.status(status);
+            res.end();
+          }
+        }
         proxyRes.resume();
-        return res.end();
+        return;
       }
 
       res.status(status);
@@ -512,15 +538,22 @@ app.get('/api/media/:videoId', async (req, res) => {
       lookup.entry || (await getCachedUpstreamUrl(videoId, rawQuality));
 
     console.log(
-      `[/api/media] ${videoId} requested=${quality} cache=${cacheKey} lookup=${lookup.lookup} hit=${Boolean(cached?.upstreamUrl)}`
+      `[/api/media] ${videoId} requested=${quality} cache=${cacheKey} lookup=${lookup.lookup} hit=${Boolean(cached?.upstreamUrl)} source=${cached?.source || '?'}`
     );
 
     proxyUpstreamMedia(req, res, cached.upstreamUrl, {
       videoId,
       quality,
       cacheKey,
+      source: cached.source || null,
       refreshUpstream: async () => {
         const fresh = await getCachedUpstreamUrl(videoId, rawQuality, { forceRefresh: true });
+        if (fresh?.source === 'rapidapi' && fresh.upstreamUrl) {
+          const probe = await rapidApi.probeFileUrl(fresh.upstreamUrl);
+          if (probe !== 200) {
+            await rapidApi.waitForFileReady(fresh.upstreamUrl, { videoId });
+          }
+        }
         return fresh && fresh.upstreamUrl ? fresh.upstreamUrl : null;
       },
     });

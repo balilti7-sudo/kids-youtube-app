@@ -13,7 +13,7 @@ const RAPIDAPI_KEY = (
 
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
 const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 60_000);
-const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 60_000);
+const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 120_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
 const RAPIDAPI_429_MAX_RETRIES = Number(process.env.RAPIDAPI_429_MAX_RETRIES || 4);
 const RAPIDAPI_429_BASE_MS = Number(process.env.RAPIDAPI_429_BASE_MS || 2_000);
@@ -212,6 +212,20 @@ async function requestDownloadMeta(videoId, qualityId) {
   );
 }
 
+async function probeFileUrl(fileUrl) {
+  try {
+    const head = await axios.head(fileUrl, {
+      timeout: 12_000,
+      maxRedirects: 5,
+      validateStatus: () => true,
+    });
+    return head.status || 0;
+  } catch (err) {
+    console.warn(`[rapidapi] file HEAD probe error: ${err.message}`);
+    return 0;
+  }
+}
+
 async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
   const startedAt = Date.now();
   const deadline = startedAt + FILE_READY_MAX_MS;
@@ -279,16 +293,17 @@ async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
   }
 
   const meta = await requestDownloadMeta(videoId, qualityId);
-  const targetHeight = parseHeight(targetQuality);
-  if (targetHeight > 0 && targetHeight <= 480) {
-    return {
-      url: meta.file,
-      quality: meta.quality || targetQuality,
-      mime: meta.mime,
-    };
-  }
+  const cdnStatus = await probeFileUrl(meta.file);
 
-  await waitForFileReady(meta.file, { videoId });
+  if (cdnStatus === 200) {
+    console.log(`[rapidapi] CDN ready video=${videoId} quality=${targetQuality} HTTP 200`);
+  } else {
+    console.log(
+      `[rapidapi] CDN not ready video=${videoId} quality=${targetQuality} ` +
+        `HTTP ${cdnStatus || 'error'} ? waiting up to ${FILE_READY_MAX_MS}ms`
+    );
+    await waitForFileReady(meta.file, { videoId });
+  }
 
   return {
     url: meta.file,
@@ -322,4 +337,6 @@ module.exports = {
   resolveVideoDownloadUrl,
   getVideoInfo,
   pickVideoQualityId,
+  waitForFileReady,
+  probeFileUrl,
 };
