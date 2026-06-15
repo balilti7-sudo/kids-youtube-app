@@ -20,6 +20,8 @@ const RAPIDAPI_429_BASE_MS = Number(process.env.RAPIDAPI_429_BASE_MS || 2_000);
 /** Retries when RapidAPI/CDN says the file is still being prepared (HTTP 404 + message). */
 const FILE_NOT_READY_MAX_ATTEMPTS = Number(process.env.RAPIDAPI_FILE_NOT_READY_MAX_RETRIES || 4);
 const FILE_NOT_READY_WAIT_MS = Number(process.env.RAPIDAPI_FILE_NOT_READY_WAIT_MS || 12_000);
+/** Optional query param for quality/info endpoints (default|url). */
+const RAPIDAPI_RESPONSE_MODE = (process.env.RAPIDAPI_RESPONSE_MODE || '').trim();
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -109,10 +111,80 @@ function isFileNotReadyHttpResponse(res) {
   return false;
 }
 
-function pickVideoQualityId(qualities, targetQuality = null) {
-  const videos = (Array.isArray(qualities) ? qualities : []).filter(
-    (q) => q && q.type === 'video' && q.id != null
+function rapidApiBodyPreview(data, maxLen = 1200) {
+  if (data == null) return '(null)';
+  if (typeof data === 'string') return data.slice(0, maxLen);
+  try {
+    return JSON.stringify(data).slice(0, maxLen);
+  } catch {
+    return String(data).slice(0, maxLen);
+  }
+}
+
+function logRapidApiResponse(label, res, videoId, extra = {}) {
+  const bodyType =
+    res.data === null ? 'null' : Array.isArray(res.data) ? 'array' : typeof res.data;
+  const keys =
+    res.data && typeof res.data === 'object' && !Array.isArray(res.data)
+      ? Object.keys(res.data).slice(0, 12).join(',')
+      : '';
+  const qualityCount = parseQualitiesFromResponse(res.data).length;
+  console.log(
+    `[rapidapi] ${label} video=${videoId} HTTP ${res.status} bodyType=${bodyType}` +
+      (keys ? ` keys=${keys}` : '') +
+      ` qualityCount=${qualityCount}` +
+      (extra.source ? ` via=${extra.source}` : '') +
+      ` body=${rapidApiBodyPreview(res.data)}`
   );
+}
+
+function parseQualitiesFromResponse(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return [];
+  if (Array.isArray(data.availableQuality)) return data.availableQuality;
+  if (Array.isArray(data.qualities)) return data.qualities;
+  if (Array.isArray(data.qualityOptions)) return data.qualityOptions;
+  if (Array.isArray(data.data)) return data.data;
+  if (data.data && typeof data.data === 'object') {
+    if (Array.isArray(data.data.availableQuality)) return data.data.availableQuality;
+    if (Array.isArray(data.data.qualities)) return data.data.qualities;
+  }
+  return [];
+}
+
+async function unwrapResponseModeUrl(data) {
+  if (!data || typeof data !== 'object' || !data.url) return data;
+  const url = String(data.url).trim();
+  if (!url.startsWith('http')) return data;
+  const looksLikeWrapper =
+    data.status === 'processed' ||
+    /response is available using the `url` key/i.test(String(data.comment || ''));
+  if (!looksLikeWrapper) return data;
+
+  console.log(`[rapidapi] fetching response_mode url wrapper: ${url.slice(0, 120)}...`);
+  const res = await axios.get(url, {
+    timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
+    validateStatus: () => true,
+  });
+  console.log(
+    `[rapidapi] response_mode url HTTP ${res.status} body=${rapidApiBodyPreview(res.data, 800)}`
+  );
+  return res.status < 400 ? res.data : data;
+}
+
+function isVideoQualityEntry(q) {
+  if (!q || q.id == null) return false;
+  if (q.type === 'audio') return false;
+  if (q.type === 'video') return true;
+  const mime = String(q.mime || '');
+  if (/^audio\//i.test(mime)) return false;
+  if (/^video\//i.test(mime)) return true;
+  if (q.quality && /\d+\s*p/i.test(String(q.quality))) return true;
+  return q.type == null;
+}
+
+function pickVideoQualityId(qualities, targetQuality = null) {
+  const videos = (Array.isArray(qualities) ? qualities : []).filter(isVideoQualityEntry);
   if (videos.length === 0) return null;
 
   const mp4 = videos.filter((q) => /mp4/i.test(String(q.mime || '')));
@@ -135,40 +207,114 @@ function pickVideoQualityId(qualities, targetQuality = null) {
   return ranked[0]?.id ?? null;
 }
 
-async function getAvailableQualities(videoId) {
-  const res = await rapidApiGet(
-    `${RAPIDAPI_BASE}/get_available_quality/${videoId}`,
-    { headers: rapidHeaders(), timeout: RAPIDAPI_REQUEST_TIMEOUT_MS },
-    { label: `get_available_quality/${videoId}` }
-  );
-
-  if (res.status >= 400) {
-    throw new Error(`RapidAPI get_available_quality HTTP ${res.status}`);
-  }
-
-  return Array.isArray(res.data) ? res.data : [];
+function qualityEndpointParams() {
+  if (!RAPIDAPI_RESPONSE_MODE) return {};
+  return { response_mode: RAPIDAPI_RESPONSE_MODE };
 }
 
-async function requestDownloadMeta(videoId, qualityId) {
+async function fetchQualitiesFromPath(videoId, pathLabel, pathSuffix) {
+  const res = await rapidApiGet(
+    `${RAPIDAPI_BASE}/${pathSuffix}/${videoId}`,
+    {
+      headers: rapidHeaders(),
+      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
+      params: qualityEndpointParams(),
+    },
+    { label: `${pathLabel}/${videoId}` }
+  );
+  logRapidApiResponse(pathLabel, res, videoId);
+  if (res.status >= 400) {
+    return { qualities: [], ok: false, status: res.status, detail: responseBodyText(res).slice(0, 300) };
+  }
+  const unwrapped = await unwrapResponseModeUrl(res.data);
+  const qualities = parseQualitiesFromResponse(unwrapped);
+  return { qualities, ok: true, status: res.status, raw: unwrapped };
+}
+
+async function getAvailableQualities(videoId) {
+  const primary = await fetchQualitiesFromPath(
+    videoId,
+    'get_available_quality',
+    'get_available_quality'
+  );
+
+  if (primary.qualities.length > 0) {
+    console.log(
+      `[rapidapi] using ${primary.qualities.length} qualities from get_available_quality video=${videoId}`
+    );
+    return { qualities: primary.qualities, source: 'get_available_quality', isShortHint: false };
+  }
+
+  if (!primary.ok) {
+    console.warn(
+      `[rapidapi] get_available_quality failed video=${videoId} HTTP ${primary.status}: ${primary.detail || ''}`
+    );
+  } else {
+    console.warn(
+      `[rapidapi] get_available_quality returned empty list video=${videoId} ? trying get-video-info`
+    );
+  }
+
+  const infoRes = await rapidApiGet(
+    `${RAPIDAPI_BASE}/get-video-info/${videoId}`,
+    {
+      headers: rapidHeaders(),
+      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
+      params: qualityEndpointParams(),
+    },
+    { label: `get-video-info/${videoId}` }
+  );
+  logRapidApiResponse('get-video-info', infoRes, videoId);
+
+  let isShortHint = false;
+  if (infoRes.status < 400 && infoRes.data && typeof infoRes.data === 'object') {
+    const info = await unwrapResponseModeUrl(infoRes.data);
+    const title = String(info.title || '').toLowerCase();
+    const duration = Number(info.lengthSeconds || 0);
+    isShortHint = duration > 0 && duration <= 65;
+    if (/short/i.test(title)) isShortHint = true;
+    const fromInfo = parseQualitiesFromResponse(info);
+    if (fromInfo.length > 0) {
+      console.log(
+        `[rapidapi] using ${fromInfo.length} qualities from get-video-info.availableQuality video=${videoId}`
+      );
+      return { qualities: fromInfo, source: 'get-video-info', isShortHint };
+    }
+    console.warn(
+      `[rapidapi] get-video-info had no availableQuality video=${videoId} ` +
+        `title=${JSON.stringify(info.title || '').slice(0, 80)} duration=${info.lengthSeconds || '?'}`
+    );
+  } else if (infoRes.status >= 400) {
+    console.warn(
+      `[rapidapi] get-video-info failed video=${videoId} HTTP ${infoRes.status}: ${responseBodyText(infoRes).slice(0, 300)}`
+    );
+  }
+
+  return { qualities: [], source: 'none', isShortHint };
+}
+
+async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
+  const path = downloadKind === 'short' ? 'download_short' : 'download_video';
   let lastDetail = '';
 
   for (let attempt = 1; attempt <= FILE_NOT_READY_MAX_ATTEMPTS; attempt++) {
     const res = await rapidApiGet(
-      `${RAPIDAPI_BASE}/download_video/${videoId}`,
+      `${RAPIDAPI_BASE}/${path}/${videoId}`,
       {
         params: { quality: qualityId },
         headers: rapidHeaders(),
         timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
       },
-      { label: `download_video/${videoId}` }
+      { label: `${path}/${videoId}` }
     );
 
     if (res.status >= 400) {
       lastDetail = responseBodyText(res).slice(0, 200);
+      logRapidApiResponse(path, res, videoId);
 
       if (isFileNotReadyHttpResponse(res) && attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
         console.warn(
-          `[rapidapi] download_video file not ready video=${videoId} ` +
+          `[rapidapi] ${path} file not ready video=${videoId} ` +
             `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} HTTP ${res.status} ? ` +
             `retry in ${FILE_NOT_READY_WAIT_MS}ms (${lastDetail || 'no body'})`
         );
@@ -176,26 +322,30 @@ async function requestDownloadMeta(videoId, qualityId) {
         continue;
       }
 
-      throw new Error(`RapidAPI download_video HTTP ${res.status}: ${lastDetail}`);
+      const err = new Error(`RapidAPI ${path} HTTP ${res.status}: ${lastDetail}`);
+      err.downloadKind = downloadKind;
+      throw err;
     }
+
+    logRapidApiResponse(path, res, videoId, { source: 'download-meta' });
 
     const file = res.data && res.data.file;
     if (!file || typeof file !== 'string') {
       lastDetail = 'response missing file URL';
       if (attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
         console.warn(
-          `[rapidapi] download_video missing file URL video=${videoId} ` +
+          `[rapidapi] ${path} missing file URL video=${videoId} ` +
             `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} ? retry in ${FILE_NOT_READY_WAIT_MS}ms`
         );
         await sleep(FILE_NOT_READY_WAIT_MS);
         continue;
       }
-      throw new Error('RapidAPI download_video response missing file URL');
+      throw new Error(`RapidAPI ${path} response missing file URL`);
     }
 
     if (attempt > 1) {
       console.log(
-        `[rapidapi] download_video ready video=${videoId} after ${attempt} attempts`
+        `[rapidapi] ${path} ready video=${videoId} after ${attempt} attempts`
       );
     }
 
@@ -208,8 +358,28 @@ async function requestDownloadMeta(videoId, qualityId) {
   }
 
   throw new Error(
-    `RapidAPI download_video file not ready after ${FILE_NOT_READY_MAX_ATTEMPTS} attempts: ${lastDetail}`
+    `RapidAPI ${path} file not ready after ${FILE_NOT_READY_MAX_ATTEMPTS} attempts: ${lastDetail}`
   );
+}
+
+async function requestDownloadMetaWithFallback(videoId, qualityId, isShortHint = false) {
+  const order = isShortHint
+    ? ['short', 'video']
+    : ['video', 'short'];
+
+  let lastErr = null;
+  for (const kind of order) {
+    try {
+      return await requestDownloadMeta(videoId, qualityId, kind);
+    } catch (err) {
+      lastErr = err;
+      console.warn(
+        `[rapidapi] ${kind === 'short' ? 'download_short' : 'download_video'} failed ` +
+          `video=${videoId} qualityId=${qualityId}: ${err.message}`
+      );
+    }
+  }
+  throw lastErr || new Error('RapidAPI download failed');
 }
 
 async function probeFileUrl(fileUrl) {
@@ -281,18 +451,40 @@ async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
  */
 async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
   const targetQuality = normalizeStreamQuality(requestedQuality);
-  const qualities = await getAvailableQualities(videoId);
+  const { qualities, source, isShortHint } = await getAvailableQualities(videoId);
+
+  console.log(
+    `[rapidapi] resolve video=${videoId} target=${targetQuality} qualitySource=${source} ` +
+      `count=${qualities.length} shortHint=${isShortHint}`
+  );
+
+  if (qualities.length > 0) {
+    console.log(
+      `[rapidapi] quality options video=${videoId}: ` +
+        qualities
+          .slice(0, 8)
+          .map((q) => `id=${q.id} q=${q.quality || '?'} type=${q.type || '?'} mime=${String(q.mime || '').slice(0, 24)}`)
+          .join(' | ')
+    );
+  }
+
   let qualityId = pickVideoQualityId(qualities, targetQuality);
 
   if (!qualityId && DEFAULT_QUALITY) {
     qualityId = DEFAULT_QUALITY;
+    console.log(`[rapidapi] using RAPIDAPI_YOUTUBE_QUALITY=${qualityId} video=${videoId}`);
   }
 
   if (!qualityId) {
-    throw new Error('No suitable RapidAPI video quality found');
+    throw new Error(
+      `No suitable RapidAPI video quality found for ${videoId} ` +
+        `(qualitySource=${source}, listed=${qualities.length}, target=${targetQuality})`
+    );
   }
 
-  const meta = await requestDownloadMeta(videoId, qualityId);
+  console.log(`[rapidapi] picked qualityId=${qualityId} for video=${videoId} target=${targetQuality}`);
+
+  const meta = await requestDownloadMetaWithFallback(videoId, qualityId, isShortHint);
   const cdnStatus = await probeFileUrl(meta.file);
 
   if (cdnStatus === 200) {
@@ -337,6 +529,8 @@ module.exports = {
   resolveVideoDownloadUrl,
   getVideoInfo,
   pickVideoQualityId,
+  parseQualitiesFromResponse,
+  getAvailableQualities,
   waitForFileReady,
   probeFileUrl,
 };
