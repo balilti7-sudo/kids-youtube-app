@@ -16,9 +16,10 @@ const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
 const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 2000);
 const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 120_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
-/** Retries when RapidAPI/CDN says the file is still being prepared (HTTP 404 + message). */
-const FILE_NOT_READY_MAX_ATTEMPTS = Number(process.env.RAPIDAPI_FILE_NOT_READY_MAX_RETRIES || 4);
-const FILE_NOT_READY_WAIT_MS = Number(process.env.RAPIDAPI_FILE_NOT_READY_WAIT_MS || 12_000);
+/** Polling when RapidAPI/CDN says the file is still being prepared. */
+const DOWNLOAD_POLL_MAX_ATTEMPTS = Number(process.env.RAPIDAPI_DOWNLOAD_POLL_MAX_ATTEMPTS || 5);
+const DOWNLOAD_POLL_WAIT_MS = Number(process.env.RAPIDAPI_FILE_NOT_READY_WAIT_MS || 12_000);
+const CDN_PROBE_TIMEOUT_MS = Number(process.env.RAPIDAPI_CDN_PROBE_TIMEOUT_MS || 8000);
 /** Optional query param for quality/info endpoints (default|url). */
 const RAPIDAPI_RESPONSE_MODE = (process.env.RAPIDAPI_RESPONSE_MODE || '').trim();
 const RESOLVER = 'RapidAPI';
@@ -99,9 +100,34 @@ function responseBodyText(res) {
 /** RapidAPI often returns 404 (or 524 timeout) while the CDN file is still processing. */
 function isFileNotReadyHttpResponse(res) {
   const detail = responseBodyText(res).toLowerCase();
-  if (/file not ready|not ready|still processing|processing|try again/i.test(detail)) return true;
-  if (res.status === 524) return true;
+  if (/file not ready|not ready|still processing|processing|preparing|try again/i.test(detail)) {
+    return true;
+  }
+  if (res.status === 404 || res.status === 524) return true;
   return false;
+}
+
+/** JSON body indicates the CDN file is still being prepared. */
+function isApiResponsePreparing(res) {
+  if (!res || !res.data) return false;
+  const detail = responseBodyText(res).toLowerCase();
+  if (/prepar/i.test(detail)) return true;
+  if (typeof res.data === 'object' && !Array.isArray(res.data)) {
+    const status = String(
+      res.data.status || res.data.fileStatus || res.data.state || res.data.file_state || ''
+    ).toLowerCase();
+    if (/prepar|processing|pending|not.?ready/i.test(status)) return true;
+  }
+  return false;
+}
+
+function logDownloadFileNotReady(path, videoId, attempt, extra = '') {
+  console.warn(
+    `[rapidapi] ${path} file not ready video=${videoId} ` +
+      `attempt=${attempt}/${DOWNLOAD_POLL_MAX_ATTEMPTS}` +
+      (extra ? ` ${extra}` : '') +
+      ` ? retry in ${DOWNLOAD_POLL_WAIT_MS}ms`
+  );
 }
 
 function rapidApiBodyPreview(data, maxLen = 1200) {
@@ -289,7 +315,7 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
   const path = downloadKind === 'short' ? 'download_short' : 'download_video';
   let lastDetail = '';
 
-  for (let attempt = 1; attempt <= FILE_NOT_READY_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= DOWNLOAD_POLL_MAX_ATTEMPTS; attempt++) {
     const res = await rapidApiGet(
       `${RAPIDAPI_BASE}/${path}/${videoId}`,
       {
@@ -303,13 +329,9 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
       lastDetail = responseBodyText(res).slice(0, 200);
       logRapidApiResponse(path, res, videoId);
 
-      if (isFileNotReadyHttpResponse(res) && attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
-        console.warn(
-          `[rapidapi] ${path} file not ready video=${videoId} ` +
-            `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} HTTP ${res.status} ? ` +
-            `retry in ${FILE_NOT_READY_WAIT_MS}ms (${lastDetail || 'no body'})`
-        );
-        await sleep(FILE_NOT_READY_WAIT_MS);
+      if (isFileNotReadyHttpResponse(res) && attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
+        logDownloadFileNotReady(path, videoId, attempt, `HTTP ${res.status}`);
+        await sleep(DOWNLOAD_POLL_WAIT_MS);
         continue;
       }
 
@@ -320,36 +342,52 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
 
     logRapidApiResponse(path, res, videoId, { source: 'download-meta' });
 
-    const file = res.data && res.data.file;
-    if (!file || typeof file !== 'string') {
-      lastDetail = 'response missing file URL';
-      if (attempt < FILE_NOT_READY_MAX_ATTEMPTS) {
-        console.warn(
-          `[rapidapi] ${path} missing file URL video=${videoId} ` +
-            `attempt=${attempt}/${FILE_NOT_READY_MAX_ATTEMPTS} ? retry in ${FILE_NOT_READY_WAIT_MS}ms`
-        );
-        await sleep(FILE_NOT_READY_WAIT_MS);
+    if (isApiResponsePreparing(res)) {
+      lastDetail = 'API status preparing';
+      if (attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
+        logDownloadFileNotReady(path, videoId, attempt, lastDetail);
+        await sleep(DOWNLOAD_POLL_WAIT_MS);
         continue;
       }
-      throw new Error(`RapidAPI ${path} response missing file URL`);
-    }
-
-    if (attempt > 1) {
-      console.log(
-        `[rapidapi] ${path} ready video=${videoId} after ${attempt} attempts`
+      throw new Error(
+        `RapidAPI ${path} file still preparing after ${DOWNLOAD_POLL_MAX_ATTEMPTS} attempts`
       );
     }
 
-    return {
-      file,
-      quality: res.data.quality || null,
-      mime: res.data.mime || 'video/mp4',
-      id: res.data.id,
-    };
+    const file = res.data && res.data.file;
+    if (!file || typeof file !== 'string') {
+      lastDetail = 'response missing file URL';
+      if (attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
+        logDownloadFileNotReady(path, videoId, attempt, lastDetail);
+        await sleep(DOWNLOAD_POLL_WAIT_MS);
+        continue;
+      }
+      throw new Error(`RapidAPI ${path} response missing file URL after ${DOWNLOAD_POLL_MAX_ATTEMPTS} attempts`);
+    }
+
+    const cdnStatus = await probeFileUrl(file);
+    if (cdnStatus === 200) {
+      if (attempt > 1) {
+        console.log(`[rapidapi] ${path} ready video=${videoId} after ${attempt} polling attempts`);
+      }
+      return {
+        file,
+        quality: res.data.quality || null,
+        mime: res.data.mime || 'video/mp4',
+        id: res.data.id,
+      };
+    }
+
+    lastDetail = `CDN link HTTP ${cdnStatus || 'error'}`;
+    if (attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
+      logDownloadFileNotReady(path, videoId, attempt, lastDetail);
+      await sleep(DOWNLOAD_POLL_WAIT_MS);
+      continue;
+    }
   }
 
   throw new Error(
-    `RapidAPI ${path} file not ready after ${FILE_NOT_READY_MAX_ATTEMPTS} attempts: ${lastDetail}`
+    `RapidAPI ${path} file not ready after ${DOWNLOAD_POLL_MAX_ATTEMPTS} attempts: ${lastDetail}`
   );
 }
 
@@ -376,7 +414,7 @@ async function requestDownloadMetaWithFallback(videoId, qualityId, isShortHint =
 async function probeFileUrl(fileUrl) {
   try {
     const head = await axios.head(fileUrl, {
-      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
+      timeout: CDN_PROBE_TIMEOUT_MS,
       maxRedirects: 5,
       validateStatus: () => true,
     });
@@ -478,17 +516,10 @@ async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
   console.log(`[rapidapi] picked qualityId=${qualityId} for video=${videoId} target=${targetQuality}`);
 
   const meta = await requestDownloadMetaWithFallback(videoId, qualityId, isShortHint);
-  const cdnStatus = await probeFileUrl(meta.file);
 
-  if (cdnStatus === 200) {
-    console.log(`[rapidapi] CDN ready video=${videoId} quality=${targetQuality} HTTP 200`);
-  } else {
-    console.log(
-      `[rapidapi] CDN not ready video=${videoId} quality=${targetQuality} ` +
-        `HTTP ${cdnStatus || 'error'} ? waiting up to ${FILE_READY_MAX_MS}ms`
-    );
-    await waitForFileReady(meta.file, { videoId });
-  }
+  console.log(
+    `[rapidapi] CDN ready video=${videoId} quality=${targetQuality} url=${meta.file.slice(0, 96)}...`
+  );
 
   return {
     url: meta.file,
