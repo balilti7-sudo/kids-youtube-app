@@ -44,6 +44,26 @@ function assertQuotaAvailable(res, label = 'request') {
   throw new Error(QUOTA_EXCEEDED_MESSAGE);
 }
 
+function logRapidApiAxiosError(err, label = 'request') {
+  if (err?.response) {
+    console.error(
+      `[rapidapi] ${label} axios error response.status=${err.response.status} ` +
+        `response.data=${rapidApiBodyPreview(err.response.data, 2000)}`
+    );
+    return;
+  }
+  console.error(`[rapidapi] ${label} axios error (no response): ${err?.message || err}`);
+}
+
+/** Log HTTP failure body when validateStatus accepts 4xx/5xx without throwing. */
+function logRapidApiHttpFailure(res, label, videoId = '') {
+  if (!res || res.status < 400) return;
+  console.error(
+    `[rapidapi] ${label}${videoId ? ` video=${videoId}` : ''} ` +
+      `response.status=${res.status} response.data=${rapidApiBodyPreview(res.data, 2000)}`
+  );
+}
+
 /**
  * Axios GET ? fail fast on quota (429); no retry loop.
  */
@@ -55,14 +75,22 @@ async function rapidApiGet(url, config = {}, { label = 'request' } = {}) {
     `[rapidapi] GET ${label} url=${fullUrl} params=${JSON.stringify(params)} timeout=${RAPIDAPI_REQUEST_TIMEOUT_MS}ms`
   );
 
-  const res = await axios.get(url, {
-    timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
-    ...config,
-    validateStatus: () => true,
-  });
+  try {
+    const res = await axios.get(url, {
+      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
+      ...config,
+      validateStatus: () => true,
+    });
 
-  assertQuotaAvailable(res, label);
-  return res;
+    assertQuotaAvailable(res, label);
+    if (res.status >= 400) {
+      logRapidApiHttpFailure(res, label);
+    }
+    return res;
+  } catch (err) {
+    logRapidApiAxiosError(err, label);
+    throw err;
+  }
 }
 
 function requireApiKey() {
@@ -181,15 +209,23 @@ async function unwrapResponseModeUrl(data) {
   if (!looksLikeWrapper) return data;
 
   console.log(`[rapidapi] fetching response_mode url wrapper: ${url.slice(0, 120)}...`);
-  const res = await axios.get(url, {
-    timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
-    validateStatus: () => true,
-  });
-  assertQuotaAvailable(res, 'response_mode url');
-  console.log(
-    `[rapidapi] response_mode url HTTP ${res.status} body=${rapidApiBodyPreview(res.data, 800)}`
-  );
-  return res.status < 400 ? res.data : data;
+  try {
+    const res = await axios.get(url, {
+      timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
+      validateStatus: () => true,
+    });
+    assertQuotaAvailable(res, 'response_mode url');
+    if (res.status >= 400) {
+      logRapidApiHttpFailure(res, 'response_mode url');
+    }
+    console.log(
+      `[rapidapi] response_mode url HTTP ${res.status} body=${rapidApiBodyPreview(res.data, 800)}`
+    );
+    return res.status < 400 ? res.data : data;
+  } catch (err) {
+    logRapidApiAxiosError(err, 'response_mode url');
+    throw err;
+  }
 }
 
 function isVideoQualityEntry(q) {
@@ -243,6 +279,7 @@ async function fetchQualitiesFromPath(videoId, pathLabel, pathSuffix) {
   );
   logRapidApiResponse(pathLabel, res, videoId);
   if (res.status >= 400) {
+    logRapidApiHttpFailure(res, pathLabel, videoId);
     return { qualities: [], ok: false, status: res.status, detail: responseBodyText(res).slice(0, 300) };
   }
   const unwrapped = await unwrapResponseModeUrl(res.data);
@@ -303,6 +340,7 @@ async function getAvailableQualities(videoId) {
         `title=${JSON.stringify(info.title || '').slice(0, 80)} duration=${info.lengthSeconds || '?'}`
     );
   } else if (infoRes.status >= 400) {
+    logRapidApiHttpFailure(infoRes, 'get-video-info', videoId);
     console.warn(
       `[rapidapi] get-video-info failed video=${videoId} HTTP ${infoRes.status}: ${responseBodyText(infoRes).slice(0, 300)}`
     );
@@ -335,6 +373,7 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
         continue;
       }
 
+      logRapidApiHttpFailure(res, path, videoId);
       const err = new Error(`RapidAPI ${path} HTTP ${res.status}: ${lastDetail}`);
       err.downloadKind = downloadKind;
       throw err;
@@ -402,6 +441,7 @@ async function requestDownloadMetaWithFallback(videoId, qualityId, isShortHint =
       return await requestDownloadMeta(videoId, qualityId, kind);
     } catch (err) {
       lastErr = err;
+      logRapidApiAxiosError(err, kind === 'short' ? 'download_short' : 'download_video');
       console.warn(
         `[rapidapi] ${kind === 'short' ? 'download_short' : 'download_video'} failed ` +
           `video=${videoId} qualityId=${qualityId}: ${err.message}`
@@ -421,6 +461,7 @@ async function probeFileUrl(fileUrl) {
     assertQuotaAvailable(head, 'cdn HEAD probe');
     return head.status || 0;
   } catch (err) {
+    logRapidApiAxiosError(err, 'cdn HEAD probe');
     console.warn(`[rapidapi] file HEAD probe error: ${err.message}`);
     return 0;
   }
@@ -454,6 +495,7 @@ async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
           `? retry in ${FILE_READY_POLL_MS}ms`
       );
     } catch (err) {
+      logRapidApiAxiosError(err, 'cdn HEAD wait');
       lastStatus = err.message;
       console.warn(
         `[rapidapi] file HEAD error video=${videoId || '?'} attempt=${attempts}: ${err.message}`
@@ -542,6 +584,7 @@ async function getVideoInfo(videoId) {
   );
 
   if (res.status >= 400) {
+    logRapidApiHttpFailure(res, 'get-video-info', videoId);
     throw new Error(`RapidAPI get-video-info HTTP ${res.status}`);
   }
 
