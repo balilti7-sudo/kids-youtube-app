@@ -144,9 +144,17 @@ async function requestViaMediaBridge(
   return { ok: true, sent: false }
 }
 
+function isBridgeEmailConfigError(result: ParentPinResetResult): boolean {
+  if (result.ok) return false
+  return /missing_resend|RESEND_API_KEY not configured|service database not configured|503/i.test(
+    result.error || ''
+  )
+}
+
 /**
  * Request a new parent management PIN by email (server generates PIN; never shown in gate UI).
- * Tries Media Bridge first (Render), then Supabase Edge Function as fallback.
+ * Primary: Supabase Edge Function (Resend secrets on Supabase — worked before Render email vars).
+ * Fallback: Media Bridge on Render.
  */
 export async function requestParentPinResetEmail(emailRaw: string): Promise<ParentPinResetResult> {
   const email = emailRaw.trim().toLowerCase()
@@ -167,13 +175,13 @@ export async function requestParentPinResetEmail(emailRaw: string): Promise<Pare
 
   const opts = { welcomeKey, accessToken }
 
-  const viaBridge = await requestViaMediaBridge(email, opts)
-  if (viaBridge.ok) return viaBridge
-
   const viaSupabase = await requestViaSupabaseFunction(email, opts)
   if (viaSupabase?.ok) return viaSupabase
 
-  if (viaSupabase && !viaSupabase.ok) {
+  const viaBridge = await requestViaMediaBridge(email, opts)
+  if (viaBridge.ok) return viaBridge
+
+  if (viaSupabase && !viaSupabase.ok && !isBridgeEmailConfigError(viaBridge)) {
     return viaSupabase
   }
 

@@ -1,9 +1,10 @@
 import { Resend } from 'resend'
+import { getResendApiKey } from './env.js'
 
 let client = null
 
 export function getResendClient() {
-  const key = (process.env.RESEND_API_KEY || '').trim()
+  const key = getResendApiKey()
   if (!key) return null
   if (!client) client = new Resend(key)
   return client

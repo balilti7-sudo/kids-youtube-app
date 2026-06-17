@@ -4,6 +4,7 @@ import { sendPinEmail } from './sendPin.js'
 import { sendPairingReminderEmail } from './sendPairingReminder.js'
 import { sendPinChangedEmail } from './sendPinChanged.js'
 import { sendPinResetEmail } from './sendPinReset.js'
+import { getResendApiKey } from './env.js'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -104,7 +105,7 @@ function normalizeEmail(raw) {
  */
 export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseServiceClient, welcomeKey }) {
   app.post('/api/email/welcome', async (req, res) => {
-    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    const apiKey = getResendApiKey()
     if (!apiKey) {
       return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
     }
@@ -155,7 +156,7 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseSer
   })
 
   app.post('/api/email/pairing-reminder', async (req, res) => {
-    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    const apiKey = getResendApiKey()
     if (!apiKey) {
       return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
     }
@@ -248,7 +249,7 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseSer
   })
 
   app.post('/api/email/pin', async (req, res) => {
-    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    const apiKey = getResendApiKey()
     if (!apiKey) {
       return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
     }
@@ -300,7 +301,7 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseSer
    * Requires MEDIA_BRIDGE welcome key (same as pairing reminder). Always returns ok to avoid email enumeration.
    */
   app.post('/api/email/pin-reset-request', async (req, res) => {
-    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    const apiKey = getResendApiKey()
     if (!apiKey) {
       return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
     }
@@ -415,7 +416,7 @@ export function registerWelcomeEmailRoute(app, { supabaseAuthClient, supabaseSer
 
   /** PIN change confirmation — authenticated parent only; never includes PIN in email. */
   app.post('/api/email/pin-changed', async (req, res) => {
-    const apiKey = (process.env.RESEND_API_KEY || '').trim()
+    const apiKey = getResendApiKey()
     if (!apiKey) {
       return res.status(503).json({ ok: false, error: 'RESEND_API_KEY not configured' })
     }

@@ -1,14 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 import { registerWelcomeEmailRoute } from './email/welcomeRoute.js'
+import {
+  getMediaBridgeWelcomeKey,
+  getResendApiKey,
+  getSupabaseAnonKey,
+  getSupabaseServiceRoleKey,
+  getSupabaseUrl,
+} from './email/env.js'
 
 /**
  * Mount Resend email routes on the Media Bridge (welcome, pairing reminder, pin-changed, etc.).
  */
 export function registerBridgeEmailRoutes(app) {
-  const url = (process.env.SUPABASE_URL || '').trim()
-  const anon = (process.env.SUPABASE_ANON_KEY || '').trim()
-  const service = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
-  const welcomeKey = (process.env.MEDIA_BRIDGE_WELCOME_KEY || '').trim()
+  const url = getSupabaseUrl()
+  const anon = getSupabaseAnonKey()
+  const service = getSupabaseServiceRoleKey()
+  const welcomeKey = getMediaBridgeWelcomeKey()
 
   let supabaseAuthClient = null
   let supabaseServiceClient = null
@@ -30,7 +37,7 @@ export function registerBridgeEmailRoutes(app) {
     welcomeKey,
   })
 
-  const resendOk = Boolean((process.env.RESEND_API_KEY || '').trim())
+  const resendOk = Boolean(getResendApiKey())
   const serviceOk = Boolean(supabaseServiceClient)
   const authOk = Boolean(supabaseAuthClient)
   if (!resendOk || !serviceOk) {
