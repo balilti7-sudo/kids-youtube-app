@@ -26,6 +26,9 @@ function mapPinResetError(raw: string): string {
   if (/update_failed|email_send_failed|resend_failed/i.test(err)) {
     return 'לא הצלחנו לשלוח את המייל. נסו שוב בעוד מספר דקות.'
   }
+  if (/failed to send a request to the edge function/i.test(err)) {
+    return 'שירות השחזור לא זמין כרגע. נסו שוב בעוד דקה.'
+  }
   return err || 'שגיאה בשליחת המייל'
 }
 
@@ -45,6 +48,17 @@ function parseResetBody(body: unknown): { ok: boolean; sent?: boolean; error?: s
   return { ok: true, sent: record.sent === true }
 }
 
+function isEdgeFunctionUnreachable(message: string): boolean {
+  const msg = message.toLowerCase()
+  return (
+    msg.includes('failed to send a request to the edge function') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('functionsrelayerror') ||
+    msg.includes('not found')
+  )
+}
+
 async function requestViaSupabaseFunction(
   email: string,
   opts: { welcomeKey?: string; accessToken?: string | null }
@@ -53,6 +67,7 @@ async function requestViaSupabaseFunction(
 
   const headers: Record<string, string> = {}
   if (opts.welcomeKey) Object.assign(headers, welcomeKeyHeaders(opts.welcomeKey))
+  if (opts.accessToken) headers.authorization = `Bearer ${opts.accessToken}`
 
   const { data, error } = await supabase.functions.invoke('request-parent-pin-reset', {
     body: { email },
@@ -71,7 +86,11 @@ async function requestViaSupabaseFunction(
         /* ignore */
       }
     }
-    if (error.message?.includes('404') || error.message?.includes('not found')) {
+    if (isEdgeFunctionUnreachable(error.message || '')) {
+      console.warn('[pinReset] Edge Function unreachable — falling back to Media Bridge:', error.message)
+      return null
+    }
+    if (error.message?.includes('404')) {
       return null
     }
     return { ok: false, error: mapPinResetError(error.message), status: 500 }
@@ -106,7 +125,7 @@ async function requestViaMediaBridge(
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    return { ok: false, error: msg }
+    return { ok: false, error: mapPinResetError(msg) }
   }
 
   let body: Record<string, unknown> = {}
@@ -127,7 +146,7 @@ async function requestViaMediaBridge(
 
 /**
  * Request a new parent management PIN by email (server generates PIN; never shown in gate UI).
- * Logged-in parents use their Supabase session (no extra app secret). Falls back to welcome key + Media Bridge.
+ * Tries Media Bridge first (Render), then Supabase Edge Function as fallback.
  */
 export async function requestParentPinResetEmail(emailRaw: string): Promise<ParentPinResetResult> {
   const email = emailRaw.trim().toLowerCase()
@@ -139,17 +158,24 @@ export async function requestParentPinResetEmail(emailRaw: string): Promise<Pare
     accessToken = data.session?.access_token ?? null
   }
 
-  if (accessToken || welcomeKey) {
-    const viaSupabase = await requestViaSupabaseFunction(email, { welcomeKey, accessToken })
-    if (viaSupabase) return viaSupabase
-
-    if (accessToken || welcomeKey) {
-      return requestViaMediaBridge(email, { welcomeKey, accessToken })
+  if (!accessToken && !welcomeKey) {
+    return {
+      ok: false,
+      error: 'יש להתחבר לחשבון ההורה כדי לשחזר את הקוד, או לפנות לתמיכה.',
     }
   }
 
-  return {
-    ok: false,
-    error: 'יש להתחבר לחשבון ההורה כדי לשחזר את הקוד, או לפנות לתמיכה.',
+  const opts = { welcomeKey, accessToken }
+
+  const viaBridge = await requestViaMediaBridge(email, opts)
+  if (viaBridge.ok) return viaBridge
+
+  const viaSupabase = await requestViaSupabaseFunction(email, opts)
+  if (viaSupabase?.ok) return viaSupabase
+
+  if (viaSupabase && !viaSupabase.ok) {
+    return viaSupabase
   }
+
+  return viaBridge
 }
