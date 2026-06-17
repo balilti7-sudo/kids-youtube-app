@@ -30,5 +30,19 @@ export function registerBridgeEmailRoutes(app) {
     welcomeKey,
   })
 
+  const resendOk = Boolean((process.env.RESEND_API_KEY || '').trim())
+  const serviceOk = Boolean(supabaseServiceClient)
+  const authOk = Boolean(supabaseAuthClient)
+  if (!resendOk || !serviceOk) {
+    console.error(
+      '[bridge] email routes PARTIAL — pin-reset/pairing will return 503 until configured: ' +
+        `RESEND_API_KEY=${resendOk ? 'ok' : 'MISSING'} ` +
+        `SUPABASE_SERVICE_ROLE_KEY=${serviceOk ? 'ok' : 'MISSING'} ` +
+        `SUPABASE_URL+ANON=${authOk ? 'ok' : 'MISSING'}`
+    )
+  } else {
+    console.log('[bridge] email routes ready (Resend + Supabase service role)')
+  }
+
   console.log('[bridge] email routes: /api/email/welcome, /pairing-reminder, /pin, /pin-reset-request, /pin-changed')
 }

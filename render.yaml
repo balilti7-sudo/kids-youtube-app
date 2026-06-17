@@ -24,5 +24,14 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      # Required for forgot parent PIN + pairing reminder emails (/api/email/*)
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: MEDIA_BRIDGE_WELCOME_KEY
+        sync: false
       - key: MEDIA_BRIDGE_GRANT_SECRET
         generateValue: true
