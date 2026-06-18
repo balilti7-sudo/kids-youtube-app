@@ -55,7 +55,12 @@ app.use((req, _res, next) => {
 });
 
 const RESOLVE_CACHE_TTL_MS = Number(process.env.RESOLVE_CACHE_TTL_MS || 8 * 60 * 1000);
+const STREAM_PREPARE_TTL_MS = Number(process.env.STREAM_PREPARE_TTL_MS || 5 * 60 * 1000);
+/** When async=1, wait this long for a fast cache/SocialKit resolve before returning 202. */
+const ASYNC_STREAM_QUICK_READY_MS = Number(process.env.ASYNC_STREAM_QUICK_READY_MS || 2_500);
 const resolveCache = new Map();
+/** In-flight async stream preparation jobs (keyed by videoId:quality). */
+const streamPrepareJobs = new Map();
 
 const ALLOWED_STREAM_QUALITIES = new Set(['240p', '360p', '480p', '720p', '1080p']);
 
@@ -121,6 +126,109 @@ function lookupResolveCacheEntry(videoId, rawQuality, fallback = '360p') {
 
 function resolveCacheSet(cacheKey, upstreamUrl, meta = {}) {
   resolveCache.set(cacheKey, buildResolveCacheEntry(upstreamUrl, meta));
+}
+
+function buildStreamJsonResponse(req, videoId, rawQuality, cached) {
+  const quality = normalizeStreamQuality(rawQuality, '360p');
+  const { format, mimeType, quality: resolvedQuality } = inferStreamMetadata(cached.upstreamUrl, cached);
+  const origin = publicBridgeOrigin(req);
+  const playbackUrl = `${origin}${playbackMediaPath(videoId, rawQuality, '360p')}`;
+
+  return {
+    status: 'ready',
+    videoId,
+    url: playbackUrl,
+    format,
+    mimeType,
+    quality: resolvedQuality || quality,
+    source: cached.source || 'unknown',
+    proxied: true,
+  };
+}
+
+function streamStatusPollUrl(req, videoId, rawQuality) {
+  const q = normalizeStreamQuality(rawQuality, '360p');
+  const origin = publicBridgeOrigin(req);
+  return `${origin}/api/stream/${encodeURIComponent(videoId)}/status?quality=${encodeURIComponent(q)}`;
+}
+
+function classifyStreamResolveError(err) {
+  const msg = err?.message || String(err);
+  if (/live|premiere|upcoming|not yet started|scheduled|isLiveContent/i.test(msg)) {
+    return {
+      status: 422,
+      body: {
+        status: 'failed',
+        error: 'LIVE_UPCOMING',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+      },
+    };
+  }
+  if (/file not ready|not ready after|still processing|cdn file not ready/i.test(msg)) {
+    return {
+      status: 503,
+      body: {
+        status: 'failed',
+        error: 'FILE_NOT_READY',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+        retryAfterSec: 15,
+      },
+    };
+  }
+  return {
+    status: 502,
+    body: {
+      status: 'failed',
+      error: 'resolve_failed',
+      detail: msg.split('\n').slice(0, 3),
+    },
+  };
+}
+
+function startStreamPrepare(videoId, rawQuality) {
+  const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
+  const cached = lookupResolveCacheEntry(videoId, rawQuality, '360p');
+  if (cached.entry) {
+    return { status: 'ready', cacheKey, cached: cached.entry, promise: null };
+  }
+
+  const existing = streamPrepareJobs.get(cacheKey);
+  if (existing && existing.expiresAt > Date.now()) {
+    return existing;
+  }
+
+  const job = {
+    status: 'processing',
+    cacheKey,
+    startedAt: Date.now(),
+    expiresAt: Date.now() + STREAM_PREPARE_TTL_MS,
+    cached: null,
+    error: null,
+    promise: null,
+  };
+
+  job.promise = getCachedUpstreamUrl(videoId, rawQuality)
+    .then((resolved) => {
+      job.status = 'ready';
+      job.cached = resolved;
+      job.error = null;
+      return resolved;
+    })
+    .catch((err) => {
+      job.status = 'failed';
+      job.error = err;
+      job.cached = null;
+      throw err;
+    })
+    .finally(() => {
+      setTimeout(() => {
+        const current = streamPrepareJobs.get(cacheKey);
+        if (current === job) streamPrepareJobs.delete(cacheKey);
+      }, STREAM_PREPARE_TTL_MS);
+    });
+
+  streamPrepareJobs.set(cacheKey, job);
+  return job;
 }
 
 /**
@@ -465,6 +573,45 @@ app.get('/api/youtube/search', async (req, res) => {
   }
 });
 
+app.get('/api/stream/:videoId/status', async (req, res) => {
+  const { videoId } = req.params;
+
+  if (!/^[\w-]{11}$/.test(videoId)) {
+    return res.status(400).json({ error: 'invalid videoId' });
+  }
+
+  const rawQuality = req.query.quality;
+  const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
+  const cached = lookupResolveCacheEntry(videoId, rawQuality, '360p');
+  if (cached.entry) {
+    return res.json(buildStreamJsonResponse(req, videoId, rawQuality, cached.entry));
+  }
+
+  const job = streamPrepareJobs.get(cacheKey);
+  if (job?.status === 'ready' && job.cached) {
+    return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
+  }
+  if (job?.status === 'processing') {
+    return res.status(202).json({
+      status: 'processing',
+      videoId,
+      retryAfterMs: 3000,
+      elapsedMs: Date.now() - job.startedAt,
+    });
+  }
+  if (job?.status === 'failed' && job.error) {
+    const classified = classifyStreamResolveError(job.error);
+    return res.status(classified.status).json(classified.body);
+  }
+
+  return res.status(202).json({
+    status: 'idle',
+    videoId,
+    retryAfterMs: 2000,
+    detail: 'No preparation in progress — start with GET /api/stream/:videoId?async=1',
+  });
+});
+
 app.get('/api/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
 
@@ -472,52 +619,56 @@ app.get('/api/stream/:videoId', async (req, res) => {
     return res.status(400).json({ error: 'invalid videoId' });
   }
 
+  const rawQuality = req.query.quality;
+  const useAsync = req.query.async === '1' || req.query.async === 'true';
+
   try {
-    const rawQuality = req.query.quality;
+    const cachedLookup = lookupResolveCacheEntry(videoId, rawQuality, '360p');
+    if (cachedLookup.entry) {
+      const payload = buildStreamJsonResponse(req, videoId, rawQuality, cachedLookup.entry);
+      console.log(
+        `[api/stream] ${videoId} ${payload.source} cache hit=${cachedLookup.lookup} quality=${payload.quality}`
+      );
+      return res.json(payload);
+    }
+
+    if (useAsync) {
+      const job = startStreamPrepare(videoId, rawQuality);
+      if (job.status === 'ready' && job.cached) {
+        return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
+      }
+
+      if (job.promise) {
+        await Promise.race([job.promise.catch(() => null), sleepMs(ASYNC_STREAM_QUICK_READY_MS)]);
+        if (job.status === 'ready' && job.cached) {
+          return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
+        }
+      }
+
+      console.log(`[api/stream] ${videoId} async=1 → processing (background resolve started)`);
+      return res.status(202).json({
+        status: 'processing',
+        videoId,
+        pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
+        retryAfterMs: 3000,
+      });
+    }
+
     const quality = normalizeStreamQuality(rawQuality, '360p');
     const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
     const cached = await getCachedUpstreamUrl(videoId, rawQuality);
-    const { format, mimeType, quality: resolvedQuality } = inferStreamMetadata(cached.upstreamUrl, cached);
-    const origin = publicBridgeOrigin(req);
-    const playbackUrl = `${origin}${playbackMediaPath(videoId, rawQuality, '360p')}`;
+    const payload = buildStreamJsonResponse(req, videoId, rawQuality, cached);
 
-    const source = cached.source || 'unknown';
     console.log(
-      `[api/stream] ${videoId} ${source} requested=${quality} cache=${cacheKey} resolved=${resolvedQuality || quality}`
+      `[api/stream] ${videoId} ${payload.source} requested=${quality} cache=${cacheKey} resolved=${payload.quality}`
     );
 
-    res.json({
-      videoId,
-      url: playbackUrl,
-      format,
-      mimeType,
-      quality: resolvedQuality || quality,
-      source,
-      proxied: true,
-    });
+    res.json(payload);
   } catch (err) {
     const msg = err?.message || String(err);
     console.error('[/api/stream] failed:', msg);
-
-    if (/live|premiere|upcoming|not yet started|scheduled|isLiveContent/i.test(msg)) {
-      return res.status(422).json({
-        error: 'LIVE_UPCOMING',
-        detail: msg.split('\n').slice(0, 3).join(' '),
-      });
-    }
-
-    if (/file not ready|not ready after|still processing/i.test(msg)) {
-      return res.status(503).json({
-        error: 'FILE_NOT_READY',
-        detail: msg.split('\n').slice(0, 3).join(' '),
-        retryAfterSec: 15,
-      });
-    }
-
-    res.status(502).json({
-      error: 'resolve_failed',
-      detail: msg.split('\n').slice(0, 3),
-    });
+    const classified = classifyStreamResolveError(err);
+    res.status(classified.status).json(classified.body);
   }
 });
 
@@ -549,10 +700,10 @@ app.get('/api/media/:videoId', async (req, res) => {
       refreshUpstream: async () => {
         const fresh = await getCachedUpstreamUrl(videoId, rawQuality, { forceRefresh: true });
         if (fresh?.source === 'rapidapi' && fresh.upstreamUrl) {
-          const probe = await rapidApi.probeFileUrl(fresh.upstreamUrl);
-          if (probe !== 200) {
-            await rapidApi.waitForFileReady(fresh.upstreamUrl, { videoId });
-          }
+          await rapidApi.ensureCdnFileReady(fresh.upstreamUrl, {
+            videoId,
+            pollingProfile: rapidApi.getVideoPollingProfile({ durationSeconds: 0, isShortHint: false }),
+          });
         }
         return fresh && fresh.upstreamUrl ? fresh.upstreamUrl : null;
       },

@@ -397,6 +397,25 @@ export function getStreamResolveUrl(videoId: string, quality?: string | null): s
   return buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}`, { quality: q })
 }
 
+/** Poll `GET /api/stream/:videoId/status` while RapidAPI/CDN prepares a long video. */
+export function getStreamStatusUrl(videoId: string, quality?: string | null): string {
+  const q = (quality || STREAM_START_QUALITY).trim().toLowerCase()
+  return buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}/status`, {
+    quality: q,
+  })
+}
+
+export type StreamPrepareStatus = 'ready' | 'processing' | 'idle' | 'failed'
+
+export type StreamStatusResponse = StreamApiResponse & {
+  status?: StreamPrepareStatus
+  pollUrl?: string
+  retryAfterMs?: number
+  elapsedMs?: number
+  error?: string
+  detail?: string | string[] | null
+}
+
 /**
  * Log the exact stream URL and bridge config when the user taps play (DevTools → Console).
  * Helps verify production points at Render and spot CORS / wrong-origin issues before fetch runs.
@@ -584,8 +603,10 @@ export type FetchStreamFilePreparingInfo = {
 }
 
 /** Max client-side retries when the bridge reports the CDN file is still processing. */
-const FILE_PREPARE_MAX_ATTEMPTS = 4
-const FILE_PREPARE_RETRY_DELAYS_MS = [12_000, 12_000, 15_000] as const
+const FILE_PREPARE_MAX_ATTEMPTS = 24
+const FILE_PREPARE_RETRY_DELAYS_MS = [3_000, 4_000, 5_000, 6_000, 8_000, 10_000, 12_000] as const
+const STREAM_STATUS_POLL_DEFAULT_MS = 3_000
+const STREAM_STATUS_POLL_MAX_MS = 12_000
 
 function isFileNotReadyStreamError(err: unknown): boolean {
   if (!(err instanceof StreamApiError)) return false
@@ -593,7 +614,115 @@ function isFileNotReadyStreamError(err: unknown): boolean {
   return (
     err.status === 503 ||
     err.status === 404 ||
-    /file_not_ready|file not ready|not ready after|still processing/.test(blob)
+    err.status === 202 ||
+    /file_not_ready|file not ready|not ready after|still processing|cdn file not ready/.test(blob)
+  )
+}
+
+function isStreamProcessingStatus(status: unknown): boolean {
+  return status === 'processing' || status === 'idle'
+}
+
+function parseStreamStatusBody(body: Record<string, unknown>, videoId: string): StreamStatusResponse {
+  const status = typeof body.status === 'string' ? (body.status as StreamPrepareStatus) : undefined
+  if (status === 'ready' || (body.url && body.videoId)) {
+    return { ...normalizeStreamApiResponse(body, videoId), status: 'ready' }
+  }
+  return {
+    videoId,
+    url: '',
+    format: 'direct',
+    mimeType: null,
+    quality: typeof body.quality === 'string' ? body.quality : null,
+    source: typeof body.source === 'string' ? body.source : 'unknown',
+    status: status ?? 'processing',
+    pollUrl: typeof body.pollUrl === 'string' ? body.pollUrl : undefined,
+    retryAfterMs:
+      typeof body.retryAfterMs === 'number' && Number.isFinite(body.retryAfterMs)
+        ? body.retryAfterMs
+        : STREAM_STATUS_POLL_DEFAULT_MS,
+    elapsedMs:
+      typeof body.elapsedMs === 'number' && Number.isFinite(body.elapsedMs) ? body.elapsedMs : undefined,
+    error: typeof body.error === 'string' ? body.error : undefined,
+    detail: normalizeBridgeErrorDetail(body.detail),
+  }
+}
+
+function streamStatusDelayMs(body: StreamStatusResponse, fallbackIndex: number): number {
+  const suggested = body.retryAfterMs ?? STREAM_STATUS_POLL_DEFAULT_MS
+  const backoff = FILE_PREPARE_RETRY_DELAYS_MS[fallbackIndex] ?? 12_000
+  return Math.min(Math.max(suggested, backoff), STREAM_STATUS_POLL_MAX_MS)
+}
+
+async function pollStreamUntilReady(
+  videoId: string,
+  {
+    quality,
+    signal,
+    onFilePreparing,
+    pollUrl,
+  }: {
+    quality: string
+    signal?: AbortSignal
+    onFilePreparing?: (info: FetchStreamFilePreparingInfo) => void
+    pollUrl?: string
+  }
+): Promise<StreamApiResponse> {
+  const statusUrl = pollUrl || getStreamStatusUrl(videoId, quality)
+
+  for (let attempt = 0; attempt < FILE_PREPARE_MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) {
+      const r = signal.reason
+      throw r instanceof Error ? r : new DOMException('Aborted', 'AbortError')
+    }
+
+    const res = await bridgeFetch(statusUrl, {
+      credentials: 'omit',
+      headers: { accept: 'application/json' },
+      signal,
+    })
+
+    let body: Record<string, unknown>
+    try {
+      body = (await res.json()) as Record<string, unknown>
+    } catch {
+      body = {}
+    }
+
+    const parsed = parseStreamStatusBody(body, videoId)
+    if (parsed.status === 'ready' && parsed.url) {
+      return parsed
+    }
+
+    if (!res.ok && parsed.status === 'failed') {
+      const errorCode = parsed.error ?? null
+      const detail = parsed.detail ?? null
+      if (errorCode === 'LIVE_UPCOMING') {
+        throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, res.status, detail)
+      }
+      if (errorCode === 'FILE_NOT_READY' || res.status === 503) {
+        throw new StreamApiError('FILE_NOT_READY', res.status, detail)
+      }
+      throw new StreamApiError(detail || `שגיאה ${res.status}`, res.status, detail)
+    }
+
+    if (!isStreamProcessingStatus(parsed.status) && res.ok) {
+      throw new StreamApiError('Unexpected stream status response', res.status, parsed.detail ?? null)
+    }
+
+    const delayBeforeNextMs = streamStatusDelayMs(parsed, attempt)
+    onFilePreparing?.({
+      nextAttempt: attempt + 2,
+      totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
+      delayBeforeNextMs,
+    })
+    await sleepWithAbort(delayBeforeNextMs, signal)
+  }
+
+  throw new StreamApiError(
+    'FILE_NOT_READY',
+    503,
+    'הסרטון עדיין בהכנה בשרת. נסו שוב בעוד דקה.'
   )
 }
 
@@ -734,7 +863,7 @@ async function fetchStreamInfoWithRetries(
         }
       }
       try {
-        return await doFetchStreamInfo(videoId, { signal, timeoutMs, quality })
+        return await doFetchStreamInfo(videoId, { signal, timeoutMs, quality, onFilePreparing })
       } catch (err) {
         if (signal?.aborted) throw err
         if (isFileNotReadyStreamError(err)) {
@@ -840,7 +969,13 @@ async function doFetchStreamInfo(
     signal,
     timeoutMs,
     quality = STREAM_START_QUALITY,
-  }: { signal?: AbortSignal; timeoutMs: number; quality?: string }
+    onFilePreparing,
+  }: {
+    signal?: AbortSignal
+    timeoutMs: number
+    quality?: string
+    onFilePreparing?: (info: FetchStreamFilePreparingInfo) => void
+  }
 ): Promise<StreamApiResponse> {
   await assertChildPlaybackAllowedForStream()
 
@@ -848,8 +983,11 @@ async function doFetchStreamInfo(
   // /api/info waited in the bridge queue or on RapidAPI).
   void assertLiveStreamPlayable(videoId).catch(() => {})
 
-  const url = getStreamResolveUrl(videoId, quality)
-  logPlaybackStreamRequest(videoId, `fetchStreamInfo:${quality}`)
+  const url = buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}`, {
+    quality: String(quality || STREAM_START_QUALITY).trim().toLowerCase(),
+    async: '1',
+  })
+  logPlaybackStreamRequest(videoId, `fetchStreamInfo:${quality}:async`)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => {
@@ -888,6 +1026,33 @@ async function doFetchStreamInfo(
         throw reason instanceof Error ? reason : new StreamApiError('בקשת הזרם בוטלה')
       }
       throw e
+    }
+
+    clearTimeout(timeout)
+
+    if (res.status === 202) {
+      let pollUrl: string | undefined
+      let retryAfterMs = STREAM_STATUS_POLL_DEFAULT_MS
+      try {
+        const body = (await res.json()) as Record<string, unknown>
+        pollUrl = typeof body.pollUrl === 'string' ? body.pollUrl : undefined
+        if (typeof body.retryAfterMs === 'number' && Number.isFinite(body.retryAfterMs)) {
+          retryAfterMs = body.retryAfterMs
+        }
+      } catch {
+        /* ignore */
+      }
+      onFilePreparing?.({
+        nextAttempt: 2,
+        totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
+        delayBeforeNextMs: retryAfterMs,
+      })
+      return pollStreamUntilReady(videoId, {
+        quality: String(quality || STREAM_START_QUALITY),
+        signal,
+        onFilePreparing,
+        pollUrl,
+      })
     }
 
     if (!res.ok) {

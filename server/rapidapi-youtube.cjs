@@ -12,14 +12,24 @@ const RAPIDAPI_KEY = (
 ).trim();
 
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
-/** Fail-fast: max 2s per RapidAPI HTTP call (override via RAPIDAPI_REQUEST_TIMEOUT_MS). */
-const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 2000);
+/** Per RapidAPI HTTP call (override via RAPIDAPI_REQUEST_TIMEOUT_MS). */
+const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 8000);
 const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 120_000);
-const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 5_000);
+const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 3_000);
+const FILE_READY_MAX_MS_LONG = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS_LONG || 180_000);
+const FILE_READY_POLL_MS_LONG = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS_LONG || 3_000);
 /** Polling when RapidAPI/CDN says the file is still being prepared. */
 const DOWNLOAD_POLL_MAX_ATTEMPTS = Number(process.env.RAPIDAPI_DOWNLOAD_POLL_MAX_ATTEMPTS || 5);
+const DOWNLOAD_POLL_MAX_ATTEMPTS_LONG = Number(
+  process.env.RAPIDAPI_DOWNLOAD_POLL_MAX_ATTEMPTS_LONG || 12
+);
 const DOWNLOAD_POLL_WAIT_MS = Number(process.env.RAPIDAPI_FILE_NOT_READY_WAIT_MS || 12_000);
+const DOWNLOAD_POLL_WAIT_MS_LONG = Number(process.env.RAPIDAPI_FILE_NOT_READY_WAIT_MS_LONG || 8_000);
 const CDN_PROBE_TIMEOUT_MS = Number(process.env.RAPIDAPI_CDN_PROBE_TIMEOUT_MS || 8000);
+/** YouTube Shorts are typically <= 65s; longer videos need stricter CDN readiness checks. */
+const SHORT_VIDEO_MAX_DURATION_SEC = Number(process.env.RAPIDAPI_SHORT_MAX_DURATION_SEC || 65);
+/** Rough minimum bytes/sec for 360p ? used to detect partial CDN files on long videos. */
+const MIN_BYTES_PER_SECOND_360P = Number(process.env.RAPIDAPI_MIN_BYTES_PER_SECOND || 10_000);
 /** Optional query param for quality/info endpoints (default|url). */
 const RAPIDAPI_RESPONSE_MODE = (process.env.RAPIDAPI_RESPONSE_MODE || '').trim();
 const RESOLVER = 'RapidAPI';
@@ -149,12 +159,51 @@ function isApiResponsePreparing(res) {
   return false;
 }
 
-function logDownloadFileNotReady(path, videoId, attempt, extra = '') {
+function isShortVideo({ durationSeconds = 0, isShortHint = false } = {}) {
+  if (isShortHint) return true;
+  return durationSeconds > 0 && durationSeconds <= SHORT_VIDEO_MAX_DURATION_SEC;
+}
+
+function getVideoPollingProfile({ durationSeconds = 0, isShortHint = false } = {}) {
+  const short = isShortVideo({ durationSeconds, isShortHint });
+  if (short) {
+    return {
+      short: true,
+      downloadMaxAttempts: DOWNLOAD_POLL_MAX_ATTEMPTS,
+      downloadWaitMs: DOWNLOAD_POLL_WAIT_MS,
+      fileReadyMaxMs: FILE_READY_MAX_MS,
+      fileReadyPollMs: FILE_READY_POLL_MS,
+      stableSizeHits: 1,
+    };
+  }
+
+  const longDuration = Math.max(durationSeconds, 120);
+  const scale = longDuration > 600 ? 1.5 : 1;
+  return {
+    short: false,
+    downloadMaxAttempts: DOWNLOAD_POLL_MAX_ATTEMPTS_LONG,
+    downloadWaitMs: DOWNLOAD_POLL_WAIT_MS_LONG,
+    fileReadyMaxMs: Math.round(FILE_READY_MAX_MS_LONG * scale),
+    fileReadyPollMs: FILE_READY_POLL_MS_LONG,
+    stableSizeHits: 3,
+    durationSeconds: longDuration,
+  };
+}
+
+function estimateMinFileBytes(durationSeconds, quality = '360p') {
+  const height = parseHeight(quality) || 360;
+  const bytesPerSec =
+    height <= 360 ? MIN_BYTES_PER_SECOND_360P : MIN_BYTES_PER_SECOND_360P * (height / 360);
+  const duration = Math.max(Number(durationSeconds) || 0, 45);
+  return Math.min(Math.round(duration * bytesPerSec), 400 * 1024 * 1024);
+}
+
+function logDownloadFileNotReady(path, videoId, attempt, maxAttempts, waitMs, extra = '') {
   console.warn(
     `[rapidapi] ${path} file not ready video=${videoId} ` +
-      `attempt=${attempt}/${DOWNLOAD_POLL_MAX_ATTEMPTS}` +
+      `attempt=${attempt}/${maxAttempts}` +
       (extra ? ` ${extra}` : '') +
-      ` ? retry in ${DOWNLOAD_POLL_WAIT_MS}ms`
+      ` ? retry in ${waitMs}ms`
   );
 }
 
@@ -298,7 +347,7 @@ async function getAvailableQualities(videoId) {
     console.log(
       `[rapidapi] using ${primary.qualities.length} qualities from get_available_quality video=${videoId}`
     );
-    return { qualities: primary.qualities, source: 'get_available_quality', isShortHint: false };
+    return { qualities: primary.qualities, source: 'get_available_quality', isShortHint: false, durationSeconds: 0 };
   }
 
   if (!primary.ok) {
@@ -322,18 +371,19 @@ async function getAvailableQualities(videoId) {
   logRapidApiResponse('get-video-info', infoRes, videoId);
 
   let isShortHint = false;
+  let durationSeconds = 0;
   if (infoRes.status < 400 && infoRes.data && typeof infoRes.data === 'object') {
     const info = await unwrapResponseModeUrl(infoRes.data);
     const title = String(info.title || '').toLowerCase();
-    const duration = Number(info.lengthSeconds || 0);
-    isShortHint = duration > 0 && duration <= 65;
+    durationSeconds = Number(info.lengthSeconds || info.duration || 0) || 0;
+    isShortHint = durationSeconds > 0 && durationSeconds <= SHORT_VIDEO_MAX_DURATION_SEC;
     if (/short/i.test(title)) isShortHint = true;
     const fromInfo = parseQualitiesFromResponse(info);
     if (fromInfo.length > 0) {
       console.log(
         `[rapidapi] using ${fromInfo.length} qualities from get-video-info.availableQuality video=${videoId}`
       );
-      return { qualities: fromInfo, source: 'get-video-info', isShortHint };
+      return { qualities: fromInfo, source: 'get-video-info', isShortHint, durationSeconds };
     }
     console.warn(
       `[rapidapi] get-video-info had no availableQuality video=${videoId} ` +
@@ -346,14 +396,22 @@ async function getAvailableQualities(videoId) {
     );
   }
 
-  return { qualities: [], source: 'none', isShortHint };
+  return { qualities: [], source: 'none', isShortHint, durationSeconds };
 }
 
-async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
+async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video', pollingProfile = null) {
   const path = downloadKind === 'short' ? 'download_short' : 'download_video';
+  const profile =
+    pollingProfile ||
+    getVideoPollingProfile({
+      durationSeconds: 0,
+      isShortHint: downloadKind === 'short',
+    });
+  const maxAttempts = profile.downloadMaxAttempts;
+  const waitMs = profile.downloadWaitMs;
   let lastDetail = '';
 
-  for (let attempt = 1; attempt <= DOWNLOAD_POLL_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const res = await rapidApiGet(
       `${RAPIDAPI_BASE}/${path}/${videoId}`,
       {
@@ -367,9 +425,9 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
       lastDetail = responseBodyText(res).slice(0, 200);
       logRapidApiResponse(path, res, videoId);
 
-      if (isFileNotReadyHttpResponse(res) && attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
-        logDownloadFileNotReady(path, videoId, attempt, `HTTP ${res.status}`);
-        await sleep(DOWNLOAD_POLL_WAIT_MS);
+      if (isFileNotReadyHttpResponse(res) && attempt < maxAttempts) {
+        logDownloadFileNotReady(path, videoId, attempt, maxAttempts, waitMs, `HTTP ${res.status}`);
+        await sleep(waitMs);
         continue;
       }
 
@@ -383,29 +441,31 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
 
     if (isApiResponsePreparing(res)) {
       lastDetail = 'API status preparing';
-      if (attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
-        logDownloadFileNotReady(path, videoId, attempt, lastDetail);
-        await sleep(DOWNLOAD_POLL_WAIT_MS);
+      if (attempt < maxAttempts) {
+        logDownloadFileNotReady(path, videoId, attempt, maxAttempts, waitMs, lastDetail);
+        await sleep(waitMs);
         continue;
       }
-      throw new Error(
-        `RapidAPI ${path} file still preparing after ${DOWNLOAD_POLL_MAX_ATTEMPTS} attempts`
-      );
+      throw new Error(`RapidAPI ${path} file still preparing after ${maxAttempts} attempts`);
     }
 
     const file = res.data && res.data.file;
     if (!file || typeof file !== 'string') {
       lastDetail = 'response missing file URL';
-      if (attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
-        logDownloadFileNotReady(path, videoId, attempt, lastDetail);
-        await sleep(DOWNLOAD_POLL_WAIT_MS);
+      if (attempt < maxAttempts) {
+        logDownloadFileNotReady(path, videoId, attempt, maxAttempts, waitMs, lastDetail);
+        await sleep(waitMs);
         continue;
       }
-      throw new Error(`RapidAPI ${path} response missing file URL after ${DOWNLOAD_POLL_MAX_ATTEMPTS} attempts`);
+      throw new Error(`RapidAPI ${path} response missing file URL after ${maxAttempts} attempts`);
     }
 
-    const cdnStatus = await probeFileUrl(file);
-    if (cdnStatus === 200) {
+    try {
+      await ensureCdnFileReady(file, {
+        videoId,
+        pollingProfile: profile,
+        targetQuality: res.data.quality || null,
+      });
       if (attempt > 1) {
         console.log(`[rapidapi] ${path} ready video=${videoId} after ${attempt} polling attempts`);
       }
@@ -415,30 +475,31 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video') {
         mime: res.data.mime || 'video/mp4',
         id: res.data.id,
       };
-    }
-
-    lastDetail = `CDN link HTTP ${cdnStatus || 'error'}`;
-    if (attempt < DOWNLOAD_POLL_MAX_ATTEMPTS) {
-      logDownloadFileNotReady(path, videoId, attempt, lastDetail);
-      await sleep(DOWNLOAD_POLL_WAIT_MS);
-      continue;
+    } catch (readyErr) {
+      lastDetail = readyErr?.message || 'CDN file not ready';
+      if (attempt < maxAttempts) {
+        logDownloadFileNotReady(path, videoId, attempt, maxAttempts, waitMs, lastDetail);
+        await sleep(waitMs);
+        continue;
+      }
     }
   }
 
-  throw new Error(
-    `RapidAPI ${path} file not ready after ${DOWNLOAD_POLL_MAX_ATTEMPTS} attempts: ${lastDetail}`
-  );
+  throw new Error(`RapidAPI ${path} file not ready after ${maxAttempts} attempts: ${lastDetail}`);
 }
 
-async function requestDownloadMetaWithFallback(videoId, qualityId, isShortHint = false) {
-  const order = isShortHint
-    ? ['short', 'video']
-    : ['video', 'short'];
+async function requestDownloadMetaWithFallback(
+  videoId,
+  qualityId,
+  { isShortHint = false, durationSeconds = 0, pollingProfile = null } = {}
+) {
+  const profile = pollingProfile || getVideoPollingProfile({ durationSeconds, isShortHint });
+  const order = isShortHint ? ['short', 'video'] : ['video', 'short'];
 
   let lastErr = null;
   for (const kind of order) {
     try {
-      return await requestDownloadMeta(videoId, qualityId, kind);
+      return await requestDownloadMeta(videoId, qualityId, kind, profile);
     } catch (err) {
       lastErr = err;
       logRapidApiAxiosError(err, kind === 'short' ? 'download_short' : 'download_video');
@@ -451,7 +512,7 @@ async function requestDownloadMetaWithFallback(videoId, qualityId, isShortHint =
   throw lastErr || new Error('RapidAPI download failed');
 }
 
-async function probeFileUrl(fileUrl) {
+async function probeCdnFile(fileUrl) {
   try {
     const head = await axios.head(fileUrl, {
       timeout: CDN_PROBE_TIMEOUT_MS,
@@ -459,63 +520,118 @@ async function probeFileUrl(fileUrl) {
       validateStatus: () => true,
     });
     assertQuotaAvailable(head, 'cdn HEAD probe');
-    return head.status || 0;
+    const rawLen = head.headers['content-length'];
+    const contentLength = rawLen != null ? Number(rawLen) : -1;
+    return {
+      status: head.status || 0,
+      contentLength: Number.isFinite(contentLength) ? contentLength : -1,
+      acceptRanges: String(head.headers['accept-ranges'] || '').toLowerCase(),
+    };
   } catch (err) {
     logRapidApiAxiosError(err, 'cdn HEAD probe');
     console.warn(`[rapidapi] file HEAD probe error: ${err.message}`);
-    return 0;
+    return { status: 0, contentLength: -1, acceptRanges: '' };
   }
 }
 
-async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
+async function probeFileUrl(fileUrl) {
+  const probe = await probeCdnFile(fileUrl);
+  return probe.status || 0;
+}
+
+/**
+ * Wait until the CDN file looks complete ? not just HTTP 200.
+ * Long videos: content-length must meet a minimum and stay stable across consecutive probes.
+ */
+async function ensureCdnFileReady(fileUrl, { videoId = '', pollingProfile, targetQuality = null } = {}) {
+  const profile = pollingProfile || getVideoPollingProfile({});
   const startedAt = Date.now();
-  const deadline = startedAt + FILE_READY_MAX_MS;
-  let lastStatus = null;
+  const deadline = startedAt + profile.fileReadyMaxMs;
+  const pollMs = profile.fileReadyPollMs;
+  const requiredStableHits = profile.stableSizeHits || 1;
+  const minBytes = profile.short
+    ? 40_000
+    : estimateMinFileBytes(profile.durationSeconds || 0, targetQuality || '360p');
+
+  let lastLen = -1;
+  let stableHits = 0;
   let attempts = 0;
 
   while (Date.now() < deadline) {
     attempts += 1;
-    try {
-      const head = await axios.head(fileUrl, {
-        timeout: RAPIDAPI_REQUEST_TIMEOUT_MS,
-        maxRedirects: 5,
-        validateStatus: () => true,
-      });
-      assertQuotaAvailable(head, 'cdn HEAD wait');
-      lastStatus = head.status;
-      if (head.status === 200) {
-        console.log(
-          `[rapidapi] file ready video=${videoId || '?'} after ${Date.now() - startedAt}ms ` +
-            `(attempt ${attempts})`
+    const probe = await probeCdnFile(fileUrl);
+
+    if (probe.status !== 200) {
+      stableHits = 0;
+      lastLen = -1;
+      console.warn(
+        `[rapidapi] CDN not ready video=${videoId || '?'} attempt=${attempts} HTTP ${probe.status || 'error'} ` +
+          `? retry in ${pollMs}ms`
+      );
+    } else {
+      const len = probe.contentLength;
+      if (len > 0) {
+        if (len >= minBytes) {
+          if (len === lastLen) {
+            stableHits += 1;
+          } else {
+            stableHits = 1;
+            lastLen = len;
+          }
+          if (stableHits >= requiredStableHits) {
+            console.log(
+              `[rapidapi] CDN ready video=${videoId || '?'} bytes=${len} stableHits=${stableHits} ` +
+                `after ${Date.now() - startedAt}ms (${attempts} probes)`
+            );
+            return;
+          }
+          console.log(
+            `[rapidapi] CDN growing video=${videoId || '?'} bytes=${len}/${minBytes} ` +
+              `stable=${stableHits}/${requiredStableHits}`
+          );
+        } else if (profile.short && len >= 40_000) {
+          console.log(
+            `[rapidapi] CDN ready (short) video=${videoId || '?'} bytes=${len} after ${Date.now() - startedAt}ms`
+          );
+          return;
+        } else {
+          console.warn(
+            `[rapidapi] CDN partial video=${videoId || '?'} bytes=${len}/${minBytes} ` +
+              `attempt=${attempts} ? retry in ${pollMs}ms`
+          );
+          lastLen = len;
+          stableHits = 0;
+        }
+      } else {
+        // No content-length ? accept a single 200 for shorts only.
+        if (profile.short) {
+          console.log(
+            `[rapidapi] CDN ready (short, no length) video=${videoId || '?'} after ${Date.now() - startedAt}ms`
+          );
+          return;
+        }
+        console.warn(
+          `[rapidapi] CDN missing content-length video=${videoId || '?'} attempt=${attempts} ? retry in ${pollMs}ms`
         );
-        return;
       }
-      console.warn(
-        `[rapidapi] file not ready video=${videoId || '?'} attempt=${attempts} HTTP ${head.status} ` +
-          `? retry in ${FILE_READY_POLL_MS}ms`
-      );
-    } catch (err) {
-      logRapidApiAxiosError(err, 'cdn HEAD wait');
-      lastStatus = err.message;
-      console.warn(
-        `[rapidapi] file HEAD error video=${videoId || '?'} attempt=${attempts}: ${err.message}`
-      );
     }
 
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    await new Promise((r) => setTimeout(r, Math.min(FILE_READY_POLL_MS, remaining)));
+    await sleep(Math.min(pollMs, remaining));
   }
 
   const waitedMs = Date.now() - startedAt;
   const msg =
-    `RapidAPI file URL not ready after ${waitedMs}ms (limit ${FILE_READY_MAX_MS}ms, ` +
-    `${attempts} attempts, lastStatus=${lastStatus ?? 'unknown'}). ` +
+    `RapidAPI CDN file not ready after ${waitedMs}ms (limit ${profile.fileReadyMaxMs}ms, ` +
+    `${attempts} probes, minBytes=${minBytes}, lastLen=${lastLen}). ` +
     'The CDN file may still be processing ? retry in 15?30 seconds.';
-  console.error(
-    `[rapidapi] ${msg} video=${videoId || '?'} url=${String(fileUrl).slice(0, 96)}?`
-  );
+  console.error(`[rapidapi] ${msg} video=${videoId || '?'} url=${String(fileUrl).slice(0, 96)}?`);
   throw new Error(msg);
+}
+
+async function waitForFileReady(fileUrl, { videoId = '', pollingProfile = null } = {}) {
+  await ensureCdnFileReady(fileUrl, { videoId, pollingProfile });
 }
 
 /**
@@ -524,11 +640,13 @@ async function waitForFileReady(fileUrl, { videoId = '' } = {}) {
  */
 async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
   const targetQuality = normalizeStreamQuality(requestedQuality);
-  const { qualities, source, isShortHint } = await getAvailableQualities(videoId);
+  const { qualities, source, isShortHint, durationSeconds } = await getAvailableQualities(videoId);
+  const pollingProfile = getVideoPollingProfile({ durationSeconds, isShortHint });
 
   console.log(
     `[rapidapi] resolve video=${videoId} target=${targetQuality} qualitySource=${source} ` +
-      `count=${qualities.length} shortHint=${isShortHint}`
+      `count=${qualities.length} shortHint=${isShortHint} duration=${durationSeconds || '?'}s ` +
+      `pollMax=${pollingProfile.downloadMaxAttempts} fileReadyMax=${pollingProfile.fileReadyMaxMs}ms`
   );
 
   if (qualities.length > 0) {
@@ -557,7 +675,11 @@ async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
 
   console.log(`[rapidapi] picked qualityId=${qualityId} for video=${videoId} target=${targetQuality}`);
 
-  const meta = await requestDownloadMetaWithFallback(videoId, qualityId, isShortHint);
+  const meta = await requestDownloadMetaWithFallback(videoId, qualityId, {
+    isShortHint,
+    durationSeconds,
+    pollingProfile,
+  });
 
   console.log(
     `[rapidapi] CDN ready video=${videoId} quality=${targetQuality} url=${meta.file.slice(0, 96)}...`
@@ -600,4 +722,7 @@ module.exports = {
   getAvailableQualities,
   waitForFileReady,
   probeFileUrl,
+  probeCdnFile,
+  ensureCdnFileReady,
+  getVideoPollingProfile,
 };
