@@ -1,0 +1,11 @@
+# SafeTube Supabase — config as code (Edge Functions deploy via CLI).
+# Project: https://ioylyyqlluenkkltguhf.supabase.co
+project_id = "ioylyyqlluenkkltguhf"
+
+# Forgot parent PIN — JWT and/or welcome-key auth handled inside the function.
+[functions.request-parent-pin-reset]
+verify_jwt = false
+
+# Welcome email webhook (optional deploy).
+[functions.send-welcome-email]
+verify_jwt = false
