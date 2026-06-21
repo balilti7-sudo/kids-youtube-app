@@ -152,6 +152,18 @@ function streamStatusPollUrl(req, videoId, rawQuality) {
   return `${origin}/api/stream/${encodeURIComponent(videoId)}/status?quality=${encodeURIComponent(q)}`;
 }
 
+function isRetryableStreamPrepareError(err) {
+  const msg = (err?.message || String(err)).toLowerCase();
+  if (/quota exceeded|plan upgrade required|live|premiere|upcoming|not yet started|scheduled|islivecontent|private|not available in your country|no suitable rapidapi video quality/i.test(msg)) {
+    return false;
+  }
+  return (
+    /timeout|timed out|econnaborted|econnreset|etimedout|network|socket hang up|524|file not ready|not ready after|still processing|cdn file not ready|preparing|503|502|504/i.test(
+      msg
+    )
+  );
+}
+
 function classifyStreamResolveError(err) {
   const msg = err?.message || String(err);
   if (/live|premiere|upcoming|not yet started|scheduled|isLiveContent/i.test(msg)) {
@@ -164,14 +176,19 @@ function classifyStreamResolveError(err) {
       },
     };
   }
-  if (/file not ready|not ready after|still processing|cdn file not ready/i.test(msg)) {
+  if (
+    /file not ready|not ready after|still processing|cdn file not ready|timeout|timed out|econnaborted/i.test(
+      msg
+    )
+  ) {
     return {
       status: 503,
       body: {
-        status: 'failed',
+        status: 'processing',
         error: 'FILE_NOT_READY',
         detail: msg.split('\n').slice(0, 3).join(' '),
         retryAfterSec: 15,
+        retryAfterMs: 5000,
       },
     };
   }
@@ -185,7 +202,7 @@ function classifyStreamResolveError(err) {
   };
 }
 
-function startStreamPrepare(videoId, rawQuality) {
+function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) {
   const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
   const cached = lookupResolveCacheEntry(videoId, rawQuality, '360p');
   if (cached.entry) {
@@ -194,7 +211,16 @@ function startStreamPrepare(videoId, rawQuality) {
 
   const existing = streamPrepareJobs.get(cacheKey);
   if (existing && existing.expiresAt > Date.now()) {
-    return existing;
+    if (
+      forceRestart &&
+      existing.status === 'failed' &&
+      existing.error &&
+      isRetryableStreamPrepareError(existing.error)
+    ) {
+      streamPrepareJobs.delete(cacheKey);
+    } else {
+      return existing;
+    }
   }
 
   const job = {
@@ -600,6 +626,22 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
     });
   }
   if (job?.status === 'failed' && job.error) {
+    if (isRetryableStreamPrepareError(job.error)) {
+      console.warn(
+        `[/api/stream/status] retrying failed prepare video=${videoId} reason=${job.error.message?.slice(0, 120) || job.error}`
+      );
+      streamPrepareJobs.delete(cacheKey);
+      const restarted = startStreamPrepare(videoId, rawQuality, { forceRestart: true });
+      if (restarted.status === 'ready' && restarted.cached) {
+        return res.json(buildStreamJsonResponse(req, videoId, rawQuality, restarted.cached));
+      }
+      return res.status(202).json({
+        status: 'processing',
+        videoId,
+        retryAfterMs: 5000,
+        detail: 'Retrying after transient resolve failure',
+      });
+    }
     const classified = classifyStreamResolveError(job.error);
     return res.status(classified.status).json(classified.body);
   }

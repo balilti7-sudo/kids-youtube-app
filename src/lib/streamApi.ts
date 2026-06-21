@@ -697,13 +697,46 @@ async function pollStreamUntilReady(
     if (!res.ok && parsed.status === 'failed') {
       const errorCode = parsed.error ?? null
       const detail = parsed.detail ?? null
+      const detailBlob = `${detail ?? ''} ${errorCode ?? ''}`.toLowerCase()
+      if (
+        /timeout|timed out|file not ready|not ready after|still processing|cdn file not ready|econnaborted/i.test(
+          detailBlob
+        )
+      ) {
+        const delayBeforeNextMs = streamStatusDelayMs(parsed, attempt)
+        onFilePreparing?.({
+          nextAttempt: attempt + 2,
+          totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
+          delayBeforeNextMs,
+        })
+        await sleepWithAbort(delayBeforeNextMs, signal)
+        continue
+      }
       if (errorCode === 'LIVE_UPCOMING') {
         throw new StreamApiError(LIVE_UPCOMING_PLAYBACK_MESSAGE, res.status, detail)
       }
       if (errorCode === 'FILE_NOT_READY' || res.status === 503) {
-        throw new StreamApiError('FILE_NOT_READY', res.status, detail)
+        const delayBeforeNextMs = streamStatusDelayMs(parsed, attempt)
+        onFilePreparing?.({
+          nextAttempt: attempt + 2,
+          totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
+          delayBeforeNextMs,
+        })
+        await sleepWithAbort(delayBeforeNextMs, signal)
+        continue
       }
       throw new StreamApiError(detail || `שגיאה ${res.status}`, res.status, detail)
+    }
+
+    if (!res.ok && (parsed.status === 'processing' || parsed.error === 'FILE_NOT_READY')) {
+      const delayBeforeNextMs = streamStatusDelayMs(parsed, attempt)
+      onFilePreparing?.({
+        nextAttempt: attempt + 2,
+        totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
+        delayBeforeNextMs,
+      })
+      await sleepWithAbort(delayBeforeNextMs, signal)
+      continue
     }
 
     if (!isStreamProcessingStatus(parsed.status) && res.ok) {

@@ -12,8 +12,8 @@ const RAPIDAPI_KEY = (
 ).trim();
 
 const DEFAULT_QUALITY = (process.env.RAPIDAPI_YOUTUBE_QUALITY || '').trim();
-/** Per RapidAPI HTTP call (override via RAPIDAPI_REQUEST_TIMEOUT_MS). */
-const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 8000);
+/** Per RapidAPI HTTP call (override via RAPIDAPI_REQUEST_TIMEOUT_MS). Long downloads need ?30s. */
+const RAPIDAPI_REQUEST_TIMEOUT_MS = Number(process.env.RAPIDAPI_REQUEST_TIMEOUT_MS || 30_000);
 const FILE_READY_MAX_MS = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS || 120_000);
 const FILE_READY_POLL_MS = Number(process.env.RAPIDAPI_FILE_READY_POLL_MS || 3_000);
 const FILE_READY_MAX_MS_LONG = Number(process.env.RAPIDAPI_FILE_READY_MAX_MS_LONG || 180_000);
@@ -34,6 +34,13 @@ const MIN_BYTES_PER_SECOND_360P = Number(process.env.RAPIDAPI_MIN_BYTES_PER_SECO
 const RAPIDAPI_RESPONSE_MODE = (process.env.RAPIDAPI_RESPONSE_MODE || '').trim();
 const RESOLVER = 'RapidAPI';
 const QUOTA_EXCEEDED_MESSAGE = '[RapidAPI] Quota exceeded (429). Plan upgrade required';
+
+if (RAPIDAPI_REQUEST_TIMEOUT_MS < 15_000) {
+  console.warn(
+    `[rapidapi] RAPIDAPI_REQUEST_TIMEOUT_MS=${RAPIDAPI_REQUEST_TIMEOUT_MS} is low ? ` +
+      'long video downloads often need ?30s. Set RAPIDAPI_REQUEST_TIMEOUT_MS=30000 on Render.'
+  );
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -185,7 +192,7 @@ function getVideoPollingProfile({ durationSeconds = 0, isShortHint = false } = {
     downloadWaitMs: DOWNLOAD_POLL_WAIT_MS_LONG,
     fileReadyMaxMs: Math.round(FILE_READY_MAX_MS_LONG * scale),
     fileReadyPollMs: FILE_READY_POLL_MS_LONG,
-    stableSizeHits: 3,
+    stableSizeHits: 2,
     durationSeconds: longDuration,
   };
 }
@@ -603,10 +610,17 @@ async function ensureCdnFileReady(fileUrl, { videoId = '', pollingProfile, targe
           stableHits = 0;
         }
       } else {
-        // No content-length ? accept a single 200 for shorts only.
+        // No content-length ? some CDNs omit it until the file is complete.
         if (profile.short) {
           console.log(
             `[rapidapi] CDN ready (short, no length) video=${videoId || '?'} after ${Date.now() - startedAt}ms`
+          );
+          return;
+        }
+        if (attempts >= 4) {
+          console.log(
+            `[rapidapi] CDN ready (long, no length after ${attempts} OK probes) video=${videoId || '?'} ` +
+              `after ${Date.now() - startedAt}ms`
           );
           return;
         }
