@@ -705,11 +705,17 @@ async function pollStreamUntilReady(
 
     const parsed = parseStreamStatusBody(body, videoId)
 
-    if (parsed.phase === 'transcoding' || parsed.phase === 'ingest' || parsed.activeSource === 'bunny') {
+    if (
+      parsed.phase === 'transcoding' ||
+      parsed.phase === 'ingest' ||
+      parsed.phase === 'source_resolve' ||
+      parsed.activeSource === 'bunny'
+    ) {
       console.info('[streamApi] Bunny Stream progress', {
         videoId,
         phase: parsed.phase,
         activeSource: parsed.activeSource,
+        ingestResolver: (body as { ingestResolver?: string }).ingestResolver,
         detail: parsed.detail,
         encodeProgress: (body as { encodeProgress?: number }).encodeProgress,
       })

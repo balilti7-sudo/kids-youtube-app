@@ -1,6 +1,6 @@
 'use strict';
 
-/** @deprecated Playback resolve moved to server/bunny-stream.cjs — this module is no longer used by index.cjs */
+/** @deprecated Final playback uses Bunny Stream — this module is an ingest-only helper in bunny-stream.cjs */
 
 const axios = require('axios');
 

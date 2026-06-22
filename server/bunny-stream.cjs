@@ -1,6 +1,8 @@
 'use strict';
 
 const axios = require('axios');
+const socialKit = require('./socialkit-youtube.cjs');
+const rapidApi = require('./rapidapi-youtube.cjs');
 
 const BUNNY_API_BASE = 'https://video.bunnycdn.com';
 const BUNNY_STREAM_API_KEY = (process.env.BUNNY_STREAM_API_KEY || '').trim();
@@ -9,6 +11,15 @@ const BUNNY_CDN_HOSTNAME = (process.env.BUNNY_CDN_HOSTNAME || '').trim();
 const BUNNY_REQUEST_TIMEOUT_MS = Number(process.env.BUNNY_REQUEST_TIMEOUT_MS || 30_000);
 const BUNNY_TRANSCODE_POLL_MS = Number(process.env.BUNNY_TRANSCODE_POLL_MS || 4_000);
 const BUNNY_TRANSCODE_MAX_MS = Number(process.env.BUNNY_TRANSCODE_MAX_MS || 600_000);
+const BUNNY_INGEST_RESOLVE_TIMEOUT_MS = Number(process.env.BUNNY_INGEST_RESOLVE_TIMEOUT_MS || 30_000);
+const LONG_VIDEO_DURATION_SEC = Number(process.env.LONG_VIDEO_DURATION_SEC || 65);
+
+const SOCIALKIT_CONFIGURED = Boolean(
+  process.env.SOCIALKIT_ACCESS_KEY || process.env.SOCIALKIT_API_KEY
+);
+const RAPIDAPI_CONFIGURED = Boolean(
+  process.env.RAPIDAPI_KEY || process.env.RAPIDAPI_YOUTUBE_KEY
+);
 
 /** Bunny VideoModelStatus */
 const STATUS_FINISHED = 4;
@@ -40,8 +51,121 @@ function youtubeTitle(videoId) {
   return `yt-${videoId}`;
 }
 
-function youtubeWatchUrl(videoId) {
-  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+function isIngestResolverConfigured() {
+  return SOCIALKIT_CONFIGURED || RAPIDAPI_CONFIGURED;
+}
+
+function videoUploadedAt(video) {
+  const raw = video?.dateUploaded || video?.DateUploaded || video?.created || 0;
+  const ts = Date.parse(raw);
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function pickBestLibraryMatch(matches) {
+  if (!matches || matches.length === 0) return null;
+  const playable = matches.find((v) => isPlayableStatus(v.status));
+  if (playable) return playable;
+  const processing = matches.find((v) => PROCESSING_STATUSES.has(v.status));
+  if (processing) return processing;
+  return [...matches].sort((a, b) => videoUploadedAt(b) - videoUploadedAt(a))[0];
+}
+
+async function deleteBunnyVideo(bunnyGuid, { reason = '' } = {}) {
+  await bunnyRequest('DELETE', `/library/${BUNNY_LIBRARY_ID}/videos/${bunnyGuid}`);
+  console.log(`[bunny] deleted guid=${bunnyGuid}${reason ? ` (${reason})` : ''}`);
+}
+
+async function getDurationHint(youtubeVideoId) {
+  if (SOCIALKIT_CONFIGURED) {
+    try {
+      const info = await socialKit.getVideoInfo(youtubeVideoId);
+      const sec = Number(info.lengthSeconds);
+      if (Number.isFinite(sec) && sec > 0) return sec;
+    } catch (err) {
+      console.warn(`[bunny] duration hint SocialKit failed video=${youtubeVideoId}: ${err.message}`);
+    }
+  }
+
+  if (RAPIDAPI_CONFIGURED) {
+    try {
+      const { durationSeconds } = await rapidApi.getAvailableQualities(youtubeVideoId);
+      if (durationSeconds > 0) return durationSeconds;
+    } catch (err) {
+      console.warn(`[bunny] duration hint RapidAPI failed video=${youtubeVideoId}: ${err.message}`);
+    }
+  }
+
+  return 0;
+}
+
+function buildIngestProviderChain(durationSeconds) {
+  const isLong = durationSeconds <= 0 || durationSeconds > LONG_VIDEO_DURATION_SEC;
+  const chain = [];
+  if (isLong) {
+    if (RAPIDAPI_CONFIGURED) chain.push('rapidapi');
+    if (SOCIALKIT_CONFIGURED) chain.push('socialkit');
+  } else {
+    if (SOCIALKIT_CONFIGURED) chain.push('socialkit');
+    if (RAPIDAPI_CONFIGURED) chain.push('rapidapi');
+  }
+  return { chain, isLong, durationSeconds };
+}
+
+/**
+ * Resolve a direct, publicly fetchable media URL (mp4 CDN) for Bunny ingest.
+ * SocialKit / RapidAPI are ingest-only helpers — playback is always Bunny HLS.
+ */
+async function resolveDirectMediaUrl(youtubeVideoId, quality, progress) {
+  if (!isIngestResolverConfigured()) {
+    throw new Error(
+      'Bunny ingest requires SOCIALKIT_ACCESS_KEY and/or RAPIDAPI_KEY to resolve a direct media URL'
+    );
+  }
+
+  const durationSeconds = await getDurationHint(youtubeVideoId);
+  const { chain, isLong } = buildIngestProviderChain(durationSeconds);
+
+  if (progress) {
+    progress.durationSeconds = durationSeconds || null;
+    progress.activeSource = 'bunny';
+    progress.phase = 'source_resolve';
+    progress.detail = 'Resolving direct media URL for Bunny ingest';
+    progress.retryAfterMs = 3000;
+  }
+
+  let lastErr = null;
+  for (const provider of chain) {
+    if (progress) {
+      progress.ingestResolver = provider;
+      progress.detail = `Resolving direct URL via ${provider}`;
+    }
+
+    try {
+      if (provider === 'socialkit') {
+        const resolved = await socialKit.resolveVideoDownloadUrl(youtubeVideoId, quality, {
+          fallbackAttempt: isLong,
+          requestTimeoutMs: isLong ? BUNNY_INGEST_RESOLVE_TIMEOUT_MS : undefined,
+        });
+        console.log(
+          `[bunny] ingest source socialkit video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
+        );
+        return { ...resolved, ingestResolver: 'socialkit' };
+      }
+
+      const resolved = await rapidApi.resolveVideoDownloadUrl(youtubeVideoId, quality);
+      console.log(
+        `[bunny] ingest source rapidapi video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
+      );
+      return { ...resolved, ingestResolver: 'rapidapi' };
+    } catch (err) {
+      lastErr = err;
+      console.warn(
+        `[bunny] ingest resolve ${provider} failed video=${youtubeVideoId}: ${err.message}`
+      );
+    }
+  }
+
+  throw lastErr || new Error(`Failed to resolve direct media URL for ${youtubeVideoId}`);
 }
 
 function normalizeStreamQuality(raw, fallback = '360p') {
@@ -171,36 +295,61 @@ async function findVideoByYoutubeId(youtubeVideoId) {
   const matches = await listVideosByTitle(title);
   if (matches.length === 0) return null;
 
-  const video = matches[0];
-  youtubeGuidCache.set(youtubeVideoId, video.guid);
+  const video = pickBestLibraryMatch(matches);
+  if (video) youtubeGuidCache.set(youtubeVideoId, video.guid);
   return video;
 }
 
-async function submitYoutubeFetch(youtubeVideoId, progress) {
+async function removeFailedLibraryEntries(youtubeVideoId) {
   const title = youtubeTitle(youtubeVideoId);
-  const watchUrl = youtubeWatchUrl(youtubeVideoId);
+  const matches = await listVideosByTitle(title);
+  const failed = matches.filter((v) => isFailedStatus(v.status));
+  for (const video of failed) {
+    try {
+      await deleteBunnyVideo(video.guid, { reason: `failed ingest ${youtubeVideoId}` });
+      if (youtubeGuidCache.get(youtubeVideoId) === video.guid) {
+        youtubeGuidCache.delete(youtubeVideoId);
+      }
+    } catch (err) {
+      console.warn(`[bunny] could not delete failed guid=${video.guid}: ${err.message}`);
+    }
+  }
+}
+
+async function submitYoutubeFetch(youtubeVideoId, quality, progress) {
+  const title = youtubeTitle(youtubeVideoId);
+  const direct = await resolveDirectMediaUrl(youtubeVideoId, quality, progress);
+  const fetchUrl = direct.url;
 
   if (progress) {
     progress.activeSource = 'bunny';
     progress.phase = 'ingest';
-    progress.detail = 'Submitting YouTube URL to Bunny Stream for fetch & transcode';
+    progress.ingestResolver = direct.ingestResolver || progress.ingestResolver || null;
+    progress.detail = `Submitting direct media URL to Bunny Stream (${direct.ingestResolver || 'source'})`;
     progress.retryAfterMs = BUNNY_TRANSCODE_POLL_MS;
   }
 
-  console.log(`[bunny] POST fetch video=${youtubeVideoId} url=${watchUrl}`);
+  console.log(
+    `[bunny] POST fetch video=${youtubeVideoId} ingest=${direct.ingestResolver || '?'} url=${fetchUrl.slice(0, 96)}…`
+  );
 
   await bunnyRequest('POST', `/library/${BUNNY_LIBRARY_ID}/videos/fetch`, {
-    body: { url: watchUrl, title },
+    body: { url: fetchUrl, title },
   });
 
   for (let attempt = 0; attempt < 8; attempt++) {
     await sleep(attempt === 0 ? 1500 : 2000);
     const found = await findVideoByYoutubeId(youtubeVideoId);
-    if (found) {
+    if (found && !isFailedStatus(found.status)) {
       console.log(
         `[bunny] fetch accepted video=${youtubeVideoId} guid=${found.guid} status=${statusLabel(found.status)}`
       );
       return found;
+    }
+    if (found && isFailedStatus(found.status)) {
+      console.warn(
+        `[bunny] fetch created failed entry video=${youtubeVideoId} guid=${found.guid} — retrying lookup`
+      );
     }
   }
 
@@ -275,13 +424,14 @@ async function resolveVideoDownloadUrl(youtubeVideoId, requestedQuality = '360p'
   let video = await findVideoByYoutubeId(youtubeVideoId);
 
   if (!video) {
-    video = await submitYoutubeFetch(youtubeVideoId, progress);
+    video = await submitYoutubeFetch(youtubeVideoId, quality, progress);
   } else if (isFailedStatus(video.status)) {
     console.warn(
       `[bunny] previous ingest failed video=${youtubeVideoId} guid=${video.guid} — re-fetching`
     );
+    await removeFailedLibraryEntries(youtubeVideoId);
     youtubeGuidCache.delete(youtubeVideoId);
-    video = await submitYoutubeFetch(youtubeVideoId, progress);
+    video = await submitYoutubeFetch(youtubeVideoId, quality, progress);
   }
 
   if (!isPlayableStatus(video.status)) {
@@ -312,6 +462,13 @@ async function getVideoInfo(youtubeVideoId) {
   }
   const video = await findVideoByYoutubeId(youtubeVideoId);
   if (!video) {
+    if (SOCIALKIT_CONFIGURED) {
+      try {
+        return await socialKit.getVideoInfo(youtubeVideoId);
+      } catch (err) {
+        console.warn(`[bunny] info fallback SocialKit failed video=${youtubeVideoId}: ${err.message}`);
+      }
+    }
     return {
       title: youtubeTitle(youtubeVideoId),
       lengthSeconds: null,
@@ -339,6 +496,9 @@ async function getVideoInfo(youtubeVideoId) {
 module.exports = {
   BUNNY_LIBRARY_ID,
   isConfigured,
+  isIngestResolverConfigured,
+  SOCIALKIT_CONFIGURED,
+  RAPIDAPI_CONFIGURED,
   resolveVideoDownloadUrl,
   getVideoInfo,
   findVideoByYoutubeId,

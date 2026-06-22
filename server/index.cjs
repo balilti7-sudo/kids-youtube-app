@@ -284,12 +284,13 @@ function buildProcessingStatusResponse(req, videoId, rawQuality, job) {
     durationSeconds: progress.durationSeconds || null,
     encodeProgress: progress.encodeProgress ?? null,
     bunnyGuid: progress.bunnyGuid || null,
+    ingestResolver: progress.ingestResolver || null,
     pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
   };
 }
 
 /**
- * Resolve via Bunny Stream: fetch YouTube URL, transcode, return CDN HLS URL.
+ * Resolve via Bunny Stream: direct URL ingest (SocialKit/RapidAPI) → transcode → CDN HLS.
  * @param {object} [progress] — mutable status for async /status polling
  */
 async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = null) {
@@ -582,6 +583,11 @@ app.get('/health', (_req, res) => {
     resolver: 'bunny-stream',
     bunnyLibraryId: bunnyStream.BUNNY_LIBRARY_ID || null,
     bunnyConfigured: BUNNY_CONFIGURED,
+    ingestResolvers: {
+      socialkit: bunnyStream.SOCIALKIT_CONFIGURED,
+      rapidapi: bunnyStream.RAPIDAPI_CONFIGURED,
+    },
+    ingestReady: bunnyStream.isIngestResolverConfigured(),
   });
 });
 
@@ -820,6 +826,15 @@ app.listen(PORT, HOST, () => {
   if (!BUNNY_CONFIGURED) {
     console.error(
       '[bridge] WARNING: BUNNY_STREAM_API_KEY and/or BUNNY_LIBRARY_ID not set — /api/stream will fail.'
+    );
+  }
+  if (!bunnyStream.isIngestResolverConfigured()) {
+    console.error(
+      '[bridge] WARNING: Neither SOCIALKIT_ACCESS_KEY nor RAPIDAPI_KEY is set — Bunny ingest cannot resolve direct media URLs.'
+    );
+  } else {
+    console.log(
+      `[bridge] Bunny ingest helpers: SocialKit=${bunnyStream.SOCIALKIT_CONFIGURED ? 'on' : 'off'} RapidAPI=${bunnyStream.RAPIDAPI_CONFIGURED ? 'on' : 'off'}`
     );
   }
 });
