@@ -30,6 +30,9 @@ const CDN_PROBE_TIMEOUT_MS = Number(process.env.RAPIDAPI_CDN_PROBE_TIMEOUT_MS ||
 const SHORT_VIDEO_MAX_DURATION_SEC = Number(process.env.RAPIDAPI_SHORT_MAX_DURATION_SEC || 65);
 /** Rough minimum bytes/sec for 360p ? used to detect partial CDN files on long videos. */
 const MIN_BYTES_PER_SECOND_360P = Number(process.env.RAPIDAPI_MIN_BYTES_PER_SECOND || 10_000);
+/** Fast-fail limits when cascading to another provider (index.cjs). */
+const CASCADE_DOWNLOAD_MAX_ATTEMPTS = Number(process.env.CASCADE_RAPIDAPI_MAX_ATTEMPTS || 4);
+const CASCADE_CDN_MAX_PROBES = Number(process.env.CASCADE_CDN_MAX_PROBES || 4);
 /** Optional query param for quality/info endpoints (default|url). */
 const RAPIDAPI_RESPONSE_MODE = (process.env.RAPIDAPI_RESPONSE_MODE || '').trim();
 const RESOLVER = 'RapidAPI';
@@ -171,22 +174,24 @@ function isShortVideo({ durationSeconds = 0, isShortHint = false } = {}) {
   return durationSeconds > 0 && durationSeconds <= SHORT_VIDEO_MAX_DURATION_SEC;
 }
 
-function getVideoPollingProfile({ durationSeconds = 0, isShortHint = false } = {}) {
+function getVideoPollingProfile({ durationSeconds = 0, isShortHint = false, cascadeMode = false } = {}) {
   const short = isShortVideo({ durationSeconds, isShortHint });
   if (short) {
-    return {
+    const profile = {
       short: true,
       downloadMaxAttempts: DOWNLOAD_POLL_MAX_ATTEMPTS,
       downloadWaitMs: DOWNLOAD_POLL_WAIT_MS,
       fileReadyMaxMs: FILE_READY_MAX_MS,
       fileReadyPollMs: FILE_READY_POLL_MS,
       stableSizeHits: 1,
+      cascadeMode: false,
     };
+    return cascadeMode ? applyCascadePollingLimits(profile) : profile;
   }
 
   const longDuration = Math.max(durationSeconds, 120);
   const scale = longDuration > 600 ? 1.5 : 1;
-  return {
+  const profile = {
     short: false,
     downloadMaxAttempts: DOWNLOAD_POLL_MAX_ATTEMPTS_LONG,
     downloadWaitMs: DOWNLOAD_POLL_WAIT_MS_LONG,
@@ -194,6 +199,22 @@ function getVideoPollingProfile({ durationSeconds = 0, isShortHint = false } = {
     fileReadyPollMs: FILE_READY_POLL_MS_LONG,
     stableSizeHits: 2,
     durationSeconds: longDuration,
+    cascadeMode: Boolean(cascadeMode),
+  };
+  return cascadeMode ? applyCascadePollingLimits(profile) : profile;
+}
+
+/** Cap RapidAPI polling so index.cjs can switch providers after a few attempts. */
+function applyCascadePollingLimits(profile) {
+  const pollMs = profile.fileReadyPollMs || FILE_READY_POLL_MS_LONG;
+  return {
+    ...profile,
+    cascadeMode: true,
+    downloadMaxAttempts: Math.min(profile.downloadMaxAttempts, CASCADE_DOWNLOAD_MAX_ATTEMPTS),
+    downloadWaitMs: Math.min(profile.downloadWaitMs, 6_000),
+    fileReadyMaxMs: Math.min(profile.fileReadyMaxMs, CASCADE_CDN_MAX_PROBES * pollMs),
+    fileReadyPollMs: pollMs,
+    stableSizeHits: Math.min(profile.stableSizeHits || 2, 2),
   };
 }
 
@@ -492,7 +513,9 @@ async function requestDownloadMeta(videoId, qualityId, downloadKind = 'video', p
     }
   }
 
-  throw new Error(`RapidAPI ${path} file not ready after ${maxAttempts} attempts: ${lastDetail}`);
+  const err = new Error(`RapidAPI ${path} file not ready after ${maxAttempts} attempts: ${lastDetail}`);
+  if (profile.cascadeMode) err.cascadeFallback = true;
+  throw err;
 }
 
 async function requestDownloadMetaWithFallback(
@@ -640,8 +663,10 @@ async function ensureCdnFileReady(fileUrl, { videoId = '', pollingProfile, targe
     `RapidAPI CDN file not ready after ${waitedMs}ms (limit ${profile.fileReadyMaxMs}ms, ` +
     `${attempts} probes, minBytes=${minBytes}, lastLen=${lastLen}). ` +
     'The CDN file may still be processing ? retry in 15?30 seconds.';
-  console.error(`[rapidapi] ${msg} video=${videoId || '?'} url=${String(fileUrl).slice(0, 96)}?`);
-  throw new Error(msg);
+  console.error(`[rapidapi] ${msg} video=${videoId || '?'} url=${String(fileUrl).slice(0, 96)}…`);
+  const err = new Error(msg);
+  if (profile.cascadeMode) err.cascadeFallback = true;
+  throw err;
 }
 
 async function waitForFileReady(fileUrl, { videoId = '', pollingProfile = null } = {}) {
@@ -652,15 +677,21 @@ async function waitForFileReady(fileUrl, { videoId = '', pollingProfile = null }
  * Resolve a direct playable URL for a YouTube videoId via RapidAPI.
  * @returns {Promise<{ url: string, quality: string|null, mime: string }>}
  */
-async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p') {
+async function resolveVideoDownloadUrl(videoId, requestedQuality = '360p', resolveOptions = {}) {
   const targetQuality = normalizeStreamQuality(requestedQuality);
+  const cascadeMode = Boolean(resolveOptions.cascadeMode);
   const { qualities, source, isShortHint, durationSeconds } = await getAvailableQualities(videoId);
-  const pollingProfile = getVideoPollingProfile({ durationSeconds, isShortHint });
+  const pollingProfile = getVideoPollingProfile({
+    durationSeconds: resolveOptions.durationSeconds || durationSeconds,
+    isShortHint,
+    cascadeMode,
+  });
 
   console.log(
     `[rapidapi] resolve video=${videoId} target=${targetQuality} qualitySource=${source} ` +
       `count=${qualities.length} shortHint=${isShortHint} duration=${durationSeconds || '?'}s ` +
-      `pollMax=${pollingProfile.downloadMaxAttempts} fileReadyMax=${pollingProfile.fileReadyMaxMs}ms`
+      `cascade=${cascadeMode} pollMax=${pollingProfile.downloadMaxAttempts} ` +
+      `fileReadyMax=${pollingProfile.fileReadyMaxMs}ms`
   );
 
   if (qualities.length > 0) {
@@ -739,4 +770,7 @@ module.exports = {
   probeCdnFile,
   ensureCdnFileReady,
   getVideoPollingProfile,
+  applyCascadePollingLimits,
+  CASCADE_DOWNLOAD_MAX_ATTEMPTS,
+  CASCADE_CDN_MAX_PROBES,
 };

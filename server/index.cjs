@@ -58,6 +58,8 @@ const RESOLVE_CACHE_TTL_MS = Number(process.env.RESOLVE_CACHE_TTL_MS || 8 * 60 *
 const STREAM_PREPARE_TTL_MS = Number(process.env.STREAM_PREPARE_TTL_MS || 5 * 60 * 1000);
 /** When async=1, wait this long for a fast cache/SocialKit resolve before returning 202. */
 const ASYNC_STREAM_QUICK_READY_MS = Number(process.env.ASYNC_STREAM_QUICK_READY_MS || 2_500);
+/** Videos longer than this use RapidAPI-first with fast-fail cascade. */
+const LONG_VIDEO_DURATION_SEC = Number(process.env.LONG_VIDEO_DURATION_SEC || 65);
 const resolveCache = new Map();
 /** In-flight async stream preparation jobs (keyed by videoId:quality). */
 const streamPrepareJobs = new Map();
@@ -223,6 +225,16 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
     }
   }
 
+  const progress = {
+    phase: 'starting',
+    activeSource: null,
+    fallbackFrom: null,
+    detail: 'Starting video resolve',
+    durationSeconds: null,
+    isLongVideo: null,
+    retryAfterMs: 3000,
+  };
+
   const job = {
     status: 'processing',
     cacheKey,
@@ -231,9 +243,10 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
     cached: null,
     error: null,
     promise: null,
+    progress,
   };
 
-  job.promise = getCachedUpstreamUrl(videoId, rawQuality)
+  job.promise = getCachedUpstreamUrl(videoId, rawQuality, { progress })
     .then((resolved) => {
       job.status = 'ready';
       job.cached = resolved;
@@ -257,41 +270,175 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
   return job;
 }
 
-/**
- * Try SocialKit (mp4/360p) first; on failure or file-size limit, fall back to RapidAPI.
- * @returns {Promise<{ url: string, quality: string|null, mime: string, source: 'socialkit'|'rapidapi' }>}
- */
-async function resolveVideoDownloadUrl(videoId, quality = '360p') {
-  const targetQuality = normalizeStreamQuality(quality);
+function buildProcessingStatusResponse(req, videoId, rawQuality, job) {
+  const progress = job?.progress || {};
+  return {
+    status: 'processing',
+    videoId,
+    retryAfterMs: progress.retryAfterMs || 3000,
+    elapsedMs: job ? Date.now() - job.startedAt : 0,
+    phase: progress.phase || 'processing',
+    activeSource: progress.activeSource || null,
+    fallbackFrom: progress.fallbackFrom || null,
+    detail: progress.detail || null,
+    durationSeconds: progress.durationSeconds || null,
+    pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
+  };
+}
 
+function isFatalCascadeError(err, provider) {
+  const msg = (err?.message || String(err)).toLowerCase();
+  if (
+    /geo-block|region-restricted|quota exceeded|plan upgrade|live|premiere|upcoming|not yet started|scheduled|islivecontent|private video|not available in your country/i.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (provider === 'rapidapi' && /no suitable rapidapi video quality/i.test(msg)) {
+    return false;
+  }
+  return false;
+}
+
+function isCascadeEligibleError(err) {
+  if (!err) return false;
+  if (err.cascadeFallback) return true;
+  const msg = (err?.message || String(err)).toLowerCase();
+  return (
+    /timeout|timed out|econnaborted|file not ready|not ready after|still processing|cdn file not ready|cdn not ready|cdn partial|preparing|524|502|503|504|socket hang up/i.test(
+      msg
+    ) || socialKit.isSocialKitSizeLimitError(msg)
+  );
+}
+
+async function getVideoDurationHint(videoId) {
   if (SOCIALKIT_CONFIGURED) {
     try {
-      const resolved = await socialKit.resolveVideoDownloadUrl(videoId, targetQuality);
-      if (!resolved.url) {
-        throw new Error('SocialKit returned no playable URL');
-      }
-      return { ...resolved, source: 'socialkit' };
+      const info = await socialKit.getVideoInfo(videoId);
+      const sec = Number(info.lengthSeconds);
+      if (Number.isFinite(sec) && sec > 0) return sec;
     } catch (err) {
-      const msg = err?.message || String(err);
-      console.warn(`[resolve] SocialKit failed video=${videoId} quality=${targetQuality}: ${msg}`);
-      if (!RAPIDAPI_CONFIGURED) throw err;
-      console.log(`[resolve] falling back to RapidAPI video=${videoId} quality=${targetQuality}`);
+      console.warn(`[resolve] duration hint SocialKit failed video=${videoId}: ${err.message}`);
     }
   }
 
-  if (!RAPIDAPI_CONFIGURED) {
+  if (RAPIDAPI_CONFIGURED) {
+    try {
+      const { durationSeconds } = await rapidApi.getAvailableQualities(videoId);
+      if (durationSeconds > 0) return durationSeconds;
+    } catch (err) {
+      console.warn(`[resolve] duration hint RapidAPI failed video=${videoId}: ${err.message}`);
+    }
+  }
+
+  return 0;
+}
+
+function buildProviderChain(durationSeconds) {
+  const isLong = durationSeconds <= 0 || durationSeconds > LONG_VIDEO_DURATION_SEC;
+  const chain = [];
+
+  if (isLong) {
+    if (RAPIDAPI_CONFIGURED) chain.push({ name: 'rapidapi', cascadeMode: true });
+    if (SOCIALKIT_CONFIGURED) chain.push({ name: 'socialkit', cascadeMode: false, fallbackAttempt: true });
+  } else {
+    if (SOCIALKIT_CONFIGURED) chain.push({ name: 'socialkit', cascadeMode: false, fallbackAttempt: false });
+    if (RAPIDAPI_CONFIGURED) chain.push({ name: 'rapidapi', cascadeMode: false });
+  }
+
+  return { chain, isLong, durationSeconds };
+}
+
+/**
+ * Cascading resolve: SocialKit <-> RapidAPI with fast-fail on long videos.
+ * @param {object} [progress] — mutable status for async /status polling
+ */
+async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = null) {
+  const targetQuality = normalizeStreamQuality(quality);
+  const durationSeconds = await getVideoDurationHint(videoId);
+  const { chain, isLong } = buildProviderChain(durationSeconds);
+
+  if (progress) {
+    progress.durationSeconds = durationSeconds || null;
+    progress.isLongVideo = isLong;
+  }
+
+  if (chain.length === 0) {
     throw new Error(
-      SOCIALKIT_CONFIGURED
-        ? 'SocialKit failed and RAPIDAPI_KEY is not configured on the Media Bridge'
-        : 'No YouTube resolver configured (set SOCIALKIT_ACCESS_KEY and/or RAPIDAPI_KEY)'
+      'No YouTube resolver configured (set SOCIALKIT_ACCESS_KEY and/or RAPIDAPI_KEY)'
     );
   }
 
-  const resolved = await rapidApi.resolveVideoDownloadUrl(videoId, targetQuality);
-  if (!resolved.url) {
-    throw new Error('RapidAPI returned no playable URL');
+  console.log(
+    `[resolve] cascade video=${videoId} quality=${targetQuality} duration=${durationSeconds || '?'}s ` +
+      `long=${isLong} chain=${chain.map((p) => p.name).join(' -> ')}`
+  );
+
+  const failures = [];
+
+  for (let i = 0; i < chain.length; i++) {
+    const step = chain[i];
+    const next = chain[i + 1];
+    const phase = i === 0 ? 'primary' : 'fallback';
+
+    if (progress) {
+      progress.phase = phase;
+      progress.activeSource = step.name;
+      progress.fallbackFrom = i > 0 ? chain[i - 1].name : null;
+      progress.detail =
+        phase === 'fallback'
+          ? `Trying ${step.name} after ${chain[i - 1].name} failed`
+          : `Resolving via ${step.name}`;
+      progress.retryAfterMs = phase === 'fallback' ? 4000 : 3000;
+    }
+
+    try {
+      if (step.name === 'socialkit') {
+        const resolved = await socialKit.resolveVideoDownloadUrl(videoId, targetQuality, {
+          fallbackAttempt: Boolean(step.fallbackAttempt),
+        });
+        if (!resolved.url) throw new Error('SocialKit returned no playable URL');
+        console.log(`[resolve] SocialKit OK video=${videoId} phase=${phase}`);
+        return { ...resolved, source: 'socialkit', durationSeconds };
+      }
+
+      const resolved = await rapidApi.resolveVideoDownloadUrl(videoId, targetQuality, {
+        cascadeMode: Boolean(step.cascadeMode),
+        durationSeconds,
+      });
+      if (!resolved.url) throw new Error('RapidAPI returned no playable URL');
+      console.log(
+        `[resolve] RapidAPI OK video=${videoId} phase=${phase} cascade=${Boolean(step.cascadeMode)}`
+      );
+      return { ...resolved, source: 'rapidapi', durationSeconds };
+    } catch (err) {
+      const msg = err?.message || String(err);
+      failures.push({ provider: step.name, message: msg });
+      console.warn(`[resolve] ${step.name} failed video=${videoId} phase=${phase}: ${msg}`);
+
+      if (isFatalCascadeError(err, step.name)) throw err;
+
+      if (next && isCascadeEligibleError(err)) {
+        console.log(
+          `[resolve] cascading video=${videoId} ${step.name} -> ${next.name} ` +
+            `(reason=${msg.split('\n')[0].slice(0, 120)})`
+        );
+        if (progress) {
+          progress.phase = 'fallback';
+          progress.fallbackFrom = step.name;
+          progress.activeSource = next.name;
+          progress.detail = `${step.name} failed — switching to ${next.name}`;
+        }
+        continue;
+      }
+
+      throw err;
+    }
   }
-  return { ...resolved, source: 'rapidapi' };
+
+  const summary = failures.map((f) => `${f.provider}: ${f.message.split('\n')[0]}`).join(' | ');
+  throw new Error(`All resolvers failed for ${videoId}: ${summary}`);
 }
 
 async function getVideoInfo(videoId) {
@@ -311,7 +458,11 @@ async function getVideoInfo(videoId) {
   return rapidApi.getVideoInfo(videoId);
 }
 
-async function getCachedUpstreamUrl(videoId, rawQuality = '360p', { forceRefresh = false } = {}) {
+async function getCachedUpstreamUrl(
+  videoId,
+  rawQuality = '360p',
+  { forceRefresh = false, progress = null } = {}
+) {
   const targetQuality = normalizeStreamQuality(rawQuality, '360p');
   const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
 
@@ -322,7 +473,7 @@ async function getCachedUpstreamUrl(videoId, rawQuality = '360p', { forceRefresh
     resolveCache.delete(cacheKey);
   }
 
-  const resolved = await resolveVideoDownloadUrl(videoId, targetQuality);
+  const resolved = await resolveVideoDownloadUrl(videoId, targetQuality, progress);
   if (!resolved.url) {
     throw new Error('No playable URL from SocialKit or RapidAPI');
   }
@@ -618,12 +769,7 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
     return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
   }
   if (job?.status === 'processing') {
-    return res.status(202).json({
-      status: 'processing',
-      videoId,
-      retryAfterMs: 3000,
-      elapsedMs: Date.now() - job.startedAt,
-    });
+    return res.status(202).json(buildProcessingStatusResponse(req, videoId, rawQuality, job));
   }
   if (job?.status === 'failed' && job.error) {
     if (isRetryableStreamPrepareError(job.error)) {
@@ -635,23 +781,18 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
       if (restarted.status === 'ready' && restarted.cached) {
         return res.json(buildStreamJsonResponse(req, videoId, rawQuality, restarted.cached));
       }
-      return res.status(202).json({
-        status: 'processing',
-        videoId,
-        retryAfterMs: 5000,
-        detail: 'Retrying after transient resolve failure',
-      });
+      return res.status(202).json(buildProcessingStatusResponse(req, videoId, rawQuality, restarted));
     }
     const classified = classifyStreamResolveError(job.error);
     return res.status(classified.status).json(classified.body);
   }
 
-  return res.status(202).json({
-    status: 'idle',
-    videoId,
-    retryAfterMs: 2000,
-    detail: 'No preparation in progress — start with GET /api/stream/:videoId?async=1',
-  });
+  // No active job — start one so polling after async=1 never gets stuck on idle.
+  const restarted = startStreamPrepare(videoId, rawQuality);
+  if (restarted.status === 'ready' && restarted.cached) {
+    return res.json(buildStreamJsonResponse(req, videoId, rawQuality, restarted.cached));
+  }
+  return res.status(202).json(buildProcessingStatusResponse(req, videoId, rawQuality, restarted));
 });
 
 app.get('/api/stream/:videoId', async (req, res) => {
@@ -689,10 +830,8 @@ app.get('/api/stream/:videoId', async (req, res) => {
 
       console.log(`[api/stream] ${videoId} async=1 → processing (background resolve started)`);
       return res.status(202).json({
-        status: 'processing',
-        videoId,
+        ...buildProcessingStatusResponse(req, videoId, rawQuality, job),
         pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
-        retryAfterMs: 3000,
       });
     }
 

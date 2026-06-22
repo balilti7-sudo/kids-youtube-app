@@ -414,6 +414,13 @@ export type StreamStatusResponse = StreamApiResponse & {
   elapsedMs?: number
   error?: string
   detail?: string | string[] | null
+  /** `primary` | `fallback` | `processing` */
+  phase?: string | null
+  /** Provider currently being tried: `socialkit` | `rapidapi` */
+  activeSource?: string | null
+  /** Provider that failed before fallback, e.g. `rapidapi` */
+  fallbackFrom?: string | null
+  durationSeconds?: number | null
 }
 
 /**
@@ -645,6 +652,13 @@ function parseStreamStatusBody(body: Record<string, unknown>, videoId: string): 
       typeof body.elapsedMs === 'number' && Number.isFinite(body.elapsedMs) ? body.elapsedMs : undefined,
     error: typeof body.error === 'string' ? body.error : undefined,
     detail: normalizeBridgeErrorDetail(body.detail),
+    phase: typeof body.phase === 'string' ? body.phase : null,
+    activeSource: typeof body.activeSource === 'string' ? body.activeSource : null,
+    fallbackFrom: typeof body.fallbackFrom === 'string' ? body.fallbackFrom : null,
+    durationSeconds:
+      typeof body.durationSeconds === 'number' && Number.isFinite(body.durationSeconds)
+        ? body.durationSeconds
+        : null,
   }
 }
 
@@ -690,6 +704,24 @@ async function pollStreamUntilReady(
     }
 
     const parsed = parseStreamStatusBody(body, videoId)
+
+    if (parsed.phase === 'fallback' || parsed.fallbackFrom) {
+      console.info('[streamApi] provider fallback in progress', {
+        videoId,
+        phase: parsed.phase,
+        activeSource: parsed.activeSource,
+        fallbackFrom: parsed.fallbackFrom,
+        detail: parsed.detail,
+      })
+    } else if (parsed.activeSource) {
+      console.info('[streamApi] resolve progress', {
+        videoId,
+        activeSource: parsed.activeSource,
+        phase: parsed.phase,
+        detail: parsed.detail,
+      })
+    }
+
     if (parsed.status === 'ready' && parsed.url) {
       return parsed
     }

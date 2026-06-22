@@ -16,6 +16,7 @@ const DEFAULT_FORMAT = (process.env.SOCIALKIT_FORMAT || 'mp4').trim().toLowerCas
 const DEFAULT_QUALITY = (process.env.SOCIALKIT_QUALITY || '360p').trim().toLowerCase();
 /** Fail-fast: max 2s per SocialKit HTTP call (override via SOCIALKIT_REQUEST_TIMEOUT_MS). */
 const REQUEST_TIMEOUT_MS = Number(process.env.SOCIALKIT_REQUEST_TIMEOUT_MS || 2000);
+const FALLBACK_REQUEST_TIMEOUT_MS = Number(process.env.SOCIALKIT_FALLBACK_TIMEOUT_MS || 20_000);
 /** SocialKit max ~10MB per download; oversize triggers RapidAPI fallback in index.cjs */
 const SOCIALKIT_MAX_FILE_BYTES = Number(process.env.SOCIALKIT_MAX_FILE_BYTES || 10 * 1024 * 1024);
 const RESOLVER = 'SocialKit';
@@ -121,13 +122,17 @@ function mimeForFormat(format) {
  * Resolve a direct playable URL for a YouTube videoId via SocialKit.
  * @returns {Promise<{ url: string, quality: string|null, mime: string }>}
  */
-async function resolveVideoDownloadUrl(videoId, requestedQuality = DEFAULT_QUALITY) {
+async function resolveVideoDownloadUrl(videoId, requestedQuality = DEFAULT_QUALITY, options = {}) {
   requireApiKey();
 
   const targetQuality = String(requestedQuality || DEFAULT_QUALITY).trim().toLowerCase();
+  const requestTimeoutMs =
+    Number(options.requestTimeoutMs) ||
+    (options.fallbackAttempt ? FALLBACK_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   const watchUrl = youtubeWatchUrl(videoId);
   console.log(
-    `[socialkit] POST /youtube/download video=${videoId} format=${DEFAULT_FORMAT} quality=${targetQuality}`
+    `[socialkit] POST /youtube/download video=${videoId} format=${DEFAULT_FORMAT} quality=${targetQuality} ` +
+      `timeout=${requestTimeoutMs}ms${options.fallbackAttempt ? ' fallback' : ''}`
   );
 
   const res = await axios.post(
@@ -139,7 +144,7 @@ async function resolveVideoDownloadUrl(videoId, requestedQuality = DEFAULT_QUALI
       quality: targetQuality,
     },
     {
-      timeout: REQUEST_TIMEOUT_MS,
+      timeout: requestTimeoutMs,
       validateStatus: () => true,
       headers: { accept: 'application/json', 'Content-Type': 'application/json' },
     }
