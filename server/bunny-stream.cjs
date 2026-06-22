@@ -246,27 +246,134 @@ async function bunnyRequest(method, path, { body, params } = {}) {
   }
 }
 
-async function getLibraryHostname() {
+function normalizeHostname(raw) {
+  if (!raw) return '';
+  return String(raw).replace(/^https?:\/\//, '').replace(/\/+$/, '').split('/')[0];
+}
+
+function hostnameFromUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  try {
+    const host = new URL(url).hostname;
+    if (/\.b-cdn\.net$/i.test(host) || /bunnycdn\.com$/i.test(host) || /mediadelivery\.net$/i.test(host)) {
+      return host;
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function pickHostnameFromObject(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  const candidates = [
+    obj.cdnHostname,
+    obj.CdnHostname,
+    obj.hostname,
+    obj.Hostname,
+    obj.PullZoneUrl,
+    obj.pullZoneUrl,
+    obj.cdnUrl,
+    obj.CdnUrl,
+  ];
+  for (const candidate of candidates) {
+    const direct = normalizeHostname(candidate);
+    if (direct && !direct.includes(' ')) return direct;
+    const fromUrl = hostnameFromUrl(candidate);
+    if (fromUrl) return fromUrl;
+  }
+  if (Array.isArray(obj.Hostnames) && obj.Hostnames.length > 0) {
+    const first = obj.Hostnames[0];
+    const value = typeof first === 'string' ? first : first?.Value || first?.value;
+    const fromList = normalizeHostname(value) || hostnameFromUrl(value);
+    if (fromList) return fromList;
+  }
+  return '';
+}
+
+function hostnameFromVideoObject(video) {
+  if (!video || typeof video !== 'object') return '';
+  const urls = [
+    video.cdnUrl,
+    video.thumbnailUrl,
+    video.previewUrl,
+    video.mp4Url,
+    video.playlistUrl,
+    video.fallbackUrl,
+  ];
+  for (const url of urls) {
+    const host = hostnameFromUrl(url);
+    if (host) return host;
+  }
+  return '';
+}
+
+async function accountApiGet(path) {
+  const res = await axios({
+    method: 'GET',
+    url: `https://api.bunny.net${path}`,
+    headers: {
+      AccessKey: BUNNY_STREAM_API_KEY,
+      accept: 'application/json',
+    },
+    timeout: BUNNY_REQUEST_TIMEOUT_MS,
+    validateStatus: () => true,
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`Bunny account API auth failed HTTP ${res.status}`);
+  }
+  if (res.status >= 400) {
+    throw new Error(`Bunny account API HTTP ${res.status}`);
+  }
+  return res.data;
+}
+
+async function getLibraryHostname(video = null) {
   if (BUNNY_CDN_HOSTNAME) {
-    return BUNNY_CDN_HOSTNAME.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    return normalizeHostname(BUNNY_CDN_HOSTNAME);
   }
   if (cachedLibraryHostname) return cachedLibraryHostname;
 
+  const fromVideo = hostnameFromVideoObject(video);
+  if (fromVideo) {
+    cachedLibraryHostname = fromVideo;
+    return fromVideo;
+  }
+
   const lib = await bunnyRequest('GET', `/library/${BUNNY_LIBRARY_ID}`);
-  const hostname =
-    lib.cdnHostname ||
-    lib.CdnHostname ||
-    lib.hostname ||
-    lib.Hostname ||
-    lib.PullZoneUrl ||
-    '';
+  let hostname = pickHostnameFromObject(lib);
+
+  const pullZoneId = lib.PullZoneId || lib.pullZoneId;
+  if (!hostname && pullZoneId) {
+    try {
+      const pullZone = await accountApiGet(`/pullzone/${pullZoneId}`);
+      hostname = pickHostnameFromObject(pullZone);
+    } catch (err) {
+      console.warn(`[bunny] pull zone lookup failed id=${pullZoneId}: ${err.message}`);
+    }
+  }
+
+  if (!hostname) {
+    try {
+      const videoLibrary = await accountApiGet(`/videolibrary/${BUNNY_LIBRARY_ID}`);
+      hostname = pickHostnameFromObject(videoLibrary);
+      const libPullZoneId = videoLibrary.PullZoneId || videoLibrary.pullZoneId;
+      if (!hostname && libPullZoneId) {
+        const pullZone = await accountApiGet(`/pullzone/${libPullZoneId}`);
+        hostname = pickHostnameFromObject(pullZone);
+      }
+    } catch (err) {
+      console.warn(`[bunny] videolibrary lookup failed: ${err.message}`);
+    }
+  }
+
   if (!hostname) {
     throw new Error(
       'Bunny CDN hostname unknown — set BUNNY_CDN_HOSTNAME (e.g. vz-xxxxx.b-cdn.net) on the Media Bridge'
     );
   }
-  cachedLibraryHostname = String(hostname).replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  return cachedLibraryHostname;
+  cachedLibraryHostname = hostname;
+  return hostname;
 }
 
 async function getVideo(bunnyGuid) {
@@ -438,7 +545,7 @@ async function resolveVideoDownloadUrl(youtubeVideoId, requestedQuality = '360p'
     video = await waitForTranscode(video.guid, youtubeVideoId, progress);
   }
 
-  const hostname = await getLibraryHostname();
+  const hostname = await getLibraryHostname(video);
   const url = buildPlaybackUrl(hostname, video.guid, quality, { preferHls: true });
 
   console.log(
@@ -477,7 +584,7 @@ async function getVideoInfo(youtubeVideoId) {
       liveBroadcastDetails: { isLiveNow: false },
     };
   }
-  const hostname = await getLibraryHostname().catch(() => null);
+  const hostname = await getLibraryHostname(video).catch(() => null);
   const thumb = hostname
     ? `https://${hostname}/${video.guid}/${video.thumbnailFileName || 'thumbnail.jpg'}`
     : null;
