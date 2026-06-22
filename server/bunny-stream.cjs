@@ -513,6 +513,47 @@ async function waitForTranscode(bunnyGuid, youtubeVideoId, progress) {
   throw err;
 }
 
+async function getVideoPlayData(bunnyGuid) {
+  return bunnyRequest('GET', `/library/${BUNNY_LIBRARY_ID}/videos/${bunnyGuid}/play`);
+}
+
+function absolutizeBunnyUrl(url, playData) {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+  const host =
+    hostnameFromUrl(playData?.thumbnailUrl) ||
+    hostnameFromUrl(playData?.fallbackUrl) ||
+    hostnameFromUrl(playData?.previewUrl) ||
+    hostnameFromUrl(playData?.originalUrl) ||
+    cachedLibraryHostname;
+  if (!host) return null;
+  if (trimmed.startsWith('/')) return `https://${host}${trimmed}`;
+  return `https://${host}/${trimmed.replace(/^\/+/, '')}`;
+}
+
+async function resolvePlaybackUrl(video, quality) {
+  const playData = await getVideoPlayData(video.guid);
+
+  const playlistUrl = absolutizeBunnyUrl(playData.videoPlaylistUrl, playData);
+  if (playlistUrl) {
+    const host = hostnameFromUrl(playlistUrl);
+    if (host) cachedLibraryHostname = host;
+    return playlistUrl;
+  }
+
+  const fallbackUrl = absolutizeBunnyUrl(playData.fallbackUrl, playData);
+  if (fallbackUrl && /\.m3u8(\?|$)/i.test(fallbackUrl)) {
+    const host = hostnameFromUrl(fallbackUrl);
+    if (host) cachedLibraryHostname = host;
+    return fallbackUrl;
+  }
+
+  const hostname = await getLibraryHostname(video);
+  return buildPlaybackUrl(hostname, video.guid, quality, { preferHls: true });
+}
+
 /**
  * Resolve a YouTube videoId to a Bunny Stream CDN playback URL (HLS).
  * Uses async-friendly polling internally; throws fileNotReady while transcoding.
@@ -545,8 +586,7 @@ async function resolveVideoDownloadUrl(youtubeVideoId, requestedQuality = '360p'
     video = await waitForTranscode(video.guid, youtubeVideoId, progress);
   }
 
-  const hostname = await getLibraryHostname(video);
-  const url = buildPlaybackUrl(hostname, video.guid, quality, { preferHls: true });
+  const url = await resolvePlaybackUrl(video, quality);
 
   console.log(
     `[bunny] playback video=${youtubeVideoId} guid=${video.guid} quality=${quality} url=${url.slice(0, 96)}…`
