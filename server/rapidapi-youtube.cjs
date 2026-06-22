@@ -1,5 +1,7 @@
 'use strict';
 
+/** @deprecated Playback resolve moved to server/bunny-stream.cjs — this module is no longer used by index.cjs */
+
 const axios = require('axios');
 
 const RAPIDAPI_HOST =

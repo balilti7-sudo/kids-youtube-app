@@ -622,7 +622,7 @@ function isFileNotReadyStreamError(err: unknown): boolean {
     err.status === 503 ||
     err.status === 404 ||
     err.status === 202 ||
-    /file_not_ready|file not ready|not ready after|still processing|cdn file not ready/.test(blob)
+    /file_not_ready|file not ready|not ready after|still processing|cdn file not ready|transcoding not finished|bunny transcoding|fetch queue full/.test(blob)
   )
 }
 
@@ -705,7 +705,15 @@ async function pollStreamUntilReady(
 
     const parsed = parseStreamStatusBody(body, videoId)
 
-    if (parsed.phase === 'fallback' || parsed.fallbackFrom) {
+    if (parsed.phase === 'transcoding' || parsed.phase === 'ingest' || parsed.activeSource === 'bunny') {
+      console.info('[streamApi] Bunny Stream progress', {
+        videoId,
+        phase: parsed.phase,
+        activeSource: parsed.activeSource,
+        detail: parsed.detail,
+        encodeProgress: (body as { encodeProgress?: number }).encodeProgress,
+      })
+    } else if (parsed.phase === 'fallback' || parsed.fallbackFrom) {
       console.info('[streamApi] provider fallback in progress', {
         videoId,
         phase: parsed.phase,
@@ -731,7 +739,7 @@ async function pollStreamUntilReady(
       const detail = parsed.detail ?? null
       const detailBlob = `${detail ?? ''} ${errorCode ?? ''}`.toLowerCase()
       if (
-        /timeout|timed out|file not ready|not ready after|still processing|cdn file not ready|econnaborted/i.test(
+        /timeout|timed out|file not ready|not ready after|still processing|cdn file not ready|transcoding not finished|bunny transcoding|econnaborted/i.test(
           detailBlob
         )
       ) {

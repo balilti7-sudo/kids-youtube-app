@@ -1,5 +1,5 @@
 // server/index.cjs — SafeTube Media Bridge
-// YouTube playback: SocialKit primary, RapidAPI fallback.
+// YouTube playback: Bunny Stream (fetch + transcode + CDN HLS).
 
 'use strict';
 
@@ -13,16 +13,10 @@ const cors = require('cors');
 const http = require('http');
 const https = require('https');
 
-const socialKit = require('./socialkit-youtube.cjs');
-const rapidApi = require('./rapidapi-youtube.cjs');
+const bunnyStream = require('./bunny-stream.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
 
-const SOCIALKIT_CONFIGURED = Boolean(
-  process.env.SOCIALKIT_ACCESS_KEY || process.env.SOCIALKIT_API_KEY
-);
-const RAPIDAPI_CONFIGURED = Boolean(
-  process.env.RAPIDAPI_KEY || process.env.RAPIDAPI_YOUTUBE_KEY
-);
+const BUNNY_CONFIGURED = bunnyStream.isConfigured();
 
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -31,8 +25,6 @@ const DEFAULT_ANDROID_YOUTUBE_UA =
   'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36';
 const MEDIA_USER_AGENT = (process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
 const MEDIA_PROXY_TIMEOUT_MS = Number(process.env.MEDIA_PROXY_TIMEOUT_MS || 90_000);
-/** Wait before re-resolving RapidAPI CDN URLs that returned 404 during /api/media proxy. */
-const RAPIDAPI_MEDIA_RETRY_WAIT_MS = Number(process.env.RAPIDAPI_MEDIA_RETRY_WAIT_MS || 12_000);
 
 function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,10 +48,8 @@ app.use((req, _res, next) => {
 
 const RESOLVE_CACHE_TTL_MS = Number(process.env.RESOLVE_CACHE_TTL_MS || 8 * 60 * 1000);
 const STREAM_PREPARE_TTL_MS = Number(process.env.STREAM_PREPARE_TTL_MS || 5 * 60 * 1000);
-/** When async=1, wait this long for a fast cache/SocialKit resolve before returning 202. */
+/** When async=1, wait this long for a fast cache hit before returning 202. */
 const ASYNC_STREAM_QUICK_READY_MS = Number(process.env.ASYNC_STREAM_QUICK_READY_MS || 2_500);
-/** Videos longer than this use RapidAPI-first with fast-fail cascade. */
-const LONG_VIDEO_DURATION_SEC = Number(process.env.LONG_VIDEO_DURATION_SEC || 65);
 const resolveCache = new Map();
 /** In-flight async stream preparation jobs (keyed by videoId:quality). */
 const streamPrepareJobs = new Map();
@@ -133,8 +123,16 @@ function resolveCacheSet(cacheKey, upstreamUrl, meta = {}) {
 function buildStreamJsonResponse(req, videoId, rawQuality, cached) {
   const quality = normalizeStreamQuality(rawQuality, '360p');
   const { format, mimeType, quality: resolvedQuality } = inferStreamMetadata(cached.upstreamUrl, cached);
+  const useDirectCdn =
+    cached.source === 'bunny' ||
+    cached.proxied === false ||
+    /bunnycdn\.com|b-cdn\.net|mediadelivery\.net/i.test(String(cached.upstreamUrl || ''));
+
   const origin = publicBridgeOrigin(req);
-  const playbackUrl = `${origin}${playbackMediaPath(videoId, rawQuality, '360p')}`;
+  const playbackUrl =
+    useDirectCdn && cached.upstreamUrl?.startsWith('http')
+      ? cached.upstreamUrl
+      : `${origin}${playbackMediaPath(videoId, rawQuality, '360p')}`;
 
   return {
     status: 'ready',
@@ -143,8 +141,8 @@ function buildStreamJsonResponse(req, videoId, rawQuality, cached) {
     format,
     mimeType,
     quality: resolvedQuality || quality,
-    source: cached.source || 'unknown',
-    proxied: true,
+    source: cached.source || 'bunny',
+    proxied: !useDirectCdn,
   };
 }
 
@@ -156,11 +154,12 @@ function streamStatusPollUrl(req, videoId, rawQuality) {
 
 function isRetryableStreamPrepareError(err) {
   const msg = (err?.message || String(err)).toLowerCase();
-  if (/quota exceeded|plan upgrade required|live|premiere|upcoming|not yet started|scheduled|islivecontent|private|not available in your country|no suitable rapidapi video quality/i.test(msg)) {
+  if (/live|premiere|upcoming|not yet started|scheduled|islivecontent|private|auth failed/i.test(msg)) {
     return false;
   }
   return (
-    /timeout|timed out|econnaborted|econnreset|etimedout|network|socket hang up|524|file not ready|not ready after|still processing|cdn file not ready|preparing|503|502|504/i.test(
+    err?.fileNotReady ||
+    /timeout|timed out|econnaborted|econnreset|etimedout|network|socket hang up|transcoding not finished|fetch queue full|file not ready|not ready after|still processing|preparing|503|502|504|429/i.test(
       msg
     )
   );
@@ -179,7 +178,8 @@ function classifyStreamResolveError(err) {
     };
   }
   if (
-    /file not ready|not ready after|still processing|cdn file not ready|timeout|timed out|econnaborted/i.test(
+    err?.fileNotReady ||
+    /file not ready|not ready after|still processing|transcoding not finished|fetch queue full|timeout|timed out|econnaborted/i.test(
       msg
     )
   ) {
@@ -278,184 +278,57 @@ function buildProcessingStatusResponse(req, videoId, rawQuality, job) {
     retryAfterMs: progress.retryAfterMs || 3000,
     elapsedMs: job ? Date.now() - job.startedAt : 0,
     phase: progress.phase || 'processing',
-    activeSource: progress.activeSource || null,
+    activeSource: progress.activeSource || 'bunny',
     fallbackFrom: progress.fallbackFrom || null,
     detail: progress.detail || null,
     durationSeconds: progress.durationSeconds || null,
+    encodeProgress: progress.encodeProgress ?? null,
+    bunnyGuid: progress.bunnyGuid || null,
     pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
   };
 }
 
-function isFatalCascadeError(err, provider) {
-  const msg = (err?.message || String(err)).toLowerCase();
-  if (
-    /geo-block|region-restricted|quota exceeded|plan upgrade|live|premiere|upcoming|not yet started|scheduled|islivecontent|private video|not available in your country/i.test(
-      msg
-    )
-  ) {
-    return true;
-  }
-  if (provider === 'rapidapi' && /no suitable rapidapi video quality/i.test(msg)) {
-    return false;
-  }
-  return false;
-}
-
-function isCascadeEligibleError(err) {
-  if (!err) return false;
-  if (err.cascadeFallback) return true;
-  const msg = (err?.message || String(err)).toLowerCase();
-  return (
-    /timeout|timed out|econnaborted|file not ready|not ready after|still processing|cdn file not ready|cdn not ready|cdn partial|preparing|524|502|503|504|socket hang up/i.test(
-      msg
-    ) || socialKit.isSocialKitSizeLimitError(msg)
-  );
-}
-
-async function getVideoDurationHint(videoId) {
-  if (SOCIALKIT_CONFIGURED) {
-    try {
-      const info = await socialKit.getVideoInfo(videoId);
-      const sec = Number(info.lengthSeconds);
-      if (Number.isFinite(sec) && sec > 0) return sec;
-    } catch (err) {
-      console.warn(`[resolve] duration hint SocialKit failed video=${videoId}: ${err.message}`);
-    }
-  }
-
-  if (RAPIDAPI_CONFIGURED) {
-    try {
-      const { durationSeconds } = await rapidApi.getAvailableQualities(videoId);
-      if (durationSeconds > 0) return durationSeconds;
-    } catch (err) {
-      console.warn(`[resolve] duration hint RapidAPI failed video=${videoId}: ${err.message}`);
-    }
-  }
-
-  return 0;
-}
-
-function buildProviderChain(durationSeconds) {
-  const isLong = durationSeconds <= 0 || durationSeconds > LONG_VIDEO_DURATION_SEC;
-  const chain = [];
-
-  if (isLong) {
-    if (RAPIDAPI_CONFIGURED) chain.push({ name: 'rapidapi', cascadeMode: true });
-    if (SOCIALKIT_CONFIGURED) chain.push({ name: 'socialkit', cascadeMode: false, fallbackAttempt: true });
-  } else {
-    if (SOCIALKIT_CONFIGURED) chain.push({ name: 'socialkit', cascadeMode: false, fallbackAttempt: false });
-    if (RAPIDAPI_CONFIGURED) chain.push({ name: 'rapidapi', cascadeMode: false });
-  }
-
-  return { chain, isLong, durationSeconds };
-}
-
 /**
- * Cascading resolve: SocialKit <-> RapidAPI with fast-fail on long videos.
+ * Resolve via Bunny Stream: fetch YouTube URL, transcode, return CDN HLS URL.
  * @param {object} [progress] — mutable status for async /status polling
  */
 async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = null) {
-  const targetQuality = normalizeStreamQuality(quality);
-  const durationSeconds = await getVideoDurationHint(videoId);
-  const { chain, isLong } = buildProviderChain(durationSeconds);
-
-  if (progress) {
-    progress.durationSeconds = durationSeconds || null;
-    progress.isLongVideo = isLong;
-  }
-
-  if (chain.length === 0) {
+  if (!BUNNY_CONFIGURED) {
     throw new Error(
-      'No YouTube resolver configured (set SOCIALKIT_ACCESS_KEY and/or RAPIDAPI_KEY)'
+      'Bunny Stream is not configured (set BUNNY_STREAM_API_KEY and BUNNY_LIBRARY_ID on the Media Bridge)'
     );
   }
 
-  console.log(
-    `[resolve] cascade video=${videoId} quality=${targetQuality} duration=${durationSeconds || '?'}s ` +
-      `long=${isLong} chain=${chain.map((p) => p.name).join(' -> ')}`
-  );
+  const targetQuality = normalizeStreamQuality(quality);
 
-  const failures = [];
-
-  for (let i = 0; i < chain.length; i++) {
-    const step = chain[i];
-    const next = chain[i + 1];
-    const phase = i === 0 ? 'primary' : 'fallback';
-
-    if (progress) {
-      progress.phase = phase;
-      progress.activeSource = step.name;
-      progress.fallbackFrom = i > 0 ? chain[i - 1].name : null;
-      progress.detail =
-        phase === 'fallback'
-          ? `Trying ${step.name} after ${chain[i - 1].name} failed`
-          : `Resolving via ${step.name}`;
-      progress.retryAfterMs = phase === 'fallback' ? 4000 : 3000;
-    }
-
-    try {
-      if (step.name === 'socialkit') {
-        const resolved = await socialKit.resolveVideoDownloadUrl(videoId, targetQuality, {
-          fallbackAttempt: Boolean(step.fallbackAttempt),
-        });
-        if (!resolved.url) throw new Error('SocialKit returned no playable URL');
-        console.log(`[resolve] SocialKit OK video=${videoId} phase=${phase}`);
-        return { ...resolved, source: 'socialkit', durationSeconds };
-      }
-
-      const resolved = await rapidApi.resolveVideoDownloadUrl(videoId, targetQuality, {
-        cascadeMode: Boolean(step.cascadeMode),
-        durationSeconds,
-      });
-      if (!resolved.url) throw new Error('RapidAPI returned no playable URL');
-      console.log(
-        `[resolve] RapidAPI OK video=${videoId} phase=${phase} cascade=${Boolean(step.cascadeMode)}`
-      );
-      return { ...resolved, source: 'rapidapi', durationSeconds };
-    } catch (err) {
-      const msg = err?.message || String(err);
-      failures.push({ provider: step.name, message: msg });
-      console.warn(`[resolve] ${step.name} failed video=${videoId} phase=${phase}: ${msg}`);
-
-      if (isFatalCascadeError(err, step.name)) throw err;
-
-      if (next && isCascadeEligibleError(err)) {
-        console.log(
-          `[resolve] cascading video=${videoId} ${step.name} -> ${next.name} ` +
-            `(reason=${msg.split('\n')[0].slice(0, 120)})`
-        );
-        if (progress) {
-          progress.phase = 'fallback';
-          progress.fallbackFrom = step.name;
-          progress.activeSource = next.name;
-          progress.detail = `${step.name} failed — switching to ${next.name}`;
-        }
-        continue;
-      }
-
-      throw err;
-    }
+  if (progress) {
+    progress.activeSource = 'bunny';
+    progress.phase = progress.phase || 'resolve';
+    progress.detail = progress.detail || 'Resolving via Bunny Stream';
+    progress.retryAfterMs = progress.retryAfterMs || 3000;
   }
 
-  const summary = failures.map((f) => `${f.provider}: ${f.message.split('\n')[0]}`).join(' | ');
-  throw new Error(`All resolvers failed for ${videoId}: ${summary}`);
+  const resolved = await bunnyStream.resolveVideoDownloadUrl(videoId, targetQuality, progress);
+  if (!resolved.url) {
+    throw new Error('Bunny Stream returned no playable URL');
+  }
+
+  return {
+    url: resolved.url,
+    quality: resolved.quality || targetQuality,
+    mime: resolved.mime || 'application/vnd.apple.mpegurl',
+    format: resolved.format || 'hls',
+    proxied: false,
+    source: 'bunny',
+    bunnyGuid: resolved.bunnyGuid || null,
+  };
 }
 
 async function getVideoInfo(videoId) {
-  if (SOCIALKIT_CONFIGURED) {
-    try {
-      return await socialKit.getVideoInfo(videoId);
-    } catch (err) {
-      console.warn(`[/api/info] SocialKit stats failed video=${videoId}: ${err?.message || err}`);
-      if (!RAPIDAPI_CONFIGURED) throw err;
-    }
+  if (!BUNNY_CONFIGURED) {
+    throw new Error('Video info unavailable (Bunny Stream not configured)');
   }
-
-  if (!RAPIDAPI_CONFIGURED) {
-    throw new Error('Video info unavailable (SocialKit and RapidAPI not configured)');
-  }
-
-  return rapidApi.getVideoInfo(videoId);
+  return bunnyStream.getVideoInfo(videoId);
 }
 
 async function getCachedUpstreamUrl(
@@ -475,11 +348,12 @@ async function getCachedUpstreamUrl(
 
   const resolved = await resolveVideoDownloadUrl(videoId, targetQuality, progress);
   if (!resolved.url) {
-    throw new Error('No playable URL from SocialKit or RapidAPI');
+    throw new Error('No playable URL from Bunny Stream');
   }
 
   resolveCacheSet(cacheKey, resolved.url, {
     ...resolved,
+    mime: resolved.mime,
     requestedQuality: targetQuality,
   });
   return resolveCache.get(cacheKey);
@@ -595,7 +469,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
           !res.headersSent
         ) {
           proxyRes.resume();
-          return sleepMs(source === 'rapidapi' ? RAPIDAPI_MEDIA_RETRY_WAIT_MS : 0)
+          return sleepMs(0)
             .then(() => refreshUpstream())
             .then((freshUrl) => {
               if (!freshUrl || res.headersSent) return;
@@ -607,7 +481,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
             .catch((err) => {
               console.error('[/api/media] refresh after stale upstream failed:', err.message);
               if (!res.headersSent) {
-                if (source === 'rapidapi' && status === 404) {
+                if (source === 'bunny' && status === 404) {
                   res.status(503).json({
                     error: 'FILE_NOT_READY',
                     detail: err.message.split('\n').slice(0, 2).join(' '),
@@ -622,7 +496,7 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
         }
 
         if (!res.headersSent) {
-          if (staleUpstream && source === 'rapidapi' && status === 404) {
+          if (staleUpstream && source === 'bunny' && status === 404) {
             res.status(503).json({
               error: 'FILE_NOT_READY',
               detail: 'Upstream CDN file not ready yet (large video may still be processing)',
@@ -705,11 +579,9 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     bridge: { port: PORT, host: HOST },
-    resolver: 'socialkit+rapidapi',
-    socialKitBase: socialKit.SOCIALKIT_BASE,
-    socialKitKeyConfigured: SOCIALKIT_CONFIGURED,
-    rapidApiHost: rapidApi.RAPIDAPI_HOST,
-    rapidApiKeyConfigured: RAPIDAPI_CONFIGURED,
+    resolver: 'bunny-stream',
+    bunnyLibraryId: bunnyStream.BUNNY_LIBRARY_ID || null,
+    bunnyConfigured: BUNNY_CONFIGURED,
   });
 });
 
@@ -873,6 +745,14 @@ app.get('/api/media/:videoId', async (req, res) => {
       `[/api/media] ${videoId} requested=${quality} cache=${cacheKey} lookup=${lookup.lookup} hit=${Boolean(cached?.upstreamUrl)} source=${cached?.source || '?'}`
     );
 
+    if (
+      cached.source === 'bunny' &&
+      cached.upstreamUrl?.startsWith('http') &&
+      (cached.proxied === false || /\.m3u8(\?|$)/i.test(cached.upstreamUrl))
+    ) {
+      return res.redirect(302, cached.upstreamUrl);
+    }
+
     proxyUpstreamMedia(req, res, cached.upstreamUrl, {
       videoId,
       quality,
@@ -880,12 +760,6 @@ app.get('/api/media/:videoId', async (req, res) => {
       source: cached.source || null,
       refreshUpstream: async () => {
         const fresh = await getCachedUpstreamUrl(videoId, rawQuality, { forceRefresh: true });
-        if (fresh?.source === 'rapidapi' && fresh.upstreamUrl) {
-          await rapidApi.ensureCdnFileReady(fresh.upstreamUrl, {
-            videoId,
-            pollingProfile: rapidApi.getVideoPollingProfile({ durationSeconds: 0, isShortHint: false }),
-          });
-        }
         return fresh && fresh.upstreamUrl ? fresh.upstreamUrl : null;
       },
     });
@@ -941,16 +815,12 @@ app.post('/admin/clear-resolve-cache', (_req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`[bridge] listening on http://${HOST}:${PORT}`);
   console.log(
-    `[bridge] YouTube resolver: SocialKit (${socialKit.SOCIALKIT_BASE}) → RapidAPI (${rapidApi.RAPIDAPI_HOST}) fallback`
+    `[bridge] YouTube resolver: Bunny Stream (library=${bunnyStream.BUNNY_LIBRARY_ID || '?'})`
   );
-  if (!SOCIALKIT_CONFIGURED && !RAPIDAPI_CONFIGURED) {
+  if (!BUNNY_CONFIGURED) {
     console.error(
-      '[bridge] WARNING: Neither SOCIALKIT_ACCESS_KEY nor RAPIDAPI_KEY is set — /api/stream will fail.'
+      '[bridge] WARNING: BUNNY_STREAM_API_KEY and/or BUNNY_LIBRARY_ID not set — /api/stream will fail.'
     );
-  } else if (!SOCIALKIT_CONFIGURED) {
-    console.warn('[bridge] SOCIALKIT_ACCESS_KEY not set — using RapidAPI only.');
-  } else if (!RAPIDAPI_CONFIGURED) {
-    console.warn('[bridge] RAPIDAPI_KEY not set — no fallback if SocialKit fails or file is too large.');
   }
 });
 
