@@ -83,16 +83,39 @@ async function resolveDirectMediaUrl(youtubeVideoId, quality, progress) {
     progress.retryAfterMs = 3000;
   }
 
-  const info = await ingestYtdlp.getVideoInfo(youtubeVideoId);
-  if (progress && info.lengthSeconds) {
-    progress.durationSeconds = info.lengthSeconds;
-  }
+  try {
+    let info = { lengthSeconds: null };
+    try {
+      info = await ingestYtdlp.getVideoInfo(youtubeVideoId);
+    } catch (infoErr) {
+      console.error(
+        `[bunny] yt-dlp getVideoInfo failed video=${youtubeVideoId} message=${infoErr.message}`
+      );
+      if (infoErr.stderr) {
+        console.error(`[bunny] yt-dlp getVideoInfo stderr:\n${infoErr.stderr}`);
+      }
+    }
 
-  const resolved = await ingestYtdlp.resolveVideoDownloadUrl(youtubeVideoId, quality);
-  console.log(
-    `[bunny] ingest source yt-dlp video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
-  );
-  return resolved;
+    if (progress && info.lengthSeconds) {
+      progress.durationSeconds = info.lengthSeconds;
+    }
+
+    const resolved = await ingestYtdlp.resolveVideoDownloadUrl(youtubeVideoId, quality);
+    console.log(
+      `[bunny] ingest source yt-dlp video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
+    );
+    return resolved;
+  } catch (err) {
+    console.error(
+      `[bunny] yt-dlp ingest failed video=${youtubeVideoId} message=${err.message}`
+    );
+    if (err.spawnCode) console.error(`[bunny] yt-dlp spawn.code=${err.spawnCode}`);
+    if (err.spawnErrno) console.error(`[bunny] yt-dlp spawn.errno=${err.spawnErrno}`);
+    if (err.exitCode != null) console.error(`[bunny] yt-dlp exitCode=${err.exitCode}`);
+    if (err.stderr) console.error(`[bunny] yt-dlp stderr:\n${err.stderr}`);
+    if (err.stdout) console.error(`[bunny] yt-dlp stdout:\n${err.stdout}`);
+    throw err;
+  }
 }
 
 function normalizeStreamQuality(raw, fallback = '360p') {

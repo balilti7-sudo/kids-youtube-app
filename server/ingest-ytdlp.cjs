@@ -76,20 +76,61 @@ function buildBaseArgs() {
   return args;
 }
 
-function runYtDlp(extraArgs, { timeoutMs = YT_DLP_TIMEOUT_MS, label = 'yt-dlp' } = {}) {
-  return new Promise((resolve, reject) => {
-    const binary = resolveYtDlpBinary();
-    const args = [...buildBaseArgs(), ...extraArgs];
-    console.log(`[ingest-ytdlp] ${label} binary=${binary} timeout=${timeoutMs}ms`);
+function ensureYtDlpExecutable(binary) {
+  if (process.platform === 'win32') return;
+  if (!binary || !fs.existsSync(binary)) return;
+  try {
+    fs.chmodSync(binary, 0o755);
+  } catch (err) {
+    console.warn(`[ingest-ytdlp] chmod +x failed binary=${binary}: ${err.message}`);
+  }
+}
 
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+function buildYtDlpError(message, { stderr = '', stdout = '', exitCode = null, spawnErr = null } = {}) {
+  const err = new Error(message);
+  err.stderr = stderr;
+  err.stdout = stdout;
+  err.exitCode = exitCode;
+  if (spawnErr) {
+    err.spawnCode = spawnErr.code;
+    err.spawnErrno = spawnErr.errno;
+  }
+  return err;
+}
+
+function logYtDlpFailure(label, binary, args, err) {
+  console.error(`[ingest-ytdlp] ${label} FAILED binary=${binary}`);
+  console.error(`[ingest-ytdlp] ${label} args=${JSON.stringify(args)}`);
+  console.error(`[ingest-ytdlp] ${label} error.message=${err.message}`);
+  if (err.spawnCode) console.error(`[ingest-ytdlp] ${label} spawn.code=${err.spawnCode}`);
+  if (err.spawnErrno) console.error(`[ingest-ytdlp] ${label} spawn.errno=${err.spawnErrno}`);
+  if (err.exitCode != null) console.error(`[ingest-ytdlp] ${label} exitCode=${err.exitCode}`);
+  if (err.stderr) console.error(`[ingest-ytdlp] ${label} stderr:\n${err.stderr}`);
+  if (err.stdout) console.error(`[ingest-ytdlp] ${label} stdout:\n${err.stdout}`);
+}
+
+function runYtDlpOnce(binary, args, { timeoutMs, label }) {
+  return new Promise((resolve, reject) => {
+    console.log(`[ingest-ytdlp] ${label} spawn binary=${binary} timeout=${timeoutMs}ms`);
+    console.log(`[ingest-ytdlp] ${label} args=${JSON.stringify(args)}`);
+
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      const err = new Error(`yt-dlp timed out after ${timeoutMs}ms`);
-      err.fileNotReady = /timeout/i.test(err.message);
-      reject(err);
+      const err = buildYtDlpError(`yt-dlp timed out after ${timeoutMs}ms`, { stderr, stdout });
+      err.fileNotReady = true;
+      logYtDlpFailure(label, binary, args, err);
+      finish(() => reject(err));
     }, timeoutMs);
 
     child.stdout.on('data', (chunk) => {
@@ -100,22 +141,61 @@ function runYtDlp(extraArgs, { timeoutMs = YT_DLP_TIMEOUT_MS, label = 'yt-dlp' }
     });
     child.on('error', (spawnErr) => {
       clearTimeout(timer);
-      reject(new Error(`yt-dlp spawn failed (${binary}): ${spawnErr.message}`));
+      const err = buildYtDlpError(`yt-dlp spawn failed (${binary}): ${spawnErr.message}`, {
+        stderr,
+        stdout,
+        spawnErr,
+      });
+      logYtDlpFailure(label, binary, args, err);
+      finish(() => reject(err));
     });
     child.on('close', (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        const detail = (stderr || stdout).trim().slice(0, 600);
-        const err = new Error(`yt-dlp exited ${code}: ${detail || 'no output'}`);
+        const detail = (stderr || stdout).trim();
+        const err = buildYtDlpError(`yt-dlp exited ${code}: ${detail.slice(0, 800) || 'no output'}`, {
+          stderr,
+          stdout,
+          exitCode: code,
+        });
         if (/private|unavailable|age|sign in|bot|429|rate/i.test(detail)) {
           err.fileNotReady = false;
         }
-        reject(err);
+        logYtDlpFailure(label, binary, args, err);
+        finish(() => reject(err));
         return;
       }
-      resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+      finish(() => resolve({ stdout: stdout.trim(), stderr: stderr.trim() }));
     });
   });
+}
+
+async function runYtDlp(extraArgs, { timeoutMs = YT_DLP_TIMEOUT_MS, label = 'yt-dlp' } = {}) {
+  const binary = resolveYtDlpBinary();
+  const args = [...buildBaseArgs(), ...extraArgs];
+  ensureYtDlpExecutable(binary);
+
+  try {
+    return await runYtDlpOnce(binary, args, { timeoutMs, label });
+  } catch (firstErr) {
+    const permissionDenied =
+      firstErr.spawnCode === 'EACCES' ||
+      firstErr.spawnCode === 'ENOENT' ||
+      /EACCES|permission denied|not found/i.test(firstErr.message);
+
+    if (!permissionDenied || process.platform === 'win32') {
+      throw firstErr;
+    }
+
+    console.warn(`[ingest-ytdlp] ${label} retrying after chmod binary=${binary}`);
+    ensureYtDlpExecutable(binary);
+
+    try {
+      return await runYtDlpOnce(binary, args, { timeoutMs, label: `${label}-retry` });
+    } catch (retryErr) {
+      throw retryErr;
+    }
+  }
 }
 
 function pickDirectUrl(stdout) {

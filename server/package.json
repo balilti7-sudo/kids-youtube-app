@@ -8,9 +8,11 @@
     "node": ">=20"
   },
   "scripts": {
+    "prestart": "node ensure-ytdlp.cjs --strict",
     "start": "node index.cjs",
     "dev": "node --watch index.cjs",
-    "download-tools": "node download-tools.mjs"
+    "download-tools": "node download-tools.mjs && node ensure-ytdlp.cjs --strict",
+    "ensure-ytdlp": "node ensure-ytdlp.cjs --strict"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

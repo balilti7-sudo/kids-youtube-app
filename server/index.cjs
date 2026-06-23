@@ -15,6 +15,7 @@ const https = require('https');
 
 const bunnyStream = require('./bunny-stream.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
+const { ensureYtDlpBinary } = require('./ensure-ytdlp.cjs');
 
 const BUNNY_CONFIGURED = bunnyStream.isConfigured();
 
@@ -819,6 +820,13 @@ app.post('/admin/clear-resolve-cache', (_req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
+  try {
+    ensureYtDlpBinary({ strict: false, probe: true });
+  } catch (err) {
+    console.error(`[bridge] yt-dlp startup check failed: ${err.message}`);
+    if (err.stderr) console.error(`[bridge] yt-dlp stderr:\n${err.stderr}`);
+  }
+
   console.log(`[bridge] listening on http://${HOST}:${PORT}`);
   console.log(
     `[bridge] YouTube resolver: Bunny Stream (library=${bunnyStream.BUNNY_LIBRARY_ID || '?'})`

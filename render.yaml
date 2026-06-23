@@ -4,7 +4,7 @@ services:
     runtime: node
     rootDir: server
     plan: free
-    buildCommand: npm install && npm run download-tools
+    buildCommand: npm install && npm run download-tools && chmod +x yt-dlp
     startCommand: npm start
     healthCheckPath: /health
     envVars:
