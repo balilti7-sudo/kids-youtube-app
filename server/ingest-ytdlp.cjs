@@ -22,7 +22,6 @@ const YT_DLP_EXTRA_ARGS = (process.env.YT_DLP_EXTRA_ARGS || '').trim();
 const BROWSER_USER_AGENT = (
   process.env.BROWSER_USER_AGENT || process.env.MEDIA_USER_AGENT || ''
 ).trim();
-const YT_DLP_PROXY = (process.env.YT_DLP_PROXY || '').trim();
 const YT_DLP_REMOTE_COMPONENTS = (
   process.env.YT_DLP_REMOTE_COMPONENTS || 'ejs:github'
 ).trim();
@@ -30,6 +29,83 @@ const YT_DLP_JS_RUNTIMES = (process.env.YT_DLP_JS_RUNTIMES || 'node').trim();
 const YT_DLP_DISABLE_PROFILE_FALLBACK =
   process.env.YT_DLP_DISABLE_PROFILE_FALLBACK === '1' ||
   process.env.YT_DLP_DISABLE_PROFILE_FALLBACK === 'true';
+
+/**
+ * Resolve proxy URL at call time (not module load) so env is always fresh.
+ * Supports YT_DLP_PROXY (use %40 instead of @ if the dashboard strips @),
+ * or YT_DLP_PROXY_SCHEME/USER/PASSWORD/HOST/PORT components (recommended on Render).
+ */
+function resolveYtDlpProxy() {
+  const direct = String(process.env.YT_DLP_PROXY || '').trim();
+  if (direct) {
+    return normalizeProxyUrl(direct);
+  }
+
+  const host = String(process.env.YT_DLP_PROXY_HOST || '').trim();
+  if (!host) return '';
+
+  const scheme = String(process.env.YT_DLP_PROXY_SCHEME || 'http')
+    .trim()
+    .replace(/:$/, '');
+  const port = String(process.env.YT_DLP_PROXY_PORT || '').trim();
+  const user = String(process.env.YT_DLP_PROXY_USER || '').trim();
+  const pass = String(
+    process.env.YT_DLP_PROXY_PASSWORD || process.env.YT_DLP_PROXY_PASS || ''
+  );
+
+  const auth = user ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : '';
+  return `${scheme}://${auth}${host}${port ? `:${port}` : ''}`;
+}
+
+function normalizeProxyUrl(raw) {
+  let value = String(raw || '').trim();
+  if (!value) return '';
+
+  if (value.includes('%40')) {
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      /* keep literal value */
+    }
+  }
+
+  // If @ was dropped before an IPv4 host, re-insert it (common Render env corruption).
+  if (!value.includes('@')) {
+    const repaired = value.replace(
+      /^(https?:\/\/)([^:]+):([^/]+?)(\d{1,3}(?:\.\d{1,3}){3})(:\d+)?$/i,
+      (_, scheme, user, pass, ip, portSuffix = '') =>
+        `${scheme}${user}:${pass}@${ip}${portSuffix}`
+    );
+    if (repaired !== value) {
+      console.warn('[ingest-ytdlp] repaired proxy URL: inserted missing @ before host IP');
+      value = repaired;
+    }
+  }
+
+  return value;
+}
+
+/** Log-friendly proxy string (never prints credentials). */
+function proxyForLog(proxyUrl) {
+  if (!proxyUrl) return '(none)';
+  try {
+    const parsed = new URL(proxyUrl);
+    const auth = parsed.username ? '***:***@' : '';
+    const port = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${auth}${parsed.hostname}${port}`;
+  } catch {
+    return '(invalid proxy URL)';
+  }
+}
+
+function sanitizeArgsForLog(args) {
+  return args.map((arg, i, arr) => {
+    if (i > 0 && arr[i - 1] === '--proxy') {
+      return proxyForLog(arg);
+    }
+    return arg;
+  });
+}
 
 /** Mobile / embed clients — best chance on datacenter IPs without browser cookies. */
 const DEFAULT_YOUTUBE_PROFILES = [
@@ -147,8 +223,9 @@ function buildBaseArgs(profile = {}) {
     args.push('--js-runtimes', YT_DLP_JS_RUNTIMES);
   }
 
-  if (YT_DLP_PROXY) {
-    args.push('--proxy', YT_DLP_PROXY);
+  const proxyUrl = resolveYtDlpProxy();
+  if (proxyUrl) {
+    args.push('--proxy', proxyUrl);
   }
 
   const userAgent = profile.userAgent || BROWSER_USER_AGENT;
@@ -219,8 +296,9 @@ function buildYtDlpError(message, { stderr = '', stdout = '', exitCode = null, s
 }
 
 function logYtDlpFailure(label, binary, args, err) {
+  const safeArgs = sanitizeArgsForLog(args);
   console.error(`[ingest-ytdlp] ${label} FAILED binary=${binary}`);
-  console.error(`[ingest-ytdlp] ${label} args=${JSON.stringify(args)}`);
+  console.error(`[ingest-ytdlp] ${label} args=${JSON.stringify(safeArgs)}`);
   console.error(`[ingest-ytdlp] ${label} error.message=${err.message}`);
   if (err.spawnCode) console.error(`[ingest-ytdlp] ${label} spawn.code=${err.spawnCode}`);
   if (err.spawnErrno) console.error(`[ingest-ytdlp] ${label} spawn.errno=${err.spawnErrno}`);
@@ -231,8 +309,9 @@ function logYtDlpFailure(label, binary, args, err) {
 
 function runYtDlpOnce(binary, args, { timeoutMs, label }) {
   return new Promise((resolve, reject) => {
-    console.log(`[ingest-ytdlp] ${label} spawn binary=${binary} timeout=${timeoutMs}ms`);
-    console.log(`[ingest-ytdlp] ${label} args=${JSON.stringify(args)}`);
+    const proxyUrl = resolveYtDlpProxy();
+    console.log(`[ingest-ytdlp] ${label} spawn binary=${binary} timeout=${timeoutMs}ms proxy=${proxyForLog(proxyUrl)}`);
+    console.log(`[ingest-ytdlp] ${label} args=${JSON.stringify(sanitizeArgsForLog(args))}`);
 
     const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
     let stdout = '';
@@ -458,4 +537,6 @@ module.exports = {
   YT_DLP_TIMEOUT_MS,
   YT_DLP_LONG_TIMEOUT_MS,
   DEFAULT_YOUTUBE_PROFILES,
+  resolveYtDlpProxy,
+  proxyForLog,
 };
