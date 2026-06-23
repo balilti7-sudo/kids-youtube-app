@@ -22,6 +22,58 @@ const YT_DLP_EXTRA_ARGS = (process.env.YT_DLP_EXTRA_ARGS || '').trim();
 const BROWSER_USER_AGENT = (
   process.env.BROWSER_USER_AGENT || process.env.MEDIA_USER_AGENT || ''
 ).trim();
+const YT_DLP_REMOTE_COMPONENTS = (
+  process.env.YT_DLP_REMOTE_COMPONENTS || 'ejs:github'
+).trim();
+const YT_DLP_JS_RUNTIMES = (process.env.YT_DLP_JS_RUNTIMES || 'node').trim();
+const YT_DLP_DISABLE_PROFILE_FALLBACK =
+  process.env.YT_DLP_DISABLE_PROFILE_FALLBACK === '1' ||
+  process.env.YT_DLP_DISABLE_PROFILE_FALLBACK === 'true';
+
+/** Mobile / embed clients — best chance on datacenter IPs without browser cookies. */
+const DEFAULT_YOUTUBE_PROFILES = [
+  {
+    name: 'android_embedded+web_embedded',
+    videoUrl: (videoId) => `https://www.youtube.com/embed/${encodeURIComponent(videoId)}`,
+    extractorArgs:
+      'youtube:player_client=android_embedded,web_embedded;player_skip=webpage,configs',
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+    referer: 'https://www.youtube.com/',
+  },
+  {
+    name: 'tv_embedded+mediaconnect',
+    videoUrl: (videoId) => `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+    extractorArgs: 'youtube:player_client=tv_embedded,mediaconnect',
+    userAgent:
+      'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version',
+    referer: 'https://www.youtube.com/tv',
+  },
+  {
+    name: 'ios',
+    videoUrl: (videoId) => `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+    extractorArgs: 'youtube:player_client=ios',
+    userAgent:
+      'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+    referer: 'https://www.youtube.com/',
+  },
+  {
+    name: 'android',
+    videoUrl: (videoId) => `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+    extractorArgs: 'youtube:player_client=android;player_skip=webpage',
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+    referer: 'https://m.youtube.com/',
+  },
+  {
+    name: 'web_embedded',
+    videoUrl: (videoId) => `https://www.youtube.com/embed/${encodeURIComponent(videoId)}`,
+    extractorArgs: 'youtube:player_client=web_embedded',
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    referer: 'https://www.google.com/',
+  },
+];
 
 function resolveYtDlpBinary() {
   const explicit = (process.env.YT_DLP_BINARY_PATH || '').trim();
@@ -56,24 +108,87 @@ function qualityToFormat(quality) {
   return `best[height<=${height}][ext=mp4]/best[height<=${height}]/18/best[ext=mp4]/best`;
 }
 
-function buildBaseArgs() {
-  const args = ['--no-warnings', '--no-playlist'];
+function profilesForVideo(videoId) {
+  if (YT_DLP_EXTRACTOR_ARGS) {
+    return [
+      {
+        name: 'env',
+        videoUrl: () => youtubeWatchUrl(videoId),
+        extractorArgs: YT_DLP_EXTRACTOR_ARGS,
+        userAgent: BROWSER_USER_AGENT || null,
+        referer: null,
+      },
+    ];
+  }
+  return DEFAULT_YOUTUBE_PROFILES;
+}
+
+function buildBaseArgs(profile = {}) {
+  const args = [
+    '--no-warnings',
+    '--no-playlist',
+    '--geo-bypass',
+    '--extractor-retries',
+    '3',
+    '--socket-timeout',
+    '30',
+  ];
+
   if (YT_DLP_PLUGIN_DIRS && fs.existsSync(YT_DLP_PLUGIN_DIRS)) {
     args.push('--plugin-dirs', YT_DLP_PLUGIN_DIRS);
   }
-  if (BROWSER_USER_AGENT) {
-    args.push('--user-agent', BROWSER_USER_AGENT);
+
+  if (YT_DLP_REMOTE_COMPONENTS && YT_DLP_REMOTE_COMPONENTS !== '0') {
+    args.push('--remote-components', YT_DLP_REMOTE_COMPONENTS);
   }
+
+  if (YT_DLP_JS_RUNTIMES && YT_DLP_JS_RUNTIMES !== '0') {
+    args.push('--js-runtimes', YT_DLP_JS_RUNTIMES);
+  }
+
+  const userAgent = profile.userAgent || BROWSER_USER_AGENT;
+  if (userAgent) {
+    args.push('--user-agent', userAgent);
+  }
+
+  if (profile.referer) {
+    args.push('--add-headers', `Referer:${profile.referer}`);
+  }
+
   if (YT_DLP_COOKIES_FILE && fs.existsSync(YT_DLP_COOKIES_FILE)) {
     args.push('--cookies', YT_DLP_COOKIES_FILE);
   }
-  if (YT_DLP_EXTRACTOR_ARGS) {
-    args.push('--extractor-args', YT_DLP_EXTRACTOR_ARGS);
+
+  const extractorArgs = profile.extractorArgs || YT_DLP_EXTRACTOR_ARGS;
+  if (extractorArgs) {
+    args.push('--extractor-args', extractorArgs);
   }
+
   if (YT_DLP_EXTRA_ARGS) {
     args.push(...YT_DLP_EXTRA_ARGS.split(/\s+/).filter(Boolean));
   }
+
   return args;
+}
+
+function isYoutubeBotOrBlockError(err) {
+  const blob = `${err.message} ${err.stderr || ''} ${err.stdout || ''}`.toLowerCase();
+  return (
+    /sign in to confirm|not a bot|confirm you're not a bot|bot check|cookies-from-browser/i.test(
+      blob
+    ) ||
+    /http error 403|unable to extract player data|player response/i.test(blob) ||
+    /n challenge solving failed|challenge solver script.*skipped/i.test(blob)
+  );
+}
+
+function isNonRetriableYoutubeError(err) {
+  const blob = `${err.message} ${err.stderr || ''}`.toLowerCase();
+  return (
+    /private video|video unavailable|has been removed|copyright|live event|upcoming premiere|members.only|age.restricted/i.test(
+      blob
+    )
+  );
 }
 
 function ensureYtDlpExecutable(binary) {
@@ -81,8 +196,8 @@ function ensureYtDlpExecutable(binary) {
   if (!binary || !fs.existsSync(binary)) return;
   try {
     fs.chmodSync(binary, 0o755);
-  } catch (err) {
-    console.warn(`[ingest-ytdlp] chmod +x failed binary=${binary}: ${err.message}`);
+  } catch (chmodErr) {
+    console.warn(`[ingest-ytdlp] chmod +x failed binary=${binary}: ${chmodErr.message}`);
   }
 }
 
@@ -158,7 +273,8 @@ function runYtDlpOnce(binary, args, { timeoutMs, label }) {
           stdout,
           exitCode: code,
         });
-        if (/private|unavailable|age|sign in|bot|429|rate/i.test(detail)) {
+        err.youtubeBotBlock = isYoutubeBotOrBlockError(err);
+        if (/private|unavailable|live|premiere|removed/i.test(detail)) {
           err.fileNotReady = false;
         }
         logYtDlpFailure(label, binary, args, err);
@@ -170,32 +286,65 @@ function runYtDlpOnce(binary, args, { timeoutMs, label }) {
   });
 }
 
-async function runYtDlp(extraArgs, { timeoutMs = YT_DLP_TIMEOUT_MS, label = 'yt-dlp' } = {}) {
-  const binary = resolveYtDlpBinary();
-  const args = [...buildBaseArgs(), ...extraArgs];
+async function runYtDlpOnceWithPermissionRetry(binary, args, opts) {
   ensureYtDlpExecutable(binary);
-
   try {
-    return await runYtDlpOnce(binary, args, { timeoutMs, label });
+    return await runYtDlpOnce(binary, args, opts);
   } catch (firstErr) {
     const permissionDenied =
       firstErr.spawnCode === 'EACCES' ||
       firstErr.spawnCode === 'ENOENT' ||
       /EACCES|permission denied|not found/i.test(firstErr.message);
-
     if (!permissionDenied || process.platform === 'win32') {
       throw firstErr;
     }
-
-    console.warn(`[ingest-ytdlp] ${label} retrying after chmod binary=${binary}`);
+    console.warn(`[ingest-ytdlp] ${opts.label} retrying after chmod binary=${binary}`);
     ensureYtDlpExecutable(binary);
+    return runYtDlpOnce(binary, args, { ...opts, label: `${opts.label}-chmod-retry` });
+  }
+}
+
+/**
+ * Run yt-dlp with YouTube client-profile fallback (embed / TV / iOS / Android).
+ */
+async function runYtDlp(extraArgs, { timeoutMs = YT_DLP_TIMEOUT_MS, label = 'yt-dlp', videoId } = {}) {
+  const binary = resolveYtDlpBinary();
+  const profiles = profilesForVideo(videoId);
+  const useSingleProfile = YT_DLP_DISABLE_PROFILE_FALLBACK || profiles.length === 1;
+
+  let lastErr = null;
+
+  for (let i = 0; i < profiles.length; i++) {
+    const profile = profiles[i];
+    const targetUrl = profile.videoUrl(videoId);
+    const args = [...buildBaseArgs(profile), ...extraArgs, targetUrl];
+    const profileLabel = `${label} profile=${profile.name}`;
 
     try {
-      return await runYtDlpOnce(binary, args, { timeoutMs, label: `${label}-retry` });
-    } catch (retryErr) {
-      throw retryErr;
+      const result = await runYtDlpOnceWithPermissionRetry(binary, args, {
+        timeoutMs,
+        label: profileLabel,
+      });
+      console.log(`[ingest-ytdlp] success video=${videoId} profile=${profile.name}`);
+      return result;
+    } catch (err) {
+      lastErr = err;
+      if (useSingleProfile || isNonRetriableYoutubeError(err)) {
+        throw err;
+      }
+      if (!isYoutubeBotOrBlockError(err) && i === 0) {
+        throw err;
+      }
+      const remaining = profiles.length - i - 1;
+      console.warn(
+        `[ingest-ytdlp] video=${videoId} profile=${profile.name} blocked/failed` +
+          ` (${err.message.slice(0, 140)})` +
+          (remaining > 0 ? ` — trying next profile (${remaining} left)` : '')
+      );
     }
   }
+
+  throw lastErr || new Error(`yt-dlp failed for ${videoId}`);
 }
 
 function pickDirectUrl(stdout) {
@@ -218,7 +367,6 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
     );
   }
 
-  const watchUrl = youtubeWatchUrl(videoId);
   const format = qualityToFormat(quality);
   let timeoutMs = Number(options.timeoutMs) || YT_DLP_TIMEOUT_MS;
 
@@ -234,9 +382,10 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
     }
   }
 
-  const { stdout } = await runYtDlp(['-g', '-f', format, watchUrl], {
+  const { stdout } = await runYtDlp(['-g', '-f', format], {
     timeoutMs,
     label: `get-url video=${videoId} quality=${quality}`,
+    videoId,
   });
 
   const url = pickDirectUrl(stdout);
@@ -267,9 +416,10 @@ async function getVideoInfo(videoId, options = {}) {
   }
 
   try {
-    const { stdout } = await runYtDlp(['--dump-single-json', '--skip-download', youtubeWatchUrl(videoId)], {
+    const { stdout } = await runYtDlp(['--dump-single-json', '--skip-download'], {
       timeoutMs,
       label: `info video=${videoId}`,
+      videoId,
     });
     const data = JSON.parse(stdout);
     return {
@@ -284,6 +434,7 @@ async function getVideoInfo(videoId, options = {}) {
     };
   } catch (err) {
     console.warn(`[ingest-ytdlp] getVideoInfo failed video=${videoId}: ${err.message}`);
+    if (err.stderr) console.warn(`[ingest-ytdlp] getVideoInfo stderr:\n${err.stderr}`);
     return {
       title: null,
       lengthSeconds: null,
@@ -301,4 +452,5 @@ module.exports = {
   resolveYtDlpBinary,
   YT_DLP_TIMEOUT_MS,
   YT_DLP_LONG_TIMEOUT_MS,
+  DEFAULT_YOUTUBE_PROFILES,
 };
