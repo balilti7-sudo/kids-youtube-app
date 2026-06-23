@@ -397,7 +397,7 @@ export function getStreamResolveUrl(videoId: string, quality?: string | null): s
   return buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}`, { quality: q })
 }
 
-/** Poll `GET /api/stream/:videoId/status` while RapidAPI/CDN prepares a long video. */
+/** Poll `GET /api/stream/:videoId/status` while Bunny transcodes a long video. */
 export function getStreamStatusUrl(videoId: string, quality?: string | null): string {
   const q = (quality || STREAM_START_QUALITY).trim().toLowerCase()
   return buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}/status`, {
@@ -414,11 +414,12 @@ export type StreamStatusResponse = StreamApiResponse & {
   elapsedMs?: number
   error?: string
   detail?: string | string[] | null
-  /** `primary` | `fallback` | `processing` */
+  /** Ingest/transcode phase: `source_resolve` | `ingest` | `transcoding` */
   phase?: string | null
-  /** Provider currently being tried: `socialkit` | `rapidapi` */
+  /** Always `bunny` during stream prepare; ingest uses `ingestResolver` */
   activeSource?: string | null
-  /** Provider that failed before fallback, e.g. `rapidapi` */
+  /** Ingest helper, e.g. `yt-dlp` */
+  ingestResolver?: string | null
   fallbackFrom?: string | null
   durationSeconds?: number | null
 }
@@ -524,7 +525,7 @@ export function normalizeStreamApiResponse(
 
 /**
  * Client wait budget for `GET /api/stream/:videoId` only (not `/api/info` preflight).
- * Must exceed server RapidAPI resolve + file-ready retries (~60–90s worst case) and
+ * Must exceed server yt-dlp ingest + Bunny transcode time for long videos and
  * Render cold starts. Override: `VITE_STREAM_INFO_TIMEOUT_MS`.
  */
 const STREAM_INFO_TIMEOUT_MS = Number(import.meta.env.VITE_STREAM_INFO_TIMEOUT_MS || 180_000)
@@ -554,7 +555,7 @@ function releaseMediaBridgeSlot(): void {
   if (next) next()
 }
 
-/** Limits parallel `/api/stream`, `/api/info`, etc. to reduce Render + RapidAPI overload. */
+/** Limits parallel `/api/stream`, `/api/info`, etc. to reduce Render overload. */
 async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const url =
     typeof input === 'string'
@@ -1002,7 +1003,7 @@ export async function fetchStreamInfo(
     quality?: StreamPlaybackQuality | string
     /** Called before each backoff wait (not called before the first attempt). */
     onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
-    /** Called when RapidAPI/CDN says the file is still being prepared — keep showing the spinner. */
+    /** Called when Bunny ingest/transcode is still in progress — keep showing the spinner. */
     onFilePreparing?: (info: FetchStreamFilePreparingInfo) => void
   } = {}
 ): Promise<StreamApiResponse> {
@@ -1059,7 +1060,7 @@ async function doFetchStreamInfo(
   await assertChildPlaybackAllowedForStream()
 
   // Live metadata is best-effort — do not block /api/stream (Shorts were timing out while
-  // /api/info waited in the bridge queue or on RapidAPI).
+  // /api/info waited in the bridge queue or on yt-dlp/Bunny).
   void assertLiveStreamPlayable(videoId).catch(() => {})
 
   const url = buildMediaBridgeApiUrl(`/api/stream/${encodeURIComponent(videoId.trim())}`, {
@@ -1170,7 +1171,7 @@ async function doFetchStreamInfo(
       }
       if (res.status === 428 && errorCode === 'AUTH_COOKIES_INVALID') {
         throw new StreamApiError(
-          'YouTube חסם את הבקשה. ודאו ש-SOCIALKIT_ACCESS_KEY מוגדר בשרת הגשר (Media Bridge).',
+          'YouTube חסם את הבקשה. ודאו ש-yt-dlp מותקן בשרת הגשר (Media Bridge) ושה-cookies/POT מוגדרים אם נדרש.',
           res.status,
           detail
         )

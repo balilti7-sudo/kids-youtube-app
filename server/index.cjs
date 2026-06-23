@@ -290,7 +290,7 @@ function buildProcessingStatusResponse(req, videoId, rawQuality, job) {
 }
 
 /**
- * Resolve via Bunny Stream: direct URL ingest (SocialKit/RapidAPI) → transcode → CDN HLS.
+ * Resolve via Bunny Stream: yt-dlp ingest → transcode → CDN HLS.
  * @param {object} [progress] — mutable status for async /status polling
  */
 async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = null) {
@@ -584,10 +584,10 @@ app.get('/health', (_req, res) => {
     bunnyLibraryId: bunnyStream.BUNNY_LIBRARY_ID || null,
     bunnyConfigured: BUNNY_CONFIGURED,
     ingestResolvers: {
-      socialkit: bunnyStream.SOCIALKIT_CONFIGURED,
-      rapidapi: bunnyStream.RAPIDAPI_CONFIGURED,
+      ytdlp: bunnyStream.isIngestResolverConfigured(),
     },
     ingestReady: bunnyStream.isIngestResolverConfigured(),
+    ytdlpBinary: bunnyStream.ingestYtdlp.resolveYtDlpBinary(),
   });
 });
 
@@ -830,12 +830,10 @@ app.listen(PORT, HOST, () => {
   }
   if (!bunnyStream.isIngestResolverConfigured()) {
     console.error(
-      '[bridge] WARNING: Neither SOCIALKIT_ACCESS_KEY nor RAPIDAPI_KEY is set — Bunny ingest cannot resolve direct media URLs.'
+      '[bridge] WARNING: yt-dlp not found — run `npm run download-tools` in server/ or set YT_DLP_BINARY_PATH. Bunny ingest will fail.'
     );
   } else {
-    console.log(
-      `[bridge] Bunny ingest helpers: SocialKit=${bunnyStream.SOCIALKIT_CONFIGURED ? 'on' : 'off'} RapidAPI=${bunnyStream.RAPIDAPI_CONFIGURED ? 'on' : 'off'}`
-    );
+    console.log(`[bridge] Bunny ingest: yt-dlp (${bunnyStream.ingestYtdlp.resolveYtDlpBinary()})`);
   }
 });
 

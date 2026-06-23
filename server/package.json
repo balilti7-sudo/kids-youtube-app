@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Express Media Bridge: resolve YouTube videoId to a direct stream URL (Piped / ytdl) for a custom video player",
+  "description": "Express Media Bridge: Bunny Stream playback with local yt-dlp ingest for YouTube videos",
   "engines": {
     "node": ">=20"
   },
@@ -13,7 +13,6 @@
     "download-tools": "node download-tools.mjs"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
     "@supabase/supabase-js": "^2.57.4",
     "axios": "^1.17.0",
     "cors": "^2.8.5",

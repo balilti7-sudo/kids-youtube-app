@@ -1,8 +1,7 @@
 'use strict';
 
 const axios = require('axios');
-const socialKit = require('./socialkit-youtube.cjs');
-const rapidApi = require('./rapidapi-youtube.cjs');
+const ingestYtdlp = require('./ingest-ytdlp.cjs');
 
 const BUNNY_API_BASE = 'https://video.bunnycdn.com';
 const BUNNY_STREAM_API_KEY = (process.env.BUNNY_STREAM_API_KEY || '').trim();
@@ -11,15 +10,6 @@ const BUNNY_CDN_HOSTNAME = (process.env.BUNNY_CDN_HOSTNAME || '').trim();
 const BUNNY_REQUEST_TIMEOUT_MS = Number(process.env.BUNNY_REQUEST_TIMEOUT_MS || 30_000);
 const BUNNY_TRANSCODE_POLL_MS = Number(process.env.BUNNY_TRANSCODE_POLL_MS || 4_000);
 const BUNNY_TRANSCODE_MAX_MS = Number(process.env.BUNNY_TRANSCODE_MAX_MS || 600_000);
-const BUNNY_INGEST_RESOLVE_TIMEOUT_MS = Number(process.env.BUNNY_INGEST_RESOLVE_TIMEOUT_MS || 30_000);
-const LONG_VIDEO_DURATION_SEC = Number(process.env.LONG_VIDEO_DURATION_SEC || 65);
-
-const SOCIALKIT_CONFIGURED = Boolean(
-  process.env.SOCIALKIT_ACCESS_KEY || process.env.SOCIALKIT_API_KEY
-);
-const RAPIDAPI_CONFIGURED = Boolean(
-  process.env.RAPIDAPI_KEY || process.env.RAPIDAPI_YOUTUBE_KEY
-);
 
 /** Bunny VideoModelStatus */
 const STATUS_FINISHED = 4;
@@ -52,7 +42,7 @@ function youtubeTitle(videoId) {
 }
 
 function isIngestResolverConfigured() {
-  return SOCIALKIT_CONFIGURED || RAPIDAPI_CONFIGURED;
+  return ingestYtdlp.isAvailable();
 }
 
 function videoUploadedAt(video) {
@@ -75,97 +65,34 @@ async function deleteBunnyVideo(bunnyGuid, { reason = '' } = {}) {
   console.log(`[bunny] deleted guid=${bunnyGuid}${reason ? ` (${reason})` : ''}`);
 }
 
-async function getDurationHint(youtubeVideoId) {
-  if (SOCIALKIT_CONFIGURED) {
-    try {
-      const info = await socialKit.getVideoInfo(youtubeVideoId);
-      const sec = Number(info.lengthSeconds);
-      if (Number.isFinite(sec) && sec > 0) return sec;
-    } catch (err) {
-      console.warn(`[bunny] duration hint SocialKit failed video=${youtubeVideoId}: ${err.message}`);
-    }
-  }
-
-  if (RAPIDAPI_CONFIGURED) {
-    try {
-      const { durationSeconds } = await rapidApi.getAvailableQualities(youtubeVideoId);
-      if (durationSeconds > 0) return durationSeconds;
-    } catch (err) {
-      console.warn(`[bunny] duration hint RapidAPI failed video=${youtubeVideoId}: ${err.message}`);
-    }
-  }
-
-  return 0;
-}
-
-function buildIngestProviderChain(durationSeconds) {
-  const isLong = durationSeconds <= 0 || durationSeconds > LONG_VIDEO_DURATION_SEC;
-  const chain = [];
-  if (isLong) {
-    if (RAPIDAPI_CONFIGURED) chain.push('rapidapi');
-    if (SOCIALKIT_CONFIGURED) chain.push('socialkit');
-  } else {
-    if (SOCIALKIT_CONFIGURED) chain.push('socialkit');
-    if (RAPIDAPI_CONFIGURED) chain.push('rapidapi');
-  }
-  return { chain, isLong, durationSeconds };
-}
-
 /**
- * Resolve a direct, publicly fetchable media URL (mp4 CDN) for Bunny ingest.
- * SocialKit / RapidAPI are ingest-only helpers — playback is always Bunny HLS.
+ * Resolve a direct, publicly fetchable media URL (mp4) for Bunny ingest via local yt-dlp.
  */
 async function resolveDirectMediaUrl(youtubeVideoId, quality, progress) {
   if (!isIngestResolverConfigured()) {
     throw new Error(
-      'Bunny ingest requires SOCIALKIT_ACCESS_KEY and/or RAPIDAPI_KEY to resolve a direct media URL'
+      'Bunny ingest requires yt-dlp — run `npm run download-tools` in server/ or set YT_DLP_BINARY_PATH'
     );
   }
 
-  const durationSeconds = await getDurationHint(youtubeVideoId);
-  const { chain, isLong } = buildIngestProviderChain(durationSeconds);
-
   if (progress) {
-    progress.durationSeconds = durationSeconds || null;
     progress.activeSource = 'bunny';
     progress.phase = 'source_resolve';
-    progress.detail = 'Resolving direct media URL for Bunny ingest';
+    progress.ingestResolver = 'yt-dlp';
+    progress.detail = 'Resolving direct media URL via yt-dlp';
     progress.retryAfterMs = 3000;
   }
 
-  let lastErr = null;
-  for (const provider of chain) {
-    if (progress) {
-      progress.ingestResolver = provider;
-      progress.detail = `Resolving direct URL via ${provider}`;
-    }
-
-    try {
-      if (provider === 'socialkit') {
-        const resolved = await socialKit.resolveVideoDownloadUrl(youtubeVideoId, quality, {
-          fallbackAttempt: isLong,
-          requestTimeoutMs: isLong ? BUNNY_INGEST_RESOLVE_TIMEOUT_MS : undefined,
-        });
-        console.log(
-          `[bunny] ingest source socialkit video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
-        );
-        return { ...resolved, ingestResolver: 'socialkit' };
-      }
-
-      const resolved = await rapidApi.resolveVideoDownloadUrl(youtubeVideoId, quality);
-      console.log(
-        `[bunny] ingest source rapidapi video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
-      );
-      return { ...resolved, ingestResolver: 'rapidapi' };
-    } catch (err) {
-      lastErr = err;
-      console.warn(
-        `[bunny] ingest resolve ${provider} failed video=${youtubeVideoId}: ${err.message}`
-      );
-    }
+  const info = await ingestYtdlp.getVideoInfo(youtubeVideoId);
+  if (progress && info.lengthSeconds) {
+    progress.durationSeconds = info.lengthSeconds;
   }
 
-  throw lastErr || new Error(`Failed to resolve direct media URL for ${youtubeVideoId}`);
+  const resolved = await ingestYtdlp.resolveVideoDownloadUrl(youtubeVideoId, quality);
+  console.log(
+    `[bunny] ingest source yt-dlp video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
+  );
+  return resolved;
 }
 
 function normalizeStreamQuality(raw, fallback = '360p') {
@@ -609,12 +536,10 @@ async function getVideoInfo(youtubeVideoId) {
   }
   const video = await findVideoByYoutubeId(youtubeVideoId);
   if (!video) {
-    if (SOCIALKIT_CONFIGURED) {
-      try {
-        return await socialKit.getVideoInfo(youtubeVideoId);
-      } catch (err) {
-        console.warn(`[bunny] info fallback SocialKit failed video=${youtubeVideoId}: ${err.message}`);
-      }
+    try {
+      return await ingestYtdlp.getVideoInfo(youtubeVideoId);
+    } catch (err) {
+      console.warn(`[bunny] info fallback yt-dlp failed video=${youtubeVideoId}: ${err.message}`);
     }
     return {
       title: youtubeTitle(youtubeVideoId),
@@ -644,8 +569,7 @@ module.exports = {
   BUNNY_LIBRARY_ID,
   isConfigured,
   isIngestResolverConfigured,
-  SOCIALKIT_CONFIGURED,
-  RAPIDAPI_CONFIGURED,
+  ingestYtdlp,
   resolveVideoDownloadUrl,
   getVideoInfo,
   findVideoByYoutubeId,

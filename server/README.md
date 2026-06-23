@@ -1,79 +1,83 @@
 # SafeTube Media Bridge
 
-Express service that turns a YouTube `videoId` into a **direct stream URL** (MP4 or HLS) for a custom player (e.g. Video.js).
+Express service that resolves a YouTube `videoId` into a **Bunny Stream HLS URL** for the SafeTube player.
 
-1. Tries public **Piped** API instances (`PIPED_API_BASES`).
-2. Falls back to **`@distube/ytdl-core`** if Piped does not return a usable stream.
+## Architecture
 
-## Run
+1. **Ingest** — local **yt-dlp** (`-g` / `--get-url`) resolves a direct YouTube media URL.
+2. **Transcode** — Bunny Stream fetches that URL, transcodes, and hosts adaptive HLS on Bunny CDN.
+3. **Playback** — the client receives `playlist.m3u8` (`source: bunny`, `proxied: false`).
+
+Async long videos: `GET /api/stream/:id?async=1` → poll `GET /api/stream/:id/status` until `ready`.
+
+## Run locally
 
 ```bash
 cd server
 npm install
-cp .env.example .env
+npm run download-tools   # downloads yt-dlp (and ffmpeg on Windows) into server/
+cp .env.example .env     # set Bunny + Supabase vars
 npm run dev
 ```
 
 - Health: `GET http://127.0.0.1:8787/health`
-- Stream: `GET http://127.0.0.1:8787/api/stream/{videoId}`
+- Stream: `GET http://127.0.0.1:8787/api/stream/{videoId}?async=1`
 
-Response is JSON, e.g.:
+Example ready response:
 
 ```json
 {
+  "status": "ready",
   "videoId": "dQw4w9WgXcQ",
-  "url": "https://...",
-  "format": "direct",
-  "mimeType": "video/mp4; codecs=\"...\"",
+  "url": "https://vz-xxxxx.b-cdn.net/{guid}/playlist.m3u8",
+  "format": "hls",
+  "mimeType": "application/vnd.apple.mpegurl",
   "quality": "360p",
-  "source": "ytdl",
-  "note": "URL may be short-lived; set src on the player immediately."
+  "source": "bunny",
+  "proxied": false
 }
 ```
 
-## Production notes
+## Required environment
 
-- Do **not** expose this to the public internet without **authentication** and **rate limits**.
-- Piped public instances and **stream URLs** can break or expire; self-host Piped and/or add retries on the client.
-- You (not this repo) are responsible for compliance with applicable laws and platform terms for your use case.
+| Variable | Purpose |
+|----------|---------|
+| `BUNNY_STREAM_API_KEY` | Bunny Stream library API key |
+| `BUNNY_LIBRARY_ID` | Bunny video library ID |
+| `BUNNY_CDN_HOSTNAME` | Optional; auto-discovered via Bunny `/play` API if unset |
+| `PUBLIC_BASE_URL` | Public bridge origin (Render URL) |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Auth / email flows |
 
-## Integration with the Vite app
+## yt-dlp ingest tuning
 
-Set `VITE_STREAM_API_BASE=http://127.0.0.1:8787` (or your host) in the app `.env` and have the client `fetch` this endpoint, then set Video.js’ `src` to `response.url`.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `YT_DLP_BINARY_PATH` | `./yt-dlp` in `server/` | Path to yt-dlp binary |
+| `YT_DLP_TIMEOUT_MS` | `90000` | Timeout for short videos |
+| `YT_DLP_LONG_TIMEOUT_MS` | `300000` | Timeout for videos > 65s |
+| `YT_DLP_FORMAT` | auto by quality | yt-dlp `-f` format string override |
+| `YT_DLP_COOKIES_FILE` | — | Netscape cookies file for age-restricted videos |
+| `YT_DLP_EXTRACTOR_ARGS` | — | e.g. POT provider args for YouTube |
+| `YT_DLP_PLUGIN_DIRS` | `./yt-dlp-plugins` | yt-dlp plugin directory |
 
-## Deploy (Render / Railway)
+Run `npm run download-tools` to install yt-dlp and the bgutil POT plugin zip into `server/yt-dlp-plugins/`.
 
-### Render (recommended first)
+## Deploy (Render)
 
-This repo includes a root `render.yaml` that deploys `server/` as a web service.
+Root `render.yaml` deploys `server/` with:
 
-Required service env vars:
+```yaml
+buildCommand: npm install && npm run download-tools
+```
 
-- `CORS_ORIGIN=https://kids-safe-tube.vercel.app`
-- `PUBLIC_BASE_URL=https://<your-render-service>.onrender.com`
-- `SUPABASE_URL=https://<your-project>.supabase.co`
-- `SUPABASE_ANON_KEY=<anon-key>`
-- `MEDIA_BRIDGE_GRANT_SECRET=<long-random-secret>`
-- `YOUTUBE_PO_TOKEN` and `YOUTUBE_VISITOR_DATA` (same session; see yt-dlp PO Token Guide)
+Set `BUNNY_STREAM_API_KEY`, `BUNNY_LIBRARY_ID`, `BUNNY_CDN_HOSTNAME`, Supabase, and Resend vars in the Render dashboard.
 
-Do **not** set `YOUTUBE_COOKIES`, `YTDL_COOKIES`, or `YOUTUBE_COOKIES_FILE` — the bridge clears those legacy names at startup.
+## Frontend integration
 
-For **yt-dlp file cookies**, use `YT_DLP_COOKIES_FILE` (default `./youtube_cookies.txt` under `server/` when the file exists). Pair with **yt-dlp ≥ 2025.05.22**, the [bgutil POT provider](https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs) on port **4416**, and the matching **yt-dlp plugin** under `server/yt-dlp-plugins/`. The bridge passes `--extractor-args "youtubepot-bgutilhttp:base_url=..."` (yt-dlp’s POT plugin API — there is no `--youtube-search-pot-provider` flag here). Env: `YT_DLP_PRIMARY_EXTRACTOR_ARGS`, `YT_DLP_BGUTIL_POT_BASE_URL`, `YT_DLP_FORMAT`, `YT_DLP_PLUGIN_DIRS` (see `server/.env.example`). Check `GET /api/diagnostics` → `ytDlpPot` and `providerHttpPing`, or `GET /health/verbose` → `auth.ytDlpPot`.
+Set on Vercel:
 
-### Railway
+```
+VITE_STREAM_API_BASE=https://<your-media-bridge>.onrender.com
+```
 
-Create a service from the repo and set:
-
-- Root directory: `server`
-- Build command: `npm install`
-- Start command: `npm start`
-
-Use the same env vars as Render. For YouTube, set `YOUTUBE_PO_TOKEN` and `YOUTUBE_VISITOR_DATA` (paired).
-
-## After backend is live: update Vercel
-
-Set frontend env var:
-
-- `VITE_STREAM_API_BASE=https://<your-media-bridge-domain>`
-
-Then redeploy Vercel.
+Redeploy the frontend after the bridge is live.
