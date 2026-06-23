@@ -842,6 +842,8 @@ app.listen(PORT, HOST, () => {
     );
   } else {
     console.log(`[bridge] Bunny ingest: yt-dlp (${bunnyStream.ingestYtdlp.resolveYtDlpBinary()})`);
+    const proxyLog = bunnyStream.ingestYtdlp.proxyForLog(bunnyStream.ingestYtdlp.resolveYtDlpProxy());
+    console.log(`[bridge] yt-dlp proxy: ${proxyLog}`);
   }
 });
 

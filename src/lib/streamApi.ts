@@ -413,7 +413,7 @@ export type StreamStatusResponse = StreamApiResponse & {
   retryAfterMs?: number
   elapsedMs?: number
   error?: string
-  detail?: string | string[] | null
+  detail?: string | null
   /** Ingest/transcode phase: `source_resolve` | `ingest` | `transcoding` */
   phase?: string | null
   /** Always `bunny` during stream prepare; ingest uses `ingestResolver` */

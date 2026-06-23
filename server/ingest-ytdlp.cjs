@@ -69,16 +69,31 @@ function normalizeProxyUrl(raw) {
     }
   }
 
-  // If @ was dropped before an IPv4 host, re-insert it (common Render env corruption).
+  // Render env UIs sometimes corrupt "@" to the letter "a" immediately before an IPv4 host.
+  const atCorruptionFixed = value.replace(
+    /^(https?:\/\/)([^:]+):([^@/]+?)a(\d{1,3}(?:\.\d{1,3}){3})(:\d+)?$/i,
+    (_, scheme, user, pass, ip, portSuffix = '') => {
+      console.warn(
+        '[ingest-ytdlp] repaired proxy URL: corrected corrupted @ (literal "a") before host IP'
+      );
+      return `${scheme}${user}:${pass}@${ip}${portSuffix}`;
+    }
+  );
+  if (atCorruptionFixed !== value) {
+    value = atCorruptionFixed;
+  }
+
+  // If @ was dropped entirely before an IPv4 host, re-insert it.
   if (!value.includes('@')) {
-    const repaired = value.replace(
+    const missingAtFixed = value.replace(
       /^(https?:\/\/)([^:]+):([^/]+?)(\d{1,3}(?:\.\d{1,3}){3})(:\d+)?$/i,
-      (_, scheme, user, pass, ip, portSuffix = '') =>
-        `${scheme}${user}:${pass}@${ip}${portSuffix}`
+      (_, scheme, user, pass, ip, portSuffix = '') => {
+        console.warn('[ingest-ytdlp] repaired proxy URL: inserted missing @ before host IP');
+        return `${scheme}${user}:${pass}@${ip}${portSuffix}`;
+      }
     );
-    if (repaired !== value) {
-      console.warn('[ingest-ytdlp] repaired proxy URL: inserted missing @ before host IP');
-      value = repaired;
+    if (missingAtFixed !== value) {
+      value = missingAtFixed;
     }
   }
 
