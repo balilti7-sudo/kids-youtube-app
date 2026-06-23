@@ -22,6 +22,7 @@ const YT_DLP_EXTRA_ARGS = (process.env.YT_DLP_EXTRA_ARGS || '').trim();
 const BROWSER_USER_AGENT = (
   process.env.BROWSER_USER_AGENT || process.env.MEDIA_USER_AGENT || ''
 ).trim();
+const YT_DLP_PROXY = (process.env.YT_DLP_PROXY || '').trim();
 const YT_DLP_REMOTE_COMPONENTS = (
   process.env.YT_DLP_REMOTE_COMPONENTS || 'ejs:github'
 ).trim();
@@ -144,6 +145,10 @@ function buildBaseArgs(profile = {}) {
 
   if (YT_DLP_JS_RUNTIMES && YT_DLP_JS_RUNTIMES !== '0') {
     args.push('--js-runtimes', YT_DLP_JS_RUNTIMES);
+  }
+
+  if (YT_DLP_PROXY) {
+    args.push('--proxy', YT_DLP_PROXY);
   }
 
   const userAgent = profile.userAgent || BROWSER_USER_AGENT;
