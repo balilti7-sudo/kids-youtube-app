@@ -31,30 +31,87 @@ const YT_DLP_DISABLE_PROFILE_FALLBACK =
   process.env.YT_DLP_DISABLE_PROFILE_FALLBACK === 'true';
 
 /**
+ * Split host:port when YT_DLP_PROXY_HOST includes a trailing port.
+ */
+function parseProxyHostPort(hostRaw, portRaw) {
+  const portFromEnv = String(portRaw || '').trim();
+  let host = String(hostRaw || '').trim();
+  if (!host) return { host: '', port: portFromEnv };
+
+  // IPv6 [::1]:port — leave unchanged; port comes from env or bracket form.
+  if (host.startsWith('[')) {
+    return { host, port: portFromEnv };
+  }
+
+  const colonCount = (host.match(/:/g) || []).length;
+  if (colonCount === 1) {
+    const idx = host.indexOf(':');
+    const maybePort = host.slice(idx + 1);
+    if (/^\d+$/.test(maybePort)) {
+      return { host: host.slice(0, idx), port: portFromEnv || maybePort };
+    }
+  }
+
+  return { host, port: portFromEnv };
+}
+
+/**
+ * Ensure a non-default proxy port is present (Render often drops :port from YT_DLP_PROXY).
+ */
+function applyProxyPortFallback(proxyUrl, portOverride = '') {
+  if (!proxyUrl) return '';
+
+  const port = String(portOverride || process.env.YT_DLP_PROXY_PORT || '').trim();
+  if (!port) return proxyUrl;
+
+  try {
+    const parsed = new URL(proxyUrl);
+    if (parsed.port) return proxyUrl;
+    parsed.port = port;
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    // Fallback when URL constructor rejects the string.
+    if (/@[^@/]+:\d+(?:\/|$)/.test(proxyUrl) || /:\d+$/.test(proxyUrl.replace(/\/$/, ''))) {
+      return proxyUrl;
+    }
+    const hostMatch = proxyUrl.match(/^(https?:\/\/(?:[^@/]+@)?)([^/?#]+)(.*)$/i);
+    if (!hostMatch) return proxyUrl;
+    const [, prefix, hostPart, suffix] = hostMatch;
+    if (hostPart.includes(':')) return proxyUrl;
+    return `${prefix}${hostPart}:${port}${suffix}`;
+  }
+}
+
+/**
  * Resolve proxy URL at call time (not module load) so env is always fresh.
  * Supports YT_DLP_PROXY (use %40 instead of @ if the dashboard strips @),
  * or YT_DLP_PROXY_SCHEME/USER/PASSWORD/HOST/PORT components (recommended on Render).
  */
 function resolveYtDlpProxy() {
+  const portEnv = String(process.env.YT_DLP_PROXY_PORT || '').trim();
   const direct = String(process.env.YT_DLP_PROXY || '').trim();
+
   if (direct) {
-    return normalizeProxyUrl(direct);
+    return applyProxyPortFallback(normalizeProxyUrl(direct), portEnv);
   }
 
-  const host = String(process.env.YT_DLP_PROXY_HOST || '').trim();
-  if (!host) return '';
+  const hostRaw = String(process.env.YT_DLP_PROXY_HOST || '').trim();
+  if (!hostRaw) return '';
 
   const scheme = String(process.env.YT_DLP_PROXY_SCHEME || 'http')
     .trim()
     .replace(/:$/, '');
-  const port = String(process.env.YT_DLP_PROXY_PORT || '').trim();
   const user = String(process.env.YT_DLP_PROXY_USER || '').trim();
   const pass = String(
     process.env.YT_DLP_PROXY_PASSWORD || process.env.YT_DLP_PROXY_PASS || ''
   );
+  const { host, port } = parseProxyHostPort(hostRaw, portEnv);
 
   const auth = user ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : '';
-  return `${scheme}://${auth}${host}${port ? `:${port}` : ''}`;
+  return applyProxyPortFallback(
+    `${scheme}://${auth}${host}${port ? `:${port}` : ''}`,
+    port
+  );
 }
 
 function normalizeProxyUrl(raw) {
@@ -106,8 +163,7 @@ function proxyForLog(proxyUrl) {
   try {
     const parsed = new URL(proxyUrl);
     const auth = parsed.username ? '***:***@' : '';
-    const port = parsed.port ? `:${parsed.port}` : '';
-    return `${parsed.protocol}//${auth}${parsed.hostname}${port}`;
+    return `${parsed.protocol}//${auth}${parsed.host}`;
   } catch {
     return '(invalid proxy URL)';
   }
