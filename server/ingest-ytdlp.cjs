@@ -65,30 +65,37 @@ function parseProxyHostPort(hostRaw, portRaw) {
 }
 
 /**
- * Ensure a non-default proxy port is present (Render often drops :port from YT_DLP_PROXY).
+ * True when the hostname segment already ends with :port (not bare IPv6 brackets).
+ */
+function proxyHostHasExplicitPort(proxyUrl) {
+  const afterAuth = proxyUrl.replace(/^https?:\/\/(?:[^@/]+@)?/i, '');
+  const hostPart = afterAuth.split('/')[0].split('?')[0].split('#')[0];
+  if (hostPart.startsWith('[')) {
+    return /^\[[^\]]+\]:\d+$/.test(hostPart);
+  }
+  return /:\d+$/.test(hostPart);
+}
+
+/**
+ * Append :port to the proxy hostname using string assembly.
+ * The URL API omits default ports (:80 / :443), which breaks Webshare backconnect on Render.
  */
 function applyProxyPortFallback(proxyUrl, portOverride = '') {
   if (!proxyUrl) return '';
 
   const port = String(portOverride || process.env.YT_DLP_PROXY_PORT || '').trim();
   if (!port) return proxyUrl;
+  if (proxyHostHasExplicitPort(proxyUrl)) return proxyUrl;
 
-  try {
-    const parsed = new URL(proxyUrl);
-    if (parsed.port) return proxyUrl;
-    parsed.port = port;
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    // Fallback when URL constructor rejects the string.
-    if (/@[^@/]+:\d+(?:\/|$)/.test(proxyUrl) || /:\d+$/.test(proxyUrl.replace(/\/$/, ''))) {
-      return proxyUrl;
-    }
-    const hostMatch = proxyUrl.match(/^(https?:\/\/(?:[^@/]+@)?)([^/?#]+)(.*)$/i);
-    if (!hostMatch) return proxyUrl;
-    const [, prefix, hostPart, suffix] = hostMatch;
-    if (hostPart.includes(':')) return proxyUrl;
-    return `${prefix}${hostPart}:${port}${suffix}`;
-  }
+  return proxyUrl.replace(
+    /^(https?:\/\/(?:[^@/]+@)?)([^/?#]+)(.*)$/i,
+    (_, prefix, hostname, suffix) => `${prefix}${hostname}:${port}${suffix}`
+  );
+}
+
+function buildProxyUrlFromParts({ scheme, user, pass, host, port }) {
+  const auth = user ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : '';
+  return applyProxyPortFallback(`${scheme}://${auth}${host}`, port);
 }
 
 function randomProxySessionId() {
@@ -116,16 +123,19 @@ function usernameForProxyAttempt(baseUser, attempt) {
 function modifyProxyUrlForAttempt(proxyUrl, attempt) {
   if (!proxyUrl || attempt <= 0) return proxyUrl;
 
-  try {
-    const parsed = new URL(proxyUrl);
-    const user = decodeURIComponent(parsed.username || '');
-    const nextUser = usernameForProxyAttempt(user, attempt);
-    if (nextUser === user) return proxyUrl;
-    parsed.username = nextUser;
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return proxyUrl;
-  }
+  const match = proxyUrl.match(/^(https?:\/\/)([^@]+)@(.+)$/i);
+  if (!match) return proxyUrl;
+
+  const [, scheme, authPart, hostPart] = match;
+  const colonIdx = authPart.indexOf(':');
+  if (colonIdx < 0) return proxyUrl;
+
+  const user = decodeURIComponent(authPart.slice(0, colonIdx));
+  const pass = authPart.slice(colonIdx + 1);
+  const nextUser = usernameForProxyAttempt(user, attempt);
+  if (nextUser === user) return proxyUrl;
+
+  return `${scheme}${encodeURIComponent(nextUser)}:${pass}@${hostPart}`;
 }
 
 /**
@@ -161,11 +171,17 @@ function resolveYtDlpProxy({ attempt = 0 } = {}) {
     process.env.YT_DLP_PROXY_PASSWORD || process.env.YT_DLP_PROXY_PASS || ''
   );
   const { host, port } = parseProxyHostPort(hostRaw, portEnv);
+  const effectivePort = port || portEnv;
 
-  const auth = user ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : '';
-  return applyProxyPortFallback(
-    `${scheme}://${auth}${host}${port ? `:${port}` : ''}`,
-    port
+  return modifyProxyUrlForAttempt(
+    buildProxyUrlFromParts({
+      scheme,
+      user,
+      pass,
+      host,
+      port: effectivePort,
+    }),
+    attempt
   );
 }
 
@@ -242,16 +258,19 @@ function normalizeProxyUrl(raw) {
   return value;
 }
 
-/** Log-friendly proxy string (never prints credentials). */
+/** Log-friendly proxy string (never prints credentials). Preserves explicit :port in URL. */
+function proxyHostFromUrl(proxyUrl) {
+  const afterAuth = proxyUrl.replace(/^https?:\/\/(?:[^@/]+@)?/i, '');
+  return afterAuth.split('/')[0].split('?')[0].split('#')[0];
+}
+
 function proxyForLog(proxyUrl) {
   if (!proxyUrl) return '(none)';
-  try {
-    const parsed = new URL(proxyUrl);
-    const auth = parsed.username ? '***:***@' : '';
-    return `${parsed.protocol}//${auth}${parsed.host}`;
-  } catch {
-    return '(invalid proxy URL)';
-  }
+  const schemeMatch = proxyUrl.match(/^(https?:\/\/)/i);
+  if (!schemeMatch) return '(invalid proxy URL)';
+  const hasAuth = /^https?:\/\/[^@/]+@/i.test(proxyUrl);
+  const host = proxyHostFromUrl(proxyUrl);
+  return `${schemeMatch[1]}${hasAuth ? '***:***@' : ''}${host}`;
 }
 
 function sanitizeArgsForLog(args) {
