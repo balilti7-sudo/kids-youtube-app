@@ -158,6 +158,9 @@ function isRetryableStreamPrepareError(err) {
   if (/live|premiere|upcoming|not yet started|scheduled|islivecontent|private|auth failed/i.test(msg)) {
     return false;
   }
+  if (/no direct media url|no fetchable media url|missing direct media url|returned no direct/i.test(msg)) {
+    return false;
+  }
   return (
     err?.fileNotReady ||
     /timeout|timed out|econnaborted|econnreset|etimedout|network|socket hang up|transcoding not finished|fetch queue full|file not ready|not ready after|still processing|preparing|503|502|504|429/i.test(
@@ -213,16 +216,22 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
   }
 
   const existing = streamPrepareJobs.get(cacheKey);
-  if (existing && existing.expiresAt > Date.now()) {
-    if (
-      forceRestart &&
-      existing.status === 'failed' &&
-      existing.error &&
-      isRetryableStreamPrepareError(existing.error)
-    ) {
-      streamPrepareJobs.delete(cacheKey);
-    } else {
+  if (existing) {
+    if (existing.status === 'processing') {
+      existing.expiresAt = Date.now() + STREAM_PREPARE_TTL_MS;
       return existing;
+    }
+    if (existing.expiresAt > Date.now()) {
+      if (
+        forceRestart &&
+        existing.status === 'failed' &&
+        existing.error &&
+        isRetryableStreamPrepareError(existing.error)
+      ) {
+        streamPrepareJobs.delete(cacheKey);
+      } else {
+        return existing;
+      }
     }
   }
 
@@ -255,6 +264,9 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
       return resolved;
     })
     .catch((err) => {
+      console.error(
+        `[stream-prepare] failed video=${videoId} quality=${rawQuality || '360p'}: ${err?.message || err}`
+      );
       job.status = 'failed';
       job.error = err;
       job.cached = null;
@@ -263,7 +275,9 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
     .finally(() => {
       setTimeout(() => {
         const current = streamPrepareJobs.get(cacheKey);
-        if (current === job) streamPrepareJobs.delete(cacheKey);
+        if (current === job && job.status !== 'processing') {
+          streamPrepareJobs.delete(cacheKey);
+        }
       }, STREAM_PREPARE_TTL_MS);
     });
 
@@ -348,17 +362,24 @@ async function getCachedUpstreamUrl(
     resolveCache.delete(cacheKey);
   }
 
-  const resolved = await resolveVideoDownloadUrl(videoId, targetQuality, progress);
-  if (!resolved.url) {
-    throw new Error('No playable URL from Bunny Stream');
-  }
+  try {
+    const resolved = await resolveVideoDownloadUrl(videoId, targetQuality, progress);
+    if (!resolved?.url) {
+      throw new Error(`No playable URL from Bunny Stream for ${videoId}`);
+    }
 
-  resolveCacheSet(cacheKey, resolved.url, {
-    ...resolved,
-    mime: resolved.mime,
-    requestedQuality: targetQuality,
-  });
-  return resolveCache.get(cacheKey);
+    resolveCacheSet(cacheKey, resolved.url, {
+      ...resolved,
+      mime: resolved.mime,
+      requestedQuality: targetQuality,
+    });
+    return resolveCache.get(cacheKey);
+  } catch (err) {
+    console.error(
+      `[stream-prepare] getCachedUpstreamUrl failed video=${videoId}: ${err?.message || err}`
+    );
+    throw err;
+  }
 }
 
 function inferStreamMetadata(upstreamUrl, cached = {}) {

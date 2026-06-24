@@ -84,23 +84,15 @@ async function resolveDirectMediaUrl(youtubeVideoId, quality, progress) {
   }
 
   try {
-    let info = { lengthSeconds: null };
-    try {
-      info = await ingestYtdlp.getVideoInfo(youtubeVideoId);
-    } catch (infoErr) {
-      console.error(
-        `[bunny] yt-dlp getVideoInfo failed video=${youtubeVideoId} message=${infoErr.message}`
-      );
-      if (infoErr.stderr) {
-        console.error(`[bunny] yt-dlp getVideoInfo stderr:\n${infoErr.stderr}`);
-      }
-    }
-
-    if (progress && info.lengthSeconds) {
-      progress.durationSeconds = info.lengthSeconds;
-    }
-
     const resolved = await ingestYtdlp.resolveVideoDownloadUrl(youtubeVideoId, quality);
+    if (!resolved?.url || !/^https?:\/\//i.test(resolved.url)) {
+      const err = new Error(
+        `yt-dlp produced no fetchable media URL for ${youtubeVideoId}`
+      );
+      console.error(`[bunny] ${err.message}`);
+      throw err;
+    }
+
     console.log(
       `[bunny] ingest source yt-dlp video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
     );
@@ -113,7 +105,7 @@ async function resolveDirectMediaUrl(youtubeVideoId, quality, progress) {
     if (err.spawnErrno) console.error(`[bunny] yt-dlp spawn.errno=${err.spawnErrno}`);
     if (err.exitCode != null) console.error(`[bunny] yt-dlp exitCode=${err.exitCode}`);
     if (err.stderr) console.error(`[bunny] yt-dlp stderr:\n${err.stderr}`);
-    if (err.stdout) console.error(`[bunny] yt-dlp stdout:\n${err.stdout}`);
+    if (err.stdout) console.error(`[bunny] yt-dlp stdout:\n${String(err.stdout).slice(0, 800)}`);
     throw err;
   }
 }
@@ -375,8 +367,25 @@ async function removeFailedLibraryEntries(youtubeVideoId) {
 
 async function submitYoutubeFetch(youtubeVideoId, quality, progress) {
   const title = youtubeTitle(youtubeVideoId);
-  const direct = await resolveDirectMediaUrl(youtubeVideoId, quality, progress);
+
+  let direct;
+  try {
+    direct = await resolveDirectMediaUrl(youtubeVideoId, quality, progress);
+  } catch (err) {
+    console.error(
+      `[bunny] submitYoutubeFetch source resolve failed video=${youtubeVideoId}: ${err.message}`
+    );
+    throw err;
+  }
+
   const fetchUrl = direct.url;
+  if (!fetchUrl || !/^https?:\/\//i.test(fetchUrl)) {
+    const err = new Error(
+      `Cannot submit Bunny fetch for ${youtubeVideoId}: missing direct media URL after yt-dlp`
+    );
+    console.error(`[bunny] ${err.message}`);
+    throw err;
+  }
 
   if (progress) {
     progress.activeSource = 'bunny';
@@ -390,9 +399,16 @@ async function submitYoutubeFetch(youtubeVideoId, quality, progress) {
     `[bunny] POST fetch video=${youtubeVideoId} ingest=${direct.ingestResolver || '?'} url=${fetchUrl.slice(0, 96)}…`
   );
 
-  await bunnyRequest('POST', `/library/${BUNNY_LIBRARY_ID}/videos/fetch`, {
-    body: { url: fetchUrl, title },
-  });
+  try {
+    await bunnyRequest('POST', `/library/${BUNNY_LIBRARY_ID}/videos/fetch`, {
+      body: { url: fetchUrl, title },
+    });
+  } catch (err) {
+    console.error(
+      `[bunny] POST fetch failed video=${youtubeVideoId} url=${fetchUrl.slice(0, 96)}…: ${err.message}`
+    );
+    throw err;
+  }
 
   for (let attempt = 0; attempt < 8; attempt++) {
     await sleep(attempt === 0 ? 1500 : 2000);
@@ -410,7 +426,9 @@ async function submitYoutubeFetch(youtubeVideoId, quality, progress) {
     }
   }
 
-  throw new Error(`Bunny fetch accepted but video ${youtubeVideoId} not visible in library yet`);
+  const err = new Error(`Bunny fetch accepted but video ${youtubeVideoId} not visible in library yet`);
+  console.error(`[bunny] ${err.message}`);
+  throw err;
 }
 
 function buildPlaybackUrl(hostname, bunnyGuid, quality, { preferHls = true } = {}) {
