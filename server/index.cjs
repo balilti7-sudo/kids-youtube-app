@@ -842,8 +842,15 @@ app.listen(PORT, HOST, () => {
     );
   } else {
     console.log(`[bridge] Bunny ingest: yt-dlp (${bunnyStream.ingestYtdlp.resolveYtDlpBinary()})`);
-    const proxyLog = bunnyStream.ingestYtdlp.proxyForLog(bunnyStream.ingestYtdlp.resolveYtDlpProxy());
-    console.log(`[bridge] yt-dlp proxy: ${proxyLog}`);
+    const proxyMode = bunnyStream.ingestYtdlp.describeProxyMode();
+    if (proxyMode.configured) {
+      console.log(
+        `[bridge] yt-dlp proxy: ${proxyMode.endpoint} mode=${proxyMode.mode}` +
+          ` retries=${proxyMode.maxRetries} delayMs=${proxyMode.retryDelayMs}`
+      );
+    } else {
+      console.log('[bridge] yt-dlp proxy: (none — datacenter egress, bot blocks likely)');
+    }
   }
 });
 

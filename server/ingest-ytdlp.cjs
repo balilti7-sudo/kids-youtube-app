@@ -29,6 +29,15 @@ const YT_DLP_JS_RUNTIMES = (process.env.YT_DLP_JS_RUNTIMES || 'node').trim();
 const YT_DLP_DISABLE_PROFILE_FALLBACK =
   process.env.YT_DLP_DISABLE_PROFILE_FALLBACK === '1' ||
   process.env.YT_DLP_DISABLE_PROFILE_FALLBACK === 'true';
+/** Retries after the first attempt when proxy is configured (bot block / exit 152). */
+const YT_DLP_PROXY_MAX_RETRIES = Math.max(
+  0,
+  Number(process.env.YT_DLP_PROXY_MAX_RETRIES || 4)
+);
+const YT_DLP_PROXY_RETRY_DELAY_MS = Math.max(
+  0,
+  Number(process.env.YT_DLP_PROXY_RETRY_DELAY_MS || 1200)
+);
 
 /**
  * Split host:port when YT_DLP_PROXY_HOST includes a trailing port.
@@ -82,17 +91,60 @@ function applyProxyPortFallback(proxyUrl, portOverride = '') {
   }
 }
 
+function randomProxySessionId() {
+  return `${Date.now()}${Math.floor(Math.random() * 1e6)}`.slice(-12);
+}
+
+/** Webshare `-rotate` already assigns a new IP per connection; cannot combine with session IDs. */
+function isWebshareRotatingUsername(username) {
+  const value = String(username || '').trim();
+  return /(?:^|-)rotate(?:-|$)/i.test(value);
+}
+
+/**
+ * Append a sticky-session suffix so backconnect gateways issue a fresh egress IP.
+ * Skipped when the username already uses Webshare rotate mode.
+ */
+function usernameForProxyAttempt(baseUser, attempt) {
+  const user = String(baseUser || '').trim();
+  if (!user || attempt <= 0 || isWebshareRotatingUsername(user)) {
+    return user;
+  }
+  return `${user}-${randomProxySessionId()}`;
+}
+
+function modifyProxyUrlForAttempt(proxyUrl, attempt) {
+  if (!proxyUrl || attempt <= 0) return proxyUrl;
+
+  try {
+    const parsed = new URL(proxyUrl);
+    const user = decodeURIComponent(parsed.username || '');
+    const nextUser = usernameForProxyAttempt(user, attempt);
+    if (nextUser === user) return proxyUrl;
+    parsed.username = nextUser;
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return proxyUrl;
+  }
+}
+
 /**
  * Resolve proxy URL at call time (not module load) so env is always fresh.
  * Supports YT_DLP_PROXY (use %40 instead of @ if the dashboard strips @),
  * or YT_DLP_PROXY_SCHEME/USER/PASSWORD/HOST/PORT components (recommended on Render).
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.attempt=0] — >0 injects a new session ID for rotating/backconnect pools.
  */
-function resolveYtDlpProxy() {
+function resolveYtDlpProxy({ attempt = 0 } = {}) {
   const portEnv = String(process.env.YT_DLP_PROXY_PORT || '').trim();
   const direct = String(process.env.YT_DLP_PROXY || '').trim();
 
   if (direct) {
-    return applyProxyPortFallback(normalizeProxyUrl(direct), portEnv);
+    return modifyProxyUrlForAttempt(
+      applyProxyPortFallback(normalizeProxyUrl(direct), portEnv),
+      attempt
+    );
   }
 
   const hostRaw = String(process.env.YT_DLP_PROXY_HOST || '').trim();
@@ -101,7 +153,10 @@ function resolveYtDlpProxy() {
   const scheme = String(process.env.YT_DLP_PROXY_SCHEME || 'http')
     .trim()
     .replace(/:$/, '');
-  const user = String(process.env.YT_DLP_PROXY_USER || '').trim();
+  const user = usernameForProxyAttempt(
+    String(process.env.YT_DLP_PROXY_USER || '').trim(),
+    attempt
+  );
   const pass = String(
     process.env.YT_DLP_PROXY_PASSWORD || process.env.YT_DLP_PROXY_PASS || ''
   );
@@ -112,6 +167,36 @@ function resolveYtDlpProxy() {
     `${scheme}://${auth}${host}${port ? `:${port}` : ''}`,
     port
   );
+}
+
+function describeProxyMode() {
+  const proxyUrl = resolveYtDlpProxy();
+  if (!proxyUrl) {
+    return { configured: false, mode: 'none', endpoint: '(none)', maxRetries: 0 };
+  }
+
+  let username = String(process.env.YT_DLP_PROXY_USER || '').trim();
+  if (!username) {
+    try {
+      username = decodeURIComponent(new URL(proxyUrl).username || '');
+    } catch {
+      username = '';
+    }
+  }
+
+  const rotating = isWebshareRotatingUsername(username);
+  const mode = rotating ? 'backconnect-rotate' : 'backconnect-session';
+  return {
+    configured: true,
+    mode,
+    endpoint: proxyForLog(proxyUrl),
+    maxRetries: YT_DLP_PROXY_MAX_RETRIES,
+    retryDelayMs: YT_DLP_PROXY_RETRY_DELAY_MS,
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeProxyUrl(raw) {
@@ -271,7 +356,7 @@ function profilesForVideo(videoId) {
   return DEFAULT_YOUTUBE_PROFILES;
 }
 
-function buildBaseArgs(profile = {}) {
+function buildBaseArgs(profile = {}, proxyUrl = '') {
   const args = [
     '--no-warnings',
     '--no-playlist',
@@ -294,9 +379,9 @@ function buildBaseArgs(profile = {}) {
     args.push('--js-runtimes', YT_DLP_JS_RUNTIMES);
   }
 
-  const proxyUrl = resolveYtDlpProxy();
-  if (proxyUrl) {
-    args.push('--proxy', proxyUrl);
+  const effectiveProxy = proxyUrl || resolveYtDlpProxy();
+  if (effectiveProxy) {
+    args.push('--proxy', effectiveProxy);
   }
 
   const userAgent = profile.userAgent || BROWSER_USER_AGENT;
@@ -325,14 +410,28 @@ function buildBaseArgs(profile = {}) {
 }
 
 function isYoutubeBotOrBlockError(err) {
+  if (err && err.exitCode === 152) return true;
+
   const blob = `${err.message} ${err.stderr || ''} ${err.stdout || ''}`.toLowerCase();
   return (
     /sign in to confirm|not a bot|confirm you're not a bot|bot check|cookies-from-browser/i.test(
       blob
     ) ||
     /http error 403|unable to extract player data|player response/i.test(blob) ||
-    /n challenge solving failed|challenge solver script.*skipped/i.test(blob)
+    /n challenge solving failed|challenge solver script.*skipped/i.test(blob) ||
+    /\b152\b/.test(blob)
   );
+}
+
+function isProxyRetriableError(err) {
+  if (!err || isNonRetriableYoutubeError(err)) return false;
+  if (err.exitCode === 152) return true;
+  if (err.youtubeBotBlock || isYoutubeBotOrBlockError(err)) return true;
+  return false;
+}
+
+function proxyAttemptCount() {
+  return resolveYtDlpProxy() ? YT_DLP_PROXY_MAX_RETRIES + 1 : 1;
 }
 
 function isNonRetriableYoutubeError(err) {
@@ -378,10 +477,12 @@ function logYtDlpFailure(label, binary, args, err) {
   if (err.stdout) console.error(`[ingest-ytdlp] ${label} stdout:\n${err.stdout}`);
 }
 
-function runYtDlpOnce(binary, args, { timeoutMs, label }) {
+function runYtDlpOnce(binary, args, { timeoutMs, label, proxyUrl = '' }) {
   return new Promise((resolve, reject) => {
-    const proxyUrl = resolveYtDlpProxy();
-    console.log(`[ingest-ytdlp] ${label} spawn binary=${binary} timeout=${timeoutMs}ms proxy=${proxyForLog(proxyUrl)}`);
+    const effectiveProxy = proxyUrl || resolveYtDlpProxy();
+    console.log(
+      `[ingest-ytdlp] ${label} spawn binary=${binary} timeout=${timeoutMs}ms proxy=${proxyForLog(effectiveProxy)}`
+    );
     console.log(`[ingest-ytdlp] ${label} args=${JSON.stringify(sanitizeArgsForLog(args))}`);
 
     const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
@@ -460,41 +561,81 @@ async function runYtDlpOnceWithPermissionRetry(binary, args, opts) {
 }
 
 /**
- * Run yt-dlp with YouTube client-profile fallback (embed / TV / iOS / Android).
+ * Run yt-dlp with rotating-proxy retries (new egress IP per attempt) and
+ * YouTube client-profile fallback (embed / TV / iOS / Android).
  */
 async function runYtDlp(extraArgs, { timeoutMs = YT_DLP_TIMEOUT_MS, label = 'yt-dlp', videoId } = {}) {
   const binary = resolveYtDlpBinary();
   const profiles = profilesForVideo(videoId);
   const useSingleProfile = YT_DLP_DISABLE_PROFILE_FALLBACK || profiles.length === 1;
+  const proxyAttempts = proxyAttemptCount();
+  const hasProxy = proxyAttempts > 1;
 
   let lastErr = null;
 
   for (let i = 0; i < profiles.length; i++) {
     const profile = profiles[i];
     const targetUrl = profile.videoUrl(videoId);
-    const args = [...buildBaseArgs(profile), ...extraArgs, targetUrl];
-    const profileLabel = `${label} profile=${profile.name}`;
 
-    try {
-      const result = await runYtDlpOnceWithPermissionRetry(binary, args, {
-        timeoutMs,
-        label: profileLabel,
-      });
-      console.log(`[ingest-ytdlp] success video=${videoId} profile=${profile.name}`);
-      return result;
-    } catch (err) {
-      lastErr = err;
-      if (useSingleProfile || isNonRetriableYoutubeError(err)) {
-        throw err;
+    for (let attempt = 0; attempt < proxyAttempts; attempt++) {
+      const proxyUrl = resolveYtDlpProxy({ attempt });
+      const args = [...buildBaseArgs(profile, proxyUrl), ...extraArgs, targetUrl];
+      const attemptSuffix =
+        attempt > 0 ? ` proxy-attempt=${attempt + 1}/${proxyAttempts}` : '';
+      const profileLabel = `${label} profile=${profile.name}${attemptSuffix}`;
+
+      try {
+        const result = await runYtDlpOnceWithPermissionRetry(binary, args, {
+          timeoutMs,
+          label: profileLabel,
+          proxyUrl,
+        });
+        console.log(
+          `[ingest-ytdlp] success video=${videoId} profile=${profile.name}` +
+            (attempt > 0 ? ` proxy-attempt=${attempt + 1}` : '')
+        );
+        return result;
+      } catch (err) {
+        lastErr = err;
+        err.youtubeBotBlock = err.youtubeBotBlock || isYoutubeBotOrBlockError(err);
+
+        if (useSingleProfile || isNonRetriableYoutubeError(err)) {
+          throw err;
+        }
+
+        const canRetryProxy =
+          hasProxy && attempt < proxyAttempts - 1 && isProxyRetriableError(err);
+        if (canRetryProxy) {
+          const delayMs =
+            YT_DLP_PROXY_RETRY_DELAY_MS + Math.floor(Math.random() * 500);
+          console.warn(
+            `[ingest-ytdlp] video=${videoId} profile=${profile.name}` +
+              ` bot/block (exit=${err.exitCode ?? '?'})` +
+              ` — retry ${attempt + 2}/${proxyAttempts} with new proxy IP in ${delayMs}ms` +
+              ` proxy=${proxyForLog(resolveYtDlpProxy({ attempt: attempt + 1 }))}`
+          );
+          await sleep(delayMs);
+          continue;
+        }
+
+        if (!isYoutubeBotOrBlockError(err) && i === 0 && attempt === 0) {
+          throw err;
+        }
+
+        break;
       }
-      if (!isYoutubeBotOrBlockError(err) && i === 0) {
-        throw err;
-      }
-      const remaining = profiles.length - i - 1;
+    }
+
+    if (useSingleProfile) {
+      break;
+    }
+
+    const remaining = profiles.length - i - 1;
+    if (remaining > 0 && lastErr && isYoutubeBotOrBlockError(lastErr)) {
       console.warn(
         `[ingest-ytdlp] video=${videoId} profile=${profile.name} blocked/failed` +
-          ` (${err.message.slice(0, 140)})` +
-          (remaining > 0 ? ` — trying next profile (${remaining} left)` : '')
+          ` (${lastErr.message.slice(0, 140)})` +
+          ` — trying next profile (${remaining} left)`
       );
     }
   }
@@ -607,7 +748,12 @@ module.exports = {
   resolveYtDlpBinary,
   YT_DLP_TIMEOUT_MS,
   YT_DLP_LONG_TIMEOUT_MS,
+  YT_DLP_PROXY_MAX_RETRIES,
+  YT_DLP_PROXY_RETRY_DELAY_MS,
   DEFAULT_YOUTUBE_PROFILES,
   resolveYtDlpProxy,
+  describeProxyMode,
   proxyForLog,
+  isYoutubeBotOrBlockError,
+  isProxyRetriableError,
 };
