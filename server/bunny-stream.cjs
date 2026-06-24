@@ -85,18 +85,12 @@ async function resolveDirectMediaUrl(youtubeVideoId, quality, progress) {
 
   try {
     const resolved = await ingestYtdlp.resolveVideoDownloadUrl(youtubeVideoId, quality);
-    if (!resolved?.url || !/^https?:\/\//i.test(resolved.url)) {
-      const err = new Error(
-        `yt-dlp produced no fetchable media URL for ${youtubeVideoId}`
-      );
-      console.error(`[bunny] ${err.message}`);
-      throw err;
-    }
+    const fetchUrl = ingestYtdlp.validateFetchableMediaUrl(resolved?.url, youtubeVideoId);
 
     console.log(
-      `[bunny] ingest source yt-dlp video=${youtubeVideoId} url=${resolved.url.slice(0, 96)}…`
+      `[bunny] ingest source yt-dlp video=${youtubeVideoId} url=${fetchUrl.slice(0, 96)}…`
     );
-    return resolved;
+    return { ...resolved, url: fetchUrl };
   } catch (err) {
     console.error(
       `[bunny] yt-dlp ingest failed video=${youtubeVideoId} message=${err.message}`

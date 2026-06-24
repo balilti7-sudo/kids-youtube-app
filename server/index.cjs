@@ -14,6 +14,7 @@ const http = require('http');
 const https = require('https');
 
 const bunnyStream = require('./bunny-stream.cjs');
+const streamStatusStore = require('./stream-status-store.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
 const { ensureYtDlpBinary } = require('./ensure-ytdlp.cjs');
 
@@ -158,7 +159,13 @@ function isRetryableStreamPrepareError(err) {
   if (/live|premiere|upcoming|not yet started|scheduled|islivecontent|private|auth failed/i.test(msg)) {
     return false;
   }
-  if (/no direct media url|no fetchable media url|missing direct media url|returned no direct/i.test(msg)) {
+  if (/no direct media url|no fetchable media url|missing direct media url|returned no direct|invalid media url/i.test(msg)) {
+    return false;
+  }
+  if (/exit.?152|\byt_dlp_152\b|yt-dlp json error|bot check|not a bot|youtubebotblock/i.test(msg)) {
+    return false;
+  }
+  if (/proxy connection refused|errno 111|econnrefused/i.test(msg)) {
     return false;
   }
   return (
@@ -177,6 +184,44 @@ function classifyStreamResolveError(err) {
       body: {
         status: 'failed',
         error: 'LIVE_UPCOMING',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+      },
+    };
+  }
+  if (
+    err?.exitCode === 152 ||
+    err?.youtubeBotBlock ||
+    /exit.?152|yt-dlp json error|bot check|not a bot/i.test(msg)
+  ) {
+    return {
+      status: 502,
+      body: {
+        status: 'failed',
+        error: 'YT_DLP_BOT_BLOCK',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+      },
+    };
+  }
+  if (
+    err?.exitCode === 111 ||
+    err?.proxyConnectionRefused ||
+    /proxy connection refused|errno 111|econnrefused/i.test(msg)
+  ) {
+    return {
+      status: 502,
+      body: {
+        status: 'failed',
+        error: 'PROXY_CONNECTION_REFUSED',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+      },
+    };
+  }
+  if (/invalid media url|no direct media url|no fetchable media url/i.test(msg)) {
+    return {
+      status: 502,
+      body: {
+        status: 'failed',
+        error: 'INVALID_MEDIA_URL',
         detail: msg.split('\n').slice(0, 3).join(' '),
       },
     };
@@ -261,6 +306,7 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
       job.status = 'ready';
       job.cached = resolved;
       job.error = null;
+      void streamStatusStore.markReady(videoId, rawQuality);
       return resolved;
     })
     .catch((err) => {
@@ -270,6 +316,7 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
       job.status = 'failed';
       job.error = err;
       job.cached = null;
+      void streamStatusStore.markFailed(videoId, rawQuality, err);
       throw err;
     })
     .finally(() => {
@@ -282,6 +329,8 @@ function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) 
     });
 
   streamPrepareJobs.set(cacheKey, job);
+  void streamStatusStore.markProcessing(videoId, rawQuality);
+
   return job;
 }
 

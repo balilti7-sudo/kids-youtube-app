@@ -6,7 +6,10 @@ const path = require('path');
 
 const SERVER_DIR = __dirname;
 const YT_DLP_TIMEOUT_MS = Number(process.env.YT_DLP_TIMEOUT_MS || 90_000);
+const YT_DLP_PROBE_TIMEOUT_MS = Number(process.env.YT_DLP_PROBE_TIMEOUT_MS || 90_000);
 const YT_DLP_LONG_TIMEOUT_MS = Number(process.env.YT_DLP_LONG_TIMEOUT_MS || 300_000);
+/** Webshare backbone / backconnect rotation endpoint (not ap.webshare.io). */
+const WEBSHARE_BACKCONNECT_HOST = 'p.webshare.io';
 const LONG_VIDEO_DURATION_SEC = Number(process.env.LONG_VIDEO_DURATION_SEC || 65);
 const YT_DLP_COOKIES_FILE = (process.env.YT_DLP_COOKIES_FILE || '').trim();
 const YT_DLP_FORMAT = (process.env.YT_DLP_FORMAT || '').trim();
@@ -157,7 +160,7 @@ function resolveYtDlpProxy({ attempt = 0 } = {}) {
     );
   }
 
-  const hostRaw = String(process.env.YT_DLP_PROXY_HOST || '').trim();
+  const hostRaw = normalizeWebshareProxyHost(String(process.env.YT_DLP_PROXY_HOST || '').trim());
   if (!hostRaw) return '';
 
   const scheme = String(process.env.YT_DLP_PROXY_SCHEME || 'http')
@@ -215,6 +218,17 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function normalizeWebshareProxyHost(host) {
+  const value = String(host || '').trim();
+  if (!value) return value;
+  if (!/ap\.webshare\.io/i.test(value)) return value;
+  const fixed = value.replace(/ap\.webshare\.io/gi, WEBSHARE_BACKCONNECT_HOST);
+  console.warn(
+    `[ingest-ytdlp] proxy host ap.webshare.io → ${WEBSHARE_BACKCONNECT_HOST} (backconnect rotation)`
+  );
+  return fixed;
+}
+
 function normalizeProxyUrl(raw) {
   let value = String(raw || '').trim();
   if (!value) return '';
@@ -225,6 +239,13 @@ function normalizeProxyUrl(raw) {
     } catch {
       /* keep literal value */
     }
+  }
+
+  if (/ap\.webshare\.io/i.test(value)) {
+    value = value.replace(/ap\.webshare\.io/gi, WEBSHARE_BACKCONNECT_HOST);
+    console.warn(
+      `[ingest-ytdlp] proxy URL host ap.webshare.io → ${WEBSHARE_BACKCONNECT_HOST}`
+    );
   }
 
   // Render env UIs sometimes corrupt "@" to the letter "a" immediately before an IPv4 host.
@@ -428,6 +449,15 @@ function buildBaseArgs(profile = {}, proxyUrl = '') {
   return args;
 }
 
+function isProxyConnectionRefusedError(err) {
+  if (!err) return false;
+  if (err.exitCode === 111) return true;
+  if (err.proxyConnectionRefused) return true;
+  if (err.spawnErrno === 'ECONNREFUSED' || err.spawnErrno === 111) return true;
+  const blob = `${err.message} ${err.stderr || ''}`.toLowerCase();
+  return /connection refused|errno 111|econnrefused|\[errno 111\]/i.test(blob);
+}
+
 function isYoutubeBotOrBlockError(err) {
   if (err && err.exitCode === 152) return true;
 
@@ -445,8 +475,17 @@ function isYoutubeBotOrBlockError(err) {
 function isProxyRetriableError(err) {
   if (!err || isNonRetriableYoutubeError(err)) return false;
   if (err.exitCode === 152) return true;
+  if (err.exitCode === 111 || isProxyConnectionRefusedError(err)) return true;
   if (err.youtubeBotBlock || isYoutubeBotOrBlockError(err)) return true;
   return false;
+}
+
+function proxyRetryDelayMs(err) {
+  const base = YT_DLP_PROXY_RETRY_DELAY_MS;
+  if (isProxyConnectionRefusedError(err)) {
+    return base + 2000 + Math.floor(Math.random() * 1500);
+  }
+  return base + Math.floor(Math.random() * 500);
 }
 
 function proxyAttemptCount() {
@@ -549,6 +588,7 @@ function runYtDlpOnce(binary, args, { timeoutMs, label, proxyUrl = '' }) {
           exitCode: code,
         });
         err.youtubeBotBlock = isYoutubeBotOrBlockError(err);
+        err.proxyConnectionRefused = isProxyConnectionRefusedError(err);
         if (/private|unavailable|live|premiere|removed/i.test(detail)) {
           err.fileNotReady = false;
         }
@@ -638,11 +678,14 @@ async function runYtDlp(
         const canRetryProxy =
           hasProxy && attempt < proxyAttempts - 1 && isProxyRetriableError(err);
         if (canRetryProxy) {
-          const delayMs =
-            YT_DLP_PROXY_RETRY_DELAY_MS + Math.floor(Math.random() * 500);
+          const delayMs = proxyRetryDelayMs(err);
+          const reason =
+            err.exitCode === 111 || err.proxyConnectionRefused
+              ? 'proxy connection refused'
+              : 'bot/block';
           console.warn(
             `[ingest-ytdlp] video=${videoId} profile=${profile.name}` +
-              ` bot/block (exit=${err.exitCode ?? '?'})` +
+              ` ${reason} (exit=${err.exitCode ?? '?'})` +
               ` — retry ${attempt + 2}/${proxyAttempts} with new proxy IP in ${delayMs}ms` +
               ` proxy=${proxyForLog(resolveYtDlpProxy({ attempt: attempt + 1 }))}`
           );
@@ -685,8 +728,49 @@ function pickDirectUrl(stdout) {
   return combined || lines[0];
 }
 
+function ytDlpJsonIndicatesError(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (data._type === 'error' || data.error) return true;
+  return false;
+}
+
+function assertYtDlpJsonNotError(data, videoId) {
+  if (!ytDlpJsonIndicatesError(data)) return;
+  const detail = String(data.error || data.message || 'unknown yt-dlp JSON error').slice(0, 400);
+  const err = new Error(`yt-dlp JSON error for ${videoId}: ${detail}`);
+  if (/152|bot|not a bot/i.test(detail)) {
+    err.exitCode = 152;
+    err.youtubeBotBlock = true;
+  }
+  throw err;
+}
+
+function validateFetchableMediaUrl(url, videoId) {
+  const trimmed = String(url || '').trim();
+  if (!trimmed) {
+    throw new Error(`Invalid media URL for ${videoId}: empty`);
+  }
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    throw new Error(`Invalid media URL for ${videoId}: received JSON instead of media URL`);
+  }
+  if (!/^https?:\/\//i.test(trimmed)) {
+    throw new Error(`Invalid media URL for ${videoId}: not http(s)`);
+  }
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid media URL for ${videoId}: malformed URL`);
+  }
+  if (!parsed.hostname || parsed.hostname === 'localhost') {
+    throw new Error(`Invalid media URL for ${videoId}: invalid hostname`);
+  }
+  return trimmed;
+}
+
 function extractUrlFromYtDlpJson(data, quality = '360p') {
   if (!data || typeof data !== 'object') return null;
+  if (ytDlpJsonIndicatesError(data)) return null;
 
   if (typeof data.url === 'string' && /^https?:\/\//i.test(data.url)) {
     return data.url;
@@ -734,7 +818,7 @@ function extractUrlFromYtDlpJson(data, quality = '360p') {
 }
 
 /** Parse `-g` URL lines or `--dump-single-json` format objects. */
-function extractDirectMediaUrl(stdout, { quality = '360p' } = {}) {
+function extractDirectMediaUrl(stdout, { quality = '360p', videoId = '?' } = {}) {
   const text = String(stdout || '').trim();
   if (!text) return null;
 
@@ -742,9 +826,12 @@ function extractDirectMediaUrl(stdout, { quality = '360p' } = {}) {
   if (fromLines) return fromLines;
 
   try {
-    const fromJson = extractUrlFromYtDlpJson(JSON.parse(text), quality);
+    const parsed = JSON.parse(text);
+    assertYtDlpJsonNotError(parsed, videoId);
+    const fromJson = extractUrlFromYtDlpJson(parsed, quality);
     if (fromJson) return fromJson;
-  } catch {
+  } catch (parseErr) {
+    if (parseErr.youtubeBotBlock || parseErr.exitCode === 152) throw parseErr;
     /* not a single JSON blob */
   }
 
@@ -752,9 +839,12 @@ function extractDirectMediaUrl(stdout, { quality = '360p' } = {}) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('{')) continue;
     try {
-      const fromLine = extractUrlFromYtDlpJson(JSON.parse(trimmed), quality);
+      const parsed = JSON.parse(trimmed);
+      assertYtDlpJsonNotError(parsed, videoId);
+      const fromLine = extractUrlFromYtDlpJson(parsed, quality);
       if (fromLine) return fromLine;
-    } catch {
+    } catch (lineErr) {
+      if (lineErr.youtubeBotBlock || lineErr.exitCode === 152) throw lineErr;
       /* try previous line */
     }
   }
@@ -779,7 +869,7 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
   try {
     try {
       const probe = await runYtDlp(['--dump-single-json', '-f', format, '--skip-download'], {
-        timeoutMs: Math.min(timeoutMs, YT_DLP_TIMEOUT_MS, 45_000),
+        timeoutMs: Math.min(timeoutMs, YT_DLP_TIMEOUT_MS, YT_DLP_PROBE_TIMEOUT_MS),
         label: `probe video=${videoId} quality=${quality}`,
         videoId,
       });
@@ -788,8 +878,10 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
       let durationSeconds = null;
       try {
         const data = JSON.parse(probe.stdout);
+        assertYtDlpJsonNotError(data, videoId);
         durationSeconds = Number.isFinite(data.duration) ? Math.round(data.duration) : null;
       } catch (parseErr) {
+        if (parseErr.youtubeBotBlock || parseErr.exitCode === 152) throw parseErr;
         console.warn(
           `[ingest-ytdlp] probe JSON parse failed video=${videoId}: ${parseErr.message}`
         );
@@ -801,13 +893,14 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
         }
       }
 
-      const urlFromProbe = extractDirectMediaUrl(probe.stdout, { quality });
+      const urlFromProbe = extractDirectMediaUrl(probe.stdout, { quality, videoId });
       if (urlFromProbe) {
+        const url = validateFetchableMediaUrl(urlFromProbe, videoId);
         console.log(
-          `[ingest-ytdlp] direct url video=${videoId} profile=${winningProfile} source=json url=${urlFromProbe.slice(0, 96)}…`
+          `[ingest-ytdlp] direct url video=${videoId} profile=${winningProfile} source=json url=${url.slice(0, 96)}…`
         );
         return {
-          url: urlFromProbe,
+          url,
           quality,
           mime: 'video/mp4',
           ingestResolver: 'yt-dlp',
@@ -818,6 +911,9 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
         `[ingest-ytdlp] probe succeeded but no URL in JSON video=${videoId} profile=${winningProfile} — trying -g`
       );
     } catch (probeErr) {
+      if (probeErr.youtubeBotBlock || probeErr.exitCode === 152) {
+        throw probeErr;
+      }
       console.warn(
         `[ingest-ytdlp] probe failed video=${videoId}: ${probeErr.message} — trying -g`
       );
@@ -833,8 +929,8 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
       profileHint: winningProfile,
     });
 
-    const url = extractDirectMediaUrl(stdout, { quality });
-    if (!url) {
+    const extracted = extractDirectMediaUrl(stdout, { quality, videoId });
+    if (!extracted) {
       const err = new Error(
         `yt-dlp returned no direct media URL for ${videoId} (profile=${profile || winningProfile || '?'})`
       );
@@ -847,6 +943,8 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
       }
       throw err;
     }
+
+    const url = validateFetchableMediaUrl(extracted, videoId);
 
     console.log(
       `[ingest-ytdlp] direct url video=${videoId} profile=${profile || winningProfile} source=-g url=${url.slice(0, 96)}…`
@@ -916,6 +1014,7 @@ module.exports = {
   isAvailable,
   resolveYtDlpBinary,
   YT_DLP_TIMEOUT_MS,
+  YT_DLP_PROBE_TIMEOUT_MS,
   YT_DLP_LONG_TIMEOUT_MS,
   YT_DLP_PROXY_MAX_RETRIES,
   YT_DLP_PROXY_RETRY_DELAY_MS,
@@ -927,4 +1026,6 @@ module.exports = {
   isProxyRetriableError,
   extractDirectMediaUrl,
   extractUrlFromYtDlpJson,
+  validateFetchableMediaUrl,
+  isProxyConnectionRefusedError,
 };
