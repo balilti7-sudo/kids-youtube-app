@@ -517,6 +517,29 @@ async function resolvePlaybackUrl(video, quality) {
 }
 
 /**
+ * Bunny-only playback lookup (no yt-dlp). For API paths when ingest runs on a worker.
+ */
+async function resolvePlaybackIfInLibrary(youtubeVideoId, requestedQuality = '360p') {
+  requireConfigured();
+  const quality = normalizeStreamQuality(requestedQuality);
+  const video = await findVideoByYoutubeId(youtubeVideoId);
+  if (!video || !isPlayableStatus(video.status)) {
+    return null;
+  }
+
+  const url = await resolvePlaybackUrl(video, quality);
+  return {
+    url,
+    quality,
+    mime: 'application/vnd.apple.mpegurl',
+    format: 'hls',
+    proxied: false,
+    source: 'bunny',
+    bunnyGuid: video.guid,
+  };
+}
+
+/**
  * Resolve a YouTube videoId to a Bunny Stream CDN playback URL (HLS).
  * Uses async-friendly polling internally; throws fileNotReady while transcoding.
  */
@@ -610,4 +633,5 @@ module.exports = {
   findVideoByYoutubeId,
   getVideo,
   youtubeTitle,
+  resolvePlaybackIfInLibrary,
 };

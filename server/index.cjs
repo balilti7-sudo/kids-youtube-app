@@ -53,8 +53,15 @@ const STREAM_PREPARE_TTL_MS = Number(process.env.STREAM_PREPARE_TTL_MS || 5 * 60
 /** When async=1, wait this long for a fast cache hit before returning 202. */
 const ASYNC_STREAM_QUICK_READY_MS = Number(process.env.ASYNC_STREAM_QUICK_READY_MS || 2_500);
 const resolveCache = new Map();
-/** In-flight async stream preparation jobs (keyed by videoId:quality). */
+/** Legacy in-process jobs when USE_INGEST_WORKER=0 (local dev without Supabase queue). */
 const streamPrepareJobs = new Map();
+
+function useIngestWorker() {
+  const flag = String(process.env.USE_INGEST_WORKER || '').trim().toLowerCase();
+  if (flag === '0' || flag === 'false') return false;
+  if (flag === '1' || flag === 'true') return true;
+  return streamStatusStore.isConfigured();
+}
 
 const ALLOWED_STREAM_QUALITIES = new Set(['240p', '360p', '480p', '720p', '1080p']);
 
@@ -162,6 +169,9 @@ function isRetryableStreamPrepareError(err) {
   if (/no direct media url|no fetchable media url|missing direct media url|returned no direct|invalid media url/i.test(msg)) {
     return false;
   }
+  if (/error code:\s*152|video_unavailable_152|yt-dlp json error.*152/i.test(msg)) {
+    return false;
+  }
   if (/exit.?152|\byt_dlp_152\b|yt-dlp json error|bot check|not a bot|youtubebotblock/i.test(msg)) {
     return false;
   }
@@ -184,6 +194,19 @@ function classifyStreamResolveError(err) {
       body: {
         status: 'failed',
         error: 'LIVE_UPCOMING',
+        detail: msg.split('\n').slice(0, 3).join(' '),
+      },
+    };
+  }
+  if (
+    err?.ytDlpErrorCode152Unavailable ||
+    /error code:\s*152/i.test(msg)
+  ) {
+    return {
+      status: 502,
+      body: {
+        status: 'failed',
+        error: 'VIDEO_UNAVAILABLE_152',
         detail: msg.split('\n').slice(0, 3).join(' '),
       },
     };
@@ -253,7 +276,114 @@ function classifyStreamResolveError(err) {
   };
 }
 
-function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) {
+function supabaseRowToError(row) {
+  const err = new Error(
+    row?.error_detail || row?.error_code || 'Video ingest failed'
+  );
+  if (row?.error_code) err.errorCode = row.error_code;
+  if (row?.error_code === 'VIDEO_UNAVAILABLE_152') {
+    err.ytDlpErrorCode152Unavailable = true;
+    err.exitCode = 152;
+  }
+  return err;
+}
+
+function cacheEntryFromSupabaseRow(row, rawQuality) {
+  if (!row?.playback_url) return null;
+  const quality = normalizeStreamQuality(rawQuality, '360p');
+  return buildResolveCacheEntry(row.playback_url, {
+    quality,
+    mime: 'application/vnd.apple.mpegurl',
+    source: 'bunny',
+    proxied: false,
+    bunnyGuid: row.bunny_guid || null,
+  });
+}
+
+function buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey) {
+  if (!row) {
+    return {
+      status: 'processing',
+      cacheKey,
+      startedAt: Date.now(),
+      expiresAt: Date.now() + STREAM_PREPARE_TTL_MS,
+      cached: null,
+      error: null,
+      promise: null,
+      progress: {
+        phase: 'queued',
+        detail: 'Queued for ingest worker',
+        retryAfterMs: 3000,
+        activeSource: 'bunny',
+      },
+    };
+  }
+
+  if (row.status === 'ready') {
+    const entry = cacheEntryFromSupabaseRow(row, rawQuality);
+    if (entry) {
+      resolveCacheSet(cacheKey, entry.upstreamUrl, entry);
+      return {
+        status: 'ready',
+        cacheKey,
+        cached: entry,
+        promise: null,
+        progress: { phase: 'ready', detail: 'Playback ready' },
+      };
+    }
+  }
+
+  if (row.status === 'failed') {
+    return {
+      status: 'failed',
+      cacheKey,
+      cached: null,
+      error: supabaseRowToError(row),
+      promise: null,
+      progress: { phase: 'failed', detail: row.error_detail || row.error_code },
+    };
+  }
+
+  return {
+    status: 'processing',
+    cacheKey,
+    startedAt: Date.now(),
+    expiresAt: Date.now() + STREAM_PREPARE_TTL_MS,
+    cached: null,
+    error: null,
+    promise: null,
+    progress: {
+      phase: row.status === 'queued' ? 'queued' : 'processing',
+      detail:
+        row.status === 'queued'
+          ? 'Waiting for ingest worker'
+          : 'Ingest worker processing',
+      retryAfterMs: 3000,
+      activeSource: 'bunny',
+    },
+  };
+}
+
+async function startStreamPrepare(videoId, rawQuality, { forceRestart = false } = {}) {
+  const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
+  const cached = lookupResolveCacheEntry(videoId, rawQuality, '360p');
+  if (cached.entry) {
+    return { status: 'ready', cacheKey, cached: cached.entry, promise: null };
+  }
+
+  if (useIngestWorker()) {
+    const row = await streamStatusStore.enqueue(videoId, rawQuality, { forceRestart });
+    const job = buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey);
+    console.log(
+      `[stream-prepare] enqueued video=${videoId} quality=${rawQuality || '360p'} status=${row?.status || 'queued'}`
+    );
+    return job;
+  }
+
+  return startStreamPrepareInline(videoId, rawQuality, { forceRestart });
+}
+
+function startStreamPrepareInline(videoId, rawQuality, { forceRestart = false } = {}) {
   const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
   const cached = lookupResolveCacheEntry(videoId, rawQuality, '360p');
   if (cached.entry) {
@@ -340,7 +470,7 @@ function buildProcessingStatusResponse(req, videoId, rawQuality, job) {
     status: 'processing',
     videoId,
     retryAfterMs: progress.retryAfterMs || 3000,
-    elapsedMs: job ? Date.now() - job.startedAt : 0,
+    elapsedMs: job ? Date.now() - (job.startedAt || Date.now()) : 0,
     phase: progress.phase || 'processing',
     activeSource: progress.activeSource || 'bunny',
     fallbackFrom: progress.fallbackFrom || null,
@@ -657,6 +787,8 @@ app.get('/health', (_req, res) => {
     ingestResolvers: {
       ytdlp: bunnyStream.isIngestResolverConfigured(),
     },
+    ingestWorkerMode: useIngestWorker(),
+    ingestQueueConfigured: streamStatusStore.isConfigured(),
     ingestReady: bunnyStream.isIngestResolverConfigured(),
     ytdlpBinary: bunnyStream.ingestYtdlp.resolveYtDlpBinary(),
   });
@@ -713,6 +845,50 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
     return res.json(buildStreamJsonResponse(req, videoId, rawQuality, cached.entry));
   }
 
+  if (useIngestWorker()) {
+    let row = await streamStatusStore.getJob(videoId, rawQuality);
+
+    if (row?.status === 'ready') {
+      const entry = cacheEntryFromSupabaseRow(row, rawQuality);
+      if (entry) {
+        resolveCacheSet(cacheKey, entry.upstreamUrl, entry);
+        return res.json(buildStreamJsonResponse(req, videoId, rawQuality, entry));
+      }
+      const playback = await bunnyStream.resolvePlaybackIfInLibrary(videoId, rawQuality);
+      if (playback?.url) {
+        const entryFromBunny = buildResolveCacheEntry(playback.url, playback);
+        resolveCacheSet(cacheKey, entryFromBunny.upstreamUrl, entryFromBunny);
+        return res.json(buildStreamJsonResponse(req, videoId, rawQuality, entryFromBunny));
+      }
+    }
+
+    if (row?.status === 'failed') {
+      if (streamStatusStore.isRetryableErrorCode(row.error_code)) {
+        console.warn(
+          `[/api/stream/status] re-queue video=${videoId} error=${row.error_code || '?'}`
+        );
+        row = await streamStatusStore.enqueue(videoId, rawQuality, { forceRestart: true });
+      } else {
+        const classified = classifyStreamResolveError(supabaseRowToError(row));
+        return res.status(classified.status).json(classified.body);
+      }
+    }
+
+    if (!row || row.status === 'failed') {
+      row = await streamStatusStore.enqueue(videoId, rawQuality);
+    }
+
+    const job = buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey);
+    if (job.status === 'ready' && job.cached) {
+      return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
+    }
+    if (job.status === 'failed' && job.error) {
+      const classified = classifyStreamResolveError(job.error);
+      return res.status(classified.status).json(classified.body);
+    }
+    return res.status(202).json(buildProcessingStatusResponse(req, videoId, rawQuality, job));
+  }
+
   const job = streamPrepareJobs.get(cacheKey);
   if (job?.status === 'ready' && job.cached) {
     return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
@@ -726,7 +902,7 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
         `[/api/stream/status] retrying failed prepare video=${videoId} reason=${job.error.message?.slice(0, 120) || job.error}`
       );
       streamPrepareJobs.delete(cacheKey);
-      const restarted = startStreamPrepare(videoId, rawQuality, { forceRestart: true });
+      const restarted = await startStreamPrepare(videoId, rawQuality, { forceRestart: true });
       if (restarted.status === 'ready' && restarted.cached) {
         return res.json(buildStreamJsonResponse(req, videoId, rawQuality, restarted.cached));
       }
@@ -736,8 +912,7 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
     return res.status(classified.status).json(classified.body);
   }
 
-  // No active job — start one so polling after async=1 never gets stuck on idle.
-  const restarted = startStreamPrepare(videoId, rawQuality);
+  const restarted = await startStreamPrepare(videoId, rawQuality);
   if (restarted.status === 'ready' && restarted.cached) {
     return res.json(buildStreamJsonResponse(req, videoId, rawQuality, restarted.cached));
   }
@@ -765,19 +940,32 @@ app.get('/api/stream/:videoId', async (req, res) => {
     }
 
     if (useAsync) {
-      const job = startStreamPrepare(videoId, rawQuality);
+      const job = await startStreamPrepare(videoId, rawQuality);
       if (job.status === 'ready' && job.cached) {
         return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
       }
 
-      if (job.promise) {
+      if (!useIngestWorker() && job.promise) {
         await Promise.race([job.promise.catch(() => null), sleepMs(ASYNC_STREAM_QUICK_READY_MS)]);
         if (job.status === 'ready' && job.cached) {
           return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
         }
       }
 
-      console.log(`[api/stream] ${videoId} async=1 → processing (background resolve started)`);
+      console.log(
+        `[api/stream] ${videoId} async=1 → ${useIngestWorker() ? 'queued' : 'processing'} (no yt-dlp on API)`
+      );
+      return res.status(202).json({
+        ...buildProcessingStatusResponse(req, videoId, rawQuality, job),
+        pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
+      });
+    }
+
+    if (useIngestWorker()) {
+      const job = await startStreamPrepare(videoId, rawQuality);
+      if (job.status === 'ready' && job.cached) {
+        return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
+      }
       return res.status(202).json({
         ...buildProcessingStatusResponse(req, videoId, rawQuality, job),
         pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
@@ -815,11 +1003,47 @@ app.get('/api/media/:videoId', async (req, res) => {
 
   try {
     const lookup = lookupResolveCacheEntry(videoId, rawQuality, '360p');
-    const cached =
-      lookup.entry || (await getCachedUpstreamUrl(videoId, rawQuality));
+    if (lookup.entry) {
+      const cached = lookup.entry;
+      if (
+        cached.source === 'bunny' &&
+        cached.upstreamUrl?.startsWith('http') &&
+        (cached.proxied === false || /\.m3u8(\?|$)/i.test(cached.upstreamUrl))
+      ) {
+        return res.redirect(302, cached.upstreamUrl);
+      }
+      return proxyUpstreamMedia(req, res, cached.upstreamUrl, {
+        videoId,
+        quality,
+        cacheKey,
+        source: cached.source || null,
+      });
+    }
+
+    if (useIngestWorker()) {
+      const row = await streamStatusStore.getJob(videoId, rawQuality);
+      if (row?.status === 'ready' && row.playback_url) {
+        return res.redirect(302, row.playback_url);
+      }
+
+      const playback = await bunnyStream.resolvePlaybackIfInLibrary(videoId, rawQuality);
+      if (playback?.url) {
+        resolveCacheSet(cacheKey, playback.url, playback);
+        return res.redirect(302, playback.url);
+      }
+
+      await streamStatusStore.enqueue(videoId, rawQuality);
+      return res.status(503).json({
+        error: 'FILE_NOT_READY',
+        detail: 'Video ingest queued — poll /api/stream/:videoId/status',
+        retryAfterSec: 15,
+      });
+    }
+
+    const cached = await getCachedUpstreamUrl(videoId, rawQuality);
 
     console.log(
-      `[/api/media] ${videoId} requested=${quality} cache=${cacheKey} lookup=${lookup.lookup} hit=${Boolean(cached?.upstreamUrl)} source=${cached?.source || '?'}`
+      `[/api/media] ${videoId} requested=${quality} cache=${cacheKey} hit=${Boolean(cached?.upstreamUrl)} source=${cached?.source || '?'}`
     );
 
     if (
@@ -835,10 +1059,12 @@ app.get('/api/media/:videoId', async (req, res) => {
       quality,
       cacheKey,
       source: cached.source || null,
-      refreshUpstream: async () => {
-        const fresh = await getCachedUpstreamUrl(videoId, rawQuality, { forceRefresh: true });
-        return fresh && fresh.upstreamUrl ? fresh.upstreamUrl : null;
-      },
+      refreshUpstream: useIngestWorker()
+        ? null
+        : async () => {
+            const fresh = await getCachedUpstreamUrl(videoId, rawQuality, { forceRefresh: true });
+            return fresh && fresh.upstreamUrl ? fresh.upstreamUrl : null;
+          },
     });
   } catch (err) {
     console.error(`[/api/media] failed video=${videoId} quality=${quality}:`, err.message);
@@ -908,10 +1134,14 @@ app.listen(PORT, HOST, () => {
   }
   if (!bunnyStream.isIngestResolverConfigured()) {
     console.error(
-      '[bridge] WARNING: yt-dlp not found — run `npm run download-tools` in server/ or set YT_DLP_BINARY_PATH. Bunny ingest will fail.'
+      '[bridge] WARNING: yt-dlp not found — run `npm run download-tools` in server/ or set YT_DLP_BINARY_PATH.'
+    );
+  } else if (useIngestWorker()) {
+    console.log(
+      '[bridge] ingest mode: API enqueue-only — run `node ingest-worker.cjs` (or Render worker) for yt-dlp'
     );
   } else {
-    console.log(`[bridge] Bunny ingest: yt-dlp (${bunnyStream.ingestYtdlp.resolveYtDlpBinary()})`);
+    console.log(`[bridge] Bunny ingest: inline yt-dlp (${bunnyStream.ingestYtdlp.resolveYtDlpBinary()})`);
     const proxyMode = bunnyStream.ingestYtdlp.describeProxyMode();
     if (proxyMode.configured) {
       console.log(

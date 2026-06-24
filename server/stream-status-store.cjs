@@ -4,6 +4,14 @@ const { createClient } = require('@supabase/supabase-js');
 
 let client = null;
 
+const ACTIVE_STATUSES = new Set(['queued', 'processing']);
+const TERMINAL_FAILED_CODES = new Set([
+  'VIDEO_UNAVAILABLE_152',
+  'YT_DLP_152',
+  'INVALID_MEDIA_URL',
+  'INGEST_FAILED',
+]);
+
 function getClient() {
   if (client) return client;
   const url = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
@@ -25,6 +33,9 @@ function normalizeQuality(raw, fallback = '360p') {
 
 function ingestErrorMeta(err) {
   const msg = String(err?.message || err || '').slice(0, 500);
+  if (err?.ytDlpErrorCode152Unavailable || /error code:\s*152/i.test(msg)) {
+    return { errorCode: 'VIDEO_UNAVAILABLE_152', errorDetail: msg };
+  }
   if (err?.exitCode === 152 || err?.youtubeBotBlock) {
     return { errorCode: 'YT_DLP_152', errorDetail: msg };
   }
@@ -37,68 +48,181 @@ function ingestErrorMeta(err) {
   return { errorCode: 'INGEST_FAILED', errorDetail: msg };
 }
 
-async function upsertStatus(youtubeVideoId, quality, payload) {
+function isRetryableErrorCode(errorCode) {
+  if (!errorCode) return false;
+  if (TERMINAL_FAILED_CODES.has(errorCode)) return false;
+  if (errorCode === 'VIDEO_UNAVAILABLE_152') return false;
+  return /PROXY|TIMEOUT|QUEUE|TRANSCOD|FILE_NOT_READY/i.test(String(errorCode));
+}
+
+async function upsertRow(youtubeVideoId, quality, fields) {
   const sb = getClient();
-  if (!sb) return false;
+  if (!sb) return null;
 
   const row = {
     youtube_video_id: String(youtubeVideoId || '').trim(),
     quality: normalizeQuality(quality),
-    status: payload.status,
-    error_code: payload.errorCode || null,
-    error_detail: payload.errorDetail ? String(payload.errorDetail).slice(0, 500) : null,
     updated_at: new Date().toISOString(),
+    ...fields,
   };
 
-  if (!row.youtube_video_id) return false;
+  if (!row.youtube_video_id || !row.status) return null;
 
-  const { error } = await sb.from('video_stream_prepare').upsert(row, {
-    onConflict: 'youtube_video_id,quality',
-  });
+  const { data, error } = await sb
+    .from('video_stream_prepare')
+    .upsert(row, { onConflict: 'youtube_video_id,quality' })
+    .select()
+    .maybeSingle();
 
   if (error) {
     console.error(
       `[stream-status] upsert failed video=${row.youtube_video_id} status=${row.status}: ${error.message}`
     );
-    return false;
+    return null;
   }
 
   console.log(
     `[stream-status] video=${row.youtube_video_id} quality=${row.quality} status=${row.status}` +
       (row.error_code ? ` error=${row.error_code}` : '')
   );
-  return true;
+  return data;
 }
 
-function markProcessing(youtubeVideoId, quality) {
-  return upsertStatus(youtubeVideoId, quality, {
-    status: 'processing',
-    errorCode: null,
-    errorDetail: null,
+async function getJob(youtubeVideoId, quality) {
+  const sb = getClient();
+  if (!sb) return null;
+
+  const { data, error } = await sb
+    .from('video_stream_prepare')
+    .select('*')
+    .eq('youtube_video_id', String(youtubeVideoId || '').trim())
+    .eq('quality', normalizeQuality(quality))
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[stream-status] getJob failed video=${youtubeVideoId}: ${error.message}`);
+    return null;
+  }
+  return data;
+}
+
+function markQueued(youtubeVideoId, quality) {
+  return upsertRow(youtubeVideoId, quality, {
+    status: 'queued',
+    error_code: null,
+    error_detail: null,
+    playback_url: null,
+    bunny_guid: null,
+    locked_by: null,
+    locked_at: null,
   });
 }
 
-function markReady(youtubeVideoId, quality) {
-  return upsertStatus(youtubeVideoId, quality, {
+function markProcessing(youtubeVideoId, quality, { lockedBy = null } = {}) {
+  return upsertRow(youtubeVideoId, quality, {
+    status: 'processing',
+    error_code: null,
+    error_detail: null,
+    locked_by: lockedBy,
+    locked_at: lockedBy ? new Date().toISOString() : null,
+  });
+}
+
+function markReady(youtubeVideoId, quality, { playbackUrl = null, bunnyGuid = null } = {}) {
+  return upsertRow(youtubeVideoId, quality, {
     status: 'ready',
-    errorCode: null,
-    errorDetail: null,
+    error_code: null,
+    error_detail: null,
+    playback_url: playbackUrl || null,
+    bunny_guid: bunnyGuid || null,
+    locked_by: null,
+    locked_at: null,
   });
 }
 
 function markFailed(youtubeVideoId, quality, err) {
   const meta = ingestErrorMeta(err);
-  return upsertStatus(youtubeVideoId, quality, {
+  return upsertRow(youtubeVideoId, quality, {
     status: 'failed',
-    errorCode: meta.errorCode,
-    errorDetail: meta.errorDetail,
+    error_code: meta.errorCode,
+    error_detail: meta.errorDetail,
+    locked_by: null,
+    locked_at: null,
   });
 }
 
+/**
+ * Idempotent enqueue for the API — never runs yt-dlp.
+ */
+async function enqueue(youtubeVideoId, quality, { forceRestart = false } = {}) {
+  const existing = await getJob(youtubeVideoId, quality);
+  if (existing) {
+    if (existing.status === 'ready') return existing;
+    if (ACTIVE_STATUSES.has(existing.status)) return existing;
+    if (existing.status === 'failed') {
+      if (forceRestart && isRetryableErrorCode(existing.error_code)) {
+        return markQueued(youtubeVideoId, quality);
+      }
+      return existing;
+    }
+  }
+  return markQueued(youtubeVideoId, quality);
+}
+
+/**
+ * Claim the oldest queued job for a worker (optimistic status guard).
+ */
+async function claimNextJob(workerId) {
+  const sb = getClient();
+  if (!sb) return null;
+
+  const { data: candidates, error: listErr } = await sb
+    .from('video_stream_prepare')
+    .select('*')
+    .eq('status', 'queued')
+    .order('updated_at', { ascending: true })
+    .limit(1);
+
+  if (listErr) {
+    console.error(`[stream-status] claim list failed: ${listErr.message}`);
+    return null;
+  }
+
+  const candidate = candidates?.[0];
+  if (!candidate) return null;
+
+  const { data: claimed, error: claimErr } = await sb
+    .from('video_stream_prepare')
+    .update({
+      status: 'processing',
+      locked_by: String(workerId || 'worker'),
+      locked_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('youtube_video_id', candidate.youtube_video_id)
+    .eq('quality', candidate.quality)
+    .eq('status', 'queued')
+    .select()
+    .maybeSingle();
+
+  if (claimErr) {
+    console.error(`[stream-status] claim update failed: ${claimErr.message}`);
+    return null;
+  }
+
+  return claimed;
+}
+
 module.exports = {
+  markQueued,
   markProcessing,
   markReady,
   markFailed,
+  enqueue,
+  getJob,
+  claimNextJob,
   ingestErrorMeta,
+  isRetryableErrorCode,
   isConfigured: () => Boolean(getClient()),
+  ACTIVE_STATUSES,
 };

@@ -12,6 +12,8 @@ services:
         value: 22
       - key: PORT
         value: 8787
+      - key: USE_INGEST_WORKER
+        value: "1"
       - key: CORS_ORIGIN
         sync: false
       - key: PUBLIC_BASE_URL
@@ -37,3 +39,37 @@ services:
         sync: false
       - key: MEDIA_BRIDGE_GRANT_SECRET
         generateValue: true
+  - type: worker
+    name: safetube-ingest-worker
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install && npm run download-tools && chmod +x yt-dlp
+    startCommand: npm run start:worker
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: BUNNY_STREAM_API_KEY
+        sync: false
+      - key: BUNNY_LIBRARY_ID
+        sync: false
+      - key: BUNNY_CDN_HOSTNAME
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: YT_DLP_PROXY_SCHEME
+        sync: false
+      - key: YT_DLP_PROXY_USER
+        sync: false
+      - key: YT_DLP_PROXY_PASSWORD
+        sync: false
+      - key: YT_DLP_PROXY_HOST
+        sync: false
+      - key: YT_DLP_PROXY_PORT
+        sync: false
+      - key: INGEST_WORKER_POLL_MS
+        value: "2000"
+      - key: INGEST_WORKER_CONCURRENCY
+        value: "1"

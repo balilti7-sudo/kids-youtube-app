@@ -4,6 +4,14 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+let streamStatusStoreModule = null;
+function getStreamStatusStore() {
+  if (!streamStatusStoreModule) {
+    streamStatusStoreModule = require('./stream-status-store.cjs');
+  }
+  return streamStatusStoreModule;
+}
+
 const SERVER_DIR = __dirname;
 const YT_DLP_TIMEOUT_MS = Number(process.env.YT_DLP_TIMEOUT_MS || 90_000);
 const YT_DLP_PROBE_TIMEOUT_MS = Number(process.env.YT_DLP_PROBE_TIMEOUT_MS || 90_000);
@@ -458,7 +466,37 @@ function isProxyConnectionRefusedError(err) {
   return /connection refused|errno 111|econnrefused|\[errno 111\]/i.test(blob);
 }
 
+/** YouTube permanent unavailable (not proxy/network) — yt-dlp prints "Error code: 152". */
+function isYtDlpErrorCode152Unavailable(err) {
+  if (!err) return false;
+  if (err.ytDlpErrorCode152Unavailable) return true;
+  const blob = `${err.message} ${err.stderr || ''} ${err.stdout || ''}`;
+  return /error code:\s*152/i.test(blob);
+}
+
+function tagYtDlpErrorFlags(err) {
+  if (!err) return err;
+  err.ytDlpErrorCode152Unavailable = isYtDlpErrorCode152Unavailable(err);
+  if (err.ytDlpErrorCode152Unavailable) {
+    err.youtubeBotBlock = false;
+    err.fileNotReady = false;
+  } else {
+    err.youtubeBotBlock = err.youtubeBotBlock || isYoutubeBotOrBlockError(err);
+  }
+  err.proxyConnectionRefused = isProxyConnectionRefusedError(err);
+  return err;
+}
+
+function markSupabaseFailedImmediately(videoId, quality, err) {
+  if (!videoId) return;
+  console.error(
+    `[ingest-ytdlp] permanent video unavailable (Error code: 152) video=${videoId} — Supabase status=failed`
+  );
+  void getStreamStatusStore().markFailed(videoId, quality || '360p', err);
+}
+
 function isYoutubeBotOrBlockError(err) {
+  if (isYtDlpErrorCode152Unavailable(err)) return false;
   if (err && err.exitCode === 152) return true;
 
   const blob = `${err.message} ${err.stderr || ''} ${err.stdout || ''}`.toLowerCase();
@@ -467,13 +505,13 @@ function isYoutubeBotOrBlockError(err) {
       blob
     ) ||
     /http error 403|unable to extract player data|player response/i.test(blob) ||
-    /n challenge solving failed|challenge solver script.*skipped/i.test(blob) ||
-    /\b152\b/.test(blob)
+    /n challenge solving failed|challenge solver script.*skipped/i.test(blob)
   );
 }
 
 function isProxyRetriableError(err) {
   if (!err || isNonRetriableYoutubeError(err)) return false;
+  if (isYtDlpErrorCode152Unavailable(err)) return false;
   if (err.exitCode === 152) return true;
   if (err.exitCode === 111 || isProxyConnectionRefusedError(err)) return true;
   if (err.youtubeBotBlock || isYoutubeBotOrBlockError(err)) return true;
@@ -493,6 +531,7 @@ function proxyAttemptCount() {
 }
 
 function isNonRetriableYoutubeError(err) {
+  if (isYtDlpErrorCode152Unavailable(err)) return true;
   const blob = `${err.message} ${err.stderr || ''}`.toLowerCase();
   return (
     /private video|video unavailable|has been removed|copyright|live event|upcoming premiere|members.only|age.restricted/i.test(
@@ -587,8 +626,7 @@ function runYtDlpOnce(binary, args, { timeoutMs, label, proxyUrl = '' }) {
           stdout,
           exitCode: code,
         });
-        err.youtubeBotBlock = isYoutubeBotOrBlockError(err);
-        err.proxyConnectionRefused = isProxyConnectionRefusedError(err);
+        tagYtDlpErrorFlags(err);
         if (/private|unavailable|live|premiere|removed/i.test(detail)) {
           err.fileNotReady = false;
         }
@@ -635,7 +673,13 @@ function profilesInOrder(videoId, profileHint = null) {
  */
 async function runYtDlp(
   extraArgs,
-  { timeoutMs = YT_DLP_TIMEOUT_MS, label = 'yt-dlp', videoId, profileHint = null } = {}
+  {
+    timeoutMs = YT_DLP_TIMEOUT_MS,
+    label = 'yt-dlp',
+    videoId,
+    profileHint = null,
+    quality = '360p',
+  } = {}
 ) {
   const binary = resolveYtDlpBinary();
   const profiles = profilesInOrder(videoId, profileHint);
@@ -668,8 +712,13 @@ async function runYtDlp(
         );
         return { stdout: result.stdout, stderr: result.stderr, profile: profile.name };
       } catch (err) {
+        tagYtDlpErrorFlags(err);
         lastErr = err;
-        err.youtubeBotBlock = err.youtubeBotBlock || isYoutubeBotOrBlockError(err);
+
+        if (err.ytDlpErrorCode152Unavailable) {
+          markSupabaseFailedImmediately(videoId, quality, err);
+          throw err;
+        }
 
         if (useSingleProfile || isNonRetriableYoutubeError(err)) {
           throw err;
@@ -738,7 +787,10 @@ function assertYtDlpJsonNotError(data, videoId) {
   if (!ytDlpJsonIndicatesError(data)) return;
   const detail = String(data.error || data.message || 'unknown yt-dlp JSON error').slice(0, 400);
   const err = new Error(`yt-dlp JSON error for ${videoId}: ${detail}`);
-  if (/152|bot|not a bot/i.test(detail)) {
+  if (/error code:\s*152/i.test(detail)) {
+    err.ytDlpErrorCode152Unavailable = true;
+    err.exitCode = 152;
+  } else if (/152|bot|not a bot/i.test(detail)) {
     err.exitCode = 152;
     err.youtubeBotBlock = true;
   }
@@ -872,6 +924,7 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
         timeoutMs: Math.min(timeoutMs, YT_DLP_TIMEOUT_MS, YT_DLP_PROBE_TIMEOUT_MS),
         label: `probe video=${videoId} quality=${quality}`,
         videoId,
+        quality,
       });
       winningProfile = probe.profile;
 
@@ -881,6 +934,11 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
         assertYtDlpJsonNotError(data, videoId);
         durationSeconds = Number.isFinite(data.duration) ? Math.round(data.duration) : null;
       } catch (parseErr) {
+        tagYtDlpErrorFlags(parseErr);
+        if (parseErr.ytDlpErrorCode152Unavailable) {
+          markSupabaseFailedImmediately(videoId, quality, parseErr);
+          throw parseErr;
+        }
         if (parseErr.youtubeBotBlock || parseErr.exitCode === 152) throw parseErr;
         console.warn(
           `[ingest-ytdlp] probe JSON parse failed video=${videoId}: ${parseErr.message}`
@@ -911,6 +969,11 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
         `[ingest-ytdlp] probe succeeded but no URL in JSON video=${videoId} profile=${winningProfile} — trying -g`
       );
     } catch (probeErr) {
+      tagYtDlpErrorFlags(probeErr);
+      if (probeErr.ytDlpErrorCode152Unavailable) {
+        markSupabaseFailedImmediately(videoId, quality, probeErr);
+        throw probeErr;
+      }
       if (probeErr.youtubeBotBlock || probeErr.exitCode === 152) {
         throw probeErr;
       }
@@ -927,6 +990,7 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
       label: `get-url video=${videoId} quality=${quality}`,
       videoId,
       profileHint: winningProfile,
+      quality,
     });
 
     const extracted = extractDirectMediaUrl(stdout, { quality, videoId });
@@ -957,6 +1021,10 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
       ingestResolver: 'yt-dlp',
     };
   } catch (err) {
+    tagYtDlpErrorFlags(err);
+    if (err.ytDlpErrorCode152Unavailable) {
+      markSupabaseFailedImmediately(videoId, quality, err);
+    }
     console.error(
       `[ingest-ytdlp] resolveVideoDownloadUrl failed video=${videoId}: ${err.message}`
     );
@@ -1028,4 +1096,5 @@ module.exports = {
   extractUrlFromYtDlpJson,
   validateFetchableMediaUrl,
   isProxyConnectionRefusedError,
+  isYtDlpErrorCode152Unavailable,
 };

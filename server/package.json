@@ -10,7 +10,10 @@
   "scripts": {
     "prestart": "node ensure-ytdlp.cjs --strict",
     "start": "node index.cjs",
+    "prestart:worker": "node ensure-ytdlp.cjs --strict",
+    "start:worker": "node ingest-worker.cjs",
     "dev": "node --watch index.cjs",
+    "dev:worker": "node --watch ingest-worker.cjs",
     "download-tools": "node download-tools.mjs && node ensure-ytdlp.cjs --strict",
     "ensure-ytdlp": "node ensure-ytdlp.cjs --strict"
   },
