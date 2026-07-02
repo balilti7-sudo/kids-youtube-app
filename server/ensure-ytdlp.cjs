@@ -80,6 +80,48 @@ function ensureYtDlpBinary({ strict = false, probe = strict } = {}) {
   return { ok: true, binary, version };
 }
 
+/**
+ * Best-effort self-update (`yt-dlp -U`) so long-running workers pick up new
+ * YouTube extractor patches without a redeploy. Never throws — an outdated
+ * binary is still better than a dead worker.
+ * @returns {{ ok: boolean, output?: string, error?: string }}
+ */
+function updateYtDlpBinary({ timeoutMs = 90_000 } = {}) {
+  const binary = resolveBinary();
+  if (!fs.existsSync(binary)) {
+    return { ok: false, error: `binary missing: ${binary}` };
+  }
+
+  const result = spawnSync(binary, ['-U'], {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    env: process.env,
+  });
+
+  if (result.error) {
+    const error = `self-update spawn failed: ${result.error.message}`;
+    console.warn(`[ensure-ytdlp] ${error}`);
+    return { ok: false, error };
+  }
+
+  const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
+  if (result.status !== 0) {
+    console.warn(
+      `[ensure-ytdlp] self-update exited ${result.status}: ${output.slice(0, 300) || 'no output'}`
+    );
+    return { ok: false, error: `exit ${result.status}`, output };
+  }
+
+  const summary =
+    output
+      .split(/\r?\n/)
+      .find((line) => /latest version|updated yt-dlp to|up to date/i.test(line)) ||
+    output.split(/\r?\n/).pop() ||
+    'ok';
+  console.log(`[ensure-ytdlp] self-update: ${summary}`);
+  return { ok: true, output };
+}
+
 if (require.main === module) {
   const strict = process.argv.includes('--strict');
   try {
@@ -93,6 +135,7 @@ if (require.main === module) {
 
 module.exports = {
   ensureYtDlpBinary,
+  updateYtDlpBinary,
   resolveBinary,
   localBinaryPath,
 };

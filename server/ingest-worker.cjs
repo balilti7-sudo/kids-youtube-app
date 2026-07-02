@@ -13,7 +13,7 @@ try {
 // Supabase failed on the first "Error code: 152" (may be an IP/session block).
 process.env.YT_DLP_DEFER_FAILURE_MARKING = '1';
 
-const { ensureYtDlpBinary } = require('./ensure-ytdlp.cjs');
+const { ensureYtDlpBinary, updateYtDlpBinary } = require('./ensure-ytdlp.cjs');
 const streamStatusStore = require('./stream-status-store.cjs');
 const { runIngestPipeline } = require('./run-ingest-pipeline.cjs');
 const ingestYtdlp = require('./ingest-ytdlp.cjs');
@@ -124,6 +124,11 @@ async function main() {
   } catch (err) {
     console.error(`[ingest-worker] yt-dlp not available: ${err.message}`);
     process.exit(1);
+  }
+
+  // Best-effort: keep pace with YouTube extractor changes (YT_DLP_AUTO_UPDATE=0 to skip).
+  if (process.env.YT_DLP_AUTO_UPDATE !== '0' && process.env.YT_DLP_AUTO_UPDATE !== 'false') {
+    updateYtDlpBinary();
   }
 
   console.log(

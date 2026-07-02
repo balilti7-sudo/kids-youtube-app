@@ -54,6 +54,15 @@ const YT_DLP_152_ROTATE_RETRIES = Math.max(
   0,
   Number(process.env.YT_DLP_152_ROTATE_RETRIES || 1)
 );
+/** Retries for transient network/SSL drops (works with or without a proxy). */
+const YT_DLP_TRANSIENT_MAX_RETRIES = Math.max(
+  0,
+  Number(process.env.YT_DLP_TRANSIENT_MAX_RETRIES || 3)
+);
+const YT_DLP_RETRY_BACKOFF_MAX_MS = Math.max(
+  1000,
+  Number(process.env.YT_DLP_RETRY_BACKOFF_MAX_MS || 30_000)
+);
 /** Socket timeout (seconds) — generous default for proxy handshake latency. */
 const YT_DLP_SOCKET_TIMEOUT_SEC = Math.max(
   5,
@@ -536,6 +545,8 @@ function buildBaseArgs(profile = {}, proxyUrl = '') {
     '--no-warnings',
     '--no-playlist',
     '--geo-bypass',
+    // IPv6 routing on Render/cloud egress causes SSL handshake EOFs; pin IPv4.
+    '--force-ipv4',
     // Proxy CONNECT tunnels can present intermediate certs; don't fail the handshake.
     '--no-check-certificate',
     '--extractor-retries',
@@ -655,12 +666,26 @@ function isProxyRetriableError(err) {
   return false;
 }
 
-function proxyRetryDelayMs(err) {
-  const base = YT_DLP_PROXY_RETRY_DELAY_MS;
+/** Transient connection drops (SSL EOF, resets, read timeouts) — retriable even without a proxy. */
+function isTransientNetworkError(err) {
+  if (!err || isNonRetriableYoutubeError(err)) return false;
+  if (isYtDlpErrorCode152Unavailable(err)) return false;
+  const blob = `${err.message} ${err.stderr || ''}`.toLowerCase();
+  return /unexpected_eof_while_reading|ssleoferror|ssl:\s*unexpected_eof|eof occurred in violation of protocol|ssl handshake|handshake operation timed out|connection reset|econnreset|read timed out|the read operation timed out|remote end closed connection|incompleteread|transport endpoint|temporary failure in name resolution|getaddrinfo failed/i.test(
+    blob
+  );
+}
+
+/** Exponential backoff with jitter: base × 2^attempt, capped; extra padding for connection refused. */
+function proxyRetryDelayMs(err, attempt = 0) {
+  const exp = Math.min(
+    YT_DLP_RETRY_BACKOFF_MAX_MS,
+    YT_DLP_PROXY_RETRY_DELAY_MS * Math.pow(2, Math.max(0, attempt))
+  );
   if (isProxyConnectionRefusedError(err)) {
-    return base + 2000 + Math.floor(Math.random() * 1500);
+    return exp + 2000 + Math.floor(Math.random() * 1500);
   }
-  return base + Math.floor(Math.random() * 500);
+  return exp + Math.floor(Math.random() * 500);
 }
 
 function proxyAttemptCount() {
@@ -827,12 +852,14 @@ async function runYtDlp(
   let lastErr = null;
   // Shared budget of forced IP re-rotations for "Error code: 152" across all profiles.
   let rotate152Used = 0;
+  // Transient network/SSL drops retry even without a proxy configured.
+  const maxAttemptsPerProfile = Math.max(proxyAttempts, YT_DLP_TRANSIENT_MAX_RETRIES + 1);
 
   for (let i = 0; i < profiles.length; i++) {
     const profile = profiles[i];
     const targetUrl = profile.videoUrl(videoId);
 
-    for (let attempt = 0; attempt < proxyAttempts; attempt++) {
+    for (let attempt = 0; attempt < maxAttemptsPerProfile; attempt++) {
       const proxyUrl = resolveYtDlpProxy({ attempt });
       const args = [...buildBaseArgs(profile, proxyUrl), ...extraArgs, targetUrl];
       const attemptSuffix =
@@ -862,7 +889,7 @@ async function runYtDlp(
             hasProxy && rotate152Used < YT_DLP_152_ROTATE_RETRIES && attempt < proxyAttempts - 1;
           if (canRotate152) {
             rotate152Used++;
-            const delayMs = proxyRetryDelayMs(err);
+            const delayMs = proxyRetryDelayMs(err, attempt);
             console.warn(
               `[ingest-ytdlp] video=${videoId} profile=${profile.name} Error code: 152` +
                 ` — forcing proxy IP re-rotation (${rotate152Used}/${YT_DLP_152_ROTATE_RETRIES}) in ${delayMs}ms` +
@@ -882,29 +909,39 @@ async function runYtDlp(
           throw err;
         }
 
-        if (useSingleProfile || isNonRetriableYoutubeError(err)) {
+        if (isNonRetriableYoutubeError(err)) {
           throw err;
         }
 
+        const transientNetwork = isTransientNetworkError(err);
         const canRetryProxy =
           hasProxy && attempt < proxyAttempts - 1 && isProxyRetriableError(err);
-        if (canRetryProxy) {
-          const delayMs = proxyRetryDelayMs(err);
-          const reason =
-            err.exitCode === 111 || err.proxyConnectionRefused
+        const canRetryTransient = transientNetwork && attempt < YT_DLP_TRANSIENT_MAX_RETRIES;
+
+        if (canRetryProxy || canRetryTransient) {
+          const delayMs = proxyRetryDelayMs(err, attempt);
+          const reason = transientNetwork
+            ? 'transient network/SSL drop'
+            : err.exitCode === 111 || err.proxyConnectionRefused
               ? 'proxy connection refused'
               : 'bot/block';
           console.warn(
             `[ingest-ytdlp] video=${videoId} profile=${profile.name}` +
               ` ${reason} (exit=${err.exitCode ?? '?'})` +
-              ` — retry ${attempt + 2}/${proxyAttempts} with new proxy IP in ${delayMs}ms` +
-              ` proxy=${proxyForLog(resolveYtDlpProxy({ attempt: attempt + 1 }))}`
+              ` — retry ${attempt + 2}/${maxAttemptsPerProfile} (backoff ${delayMs}ms)` +
+              (hasProxy
+                ? ` proxy=${proxyForLog(resolveYtDlpProxy({ attempt: attempt + 1 }))}`
+                : '')
           );
           await sleep(delayMs);
           continue;
         }
 
-        if (!isYoutubeBotOrBlockError(err) && i === 0 && attempt === 0) {
+        if (useSingleProfile) {
+          throw err;
+        }
+
+        if (!isYoutubeBotOrBlockError(err) && !transientNetwork && i === 0 && attempt === 0) {
           throw err;
         }
 
@@ -1256,6 +1293,7 @@ module.exports = {
   proxyForLog,
   isYoutubeBotOrBlockError,
   isProxyRetriableError,
+  isTransientNetworkError,
   extractDirectMediaUrl,
   extractUrlFromYtDlpJson,
   validateFetchableMediaUrl,
