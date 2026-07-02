@@ -45,6 +45,13 @@ function ingestErrorMeta(err) {
   if (/no direct media url|no fetchable media url|invalid media url/i.test(msg)) {
     return { errorCode: 'INVALID_MEDIA_URL', errorDetail: msg };
   }
+  // Bunny still encoding when the per-attempt wait expired — retryable, not a real failure.
+  if (
+    err?.fileNotReady ||
+    /transcoding not finished|file not ready|not ready after|still processing|not visible in library yet/i.test(msg)
+  ) {
+    return { errorCode: 'FILE_NOT_READY', errorDetail: msg };
+  }
   return { errorCode: 'INGEST_FAILED', errorDetail: msg };
 }
 

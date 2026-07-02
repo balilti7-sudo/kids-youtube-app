@@ -31,6 +31,23 @@ const JOB_DELAY_MAX_MS = Math.max(
 );
 /** "Error code: 152" is requeued up to N attempts before it is marked failed. */
 const MAX_152_ATTEMPTS = Math.max(1, Number(process.env.INGEST_MAX_152_ATTEMPTS || 3));
+/**
+ * Bunny transcode-wait timeouts requeue up to N attempts. Each retry is cheap:
+ * the video is already in the Bunny library, so the worker just resumes waiting
+ * (and early-play returns as soon as the first rendition is live).
+ */
+const MAX_TRANSCODE_ATTEMPTS = Math.max(
+  1,
+  Number(process.env.INGEST_MAX_TRANSCODE_ATTEMPTS || 6)
+);
+
+function isFileNotReadyError(err) {
+  if (err?.fileNotReady) return true;
+  const msg = String(err?.message || err || '');
+  return /transcoding not finished|file not ready|not ready after|still processing|not visible in library yet/i.test(
+    msg
+  );
+}
 
 let shuttingDown = false;
 
@@ -56,6 +73,16 @@ async function handleIngestFailure(job, err) {
   if (ingestYtdlp.isYtDlpErrorCode152Unavailable(err) && attempt < MAX_152_ATTEMPTS) {
     console.warn(
       `[ingest-worker] error 152 video=${videoId} attempt=${attempt}/${MAX_152_ATTEMPTS} — requeue (possible session block)`
+    );
+    await streamStatusStore.requeueForRetry(videoId, quality, { attemptCount: attempt, err });
+    return;
+  }
+
+  // Bunny is still encoding — not a failure. Requeue; next attempt resumes the
+  // transcode wait directly (video already in library, no yt-dlp involved).
+  if (isFileNotReadyError(err) && attempt < MAX_TRANSCODE_ATTEMPTS) {
+    console.warn(
+      `[ingest-worker] transcode still running video=${videoId} attempt=${attempt}/${MAX_TRANSCODE_ATTEMPTS} — requeue`
     );
     await streamStatusStore.requeueForRetry(videoId, quality, { attemptCount: attempt, err });
     return;

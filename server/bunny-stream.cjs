@@ -9,7 +9,7 @@ const BUNNY_LIBRARY_ID = (process.env.BUNNY_LIBRARY_ID || '').trim();
 const BUNNY_CDN_HOSTNAME = (process.env.BUNNY_CDN_HOSTNAME || '').trim();
 const BUNNY_REQUEST_TIMEOUT_MS = Number(process.env.BUNNY_REQUEST_TIMEOUT_MS || 30_000);
 const BUNNY_TRANSCODE_POLL_MS = Number(process.env.BUNNY_TRANSCODE_POLL_MS || 4_000);
-const BUNNY_TRANSCODE_MAX_MS = Number(process.env.BUNNY_TRANSCODE_MAX_MS || 600_000);
+const BUNNY_TRANSCODE_MAX_MS = Number(process.env.BUNNY_TRANSCODE_MAX_MS || 900_000);
 /** Return the HLS URL as soon as the first rendition is live instead of waiting for the full encode. */
 const BUNNY_EARLY_PLAY =
   process.env.BUNNY_EARLY_PLAY !== '0' && process.env.BUNNY_EARLY_PLAY !== 'false';
