@@ -115,6 +115,24 @@ function markQueued(youtubeVideoId, quality) {
     bunny_guid: null,
     locked_by: null,
     locked_at: null,
+    attempt_count: 0,
+  });
+}
+
+/**
+ * Put a job back in the queue after a retryable failure (e.g. suspected
+ * session-block 152), preserving the attempt counter so the worker can cap retries.
+ */
+function requeueForRetry(youtubeVideoId, quality, { attemptCount = 1, err = null } = {}) {
+  const meta = err ? ingestErrorMeta(err) : { errorCode: null, errorDetail: null };
+  return upsertRow(youtubeVideoId, quality, {
+    status: 'queued',
+    // Keep last error visible for debugging while the job waits in queue.
+    error_code: meta.errorCode,
+    error_detail: meta.errorDetail,
+    locked_by: null,
+    locked_at: null,
+    attempt_count: Math.max(1, Number(attemptCount) || 1),
   });
 }
 
@@ -137,6 +155,7 @@ function markReady(youtubeVideoId, quality, { playbackUrl = null, bunnyGuid = nu
     bunny_guid: bunnyGuid || null,
     locked_by: null,
     locked_at: null,
+    attempt_count: 0,
   });
 }
 
@@ -218,6 +237,7 @@ module.exports = {
   markProcessing,
   markReady,
   markFailed,
+  requeueForRetry,
   enqueue,
   getJob,
   claimNextJob,

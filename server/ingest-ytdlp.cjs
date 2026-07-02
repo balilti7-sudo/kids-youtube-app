@@ -149,10 +149,36 @@ function modifyProxyUrlForAttempt(proxyUrl, attempt) {
   return `${scheme}${encodeURIComponent(nextUser)}:${pass}@${hostPart}`;
 }
 
+/** Last proxy endpoint printed to the log (sanitized) — avoids log spam per spawn. */
+let lastLoggedProxyEndpoint = null;
+
+function logResolvedProxyOnce(proxyUrl, source) {
+  const endpoint = proxyUrl ? proxyForLog(proxyUrl) : '(none)';
+  if (endpoint === lastLoggedProxyEndpoint) return;
+  lastLoggedProxyEndpoint = endpoint;
+  if (proxyUrl) {
+    console.log(`[ingest-ytdlp] yt-dlp proxy: ${endpoint} source=${source}`);
+  } else {
+    console.warn(
+      '[ingest-ytdlp] yt-dlp proxy: (none) — set YT_DLP_PROXY_* env vars (datacenter egress will be bot-blocked)'
+    );
+  }
+}
+
+function proxySourceFromEnv() {
+  if (String(process.env.YT_DLP_PROXY || '').trim()) return 'YT_DLP_PROXY';
+  if (String(process.env.YT_DLP_PROXY_HOST || '').trim()) return 'YT_DLP_PROXY_* components';
+  if (String(process.env.HTTPS_PROXY || process.env.https_proxy || '').trim()) return 'HTTPS_PROXY (fallback)';
+  if (String(process.env.HTTP_PROXY || process.env.http_proxy || '').trim()) return 'HTTP_PROXY (fallback)';
+  return 'none';
+}
+
 /**
  * Resolve proxy URL at call time (not module load) so env is always fresh.
- * Supports YT_DLP_PROXY (use %40 instead of @ if the dashboard strips @),
- * or YT_DLP_PROXY_SCHEME/USER/PASSWORD/HOST/PORT components (recommended on Render).
+ * Priority: YT_DLP_PROXY (use %40 instead of @ if the dashboard strips @),
+ * then YT_DLP_PROXY_SCHEME/USER/PASSWORD/HOST/PORT components (recommended on Render),
+ * then global HTTPS_PROXY/HTTP_PROXY as a fallback so session rotation still works
+ * even when only the generic env vars are set.
  *
  * @param {object} [opts]
  * @param {number} [opts.attempt=0] — >0 injects a new session ID for rotating/backconnect pools.
@@ -162,14 +188,35 @@ function resolveYtDlpProxy({ attempt = 0 } = {}) {
   const direct = String(process.env.YT_DLP_PROXY || '').trim();
 
   if (direct) {
-    return modifyProxyUrlForAttempt(
+    const resolved = modifyProxyUrlForAttempt(
       applyProxyPortFallback(normalizeProxyUrl(direct), portEnv),
       attempt
     );
+    if (attempt === 0) logResolvedProxyOnce(resolved, 'YT_DLP_PROXY');
+    return resolved;
   }
 
   const hostRaw = normalizeWebshareProxyHost(String(process.env.YT_DLP_PROXY_HOST || '').trim());
-  if (!hostRaw) return '';
+  if (!hostRaw) {
+    // Fallback: generic proxy env vars — normalize + rotate like YT_DLP_PROXY.
+    const generic = String(
+      process.env.HTTPS_PROXY ||
+        process.env.https_proxy ||
+        process.env.HTTP_PROXY ||
+        process.env.http_proxy ||
+        ''
+    ).trim();
+    if (!generic) {
+      if (attempt === 0) logResolvedProxyOnce('', 'none');
+      return '';
+    }
+    const resolved = modifyProxyUrlForAttempt(
+      applyProxyPortFallback(normalizeProxyUrl(generic), portEnv),
+      attempt
+    );
+    if (attempt === 0) logResolvedProxyOnce(resolved, 'HTTP(S)_PROXY fallback');
+    return resolved;
+  }
 
   const scheme = String(process.env.YT_DLP_PROXY_SCHEME || 'http')
     .trim()
@@ -184,7 +231,7 @@ function resolveYtDlpProxy({ attempt = 0 } = {}) {
   const { host, port } = parseProxyHostPort(hostRaw, portEnv);
   const effectivePort = port || portEnv;
 
-  return modifyProxyUrlForAttempt(
+  const resolved = modifyProxyUrlForAttempt(
     buildProxyUrlFromParts({
       scheme,
       user,
@@ -194,12 +241,15 @@ function resolveYtDlpProxy({ attempt = 0 } = {}) {
     }),
     attempt
   );
+  if (attempt === 0) logResolvedProxyOnce(resolved, 'YT_DLP_PROXY_* components');
+  return resolved;
 }
 
 function describeProxyMode() {
   const proxyUrl = resolveYtDlpProxy();
+  const source = proxySourceFromEnv();
   if (!proxyUrl) {
-    return { configured: false, mode: 'none', endpoint: '(none)', maxRetries: 0 };
+    return { configured: false, mode: 'none', endpoint: '(none)', source, maxRetries: 0 };
   }
 
   let username = String(process.env.YT_DLP_PROXY_USER || '').trim();
@@ -217,6 +267,7 @@ function describeProxyMode() {
     configured: true,
     mode,
     endpoint: proxyForLog(proxyUrl),
+    source,
     maxRetries: YT_DLP_PROXY_MAX_RETRIES,
     retryDelayMs: YT_DLP_PROXY_RETRY_DELAY_MS,
   };
@@ -489,6 +540,14 @@ function tagYtDlpErrorFlags(err) {
 
 function markSupabaseFailedImmediately(videoId, quality, err) {
   if (!videoId) return;
+  // The queue worker requeues 152 (possible session block) up to N attempts and
+  // owns the final failed/queued decision — don't short-circuit it here.
+  if (process.env.YT_DLP_DEFER_FAILURE_MARKING === '1') {
+    console.warn(
+      `[ingest-ytdlp] Error code: 152 video=${videoId} — deferring failure decision to worker`
+    );
+    return;
+  }
   console.error(
     `[ingest-ytdlp] permanent video unavailable (Error code: 152) video=${videoId} — Supabase status=failed`
   );

@@ -73,3 +73,9 @@ services:
         value: "2000"
       - key: INGEST_WORKER_CONCURRENCY
         value: "1"
+      - key: INGEST_WORKER_JOB_DELAY_MIN_MS
+        value: "15000"
+      - key: INGEST_WORKER_JOB_DELAY_MAX_MS
+        value: "45000"
+      - key: INGEST_MAX_152_ATTEMPTS
+        value: "3"
