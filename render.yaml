@@ -79,3 +79,7 @@ services:
         value: "45000"
       - key: INGEST_MAX_152_ATTEMPTS
         value: "3"
+      - key: BRIDGE_KEEPALIVE_URL
+        value: "https://safetube-media-bridge.onrender.com/health"
+      - key: BRIDGE_KEEPALIVE_INTERVAL_MS
+        value: "600000"

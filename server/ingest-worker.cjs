@@ -40,6 +40,12 @@ const MAX_TRANSCODE_ATTEMPTS = Math.max(
   1,
   Number(process.env.INGEST_MAX_TRANSCODE_ATTEMPTS || 6)
 );
+/** Keep the Render web bridge awake — this worker never sleeps, the web service does. */
+const BRIDGE_KEEPALIVE_URL = (process.env.BRIDGE_KEEPALIVE_URL || '').trim();
+const BRIDGE_KEEPALIVE_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.BRIDGE_KEEPALIVE_INTERVAL_MS || 600_000)
+);
 
 function isFileNotReadyError(err) {
   if (err?.fileNotReady) return true;
@@ -122,6 +128,33 @@ async function processJob(job) {
   }
 }
 
+function startBridgeKeepAlive() {
+  if (!BRIDGE_KEEPALIVE_URL) {
+    console.log('[ingest-worker] bridge keep-alive disabled (BRIDGE_KEEPALIVE_URL not set)');
+    return;
+  }
+
+  const ping = async () => {
+    try {
+      const res = await fetch(BRIDGE_KEEPALIVE_URL, {
+        signal: AbortSignal.timeout(45_000),
+        headers: { 'user-agent': `safetube-ingest-worker/${WORKER_ID}` },
+      });
+      console.log(`[ingest-worker] keep-alive → ${res.status} (${BRIDGE_KEEPALIVE_URL})`);
+    } catch (err) {
+      // Cold start can exceed the timeout — the ping itself still wakes the dyno.
+      console.warn(`[ingest-worker] keep-alive ping failed: ${err?.message || err}`);
+    }
+  };
+
+  void ping();
+  const timer = setInterval(() => void ping(), BRIDGE_KEEPALIVE_INTERVAL_MS);
+  timer.unref?.();
+  console.log(
+    `[ingest-worker] bridge keep-alive every ${Math.round(BRIDGE_KEEPALIVE_INTERVAL_MS / 60000)}min → ${BRIDGE_KEEPALIVE_URL}`
+  );
+}
+
 async function workerLoop(slot) {
   while (!shuttingDown) {
     const job = await streamStatusStore.claimNextJob(`${WORKER_ID}:${slot}`);
@@ -174,6 +207,8 @@ async function main() {
       '[ingest-worker] yt-dlp proxy: (none) — set YT_DLP_PROXY_* env vars; datacenter egress will be bot-blocked'
     );
   }
+
+  startBridgeKeepAlive();
 
   const loops = [];
   for (let slot = 0; slot < MAX_CONCURRENT; slot++) {
