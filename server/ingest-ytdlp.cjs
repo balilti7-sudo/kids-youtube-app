@@ -1239,6 +1239,49 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', options = {}) 
   }
 }
 
+const YT_DLP_DOWNLOAD_TIMEOUT_MS = Number(process.env.YT_DLP_DOWNLOAD_TIMEOUT_MS || 900_000);
+
+/**
+ * Download the video to a local file via yt-dlp (through the proxy, with the
+ * full profile/retry stack). Used when the direct googlevideo URL is IP-locked
+ * to the proxy and third parties (Bunny fetch) can't download it.
+ * @returns {{ filePath: string, profile: string }}
+ */
+async function downloadVideoToFile(videoId, quality = '360p', destPath, options = {}) {
+  if (!destPath) throw new Error('downloadVideoToFile requires destPath');
+  const format = qualityToFormat(quality);
+  const timeoutMs = Number(options.timeoutMs) || YT_DLP_DOWNLOAD_TIMEOUT_MS;
+
+  const { profile } = await runYtDlp(
+    ['-f', format, '-o', destPath, '--no-progress', '--no-part'],
+    {
+      timeoutMs,
+      label: `download video=${videoId} quality=${quality}`,
+      videoId,
+      profileHint: options.profileHint || null,
+      quality,
+    }
+  );
+
+  if (!fs.existsSync(destPath)) {
+    throw new Error(`yt-dlp download produced no file for ${videoId} (${destPath})`);
+  }
+  const size = fs.statSync(destPath).size;
+  if (size < 50 * 1024) {
+    try {
+      fs.unlinkSync(destPath);
+    } catch {}
+    throw new Error(
+      `yt-dlp download for ${videoId} is implausibly small (${size} bytes) — likely blocked`
+    );
+  }
+
+  console.log(
+    `[ingest-ytdlp] downloaded video=${videoId} profile=${profile} size=${(size / 1024 / 1024).toFixed(1)}MB`
+  );
+  return { filePath: destPath, profile };
+}
+
 async function getVideoInfo(videoId, options = {}) {
   const timeoutMs = Number(options.timeoutMs) || Math.min(YT_DLP_TIMEOUT_MS, 60_000);
   if (!isAvailable()) {
@@ -1283,6 +1326,7 @@ async function getVideoInfo(videoId, options = {}) {
 
 module.exports = {
   resolveVideoDownloadUrl,
+  downloadVideoToFile,
   getVideoInfo,
   isAvailable,
   resolveYtDlpBinary,

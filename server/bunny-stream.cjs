@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const axios = require('axios');
 const ingestYtdlp = require('./ingest-ytdlp.cjs');
 
@@ -13,6 +16,15 @@ const BUNNY_TRANSCODE_MAX_MS = Number(process.env.BUNNY_TRANSCODE_MAX_MS || 900_
 /** Return the HLS URL as soon as the first rendition is live instead of waiting for the full encode. */
 const BUNNY_EARLY_PLAY =
   process.env.BUNNY_EARLY_PLAY !== '0' && process.env.BUNNY_EARLY_PLAY !== 'false';
+/**
+ * googlevideo URLs resolved through a proxy are often IP-locked to that proxy —
+ * Bunny's fetch servers then download an HTML error page ("Invalid file").
+ * Probe the URL from this server's IP first; if blocked, download via the proxy
+ * and upload the file to Bunny directly. Set BUNNY_UPLOAD_FALLBACK=0 to disable.
+ */
+const BUNNY_UPLOAD_FALLBACK =
+  process.env.BUNNY_UPLOAD_FALLBACK !== '0' && process.env.BUNNY_UPLOAD_FALLBACK !== 'false';
+const BUNNY_UPLOAD_TIMEOUT_MS = Number(process.env.BUNNY_UPLOAD_TIMEOUT_MS || 1_200_000);
 
 /** Bunny VideoModelStatus */
 const STATUS_FINISHED = 4;
@@ -362,6 +374,95 @@ async function removeFailedLibraryEntries(youtubeVideoId) {
   }
 }
 
+/**
+ * Fetch the first bytes of the URL from THIS server's IP (no proxy) — a stand-in
+ * for what Bunny's fetch servers will see. HTML or an error status means the URL
+ * is IP-locked/blocked and Bunny would ingest an "Invalid file".
+ */
+async function probeUrlFetchableFromServer(url) {
+  try {
+    const res = await axios.get(url, {
+      timeout: 20_000,
+      responseType: 'arraybuffer',
+      maxContentLength: 256 * 1024,
+      headers: { Range: 'bytes=0-65535' },
+      maxRedirects: 3,
+      validateStatus: () => true,
+      proxy: false,
+    });
+    const contentType = String(res.headers?.['content-type'] || '').toLowerCase();
+    const ok =
+      (res.status === 200 || res.status === 206) &&
+      !contentType.includes('text/html') &&
+      !contentType.includes('text/plain') &&
+      !contentType.includes('application/json');
+    return { ok, status: res.status, contentType };
+  } catch (err) {
+    return { ok: false, status: 0, contentType: null, error: err.message };
+  }
+}
+
+/**
+ * Fallback ingest: worker downloads the file via yt-dlp (proxy handles the
+ * IP-locked URL) and uploads the bytes straight into a new Bunny video entry.
+ */
+async function uploadYoutubeViaDownload(youtubeVideoId, quality, progress) {
+  const title = youtubeTitle(youtubeVideoId);
+  const tmpFile = path.join(os.tmpdir(), `yt-${youtubeVideoId}-${Date.now()}.mp4`);
+
+  if (progress) {
+    progress.activeSource = 'bunny';
+    progress.phase = 'download';
+    progress.detail = 'Downloading source video (direct URL is IP-locked)';
+    progress.retryAfterMs = 5000;
+  }
+
+  try {
+    await ingestYtdlp.downloadVideoToFile(youtubeVideoId, quality, tmpFile);
+
+    if (progress) {
+      progress.phase = 'upload';
+      progress.detail = 'Uploading video file to Bunny Stream';
+    }
+
+    const created = await bunnyRequest('POST', `/library/${BUNNY_LIBRARY_ID}/videos`, {
+      body: { title },
+    });
+    const guid = created?.guid;
+    if (!guid) {
+      throw new Error(`Bunny create video returned no guid for ${youtubeVideoId}`);
+    }
+
+    const size = fs.statSync(tmpFile).size;
+    console.log(
+      `[bunny] uploading video=${youtubeVideoId} guid=${guid} size=${(size / 1024 / 1024).toFixed(1)}MB`
+    );
+
+    await axios.put(
+      `${BUNNY_API_BASE}/library/${BUNNY_LIBRARY_ID}/videos/${guid}`,
+      fs.createReadStream(tmpFile),
+      {
+        headers: {
+          AccessKey: BUNNY_STREAM_API_KEY,
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': size,
+        },
+        timeout: BUNNY_UPLOAD_TIMEOUT_MS,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      }
+    );
+
+    console.log(`[bunny] upload complete video=${youtubeVideoId} guid=${guid}`);
+    youtubeGuidCache.set(youtubeVideoId, guid);
+    return getVideo(guid);
+  } finally {
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {}
+  }
+}
+
 async function submitYoutubeFetch(youtubeVideoId, quality, progress) {
   const title = youtubeTitle(youtubeVideoId);
 
@@ -382,6 +483,21 @@ async function submitYoutubeFetch(youtubeVideoId, quality, progress) {
     );
     console.error(`[bunny] ${err.message}`);
     throw err;
+  }
+
+  if (BUNNY_UPLOAD_FALLBACK) {
+    const probe = await probeUrlFetchableFromServer(fetchUrl);
+    if (!probe.ok) {
+      console.warn(
+        `[bunny] direct URL not fetchable from server IP video=${youtubeVideoId}` +
+          ` (status=${probe.status} type=${probe.contentType || '?'} err=${probe.error || '-'})` +
+          ` — IP-locked; falling back to download+upload`
+      );
+      return uploadYoutubeViaDownload(youtubeVideoId, quality, progress);
+    }
+    console.log(
+      `[bunny] direct URL verified fetchable video=${youtubeVideoId} (status=${probe.status} type=${probe.contentType || '?'})`
+    );
   }
 
   if (progress) {
