@@ -522,7 +522,13 @@ function youtubeWatchUrl(videoId) {
 function qualityToFormat(quality) {
   if (YT_DLP_FORMAT) return YT_DLP_FORMAT;
   const height = parseInt(String(quality || '360p'), 10) || 360;
-  return `best[height<=${height}][ext=mp4]/best[height<=${height}]/18/best[ext=mp4]/best`;
+  // Prefer pre-encoded h264/aac progressive MP4 — Bunny can segment it without
+  // a full re-encode, which makes early-play kick in much sooner.
+  return (
+    `best[height<=${height}][ext=mp4][vcodec^=avc1][acodec^=mp4a]/` +
+    `best[height<=${height}][ext=mp4]/` +
+    `best[height<=${height}]/18/best[ext=mp4]/best`
+  );
 }
 
 function profilesForVideo(videoId) {

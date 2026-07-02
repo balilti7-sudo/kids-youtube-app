@@ -10,6 +10,9 @@ const BUNNY_CDN_HOSTNAME = (process.env.BUNNY_CDN_HOSTNAME || '').trim();
 const BUNNY_REQUEST_TIMEOUT_MS = Number(process.env.BUNNY_REQUEST_TIMEOUT_MS || 30_000);
 const BUNNY_TRANSCODE_POLL_MS = Number(process.env.BUNNY_TRANSCODE_POLL_MS || 4_000);
 const BUNNY_TRANSCODE_MAX_MS = Number(process.env.BUNNY_TRANSCODE_MAX_MS || 600_000);
+/** Return the HLS URL as soon as the first rendition is live instead of waiting for the full encode. */
+const BUNNY_EARLY_PLAY =
+  process.env.BUNNY_EARLY_PLAY !== '0' && process.env.BUNNY_EARLY_PLAY !== 'false';
 
 /** Bunny VideoModelStatus */
 const STATUS_FINISHED = 4;
@@ -434,6 +437,26 @@ function buildPlaybackUrl(hostname, bunnyGuid, quality, { preferHls = true } = {
   return `${base}/play_${height}p.mp4`;
 }
 
+/**
+ * True when the HLS manifest is already being served (at least the master
+ * playlist with one variant) — playable while higher renditions still encode.
+ */
+async function probeHlsManifestLive(playbackUrl) {
+  if (!playbackUrl) return false;
+  try {
+    const res = await axios.get(playbackUrl, {
+      timeout: 8_000,
+      responseType: 'text',
+      validateStatus: () => true,
+    });
+    if (res.status !== 200) return false;
+    const body = String(res.data || '');
+    return body.includes('#EXTM3U') && /#EXT-X-STREAM-INF|#EXTINF/.test(body);
+  } catch {
+    return false;
+  }
+}
+
 async function waitForTranscode(bunnyGuid, youtubeVideoId, progress) {
   const startedAt = Date.now();
   const deadline = startedAt + BUNNY_TRANSCODE_MAX_MS;
@@ -463,6 +486,19 @@ async function waitForTranscode(bunnyGuid, youtubeVideoId, progress) {
       throw new Error(
         `Bunny transcoding failed for ${youtubeVideoId} (status=${statusLabel(status)})`
       );
+    }
+
+    // Early-play: once transcoding has begun, the master playlist often goes
+    // live long before status=Finished. Serve it as soon as it validates.
+    if (BUNNY_EARLY_PLAY && (status === 3 || status === 7 || status === 8)) {
+      const candidateUrl = await resolvePlaybackUrl(video, null).catch(() => null);
+      if (candidateUrl && (await probeHlsManifestLive(candidateUrl))) {
+        console.log(
+          `[bunny] early-play video=${youtubeVideoId} guid=${bunnyGuid}` +
+            ` after ${Date.now() - startedAt}ms (encode ${encodeProgress}%, ${statusLabel(status)})`
+        );
+        return video;
+      }
     }
 
     await sleep(BUNNY_TRANSCODE_POLL_MS);
@@ -523,8 +559,27 @@ async function resolvePlaybackIfInLibrary(youtubeVideoId, requestedQuality = '36
   requireConfigured();
   const quality = normalizeStreamQuality(requestedQuality);
   const video = await findVideoByYoutubeId(youtubeVideoId);
-  if (!video || !isPlayableStatus(video.status)) {
-    return null;
+  if (!video) return null;
+
+  if (!isPlayableStatus(video.status)) {
+    // Early-play: a transcoding video may already serve its first rendition.
+    const earlyEligible =
+      BUNNY_EARLY_PLAY && (video.status === 3 || video.status === 7 || video.status === 8);
+    if (!earlyEligible) return null;
+    const candidateUrl = await resolvePlaybackUrl(video, quality).catch(() => null);
+    if (!candidateUrl || !(await probeHlsManifestLive(candidateUrl))) return null;
+    console.log(
+      `[bunny] early-play (library) video=${youtubeVideoId} guid=${video.guid} status=${statusLabel(video.status)}`
+    );
+    return {
+      url: candidateUrl,
+      quality,
+      mime: 'application/vnd.apple.mpegurl',
+      format: 'hls',
+      proxied: false,
+      source: 'bunny',
+      bunnyGuid: video.guid,
+    };
   }
 
   const url = await resolvePlaybackUrl(video, quality);
