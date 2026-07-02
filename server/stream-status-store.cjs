@@ -239,9 +239,44 @@ async function claimNextJob(workerId) {
   return claimed;
 }
 
+/** Worker publishes its egress diagnostics here (read back by the bridge /api/diagnostics). */
+async function saveWorkerDiagnostics(workerId, data) {
+  const sb = getClient();
+  if (!sb) return null;
+  const { error } = await sb.from('worker_diagnostics').upsert(
+    {
+      id: String(workerId || 'ingest-worker'),
+      data,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'id' }
+  );
+  if (error) {
+    console.warn(`[stream-status] saveWorkerDiagnostics failed: ${error.message}`);
+    return null;
+  }
+  return true;
+}
+
+async function getWorkerDiagnostics() {
+  const sb = getClient();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from('worker_diagnostics')
+    .select('*')
+    .order('updated_at', { ascending: false });
+  if (error) {
+    console.warn(`[stream-status] getWorkerDiagnostics failed: ${error.message}`);
+    return [];
+  }
+  return data || [];
+}
+
 module.exports = {
   markQueued,
   markProcessing,
+  saveWorkerDiagnostics,
+  getWorkerDiagnostics,
   markReady,
   markFailed,
   requeueForRetry,

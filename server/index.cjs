@@ -794,6 +794,32 @@ app.get('/health', (_req, res) => {
   });
 });
 
+app.get('/api/diagnostics', async (_req, res) => {
+  try {
+    // Live probe of THIS (web) service's egress. Note: the web service usually has
+    // no proxy env in queue mode, so `worker` below is the section that matters.
+    const web = await bunnyStream.ingestYtdlp.runEgressDiagnostics();
+
+    let workers = [];
+    try {
+      workers = await streamStatusStore.getWorkerDiagnostics();
+    } catch (err) {
+      console.warn('[/api/diagnostics] worker diagnostics read failed:', err?.message || err);
+    }
+
+    res.json({
+      ok: true,
+      service: 'safetube-media-bridge',
+      ingestWorkerMode: useIngestWorker(),
+      web,
+      workers,
+    });
+  } catch (err) {
+    console.error('[/api/diagnostics] failed:', err?.message || err);
+    res.status(500).json({ ok: false, error: err?.message || 'diagnostics failed' });
+  }
+});
+
 app.get('/api/youtube/search', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const continuation =

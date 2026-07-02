@@ -128,6 +128,29 @@ async function processJob(job) {
   }
 }
 
+/**
+ * Publish this worker's egress diagnostics to Supabase so the bridge
+ * /api/diagnostics can show the WORKER's proxy IP (Render workers serve no HTTP).
+ */
+async function publishDiagnostics() {
+  try {
+    const diag = await ingestYtdlp.runEgressDiagnostics();
+    await streamStatusStore.saveWorkerDiagnostics(WORKER_ID, { workerId: WORKER_ID, ...diag });
+    const eg = diag.egress?.viaProxy;
+    console.log(
+      `[ingest-worker] diagnostics published proxyWorking=${diag.proxy.working}` +
+        ` egressIp=${eg?.ip || eg?.error || '?'} ytDlp=${diag.ytDlpVersion || '?'}`
+    );
+  } catch (err) {
+    console.warn(`[ingest-worker] diagnostics publish failed: ${err?.message || err}`);
+  }
+}
+
+function startDiagnosticsPublisher() {
+  const timer = setInterval(() => void publishDiagnostics(), BRIDGE_KEEPALIVE_INTERVAL_MS);
+  timer.unref?.();
+}
+
 function startBridgeKeepAlive() {
   if (!BRIDGE_KEEPALIVE_URL) {
     console.log('[ingest-worker] bridge keep-alive disabled (BRIDGE_KEEPALIVE_URL not set)');
@@ -208,7 +231,10 @@ async function main() {
     );
   }
 
+  publishDiagnostics();
+
   startBridgeKeepAlive();
+  startDiagnosticsPublisher();
 
   const loops = [];
   for (let slot = 0; slot < MAX_CONCURRENT; slot++) {

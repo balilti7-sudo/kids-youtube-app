@@ -267,6 +267,130 @@ function resolveYtDlpProxy({ attempt = 0 } = {}) {
   return resolved;
 }
 
+let undiciModule = null;
+function getUndici() {
+  if (!undiciModule) undiciModule = require('undici');
+  return undiciModule;
+}
+
+/**
+ * Build an undici ProxyAgent from the same proxy URL yt-dlp uses (resolveYtDlpProxy).
+ * yt-dlp itself gets the proxy via the `--proxy` CLI flag (no in-process agent),
+ * so for Node HTTP diagnostics we construct an equivalent CONNECT-tunneling agent.
+ */
+function buildProxyDispatcher(proxyUrl) {
+  if (!proxyUrl) return null;
+  const { ProxyAgent } = getUndici();
+  const m = proxyUrl.match(/^(https?:\/\/)(?:([^@/]+)@)?(.+)$/i);
+  if (!m) return new ProxyAgent(proxyUrl);
+  const [, scheme, userinfo, hostPart] = m;
+  const base = `${scheme}${hostPart}`;
+  if (userinfo) {
+    let decoded = userinfo;
+    try {
+      decoded = decodeURIComponent(userinfo);
+    } catch {
+      /* keep raw */
+    }
+    const token = 'Basic ' + Buffer.from(decoded).toString('base64');
+    return new ProxyAgent({ uri: base, token });
+  }
+  return new ProxyAgent(base);
+}
+
+/**
+ * Fetch the public egress IP (api.ipify.org), optionally through the yt-dlp proxy.
+ * Never throws — returns a structured result so a diagnostics route stays up even
+ * when the proxy is down.
+ */
+async function probePublicIp({ viaProxy = false, timeoutMs = 15_000 } = {}) {
+  const startedAt = Date.now();
+  const url = 'https://api.ipify.org?format=json';
+  try {
+    const opts = { signal: AbortSignal.timeout(timeoutMs) };
+    if (viaProxy) {
+      const proxyUrl = resolveYtDlpProxy();
+      if (!proxyUrl) {
+        return { ok: false, ip: null, viaProxy: true, error: 'no proxy configured', ms: 0 };
+      }
+      opts.dispatcher = buildProxyDispatcher(proxyUrl);
+    }
+    const res = await fetch(url, opts);
+    const body = await res.json().catch(() => ({}));
+    return {
+      ok: res.ok,
+      ip: body?.ip || null,
+      status: res.status,
+      viaProxy,
+      ms: Date.now() - startedAt,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      ip: null,
+      viaProxy,
+      error: err?.message || String(err),
+      ms: Date.now() - startedAt,
+    };
+  }
+}
+
+function getYtDlpVersion() {
+  try {
+    const { spawnSync } = require('child_process');
+    const r = spawnSync(resolveYtDlpBinary(), ['--version'], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: process.env,
+    });
+    if (r.status === 0) return (r.stdout || '').trim().split(/\r?\n/)[0] || null;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Full egress diagnostic: proxy env presence, resolved proxy mode, direct + via-proxy
+ * public IP, and yt-dlp version. Safe to call from an HTTP route (never throws).
+ */
+async function runEgressDiagnostics({ timeoutMs = 15_000 } = {}) {
+  const proxyMode = describeProxyMode();
+  const [direct, viaProxy] = await Promise.all([
+    probePublicIp({ viaProxy: false, timeoutMs }),
+    proxyMode.configured
+      ? probePublicIp({ viaProxy: true, timeoutMs })
+      : Promise.resolve({ ok: false, ip: null, viaProxy: true, error: 'no proxy configured', ms: 0 }),
+  ]);
+
+  const proxyWorking = Boolean(viaProxy.ok && viaProxy.ip);
+  const proxyChangesEgress = Boolean(
+    proxyWorking && direct.ip && viaProxy.ip && direct.ip !== viaProxy.ip
+  );
+
+  return {
+    at: new Date().toISOString(),
+    env: {
+      YT_DLP_PROXY_HOST: process.env.YT_DLP_PROXY_HOST ? 'set' : 'missing',
+      YT_DLP_PROXY_USER: process.env.YT_DLP_PROXY_USER ? 'set' : 'missing',
+      YT_DLP_PROXY_PASSWORD: process.env.YT_DLP_PROXY_PASSWORD ? 'set' : 'missing',
+      YT_DLP_PROXY_PORT: process.env.YT_DLP_PROXY_PORT || null,
+      YT_DLP_PROXY: process.env.YT_DLP_PROXY ? 'set' : 'missing',
+      HTTP_PROXY: process.env.HTTP_PROXY || process.env.http_proxy ? 'set' : 'missing',
+    },
+    proxy: {
+      configured: proxyMode.configured,
+      mode: proxyMode.mode,
+      endpoint: proxyMode.endpoint,
+      source: proxyMode.source,
+      working: proxyWorking,
+      changesEgress: proxyChangesEgress,
+    },
+    egress: { direct, viaProxy },
+    ytDlpVersion: getYtDlpVersion(),
+  };
+}
+
 function describeProxyMode() {
   const proxyUrl = resolveYtDlpProxy();
   const source = proxySourceFromEnv();
@@ -1340,6 +1464,10 @@ module.exports = {
   userAgentForProfile,
   resolveYtDlpProxy,
   describeProxyMode,
+  buildProxyDispatcher,
+  probePublicIp,
+  runEgressDiagnostics,
+  getYtDlpVersion,
   proxyForLog,
   isYoutubeBotOrBlockError,
   isProxyRetriableError,
