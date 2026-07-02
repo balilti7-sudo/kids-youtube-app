@@ -49,6 +49,19 @@ const YT_DLP_PROXY_RETRY_DELAY_MS = Math.max(
   0,
   Number(process.env.YT_DLP_PROXY_RETRY_DELAY_MS || 1200)
 );
+/** Rotated-IP retries per profile when yt-dlp reports "Error code: 152" (suspected session block). */
+const YT_DLP_152_ROTATE_RETRIES = Math.max(
+  0,
+  Number(process.env.YT_DLP_152_ROTATE_RETRIES || 1)
+);
+/** Socket timeout (seconds) — generous default for proxy handshake latency. */
+const YT_DLP_SOCKET_TIMEOUT_SEC = Math.max(
+  5,
+  Number(process.env.YT_DLP_SOCKET_TIMEOUT_SEC || 60)
+);
+/** Set YT_DLP_DYNAMIC_UA=0 to pin the static per-profile user agents. */
+const YT_DLP_DYNAMIC_UA =
+  process.env.YT_DLP_DYNAMIC_UA !== '0' && process.env.YT_DLP_DYNAMIC_UA !== 'false';
 
 /**
  * Split host:port when YT_DLP_PROXY_HOST includes a trailing port.
@@ -362,6 +375,45 @@ function sanitizeArgsForLog(args) {
   });
 }
 
+function randomInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+/**
+ * Random, modern desktop browser User-Agent (Chrome / Firefox / Safari) per request.
+ * Only used for browser-based profiles — app clients (ios, tv) keep their native
+ * UA strings, because a browser UA on an app player_client is itself a bot signal.
+ */
+function randomBrowserUserAgent() {
+  const pick = randomInt(0, 5);
+  const chromeMajor = randomInt(130, 137);
+  const firefoxMajor = randomInt(133, 139);
+  const safariMinor = randomInt(3, 5);
+
+  switch (pick) {
+    case 0: // Chrome on Windows
+      return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeMajor}.0.0.0 Safari/537.36`;
+    case 1: // Chrome on macOS
+      return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeMajor}.0.0.0 Safari/537.36`;
+    case 2: // Chrome on Linux
+      return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeMajor}.0.0.0 Safari/537.36`;
+    case 3: // Firefox on Windows
+      return `Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:${firefoxMajor}.0) Gecko/20100101 Firefox/${firefoxMajor}.0`;
+    case 4: // Firefox on Linux
+      return `Mozilla/5.0 (X11; Linux x86_64; rv:${firefoxMajor}.0) Gecko/20100101 Firefox/${firefoxMajor}.0`;
+    default: // Safari on macOS
+      return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.${safariMinor} Safari/605.1.15`;
+  }
+}
+
+/** Random modern Chrome-on-Android UA for android browser-style profiles. */
+function randomAndroidUserAgent() {
+  const chromeMajor = randomInt(130, 137);
+  const devices = ['Pixel 7', 'Pixel 8', 'SM-G998B', 'SM-S918B', 'Pixel 6a'];
+  const device = devices[randomInt(0, devices.length - 1)];
+  return `Mozilla/5.0 (Linux; Android ${randomInt(12, 15)}; ${device}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeMajor}.0.6099.230 Mobile Safari/537.36`;
+}
+
 /** Mobile / embed clients — best chance on datacenter IPs without browser cookies. */
 const DEFAULT_YOUTUBE_PROFILES = [
   {
@@ -371,6 +423,7 @@ const DEFAULT_YOUTUBE_PROFILES = [
       'youtube:player_client=android_embedded,web_embedded;player_skip=webpage,configs',
     userAgent:
       'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+    uaKind: 'android',
     referer: 'https://www.youtube.com/',
   },
   {
@@ -379,6 +432,7 @@ const DEFAULT_YOUTUBE_PROFILES = [
     extractorArgs: 'youtube:player_client=tv_embedded,mediaconnect',
     userAgent:
       'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version',
+    uaKind: 'native',
     referer: 'https://www.youtube.com/tv',
   },
   {
@@ -387,6 +441,7 @@ const DEFAULT_YOUTUBE_PROFILES = [
     extractorArgs: 'youtube:player_client=ios',
     userAgent:
       'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+    uaKind: 'native',
     referer: 'https://www.youtube.com/',
   },
   {
@@ -395,6 +450,7 @@ const DEFAULT_YOUTUBE_PROFILES = [
     extractorArgs: 'youtube:player_client=android;player_skip=webpage',
     userAgent:
       'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+    uaKind: 'android',
     referer: 'https://m.youtube.com/',
   },
   {
@@ -403,9 +459,29 @@ const DEFAULT_YOUTUBE_PROFILES = [
     extractorArgs: 'youtube:player_client=web_embedded',
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    uaKind: 'browser',
+    referer: 'https://www.google.com/',
+  },
+  // Last-resort desktop browser profile — tried before the worker requeues a 152.
+  {
+    name: 'web_browser',
+    videoUrl: (videoId) => `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+    extractorArgs: 'youtube:player_client=web',
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    uaKind: 'browser',
     referer: 'https://www.google.com/',
   },
 ];
+
+/** Per-request UA: random modern browser UA for browser/android profiles, native UA otherwise. */
+function userAgentForProfile(profile = {}) {
+  if (BROWSER_USER_AGENT) return BROWSER_USER_AGENT;
+  if (!YT_DLP_DYNAMIC_UA) return profile.userAgent || null;
+  if (profile.uaKind === 'browser') return randomBrowserUserAgent();
+  if (profile.uaKind === 'android') return randomAndroidUserAgent();
+  return profile.userAgent || null;
+}
 
 function resolveYtDlpBinary() {
   const explicit = (process.env.YT_DLP_BINARY_PATH || '').trim();
@@ -460,10 +536,12 @@ function buildBaseArgs(profile = {}, proxyUrl = '') {
     '--no-warnings',
     '--no-playlist',
     '--geo-bypass',
+    // Proxy CONNECT tunnels can present intermediate certs; don't fail the handshake.
+    '--no-check-certificate',
     '--extractor-retries',
     '3',
     '--socket-timeout',
-    '30',
+    String(YT_DLP_SOCKET_TIMEOUT_SEC),
   ];
 
   if (YT_DLP_PLUGIN_DIRS && fs.existsSync(YT_DLP_PLUGIN_DIRS)) {
@@ -483,7 +561,7 @@ function buildBaseArgs(profile = {}, proxyUrl = '') {
     args.push('--proxy', effectiveProxy);
   }
 
-  const userAgent = profile.userAgent || BROWSER_USER_AGENT;
+  const userAgent = userAgentForProfile(profile);
   if (userAgent) {
     args.push('--user-agent', userAgent);
   }
@@ -747,6 +825,8 @@ async function runYtDlp(
   const hasProxy = proxyAttempts > 1;
 
   let lastErr = null;
+  // Shared budget of forced IP re-rotations for "Error code: 152" across all profiles.
+  let rotate152Used = 0;
 
   for (let i = 0; i < profiles.length; i++) {
     const profile = profiles[i];
@@ -775,6 +855,29 @@ async function runYtDlp(
         lastErr = err;
 
         if (err.ytDlpErrorCode152Unavailable) {
+          // 152 may be a session-level soft block. Force a proxy IP re-rotation
+          // first, then fall through to the next profile (web_browser last)
+          // before giving up and letting the worker requeue.
+          const canRotate152 =
+            hasProxy && rotate152Used < YT_DLP_152_ROTATE_RETRIES && attempt < proxyAttempts - 1;
+          if (canRotate152) {
+            rotate152Used++;
+            const delayMs = proxyRetryDelayMs(err);
+            console.warn(
+              `[ingest-ytdlp] video=${videoId} profile=${profile.name} Error code: 152` +
+                ` — forcing proxy IP re-rotation (${rotate152Used}/${YT_DLP_152_ROTATE_RETRIES}) in ${delayMs}ms` +
+                ` proxy=${proxyForLog(resolveYtDlpProxy({ attempt: attempt + 1 }))}`
+            );
+            await sleep(delayMs);
+            continue;
+          }
+          if (!useSingleProfile && i < profiles.length - 1) {
+            console.warn(
+              `[ingest-ytdlp] video=${videoId} profile=${profile.name} Error code: 152` +
+                ` — falling back to next profile (${profiles[i + 1].name})`
+            );
+            break;
+          }
           markSupabaseFailedImmediately(videoId, quality, err);
           throw err;
         }
@@ -1146,6 +1249,8 @@ module.exports = {
   YT_DLP_PROXY_MAX_RETRIES,
   YT_DLP_PROXY_RETRY_DELAY_MS,
   DEFAULT_YOUTUBE_PROFILES,
+  randomBrowserUserAgent,
+  userAgentForProfile,
   resolveYtDlpProxy,
   describeProxyMode,
   proxyForLog,
