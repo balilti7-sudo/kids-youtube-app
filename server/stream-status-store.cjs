@@ -277,6 +277,7 @@ module.exports = {
   markProcessing,
   saveWorkerDiagnostics,
   getWorkerDiagnostics,
+  getClient,
   markReady,
   markFailed,
   requeueForRetry,

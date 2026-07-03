@@ -20,6 +20,27 @@ const YT_DLP_LONG_TIMEOUT_MS = Number(process.env.YT_DLP_LONG_TIMEOUT_MS || 300_
 const WEBSHARE_BACKCONNECT_HOST = 'p.webshare.io';
 const LONG_VIDEO_DURATION_SEC = Number(process.env.LONG_VIDEO_DURATION_SEC || 65);
 const YT_DLP_COOKIES_FILE = (process.env.YT_DLP_COOKIES_FILE || '').trim();
+/**
+ * Per-job cookie file from the Supabase rotation pool (set by the ingest
+ * worker before each job). When set, it takes precedence over the static
+ * YT_DLP_COOKIES_FILE env; when cleared (null/''), behavior falls back to the
+ * static file / no cookies. Process-wide — safe with worker concurrency = 1.
+ */
+let sessionCookieFile = '';
+
+function setSessionCookieFile(filePath) {
+  sessionCookieFile = filePath ? String(filePath) : '';
+}
+
+function getSessionCookieFile() {
+  return sessionCookieFile;
+}
+
+function activeCookiesFile() {
+  if (sessionCookieFile && fs.existsSync(sessionCookieFile)) return sessionCookieFile;
+  if (YT_DLP_COOKIES_FILE && fs.existsSync(YT_DLP_COOKIES_FILE)) return YT_DLP_COOKIES_FILE;
+  return '';
+}
 const YT_DLP_FORMAT = (process.env.YT_DLP_FORMAT || '').trim();
 const YT_DLP_EXTRACTOR_ARGS = (
   process.env.YT_DLP_EXTRACTOR_ARGS ||
@@ -711,8 +732,9 @@ function buildBaseArgs(profile = {}, proxyUrl = '') {
     args.push('--add-headers', `Referer:${profile.referer}`);
   }
 
-  if (YT_DLP_COOKIES_FILE && fs.existsSync(YT_DLP_COOKIES_FILE)) {
-    args.push('--cookies', YT_DLP_COOKIES_FILE);
+  const cookiesFile = activeCookiesFile();
+  if (cookiesFile) {
+    args.push('--cookies', cookiesFile);
   }
 
   const extractorArgs = profile.extractorArgs || YT_DLP_EXTRACTOR_ARGS;
@@ -1477,4 +1499,6 @@ module.exports = {
   validateFetchableMediaUrl,
   isProxyConnectionRefusedError,
   isYtDlpErrorCode152Unavailable,
+  setSessionCookieFile,
+  getSessionCookieFile,
 };

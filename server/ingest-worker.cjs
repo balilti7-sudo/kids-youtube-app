@@ -17,6 +17,7 @@ const { ensureYtDlpBinary, updateYtDlpBinary } = require('./ensure-ytdlp.cjs');
 const streamStatusStore = require('./stream-status-store.cjs');
 const { runIngestPipeline } = require('./run-ingest-pipeline.cjs');
 const ingestYtdlp = require('./ingest-ytdlp.cjs');
+const cookiePool = require('./cookie-pool.cjs');
 
 const WORKER_ID =
   String(process.env.INGEST_WORKER_ID || '').trim() ||
@@ -45,6 +46,15 @@ const BRIDGE_KEEPALIVE_URL = (process.env.BRIDGE_KEEPALIVE_URL || '').trim();
 const BRIDGE_KEEPALIVE_INTERVAL_MS = Math.max(
   60_000,
   Number(process.env.BRIDGE_KEEPALIVE_INTERVAL_MS || 600_000)
+);
+/**
+ * When yt-dlp hits "Error code: 152" while a pool cookie is in use, that cookie
+ * is burned and the job retries in-process with the next 'active' cookie up to
+ * N times before falling back to the normal requeue/fail flow.
+ */
+const COOKIE_ROTATION_RETRIES = Math.max(
+  0,
+  Number(process.env.INGEST_COOKIE_ROTATION_RETRIES || 1)
 );
 
 function isFileNotReadyError(err) {
@@ -100,6 +110,26 @@ async function handleIngestFailure(job, err) {
   await streamStatusStore.markFailed(videoId, quality, err);
 }
 
+/**
+ * Claim a pool cookie for the current job: fetch it, write a temp cookies.txt
+ * and point yt-dlp at it. Returns null when the pool is empty/not configured.
+ */
+async function acquirePoolCookie(excludeIds = []) {
+  const cookie = await cookiePool.fetchActiveCookie({ excludeIds });
+  if (!cookie) return null;
+  const filePath = cookiePool.writeCookieTempFile(cookie.cookieContent, cookie.id);
+  ingestYtdlp.setSessionCookieFile(filePath);
+  console.log(
+    `[ingest-worker] using pool cookie id=${cookie.id}${cookie.label ? ` label=${cookie.label}` : ''}`
+  );
+  return { ...cookie, filePath };
+}
+
+function releasePoolCookie(cookie) {
+  ingestYtdlp.setSessionCookieFile(null);
+  if (cookie?.filePath) cookiePool.cleanupCookieFile(cookie.filePath);
+}
+
 async function processJob(job) {
   const videoId = job.youtube_video_id;
   const quality = job.quality;
@@ -114,17 +144,62 @@ async function processJob(job) {
     `[ingest-worker] processing video=${videoId} quality=${quality} attempt=${(Number(job.attempt_count) || 0) + 1} worker=${WORKER_ID}`
   );
 
+  const triedCookieIds = [];
+  let cookie = null;
+  if (cookiePool.isConfigured()) {
+    cookie = await acquirePoolCookie();
+    if (!cookie) {
+      // Pool empty (or all burned) — fall back to static YT_DLP_COOKIES_FILE / no cookies.
+      console.warn(
+        '[ingest-worker] cookie pool has no active cookies — running with env/static cookie fallback'
+      );
+    }
+  }
+
   try {
-    const resolved = await runIngestPipeline(videoId, quality, { progress });
-    await streamStatusStore.markReady(videoId, quality, {
-      playbackUrl: resolved.url,
-      bunnyGuid: resolved.bunnyGuid,
-    });
-    console.log(
-      `[ingest-worker] ready video=${videoId} guid=${resolved.bunnyGuid || '?'} url=${resolved.url.slice(0, 96)}…`
-    );
-  } catch (err) {
-    await handleIngestFailure(job, err);
+    for (let rotation = 0; ; rotation++) {
+      try {
+        const resolved = await runIngestPipeline(videoId, quality, { progress });
+        await streamStatusStore.markReady(videoId, quality, {
+          playbackUrl: resolved.url,
+          bunnyGuid: resolved.bunnyGuid,
+        });
+        console.log(
+          `[ingest-worker] ready video=${videoId} guid=${resolved.bunnyGuid || '?'} url=${resolved.url.slice(0, 96)}…`
+        );
+        return;
+      } catch (err) {
+        const is152 = ingestYtdlp.isYtDlpErrorCode152Unavailable(err);
+
+        // A 152 while a pool cookie was active burns that cookie and, budget
+        // permitting, retries immediately with the next active cookie.
+        if (is152 && cookie) {
+          triedCookieIds.push(cookie.id);
+          await cookiePool.burnCookie(cookie.id, `yt-dlp 152 on video ${videoId}`);
+          releasePoolCookie(cookie);
+          cookie = null;
+
+          if (rotation < COOKIE_ROTATION_RETRIES) {
+            cookie = await acquirePoolCookie(triedCookieIds);
+            if (cookie) {
+              console.warn(
+                `[ingest-worker] 152 with burned cookie — retrying video=${videoId} with next pool cookie (rotation ${rotation + 1}/${COOKIE_ROTATION_RETRIES})`
+              );
+              continue;
+            }
+            console.error(
+              '[ingest-worker] CRITICAL: cookie pool EXHAUSTED — all youtube_cookies are burned. ' +
+                'Replenish the pool (insert new active rows) to restore cookie rotation.'
+            );
+          }
+        }
+
+        await handleIngestFailure(job, err);
+        return;
+      }
+    }
+  } finally {
+    releasePoolCookie(cookie);
   }
 }
 
@@ -229,6 +304,19 @@ async function main() {
     console.warn(
       '[ingest-worker] yt-dlp proxy: (none) — set YT_DLP_PROXY_* env vars; datacenter egress will be bot-blocked'
     );
+  }
+
+  if (cookiePool.isConfigured()) {
+    const activeCookies = await cookiePool.countActiveCookies();
+    if (activeCookies > 0) {
+      console.log(
+        `[ingest-worker] cookie pool: ${activeCookies} active cookie(s), rotationRetries=${COOKIE_ROTATION_RETRIES}`
+      );
+    } else {
+      console.warn(
+        '[ingest-worker] cookie pool: 0 active cookies — insert rows into youtube_cookies to enable rotation'
+      );
+    }
   }
 
   publishDiagnostics();
