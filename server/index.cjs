@@ -1,5 +1,5 @@
 // server/index.cjs — SafeTube Media Bridge
-// YouTube playback: Bunny Stream (fetch + transcode + CDN HLS).
+// YouTube playback: client-side InnerTube (USE_CLIENT_STREAM_RESOLVE=1) or legacy Bunny/yt-dlp.
 
 'use strict';
 
@@ -68,6 +68,66 @@ function useIngestWorker() {
   if (flag === '0' || flag === 'false') return false;
   if (flag === '1' || flag === 'true') return true;
   return streamStatusStore.isConfigured();
+}
+
+/** Job stub used when the browser (not the server) resolves stream URLs. */
+function buildClientResolveJob(videoId, rawQuality) {
+  const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
+  return {
+    status: 'processing',
+    cacheKey,
+    startedAt: Date.now(),
+    expiresAt: Date.now() + STREAM_PREPARE_TTL_MS,
+    cached: null,
+    error: null,
+    promise: null,
+    progress: {
+      phase: 'client_resolve',
+      detail: 'Waiting for browser InnerTube registration (POST client-ready)',
+      activeSource: 'client',
+      retryAfterMs: 0,
+    },
+  };
+}
+
+function buildClientResolveStatusResponse(req, videoId, rawQuality) {
+  return {
+    status: 'client_resolve',
+    videoId,
+    quality: normalizeStreamQuality(rawQuality, '360p'),
+    source: 'client',
+    activeSource: 'client',
+    resolveMode: 'innertube',
+    phase: 'client_resolve',
+    detail: 'Resolve in the browser, then POST /api/stream/:videoId/client-ready',
+    metadataUrl: `${publicBridgeOrigin(req)}/api/youtube/metadata/${encodeURIComponent(videoId)}`,
+    retryAfterMs: 0,
+    pollUrl: streamStatusPollUrl(req, videoId, rawQuality),
+  };
+}
+
+async function fetchOembedVideoInfo(videoId) {
+  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
+  const oembedRes = await fetch(oembedUrl, {
+    signal: AbortSignal.timeout(15_000),
+    headers: { 'user-agent': MEDIA_USER_AGENT },
+  });
+  if (!oembedRes.ok) {
+    throw new Error(`YouTube oEmbed unavailable (${oembedRes.status})`);
+  }
+  const oembed = await oembedRes.json();
+  const thumbUrl = typeof oembed.thumbnail_url === 'string' ? oembed.thumbnail_url : null;
+  return {
+    title: oembed.title || null,
+    lengthSeconds: null,
+    author: oembed.author_name || null,
+    ownerChannelName: oembed.author_name || null,
+    externalChannelId: null,
+    thumbnail: thumbUrl ? [{ url: thumbUrl }] : [],
+    isLiveContent: false,
+    liveBroadcastDetails: { isLiveNow: false },
+  };
 }
 
 const ALLOWED_STREAM_QUALITIES = new Set(['240p', '360p', '480p', '720p', '1080p']);
@@ -460,6 +520,11 @@ async function startStreamPrepare(videoId, rawQuality, { forceRestart = false } 
     return { status: 'ready', cacheKey, cached: cached.entry, promise: null };
   }
 
+  // Client-side InnerTube mode — never enqueue worker jobs or run inline yt-dlp/Bunny.
+  if (useClientStreamResolve()) {
+    return buildClientResolveJob(videoId, rawQuality);
+  }
+
   if (useIngestWorker()) {
     // Fast path: worker already marked ready — skip enqueue round-trip.
     const existing = await streamStatusStore.getJob(videoId, rawQuality);
@@ -589,6 +654,11 @@ function buildProcessingStatusResponse(req, videoId, rawQuality, job) {
  * @param {object} [progress] — mutable status for async /status polling
  */
 async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = null) {
+  if (useClientStreamResolve()) {
+    throw new Error(
+      'CLIENT_RESOLVE_REQUIRED: server-side resolve disabled — browser must POST /api/stream/:videoId/client-ready'
+    );
+  }
   if (!BUNNY_CONFIGURED) {
     throw new Error(
       'Bunny Stream is not configured (set BUNNY_STREAM_API_KEY and BUNNY_LIBRARY_ID on the Media Bridge)'
@@ -621,8 +691,8 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = nul
 }
 
 async function getVideoInfo(videoId) {
-  if (!BUNNY_CONFIGURED) {
-    throw new Error('Video info unavailable (Bunny Stream not configured)');
+  if (useClientStreamResolve() || !BUNNY_CONFIGURED) {
+    return fetchOembedVideoInfo(videoId);
   }
   return bunnyStream.getVideoInfo(videoId);
 }
@@ -632,6 +702,12 @@ async function getCachedUpstreamUrl(
   rawQuality = '360p',
   { forceRefresh = false, progress = null } = {}
 ) {
+  if (useClientStreamResolve()) {
+    throw new Error(
+      'CLIENT_RESOLVE_REQUIRED: POST /api/stream/:videoId/client-ready before requesting media'
+    );
+  }
+
   const targetQuality = normalizeStreamQuality(rawQuality, '360p');
   const cacheKey = resolveCacheKey(videoId, rawQuality, '360p');
 
@@ -902,20 +978,29 @@ app.get('/health', (_req, res) => {
 
 app.get('/api/diagnostics', async (_req, res) => {
   try {
-    // Live probe of THIS (web) service's egress. Note: the web service usually has
-    // no proxy env in queue mode, so `worker` below is the section that matters.
-    const web = await bunnyStream.ingestYtdlp.runEgressDiagnostics();
+    let web;
+    if (useClientStreamResolve()) {
+      web = {
+        clientStreamResolve: true,
+        note: 'Server yt-dlp/Bunny egress diagnostics disabled in client-side resolve mode',
+      };
+    } else {
+      web = await bunnyStream.ingestYtdlp.runEgressDiagnostics();
+    }
 
     let workers = [];
-    try {
-      workers = await streamStatusStore.getWorkerDiagnostics();
-    } catch (err) {
-      console.warn('[/api/diagnostics] worker diagnostics read failed:', err?.message || err);
+    if (!useClientStreamResolve()) {
+      try {
+        workers = await streamStatusStore.getWorkerDiagnostics();
+      } catch (err) {
+        console.warn('[/api/diagnostics] worker diagnostics read failed:', err?.message || err);
+      }
     }
 
     res.json({
       ok: true,
       service: 'safetube-media-bridge',
+      clientStreamResolve: useClientStreamResolve(),
       ingestWorkerMode: useIngestWorker(),
       web,
       workers,
@@ -924,6 +1009,15 @@ app.get('/api/diagnostics', async (_req, res) => {
     console.error('[/api/diagnostics] failed:', err?.message || err);
     res.status(500).json({ ok: false, error: err?.message || 'diagnostics failed' });
   }
+});
+
+/** Public stream mode — frontend can confirm client-side resolve without guessing env vars. */
+app.get('/api/stream/config', (_req, res) => {
+  res.json({
+    clientStreamResolve: useClientStreamResolve(),
+    ingestWorkerMode: useIngestWorker(),
+    resolver: useClientStreamResolve() ? 'client-innertube' : useIngestWorker() ? 'worker' : 'server',
+  });
 });
 
 app.get('/api/youtube/search', async (req, res) => {
@@ -1051,6 +1145,10 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
     return res.json(buildStreamJsonResponse(req, videoId, rawQuality, cached.entry));
   }
 
+  if (useClientStreamResolve()) {
+    return res.status(202).json(buildClientResolveStatusResponse(req, videoId, rawQuality));
+  }
+
   if (useIngestWorker()) {
     const row = await streamStatusStore.getJob(videoId, rawQuality);
 
@@ -1143,6 +1241,10 @@ app.get('/api/stream/:videoId', async (req, res) => {
         `[api/stream] ${videoId} ${payload.source} cache hit=${cachedLookup.lookup} quality=${payload.quality}`
       );
       return res.json(payload);
+    }
+
+    if (useClientStreamResolve()) {
+      return res.status(202).json(buildClientResolveStatusResponse(req, videoId, rawQuality));
     }
 
     if (useAsync) {
@@ -1246,6 +1348,15 @@ app.get('/api/media/:videoId', async (req, res) => {
       });
     }
 
+    if (useClientStreamResolve()) {
+      return res.status(503).json({
+        error: 'FILE_NOT_READY',
+        detail: 'Client must POST /api/stream/:videoId/client-ready before media playback',
+        clientResolve: true,
+        retryAfterSec: 2,
+      });
+    }
+
     const cached = await getCachedUpstreamUrl(videoId, rawQuality);
 
     console.log(
@@ -1322,11 +1433,13 @@ app.post('/admin/clear-resolve-cache', (_req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  try {
-    ensureYtDlpBinary({ strict: false, probe: true });
-  } catch (err) {
-    console.error(`[bridge] yt-dlp startup check failed: ${err.message}`);
-    if (err.stderr) console.error(`[bridge] yt-dlp stderr:\n${err.stderr}`);
+  if (!useClientStreamResolve()) {
+    try {
+      ensureYtDlpBinary({ strict: false, probe: true });
+    } catch (err) {
+      console.error(`[bridge] yt-dlp startup check failed: ${err.message}`);
+      if (err.stderr) console.error(`[bridge] yt-dlp stderr:\n${err.stderr}`);
+    }
   }
 
   console.log(`[bridge] listening on http://${HOST}:${PORT}`);

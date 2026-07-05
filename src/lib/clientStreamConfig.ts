@@ -7,9 +7,12 @@
  */
 export function isClientStreamResolveEnabled(): boolean {
   const flag = String(import.meta.env.VITE_CLIENT_STREAM_RESOLVE ?? '').trim().toLowerCase()
+  if (flag === '0' || flag === 'false') return false
   if (flag === '1' || flag === 'true' || flag === 'yes') return true
-  // Local dev: default on so the bridge worker is not required for playback tests.
-  if (import.meta.env.DEV && flag !== '0' && flag !== 'false') return true
+  // Production default: server Bunny/yt-dlp path is removed; browser resolves via InnerTube.
+  if (import.meta.env.PROD) return true
+  // Local dev: default on unless explicitly disabled.
+  if (import.meta.env.DEV) return true
   return false
 }
 

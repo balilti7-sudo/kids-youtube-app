@@ -1068,7 +1068,7 @@ export async function fetchStreamInfo(
 
   const inflightKey = streamInfoCacheKey(id, requestedQuality)
 
-  if (isClientStreamResolveEnabled()) {
+  if (await shouldUseClientStreamResolve()) {
     const existingClient = streamInfoInflight.get(inflightKey)
     if (existingClient) {
       if (signal) {
@@ -1108,6 +1108,29 @@ export async function fetchStreamInfo(
 
   streamInfoInflight.set(inflightKey, promise)
   return promise
+}
+
+let bridgeClientResolveCached: boolean | null = null
+
+/** Ask the bridge once whether client-side resolve is active (covers missing Vite env). */
+async function shouldUseClientStreamResolve(): Promise<boolean> {
+  if (isClientStreamResolveEnabled()) return true
+  if (bridgeClientResolveCached !== null) return bridgeClientResolveCached
+  try {
+    const res = await bridgeFetch(buildMediaBridgeApiUrl('/api/stream/config'), {
+      credentials: 'omit',
+      headers: { accept: 'application/json' },
+    })
+    if (res.ok) {
+      const body = (await res.json()) as { clientStreamResolve?: boolean }
+      bridgeClientResolveCached = Boolean(body.clientStreamResolve)
+      return bridgeClientResolveCached
+    }
+  } catch {
+    /* bridge unreachable — fall through */
+  }
+  bridgeClientResolveCached = false
+  return false
 }
 
 async function registerClientStreamOnBridge(
@@ -1260,16 +1283,26 @@ async function doFetchStreamInfo(
     clearTimeout(timeout)
 
     if (res.status === 202) {
-      let pollUrl: string | undefined
-      let retryAfterMs = STREAM_STATUS_POLL_DEFAULT_MS
+      let body: Record<string, unknown> = {}
       try {
-        const body = (await res.json()) as Record<string, unknown>
-        pollUrl = typeof body.pollUrl === 'string' ? body.pollUrl : undefined
-        if (typeof body.retryAfterMs === 'number' && Number.isFinite(body.retryAfterMs)) {
-          retryAfterMs = body.retryAfterMs
-        }
+        body = (await res.json()) as Record<string, unknown>
       } catch {
         /* ignore */
+      }
+
+      // Bridge in client mode — resolve in browser instead of polling worker/Bunny.
+      if (body.status === 'client_resolve' || body.resolveMode === 'innertube') {
+        console.info('[streamApi] bridge signalled client_resolve — running InnerTube in browser', {
+          videoId,
+        })
+        return resolveStreamOnClient(videoId, String(quality || STREAM_START_QUALITY), signal)
+      }
+
+      let pollUrl: string | undefined
+      let retryAfterMs = STREAM_STATUS_POLL_DEFAULT_MS
+      pollUrl = typeof body.pollUrl === 'string' ? body.pollUrl : undefined
+      if (typeof body.retryAfterMs === 'number' && Number.isFinite(body.retryAfterMs)) {
+        retryAfterMs = body.retryAfterMs
       }
       onFilePreparing?.({
         nextAttempt: 2,
