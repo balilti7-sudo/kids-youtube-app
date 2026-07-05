@@ -615,6 +615,10 @@ const FILE_PREPARE_MAX_ATTEMPTS = 24
 const FILE_PREPARE_RETRY_DELAYS_MS = [3_000, 4_000, 5_000, 6_000, 8_000, 10_000, 12_000] as const
 const STREAM_STATUS_POLL_DEFAULT_MS = 3_000
 const STREAM_STATUS_POLL_MAX_MS = 12_000
+/** Per status-poll request — bridge cold starts on Render can take 30–45s. */
+const STREAM_STATUS_POLL_TIMEOUT_MS = Number(
+  import.meta.env.VITE_STREAM_STATUS_POLL_TIMEOUT_MS || 45_000
+)
 
 function isFileNotReadyStreamError(err: unknown): boolean {
   if (!(err instanceof StreamApiError)) return false
@@ -691,11 +695,50 @@ async function pollStreamUntilReady(
       throw r instanceof Error ? r : new DOMException('Aborted', 'AbortError')
     }
 
-    const res = await bridgeFetch(statusUrl, {
-      credentials: 'omit',
-      headers: { accept: 'application/json' },
-      signal,
-    })
+    const pollController = new AbortController()
+    const pollTimeout = setTimeout(() => {
+      pollController.abort(new DOMException('PollTimeout', 'TimeoutError'))
+    }, STREAM_STATUS_POLL_TIMEOUT_MS)
+    const abortFromParent = () => pollController.abort(signal?.reason)
+    if (signal) {
+      if (signal.aborted) pollController.abort(signal.reason)
+      else signal.addEventListener('abort', abortFromParent, { once: true })
+    }
+
+    let res: Response
+    try {
+      res = await bridgeFetch(statusUrl, {
+        credentials: 'omit',
+        headers: { accept: 'application/json' },
+        signal: pollController.signal,
+      })
+    } catch (pollErr) {
+      clearTimeout(pollTimeout)
+      if (signal?.aborted) {
+        const r = signal.reason
+        throw r instanceof Error ? r : new DOMException('Aborted', 'AbortError')
+      }
+      // Bridge cold start / network blip — retry on the next poll tick.
+      console.warn('[streamApi] status poll request failed, retrying', {
+        videoId,
+        attempt: attempt + 1,
+        error: pollErr instanceof Error ? pollErr.message : String(pollErr),
+      })
+      const delayBeforeNextMs = streamStatusDelayMs(
+        { retryAfterMs: STREAM_STATUS_POLL_DEFAULT_MS } as StreamStatusResponse,
+        attempt
+      )
+      onFilePreparing?.({
+        nextAttempt: attempt + 2,
+        totalAttempts: FILE_PREPARE_MAX_ATTEMPTS,
+        delayBeforeNextMs,
+      })
+      await sleepWithAbort(delayBeforeNextMs, signal)
+      continue
+    } finally {
+      clearTimeout(pollTimeout)
+      if (signal) signal.removeEventListener('abort', abortFromParent)
+    }
 
     let body: Record<string, unknown>
     try {

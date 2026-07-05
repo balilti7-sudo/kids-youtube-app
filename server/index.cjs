@@ -297,9 +297,40 @@ function isExpiredDirectUrl(url) {
 
 /** Legacy Bunny-era row — stale for the direct-streaming flow; force re-ingest. */
 function isLegacyBunnyRow(row) {
+  const url = String(row?.playback_url || '');
+  // A googlevideo / videoplayback URL is always direct, even if legacy metadata remains.
+  if (/googlevideo\.com|youtube\.com\/videoplayback/i.test(url)) return false;
+  if (row?.source === 'direct') return false;
   if (row?.source === 'bunny') return true;
   if (row?.bunny_guid) return true;
-  return /bunnycdn\.com|b-cdn\.net|mediadelivery\.net/i.test(String(row?.playback_url || ''));
+  return /bunnycdn\.com|b-cdn\.net|mediadelivery\.net/i.test(url);
+}
+
+/** Debounce stale-row requeues so status polling cannot reset a ready job every 3s. */
+const staleRequeueAt = new Map();
+const STALE_REQUEUE_COOLDOWN_MS = 60_000;
+
+function shouldRequeueStaleReady(cacheKey) {
+  const last = staleRequeueAt.get(cacheKey) || 0;
+  if (Date.now() - last < STALE_REQUEUE_COOLDOWN_MS) return false;
+  staleRequeueAt.set(cacheKey, Date.now());
+  return true;
+}
+
+/**
+ * Build a cache entry from a Supabase ready row, or null when the URL is stale.
+ * When `requeueIfStale` is true and the row is stale, re-enqueues at most once
+ * per minute (prevents poll loops from undoing a worker's markReady).
+ */
+function readyEntryFromSupabaseRow(row, rawQuality, cacheKey, { requeueIfStale = false } = {}) {
+  const entry = cacheEntryFromSupabaseRow(row, rawQuality);
+  if (entry || !requeueIfStale || row?.status !== 'ready') return entry;
+  if (!shouldRequeueStaleReady(cacheKey)) return null;
+  console.warn(
+    `[stream] stale playback_url for ${row.youtube_video_id} (${isLegacyBunnyRow(row) ? 'legacy bunny' : 'expired'}) — re-enqueueing for direct URL`
+  );
+  void streamStatusStore.markQueued(row.youtube_video_id, rawQuality).catch(() => {});
+  return null;
 }
 
 function cacheEntryFromSupabaseRow(row, rawQuality) {
@@ -351,12 +382,7 @@ function buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey) {
         progress: { phase: 'ready', detail: 'Playback ready' },
       };
     }
-    // Ready row that is legacy-Bunny or has an expired direct URL — re-enqueue
-    // so the worker resolves a fresh googlevideo URL; report "processing".
-    console.warn(
-      `[stream] stale playback_url for ${videoId} (${isLegacyBunnyRow(row) ? 'legacy bunny' : 'expired'}) — re-enqueueing for direct URL`
-    );
-    void streamStatusStore.markQueued(videoId, rawQuality).catch(() => {});
+    // Stale ready row — report processing; requeue is handled by the caller when appropriate.
     return {
       status: 'processing',
       cacheKey,
@@ -413,6 +439,18 @@ async function startStreamPrepare(videoId, rawQuality, { forceRestart = false } 
   }
 
   if (useIngestWorker()) {
+    // Fast path: worker already marked ready — skip enqueue round-trip.
+    const existing = await streamStatusStore.getJob(videoId, rawQuality);
+    if (existing?.status === 'ready' && existing.playback_url) {
+      const entry = readyEntryFromSupabaseRow(existing, rawQuality, cacheKey, {
+        requeueIfStale: true,
+      });
+      if (entry) {
+        resolveCacheSet(cacheKey, entry.upstreamUrl, entry);
+        return { status: 'ready', cacheKey, cached: entry, promise: null };
+      }
+    }
+
     const row = await streamStatusStore.enqueue(videoId, rawQuality, { forceRestart });
     const job = buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey);
     console.log(
@@ -513,7 +551,7 @@ function buildProcessingStatusResponse(req, videoId, rawQuality, job) {
     retryAfterMs: progress.retryAfterMs || 3000,
     elapsedMs: job ? Date.now() - (job.startedAt || Date.now()) : 0,
     phase: progress.phase || 'processing',
-    activeSource: progress.activeSource || 'bunny',
+    activeSource: progress.activeSource || 'direct',
     fallbackFrom: progress.fallbackFrom || null,
     detail: progress.detail || null,
     durationSeconds: progress.durationSeconds || null,
@@ -913,35 +951,39 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
   }
 
   if (useIngestWorker()) {
-    let row = await streamStatusStore.getJob(videoId, rawQuality);
+    const row = await streamStatusStore.getJob(videoId, rawQuality);
 
-    if (row?.status === 'ready') {
-      const entry = cacheEntryFromSupabaseRow(row, rawQuality);
+    // FAST PATH: worker finished — return the direct URL immediately (no enqueue,
+    // no Bunny checks, no side effects beyond populating the in-memory cache).
+    if (row?.status === 'ready' && row.playback_url) {
+      const entry = readyEntryFromSupabaseRow(row, rawQuality, cacheKey, {
+        requeueIfStale: true,
+      });
       if (entry) {
         resolveCacheSet(cacheKey, entry.upstreamUrl, entry);
         return res.json(buildStreamJsonResponse(req, videoId, rawQuality, entry));
       }
-      // Stale ready row (legacy bunny / expired direct URL) — fall through to
-      // buildApiJobFromSupabase, which re-enqueues for a fresh direct URL.
     }
 
-    if (row?.status === 'failed') {
-      if (streamStatusStore.isRetryableErrorCode(row.error_code)) {
+    let activeRow = row;
+
+    if (activeRow?.status === 'failed') {
+      if (streamStatusStore.isRetryableErrorCode(activeRow.error_code)) {
         console.warn(
-          `[/api/stream/status] re-queue video=${videoId} error=${row.error_code || '?'}`
+          `[/api/stream/status] re-queue video=${videoId} error=${activeRow.error_code || '?'}`
         );
-        row = await streamStatusStore.enqueue(videoId, rawQuality, { forceRestart: true });
+        activeRow = await streamStatusStore.enqueue(videoId, rawQuality, { forceRestart: true });
       } else {
-        const classified = classifyStreamResolveError(supabaseRowToError(row));
+        const classified = classifyStreamResolveError(supabaseRowToError(activeRow));
         return res.status(classified.status).json(classified.body);
       }
     }
 
-    if (!row || row.status === 'failed') {
-      row = await streamStatusStore.enqueue(videoId, rawQuality);
+    if (!activeRow || activeRow.status === 'failed') {
+      activeRow = await streamStatusStore.enqueue(videoId, rawQuality);
     }
 
-    const job = buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey);
+    const job = buildApiJobFromSupabase(activeRow, videoId, rawQuality, cacheKey);
     if (job.status === 'ready' && job.cached) {
       return res.json(buildStreamJsonResponse(req, videoId, rawQuality, job.cached));
     }
@@ -1086,12 +1128,12 @@ app.get('/api/media/:videoId', async (req, res) => {
     if (useIngestWorker()) {
       const row = await streamStatusStore.getJob(videoId, rawQuality);
       if (row?.status === 'ready' && row.playback_url) {
-        if (isLegacyBunnyRow(row) || isExpiredDirectUrl(row.playback_url)) {
-          // Stale row (legacy bunny / expired direct URL) — requeue for a fresh
-          // googlevideo URL and tell the client to poll.
-          void streamStatusStore.markQueued(videoId, rawQuality).catch(() => {});
-        } else {
-          return res.redirect(302, row.playback_url);
+        const entry = readyEntryFromSupabaseRow(row, rawQuality, cacheKey, {
+          requeueIfStale: true,
+        });
+        if (entry) {
+          resolveCacheSet(cacheKey, entry.upstreamUrl, entry);
+          return res.redirect(302, entry.upstreamUrl);
         }
       }
 
