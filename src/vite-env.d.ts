@@ -22,6 +22,13 @@ interface ImportMetaEnv {
   readonly VITE_MEDIA_BRIDGE_PROXY_TARGET?: string
   /** Max ms to wait for Media Bridge `GET /api/stream/:videoId` (default 180000). */
   readonly VITE_STREAM_INFO_TIMEOUT_MS?: string
+  /** Per status-poll HTTP request timeout (ms). Default 45000. */
+  readonly VITE_STREAM_STATUS_POLL_TIMEOUT_MS?: string
+  /**
+   * When `"true"`, the browser resolves YouTube streams via InnerTube (youtubei.js)
+   * instead of the Render ingest worker / yt-dlp. Bridge must set USE_CLIENT_STREAM_RESOLVE=1.
+   */
+  readonly VITE_CLIENT_STREAM_RESOLVE?: string
   /** When `"true"`, CleanPlayer uses youtube-nocookie iframe with modestbranding=1&rel=0 instead of Media Bridge */
   readonly VITE_YOUTUBE_IFRAME_PLAYER?: string
   /**

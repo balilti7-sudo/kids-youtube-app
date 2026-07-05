@@ -56,7 +56,14 @@ const resolveCache = new Map();
 /** Legacy in-process jobs when USE_INGEST_WORKER=0 (local dev without Supabase queue). */
 const streamPrepareJobs = new Map();
 
+function useClientStreamResolve() {
+  const flag = String(process.env.USE_CLIENT_STREAM_RESOLVE || '').trim().toLowerCase();
+  if (flag === '1' || flag === 'true' || flag === 'yes') return true;
+  return false;
+}
+
 function useIngestWorker() {
+  if (useClientStreamResolve()) return false;
   const flag = String(process.env.USE_INGEST_WORKER || '').trim().toLowerCase();
   if (flag === '0' || flag === 'false') return false;
   if (flag === '1' || flag === 'true') return true;
@@ -86,9 +93,24 @@ function buildResolveCacheEntry(upstreamUrl, meta = {}) {
     quality: meta.quality || null,
     mime: meta.mime || 'video/mp4',
     source: meta.source || null,
+    proxied: meta.proxied,
     requestedQuality: meta.requestedQuality || null,
     expiresAt: Date.now() + RESOLVE_CACHE_TTL_MS,
   };
+}
+
+/** Accept only googlevideo / YouTube videoplayback URLs from the client resolver. */
+function isAllowedClientPlaybackUrl(url) {
+  try {
+    const u = new URL(String(url || ''));
+    if (!/^https?:$/i.test(u.protocol)) return false;
+    return (
+      /(^|\.)googlevideo\.com$/i.test(u.hostname) ||
+      (/youtube\.com$/i.test(u.hostname) && /videoplayback/i.test(u.pathname + u.search))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function resolveCacheGet(cacheKey) {
@@ -699,6 +721,10 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
     'User-Agent': MEDIA_USER_AGENT,
     Accept: '*/*',
   };
+  if (/googlevideo\.com/i.test(upstream.hostname) || /videoplayback/i.test(upstreamUrl)) {
+    headers.Referer = 'https://www.youtube.com/';
+    headers.Origin = 'https://www.youtube.com';
+  }
   if (req.headers.range) headers.Range = req.headers.range;
 
   const proxyReq = lib.request(
@@ -860,16 +886,17 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     bridge: { port: PORT, host: HOST },
-    resolver: 'bunny-stream',
+    resolver: useClientStreamResolve() ? 'client-innertube' : 'bunny-stream',
+    clientStreamResolve: useClientStreamResolve(),
     bunnyLibraryId: bunnyStream.BUNNY_LIBRARY_ID || null,
     bunnyConfigured: BUNNY_CONFIGURED,
     ingestResolvers: {
-      ytdlp: bunnyStream.isIngestResolverConfigured(),
+      ytdlp: !useClientStreamResolve() && bunnyStream.isIngestResolverConfigured(),
     },
     ingestWorkerMode: useIngestWorker(),
     ingestQueueConfigured: streamStatusStore.isConfigured(),
-    ingestReady: bunnyStream.isIngestResolverConfigured(),
-    ytdlpBinary: bunnyStream.ingestYtdlp.resolveYtDlpBinary(),
+    ingestReady: useClientStreamResolve() || bunnyStream.isIngestResolverConfigured(),
+    ytdlpBinary: useClientStreamResolve() ? null : bunnyStream.ingestYtdlp.resolveYtDlpBinary(),
   });
 });
 
@@ -934,6 +961,80 @@ app.get('/api/youtube/search', async (req, res) => {
       detail: err?.message || 'YouTube search failed',
     });
   }
+});
+
+/** Lightweight metadata (no yt-dlp) for client-side stream resolution. */
+app.get('/api/youtube/metadata/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  if (!/^[\w-]{11}$/.test(videoId)) {
+    return res.status(400).json({ error: 'invalid videoId' });
+  }
+
+  try {
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
+    const oembedRes = await fetch(oembedUrl, {
+      signal: AbortSignal.timeout(15_000),
+      headers: { 'user-agent': MEDIA_USER_AGENT },
+    });
+    if (!oembedRes.ok) {
+      return res.status(oembedRes.status).json({
+        error: 'metadata_unavailable',
+        detail: `oEmbed ${oembedRes.status}`,
+      });
+    }
+    const oembed = await oembedRes.json();
+    res.json({
+      videoId,
+      title: oembed.title || null,
+      author: oembed.author_name || null,
+      thumbnail: oembed.thumbnail_url || null,
+      resolveMode: useClientStreamResolve() ? 'client' : 'server',
+    });
+  } catch (err) {
+    console.error('[/api/youtube/metadata] failed:', err?.message || err);
+    res.status(502).json({ error: 'metadata_failed', detail: err?.message || 'metadata failed' });
+  }
+});
+
+/**
+ * Client-side InnerTube resolver registers a googlevideo URL for proxied playback.
+ * The bridge never runs yt-dlp here — it only stores the URL and serves /api/media.
+ */
+app.post('/api/stream/:videoId/client-ready', async (req, res) => {
+  const { videoId } = req.params;
+  if (!/^[\w-]{11}$/.test(videoId)) {
+    return res.status(400).json({ error: 'invalid videoId' });
+  }
+  if (!useClientStreamResolve()) {
+    return res.status(403).json({
+      error: 'client_resolve_disabled',
+      detail: 'Set USE_CLIENT_STREAM_RESOLVE=1 on the bridge',
+    });
+  }
+
+  const quality = normalizeStreamQuality(req.body?.quality);
+  const playbackUrl = String(req.body?.playbackUrl || req.body?.url || '').trim();
+  if (!isAllowedClientPlaybackUrl(playbackUrl)) {
+    return res.status(400).json({ error: 'invalid_playback_url' });
+  }
+
+  const cacheKey = resolveCacheKey(videoId, quality);
+  const mime = String(req.body?.mime || req.body?.mimeType || 'video/mp4');
+  const entry = buildResolveCacheEntry(playbackUrl, {
+    quality,
+    mime,
+    source: 'client',
+    proxied: true,
+    requestedQuality: quality,
+  });
+  resolveCache.set(cacheKey, entry);
+
+  console.log(
+    `[client-ready] video=${videoId} quality=${quality} cached for media proxy (${playbackUrl.slice(0, 72)}…)`
+  );
+
+  return res.json(buildStreamJsonResponse(req, videoId, quality, entry));
 });
 
 app.get('/api/stream/:videoId/status', async (req, res) => {
@@ -1229,32 +1330,38 @@ app.listen(PORT, HOST, () => {
   }
 
   console.log(`[bridge] listening on http://${HOST}:${PORT}`);
-  console.log(
-    `[bridge] YouTube resolver: Bunny Stream (library=${bunnyStream.BUNNY_LIBRARY_ID || '?'})`
-  );
-  if (!BUNNY_CONFIGURED) {
-    console.error(
-      '[bridge] WARNING: BUNNY_STREAM_API_KEY and/or BUNNY_LIBRARY_ID not set — /api/stream will fail.'
-    );
-  }
-  if (!bunnyStream.isIngestResolverConfigured()) {
-    console.error(
-      '[bridge] WARNING: yt-dlp not found — run `npm run download-tools` in server/ or set YT_DLP_BINARY_PATH.'
-    );
-  } else if (useIngestWorker()) {
+  if (useClientStreamResolve()) {
     console.log(
-      '[bridge] ingest mode: API enqueue-only — run `node ingest-worker.cjs` (or Render worker) for yt-dlp'
+      '[bridge] YouTube resolver: CLIENT (browser InnerTube) — yt-dlp worker disabled; playback via /api/media proxy'
     );
   } else {
-    console.log(`[bridge] Bunny ingest: inline yt-dlp (${bunnyStream.ingestYtdlp.resolveYtDlpBinary()})`);
-    const proxyMode = bunnyStream.ingestYtdlp.describeProxyMode();
-    if (proxyMode.configured) {
+    console.log(
+      `[bridge] YouTube resolver: Bunny Stream (library=${bunnyStream.BUNNY_LIBRARY_ID || '?'})`
+    );
+    if (!BUNNY_CONFIGURED) {
+      console.error(
+        '[bridge] WARNING: BUNNY_STREAM_API_KEY and/or BUNNY_LIBRARY_ID not set — /api/stream will fail.'
+      );
+    }
+    if (!bunnyStream.isIngestResolverConfigured()) {
+      console.error(
+        '[bridge] WARNING: yt-dlp not found — run `npm run download-tools` in server/ or set YT_DLP_BINARY_PATH.'
+      );
+    } else if (useIngestWorker()) {
       console.log(
-        `[bridge] yt-dlp proxy: ${proxyMode.endpoint} mode=${proxyMode.mode}` +
-          ` retries=${proxyMode.maxRetries} delayMs=${proxyMode.retryDelayMs}`
+        '[bridge] ingest mode: API enqueue-only — run `node ingest-worker.cjs` (or Render worker) for yt-dlp'
       );
     } else {
-      console.log('[bridge] yt-dlp proxy: (none — datacenter egress, bot blocks likely)');
+      console.log(`[bridge] Bunny ingest: inline yt-dlp (${bunnyStream.ingestYtdlp.resolveYtDlpBinary()})`);
+      const proxyMode = bunnyStream.ingestYtdlp.describeProxyMode();
+      if (proxyMode.configured) {
+        console.log(
+          `[bridge] yt-dlp proxy: ${proxyMode.endpoint} mode=${proxyMode.mode}` +
+            ` retries=${proxyMode.maxRetries} delayMs=${proxyMode.retryDelayMs}`
+        );
+      } else {
+        console.log('[bridge] yt-dlp proxy: (none — datacenter egress, bot blocks likely)');
+      }
     }
   }
 });

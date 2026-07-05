@@ -14,6 +14,8 @@ services:
         value: 8787
       - key: USE_INGEST_WORKER
         value: "1"
+      - key: USE_CLIENT_STREAM_RESOLVE
+        value: "1"
       - key: CORS_ORIGIN
         sync: false
       - key: PUBLIC_BASE_URL

@@ -47,6 +47,11 @@ const COOKIE_ROTATION_RETRIES = Math.max(
   Number(process.env.INGEST_COOKIE_ROTATION_RETRIES || 1)
 );
 
+function useClientStreamResolve() {
+  const flag = String(process.env.USE_CLIENT_STREAM_RESOLVE || '').trim().toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'yes';
+}
+
 const ALLOWED_QUALITIES = new Set(['240p', '360p', '480p', '720p', '1080p']);
 
 function normalizeQuality(raw, fallback = '360p') {
@@ -251,6 +256,17 @@ async function workerLoop(slot) {
 }
 
 async function main() {
+  if (useClientStreamResolve()) {
+    console.log(
+      '[ingest-worker] USE_CLIENT_STREAM_RESOLVE=1 — server yt-dlp ingest disabled; ' +
+        'the browser resolves streams via InnerTube and registers URLs on the bridge.'
+    );
+    startBridgeKeepAlive();
+    // Render worker slot: stay alive for keep-alive pings only (no Supabase queue / yt-dlp).
+    await new Promise(() => {});
+    return;
+  }
+
   if (!streamStatusStore.isConfigured()) {
     console.error('[ingest-worker] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
     process.exit(1);

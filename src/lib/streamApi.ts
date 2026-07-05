@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 import { assertChildPlaybackAllowedForStream, ChildPlaybackBlockedError } from './childRuntime'
+import { isClientStreamResolveEnabled } from './clientStreamConfig'
+import { resolveClientYoutubeStream, type ClientResolvedStream } from './clientYoutubeResolve'
 import {
   LIVE_UPCOMING_PLAYBACK_MESSAGE,
   normalizeBridgeErrorDetail,
@@ -13,6 +15,7 @@ export {
   streamApiErrorIsUpcomingLive,
   UPCOMING_LIVE_LION_MESSAGE,
 } from './liveStreamPolicy'
+export { isClientStreamResolveEnabled } from './clientStreamConfig'
 
 /** Response shape from `server` Media Bridge `GET /api/stream/:videoId` */
 export type StreamApiResponse = {
@@ -1064,6 +1067,27 @@ export async function fetchStreamInfo(
   }
 
   const inflightKey = streamInfoCacheKey(id, requestedQuality)
+
+  if (isClientStreamResolveEnabled()) {
+    const existingClient = streamInfoInflight.get(inflightKey)
+    if (existingClient) {
+      if (signal) {
+        return Promise.race([existingClient, waitForAbortSignal(signal)])
+      }
+      return existingClient
+    }
+    const clientPromise = resolveStreamOnClient(id, requestedQuality, signal)
+      .then((data) => {
+        setCachedStreamInfo(id, data, requestedQuality)
+        return data
+      })
+      .finally(() => {
+        streamInfoInflight.delete(inflightKey)
+      })
+    streamInfoInflight.set(inflightKey, clientPromise)
+    return clientPromise
+  }
+
   const existing = streamInfoInflight.get(inflightKey)
   if (existing) {
     if (signal) {
@@ -1084,6 +1108,88 @@ export async function fetchStreamInfo(
 
   streamInfoInflight.set(inflightKey, promise)
   return promise
+}
+
+async function registerClientStreamOnBridge(
+  videoId: string,
+  quality: string,
+  resolved: ClientResolvedStream,
+  signal?: AbortSignal
+): Promise<StreamApiResponse> {
+  const url = buildMediaBridgeApiUrl(
+    `/api/stream/${encodeURIComponent(videoId.trim())}/client-ready`,
+    { quality: String(quality).trim().toLowerCase() }
+  )
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  const headers = new Headers({
+    accept: 'application/json',
+    'content-type': 'application/json',
+  })
+  const accessToken = session?.access_token?.trim() || ''
+  if (accessToken && accessToken.split('.').length === 3) {
+    headers.set('authorization', `Bearer ${accessToken}`)
+  }
+
+  const res = await bridgeFetch(url, {
+    method: 'POST',
+    credentials: 'omit',
+    headers,
+    body: JSON.stringify({
+      playbackUrl: resolved.playbackUrl,
+      quality: resolved.quality,
+      mime: resolved.mime,
+      format: resolved.format,
+    }),
+    signal,
+  })
+
+  if (!res.ok) {
+    let detail: string | null = null
+    try {
+      const body = (await res.json()) as { detail?: unknown; error?: string }
+      detail = normalizeBridgeErrorDetail(body.detail ?? body.error ?? null)
+    } catch {
+      /* ignore */
+    }
+    throw new StreamApiError(detail || `client-ready failed (${res.status})`, res.status, detail)
+  }
+
+  const body = (await res.json()) as Record<string, unknown>
+  return normalizeStreamApiResponse(body, videoId)
+}
+
+/**
+ * Resolve a stream in the user's browser (InnerTube ANDROID client), then register
+ * the googlevideo URL on the bridge for proxied playback (/api/media).
+ */
+async function resolveStreamOnClient(
+  videoId: string,
+  quality: string,
+  signal?: AbortSignal
+): Promise<StreamApiResponse> {
+  await assertChildPlaybackAllowedForStream()
+  console.info('[streamApi] client-side InnerTube resolve', { videoId, quality })
+  const resolved = await resolveClientYoutubeStream(videoId, quality)
+  try {
+    return await registerClientStreamOnBridge(videoId, quality, resolved, signal)
+  } catch (err) {
+    console.warn(
+      '[streamApi] bridge client-ready failed — falling back to direct googlevideo URL',
+      err instanceof Error ? err.message : err
+    )
+    return {
+      videoId,
+      url: resolved.playbackUrl,
+      format: resolved.format,
+      mimeType: resolved.mime,
+      quality: resolved.quality,
+      source: 'client',
+      proxied: false,
+    }
+  }
 }
 
 async function doFetchStreamInfo(
