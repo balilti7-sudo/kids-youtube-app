@@ -120,6 +120,7 @@ function markQueued(youtubeVideoId, quality) {
     error_detail: null,
     playback_url: null,
     bunny_guid: null,
+    source: null,
     locked_by: null,
     locked_at: null,
     attempt_count: 0,
@@ -153,13 +154,18 @@ function markProcessing(youtubeVideoId, quality, { lockedBy = null } = {}) {
   });
 }
 
-function markReady(youtubeVideoId, quality, { playbackUrl = null, bunnyGuid = null } = {}) {
+function markReady(
+  youtubeVideoId,
+  quality,
+  { playbackUrl = null, bunnyGuid = null, source = 'direct' } = {}
+) {
   return upsertRow(youtubeVideoId, quality, {
     status: 'ready',
     error_code: null,
     error_detail: null,
     playback_url: playbackUrl || null,
     bunny_guid: bunnyGuid || null,
+    source: source || 'direct',
     locked_by: null,
     locked_at: null,
     attempt_count: 0,

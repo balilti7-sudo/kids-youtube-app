@@ -150,7 +150,7 @@ function buildStreamJsonResponse(req, videoId, rawQuality, cached) {
     format,
     mimeType,
     quality: resolvedQuality || quality,
-    source: cached.source || 'bunny',
+    source: cached.source || 'direct',
     proxied: !useDirectCdn,
   };
 }
@@ -295,18 +295,28 @@ function isExpiredDirectUrl(url) {
   return Number(match[1]) * 1000 < Date.now() + 60_000;
 }
 
+/** Legacy Bunny-era row — stale for the direct-streaming flow; force re-ingest. */
+function isLegacyBunnyRow(row) {
+  if (row?.source === 'bunny') return true;
+  if (row?.bunny_guid) return true;
+  return /bunnycdn\.com|b-cdn\.net|mediadelivery\.net/i.test(String(row?.playback_url || ''));
+}
+
 function cacheEntryFromSupabaseRow(row, rawQuality) {
   if (!row?.playback_url) return null;
   const url = row.playback_url;
+  // Direct-streaming only: Bunny rows and expired googlevideo URLs are both
+  // treated as not-ready so the caller re-enqueues the ingest job.
+  if (isLegacyBunnyRow(row)) return null;
   if (isExpiredDirectUrl(url)) return null;
   const quality = normalizeStreamQuality(rawQuality, '360p');
   const isHls = /\.m3u8(\?|$)/i.test(url) || /playlist\.m3u8/i.test(url);
   return buildResolveCacheEntry(url, {
     quality,
     mime: isHls ? 'application/vnd.apple.mpegurl' : 'video/mp4',
-    source: row.bunny_guid ? 'bunny' : 'yt-dlp',
+    source: 'direct',
     proxied: false,
-    bunnyGuid: row.bunny_guid || null,
+    bunnyGuid: null,
   });
 }
 
@@ -324,7 +334,7 @@ function buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey) {
         phase: 'queued',
         detail: 'Queued for ingest worker',
         retryAfterMs: 3000,
-        activeSource: 'bunny',
+        activeSource: 'direct',
       },
     };
   }
@@ -341,10 +351,10 @@ function buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey) {
         progress: { phase: 'ready', detail: 'Playback ready' },
       };
     }
-    // Ready row with an expired/unusable direct URL — re-enqueue so the worker
-    // resolves a fresh googlevideo URL, and report "processing" to the client.
+    // Ready row that is legacy-Bunny or has an expired direct URL — re-enqueue
+    // so the worker resolves a fresh googlevideo URL; report "processing".
     console.warn(
-      `[stream] playback_url expired for ${videoId} — re-enqueueing for fresh direct URL`
+      `[stream] stale playback_url for ${videoId} (${isLegacyBunnyRow(row) ? 'legacy bunny' : 'expired'}) — re-enqueueing for direct URL`
     );
     void streamStatusStore.markQueued(videoId, rawQuality).catch(() => {});
     return {
@@ -357,9 +367,9 @@ function buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey) {
       promise: null,
       progress: {
         phase: 'queued',
-        detail: 'Stream URL expired — refreshing',
+        detail: 'Refreshing direct stream URL',
         retryAfterMs: 3000,
-        activeSource: 'yt-dlp',
+        activeSource: 'direct',
       },
     };
   }
@@ -390,7 +400,7 @@ function buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey) {
           ? 'Waiting for ingest worker'
           : 'Ingest worker processing',
       retryAfterMs: 3000,
-      activeSource: 'bunny',
+      activeSource: 'direct',
     },
   };
 }
@@ -911,12 +921,8 @@ app.get('/api/stream/:videoId/status', async (req, res) => {
         resolveCacheSet(cacheKey, entry.upstreamUrl, entry);
         return res.json(buildStreamJsonResponse(req, videoId, rawQuality, entry));
       }
-      const playback = await bunnyStream.resolvePlaybackIfInLibrary(videoId, rawQuality);
-      if (playback?.url) {
-        const entryFromBunny = buildResolveCacheEntry(playback.url, playback);
-        resolveCacheSet(cacheKey, entryFromBunny.upstreamUrl, entryFromBunny);
-        return res.json(buildStreamJsonResponse(req, videoId, rawQuality, entryFromBunny));
-      }
+      // Stale ready row (legacy bunny / expired direct URL) — fall through to
+      // buildApiJobFromSupabase, which re-enqueues for a fresh direct URL.
     }
 
     if (row?.status === 'failed') {
@@ -1080,18 +1086,13 @@ app.get('/api/media/:videoId', async (req, res) => {
     if (useIngestWorker()) {
       const row = await streamStatusStore.getJob(videoId, rawQuality);
       if (row?.status === 'ready' && row.playback_url) {
-        if (isExpiredDirectUrl(row.playback_url)) {
-          // Direct googlevideo URL expired — requeue and tell the client to poll.
+        if (isLegacyBunnyRow(row) || isExpiredDirectUrl(row.playback_url)) {
+          // Stale row (legacy bunny / expired direct URL) — requeue for a fresh
+          // googlevideo URL and tell the client to poll.
           void streamStatusStore.markQueued(videoId, rawQuality).catch(() => {});
         } else {
           return res.redirect(302, row.playback_url);
         }
-      }
-
-      const playback = await bunnyStream.resolvePlaybackIfInLibrary(videoId, rawQuality);
-      if (playback?.url) {
-        resolveCacheSet(cacheKey, playback.url, playback);
-        return res.redirect(302, playback.url);
       }
 
       await streamStatusStore.enqueue(videoId, rawQuality);

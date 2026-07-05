@@ -141,6 +141,7 @@ async function processJob(job) {
         await streamStatusStore.markReady(videoId, quality, {
           playbackUrl: resolved.url,
           bunnyGuid: null,
+          source: 'direct',
         });
         console.log(
           `[ingest-worker] ready video=${videoId} direct-url=${resolved.url.slice(0, 96)}…`
