@@ -288,13 +288,23 @@ function supabaseRowToError(row) {
   return err;
 }
 
+/** googlevideo direct URLs carry an `expire=<unix seconds>` param and die after ~6h. */
+function isExpiredDirectUrl(url) {
+  const match = /[?&]expire=(\d{9,11})(?:&|$)/.exec(String(url || ''));
+  if (!match) return false;
+  return Number(match[1]) * 1000 < Date.now() + 60_000;
+}
+
 function cacheEntryFromSupabaseRow(row, rawQuality) {
   if (!row?.playback_url) return null;
+  const url = row.playback_url;
+  if (isExpiredDirectUrl(url)) return null;
   const quality = normalizeStreamQuality(rawQuality, '360p');
-  return buildResolveCacheEntry(row.playback_url, {
+  const isHls = /\.m3u8(\?|$)/i.test(url) || /playlist\.m3u8/i.test(url);
+  return buildResolveCacheEntry(url, {
     quality,
-    mime: 'application/vnd.apple.mpegurl',
-    source: 'bunny',
+    mime: isHls ? 'application/vnd.apple.mpegurl' : 'video/mp4',
+    source: row.bunny_guid ? 'bunny' : 'yt-dlp',
     proxied: false,
     bunnyGuid: row.bunny_guid || null,
   });
@@ -331,6 +341,27 @@ function buildApiJobFromSupabase(row, videoId, rawQuality, cacheKey) {
         progress: { phase: 'ready', detail: 'Playback ready' },
       };
     }
+    // Ready row with an expired/unusable direct URL — re-enqueue so the worker
+    // resolves a fresh googlevideo URL, and report "processing" to the client.
+    console.warn(
+      `[stream] playback_url expired for ${videoId} — re-enqueueing for fresh direct URL`
+    );
+    void streamStatusStore.markQueued(videoId, rawQuality).catch(() => {});
+    return {
+      status: 'processing',
+      cacheKey,
+      startedAt: Date.now(),
+      expiresAt: Date.now() + STREAM_PREPARE_TTL_MS,
+      cached: null,
+      error: null,
+      promise: null,
+      progress: {
+        phase: 'queued',
+        detail: 'Stream URL expired — refreshing',
+        retryAfterMs: 3000,
+        activeSource: 'yt-dlp',
+      },
+    };
   }
 
   if (row.status === 'failed') {
@@ -1049,7 +1080,12 @@ app.get('/api/media/:videoId', async (req, res) => {
     if (useIngestWorker()) {
       const row = await streamStatusStore.getJob(videoId, rawQuality);
       if (row?.status === 'ready' && row.playback_url) {
-        return res.redirect(302, row.playback_url);
+        if (isExpiredDirectUrl(row.playback_url)) {
+          // Direct googlevideo URL expired — requeue and tell the client to poll.
+          void streamStatusStore.markQueued(videoId, rawQuality).catch(() => {});
+        } else {
+          return res.redirect(302, row.playback_url);
+        }
       }
 
       const playback = await bunnyStream.resolvePlaybackIfInLibrary(videoId, rawQuality);

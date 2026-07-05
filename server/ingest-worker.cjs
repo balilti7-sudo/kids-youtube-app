@@ -15,7 +15,6 @@ process.env.YT_DLP_DEFER_FAILURE_MARKING = '1';
 
 const { ensureYtDlpBinary, updateYtDlpBinary } = require('./ensure-ytdlp.cjs');
 const streamStatusStore = require('./stream-status-store.cjs');
-const { runIngestPipeline } = require('./run-ingest-pipeline.cjs');
 const ingestYtdlp = require('./ingest-ytdlp.cjs');
 const cookiePool = require('./cookie-pool.cjs');
 
@@ -32,15 +31,6 @@ const JOB_DELAY_MAX_MS = Math.max(
 );
 /** "Error code: 152" is requeued up to N attempts before it is marked failed. */
 const MAX_152_ATTEMPTS = Math.max(1, Number(process.env.INGEST_MAX_152_ATTEMPTS || 3));
-/**
- * Bunny transcode-wait timeouts requeue up to N attempts. Each retry is cheap:
- * the video is already in the Bunny library, so the worker just resumes waiting
- * (and early-play returns as soon as the first rendition is live).
- */
-const MAX_TRANSCODE_ATTEMPTS = Math.max(
-  1,
-  Number(process.env.INGEST_MAX_TRANSCODE_ATTEMPTS || 6)
-);
 /** Keep the Render web bridge awake — this worker never sleeps, the web service does. */
 const BRIDGE_KEEPALIVE_URL = (process.env.BRIDGE_KEEPALIVE_URL || '').trim();
 const BRIDGE_KEEPALIVE_INTERVAL_MS = Math.max(
@@ -57,12 +47,11 @@ const COOKIE_ROTATION_RETRIES = Math.max(
   Number(process.env.INGEST_COOKIE_ROTATION_RETRIES || 1)
 );
 
-function isFileNotReadyError(err) {
-  if (err?.fileNotReady) return true;
-  const msg = String(err?.message || err || '');
-  return /transcoding not finished|file not ready|not ready after|still processing|not visible in library yet/i.test(
-    msg
-  );
+const ALLOWED_QUALITIES = new Set(['240p', '360p', '480p', '720p', '1080p']);
+
+function normalizeQuality(raw, fallback = '360p') {
+  const q = String(raw || fallback).trim().toLowerCase();
+  return ALLOWED_QUALITIES.has(q) ? q : fallback;
 }
 
 let shuttingDown = false;
@@ -89,16 +78,6 @@ async function handleIngestFailure(job, err) {
   if (ingestYtdlp.isYtDlpErrorCode152Unavailable(err) && attempt < MAX_152_ATTEMPTS) {
     console.warn(
       `[ingest-worker] error 152 video=${videoId} attempt=${attempt}/${MAX_152_ATTEMPTS} — requeue (possible session block)`
-    );
-    await streamStatusStore.requeueForRetry(videoId, quality, { attemptCount: attempt, err });
-    return;
-  }
-
-  // Bunny is still encoding — not a failure. Requeue; next attempt resumes the
-  // transcode wait directly (video already in library, no yt-dlp involved).
-  if (isFileNotReadyError(err) && attempt < MAX_TRANSCODE_ATTEMPTS) {
-    console.warn(
-      `[ingest-worker] transcode still running video=${videoId} attempt=${attempt}/${MAX_TRANSCODE_ATTEMPTS} — requeue`
     );
     await streamStatusStore.requeueForRetry(videoId, quality, { attemptCount: attempt, err });
     return;
@@ -132,13 +111,7 @@ function releasePoolCookie(cookie) {
 
 async function processJob(job) {
   const videoId = job.youtube_video_id;
-  const quality = job.quality;
-  const progress = {
-    phase: 'starting',
-    activeSource: 'bunny',
-    detail: 'Worker started ingest pipeline',
-    retryAfterMs: 3000,
-  };
+  const quality = normalizeQuality(job.quality);
 
   console.log(
     `[ingest-worker] processing video=${videoId} quality=${quality} attempt=${(Number(job.attempt_count) || 0) + 1} worker=${WORKER_ID}`
@@ -159,13 +132,18 @@ async function processJob(job) {
   try {
     for (let rotation = 0; ; rotation++) {
       try {
-        const resolved = await runIngestPipeline(videoId, quality, { progress });
+        // Direct streaming: yt-dlp probe/-g returns a googlevideo URL — no
+        // Bunny upload/transcode. The URL is stored as playback_url as-is.
+        const resolved = await ingestYtdlp.resolveVideoDownloadUrl(videoId, quality);
+        if (!resolved?.url) {
+          throw new Error(`yt-dlp returned no direct stream URL for ${videoId}`);
+        }
         await streamStatusStore.markReady(videoId, quality, {
           playbackUrl: resolved.url,
-          bunnyGuid: resolved.bunnyGuid,
+          bunnyGuid: null,
         });
         console.log(
-          `[ingest-worker] ready video=${videoId} guid=${resolved.bunnyGuid || '?'} url=${resolved.url.slice(0, 96)}…`
+          `[ingest-worker] ready video=${videoId} direct-url=${resolved.url.slice(0, 96)}…`
         );
         return;
       } catch (err) {

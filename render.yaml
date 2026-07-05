@@ -49,12 +49,7 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22
-      - key: BUNNY_STREAM_API_KEY
-        sync: false
-      - key: BUNNY_LIBRARY_ID
-        sync: false
-      - key: BUNNY_CDN_HOSTNAME
-        sync: false
+      # Worker is Bunny-free: it resolves direct googlevideo URLs via yt-dlp -g.
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
