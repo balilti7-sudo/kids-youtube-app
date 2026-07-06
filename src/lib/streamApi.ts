@@ -1185,7 +1185,7 @@ async function registerClientStreamOnBridge(
 }
 
 /**
- * Resolve a stream in the user's browser (InnerTube ANDROID client), then register
+ * Resolve a stream via the media bridge (InnerTube on the server), then register
  * the googlevideo URL on the bridge for proxied playback (/api/media).
  */
 async function resolveStreamOnClient(

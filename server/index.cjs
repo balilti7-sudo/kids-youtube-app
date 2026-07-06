@@ -17,6 +17,8 @@ const bunnyStream = require('./bunny-stream.cjs');
 const streamStatusStore = require('./stream-status-store.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
 const { ensureYtDlpBinary } = require('./ensure-ytdlp.cjs');
+const youtubeInnertube = require('./youtube-innertube.cjs');
+const innertubeProxy = require('./innertube-proxy.cjs');
 
 const BUNNY_CONFIGURED = bunnyStream.isConfigured();
 
@@ -34,8 +36,40 @@ function sleepMs(ms) {
 
 const app = express();
 
-app.use(cors({ origin: true, credentials: false }));
-app.use(express.json({ limit: '1mb' }));
+function buildCorsOptions() {
+  const raw = String(process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS || '').trim();
+  const common = {
+    credentials: false,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'X-Requested-With'],
+    maxAge: 86400,
+  };
+  if (!raw || raw === '*') {
+    return { ...common, origin: true };
+  }
+  const allowed = new Set(
+    raw
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+  return {
+    ...common,
+    origin(origin, callback) {
+      if (!origin || allowed.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      console.warn(`[cors] blocked origin: ${origin}`);
+      callback(new Error(`CORS origin not allowed: ${origin}`));
+    },
+  };
+}
+
+const corsOptions = buildCorsOptions();
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+app.use(express.json({ limit: '8mb' }));
 
 void import('./register-email-routes.mjs')
   .then(({ registerBridgeEmailRoutes }) => registerBridgeEmailRoutes(app))
@@ -1088,6 +1122,69 @@ app.get('/api/youtube/metadata/:videoId', async (req, res) => {
   } catch (err) {
     console.error('[/api/youtube/metadata] failed:', err?.message || err);
     res.status(502).json({ error: 'metadata_failed', detail: err?.message || 'metadata failed' });
+  }
+});
+
+/**
+ * Resolve a googlevideo URL via InnerTube on the bridge (no browser → YouTube CORS).
+ * Frontend calls this instead of bundling youtubei.js against youtube.com directly.
+ */
+app.get('/api/youtube/resolve/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  if (!/^[\w-]{11}$/.test(videoId)) {
+    return res.status(400).json({ error: 'invalid videoId' });
+  }
+  if (!useClientStreamResolve()) {
+    return res.status(403).json({
+      error: 'client_resolve_disabled',
+      detail: 'Set USE_CLIENT_STREAM_RESOLVE=1 on the bridge',
+    });
+  }
+
+  const quality = normalizeStreamQuality(req.query.quality);
+  try {
+    const resolved = await youtubeInnertube.resolveYoutubeStream(videoId, quality);
+    console.log(
+      `[innertube/resolve] video=${videoId} quality=${quality} url=${resolved.playbackUrl.slice(0, 72)}…`
+    );
+    res.json({
+      videoId,
+      quality: resolved.quality,
+      playbackUrl: resolved.playbackUrl,
+      mime: resolved.mime,
+      format: resolved.format,
+      source: 'innertube',
+    });
+  } catch (err) {
+    console.error(`[/api/youtube/resolve] failed video=${videoId}:`, err?.message || err);
+    res.status(502).json({
+      error: 'innertube_resolve_failed',
+      detail: String(err?.message || err).slice(0, 500),
+    });
+  }
+});
+
+/**
+ * Generic CORS-safe proxy for youtubei.js fetch (browser → bridge → YouTube).
+ * Prefer GET /api/youtube/resolve/:videoId when possible (single round-trip).
+ */
+app.post('/api/youtube/innertube-proxy', async (req, res) => {
+  if (!useClientStreamResolve()) {
+    return res.status(403).json({ error: 'client_resolve_disabled' });
+  }
+
+  try {
+    const forwarded = await innertubeProxy.forwardInnertubeRequest(req.body, {
+      userAgent: MEDIA_USER_AGENT,
+    });
+    res.status(200).json(forwarded);
+  } catch (err) {
+    const code = err?.code === 'INVALID_PROXY_URL' ? 400 : 502;
+    console.error('[/api/youtube/innertube-proxy] failed:', err?.message || err);
+    res.status(code).json({
+      error: err?.code || 'innertube_proxy_failed',
+      detail: err?.message || 'proxy failed',
+    });
   }
 });
 

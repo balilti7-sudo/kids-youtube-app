@@ -8,9 +8,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "prestart": "node ensure-ytdlp.cjs --strict",
+    "prestart": "node prestart.cjs",
     "start": "node index.cjs",
-    "prestart:worker": "node ensure-ytdlp.cjs --strict",
+    "prestart:worker": "node prestart.cjs",
     "start:worker": "node ingest-worker.cjs",
     "dev": "node --watch index.cjs",
     "dev:worker": "node --watch ingest-worker.cjs",
@@ -25,6 +25,7 @@
     "express": "^4.21.1",
     "resend": "^4.8.0",
     "undici": "^7.8.0",
+    "youtubei.js": "^17.2.0",
     "yt-search": "^2.13.1",
     "ytsr": "^3.8.4"
   }

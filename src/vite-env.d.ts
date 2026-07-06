@@ -25,7 +25,8 @@ interface ImportMetaEnv {
   /** Per status-poll HTTP request timeout (ms). Default 45000. */
   readonly VITE_STREAM_STATUS_POLL_TIMEOUT_MS?: string
   /**
-   * When `"true"`, the browser resolves YouTube streams via InnerTube (youtubei.js)
+ * When `"true"`, the browser asks the media bridge to resolve streams via InnerTube
+   * (GET /api/youtube/resolve/:videoId) instead of calling YouTube directly.
    * instead of the Render ingest worker / yt-dlp. Bridge must set USE_CLIENT_STREAM_RESOLVE=1.
    */
   readonly VITE_CLIENT_STREAM_RESOLVE?: string
