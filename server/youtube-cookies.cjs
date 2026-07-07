@@ -3,11 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_COOKIE_CANDIDATES = [
-  'cookies.txt',
-  'youtube_cookies.txt',
-  'www.youtube.com_cookies .txt',
-];
+/** Single fixed cookies file — no env overrides. */
+const COOKIES_FILE_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
 
 /** @type {{ path: string|null, mtimeMs: number, header: string, count: number, loggedIn: boolean }} */
 let cache = {
@@ -18,27 +15,9 @@ let cache = {
   loggedIn: false,
 };
 
-function envCookiesPath() {
-  for (const key of ['INNERTUBE_COOKIES_FILE', 'YT_DLP_COOKIES_FILE', 'COOKIES_FILE']) {
-    const raw = String(process.env[key] || '').trim();
-    if (raw) return raw;
-  }
-  return '';
-}
-
 function resolveCookiesFilePath() {
-  const fromEnv = envCookiesPath();
-  if (fromEnv) {
-    const resolved = path.isAbsolute(fromEnv) ? fromEnv : path.resolve(__dirname, fromEnv);
-    if (fs.existsSync(resolved)) return resolved;
-    console.warn(`[innertube/cookies] configured file not found: ${resolved}`);
-    return null;
-  }
-
-  for (const name of DEFAULT_COOKIE_CANDIDATES) {
-    const candidate = path.join(__dirname, name);
-    if (fs.existsSync(candidate)) return candidate;
-  }
+  if (fs.existsSync(COOKIES_FILE_PATH)) return COOKIES_FILE_PATH;
+  console.warn(`[innertube/cookies] file not found: ${COOKIES_FILE_PATH}`);
   return null;
 }
 
@@ -81,7 +60,7 @@ function netscapeToCookieHeader(content) {
 function loadCookies() {
   const filePath = resolveCookiesFilePath();
   if (!filePath) {
-    cache = { path: null, mtimeMs: 0, header: '', count: 0, loggedIn: false };
+    cache = { path: COOKIES_FILE_PATH, mtimeMs: 0, header: '', count: 0, loggedIn: false };
     return cache;
   }
 
@@ -137,7 +116,8 @@ function getStatus() {
     configured: Boolean(state.header),
     loggedIn: state.loggedIn,
     cookieCount: state.count,
-    file: state.path ? path.basename(state.path) : null,
+    file: 'www.youtube.com_cookies.txt',
+    path: COOKIES_FILE_PATH,
   };
 }
 
@@ -150,6 +130,7 @@ function invalidateCache() {
 }
 
 module.exports = {
+  COOKIES_FILE_PATH,
   resolveCookiesFilePath,
   netscapeToCookieHeader,
   getCookieHeader,
