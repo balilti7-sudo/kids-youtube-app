@@ -3,11 +3,12 @@
 const fs = require('fs');
 const path = require('path');
 
-/** Single fixed cookies file — no env overrides. */
+/** Fixed on-disk path (gitignored). */
 const COOKIES_FILE_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
 
-/** @type {{ path: string|null, mtimeMs: number, header: string, count: number, loggedIn: boolean }} */
+/** @type {{ source: 'file'|'env'|null, path: string|null, mtimeMs: number, header: string, count: number, loggedIn: boolean }} */
 let cache = {
+  source: null,
   path: null,
   mtimeMs: 0,
   header: '',
@@ -15,9 +16,18 @@ let cache = {
   loggedIn: false,
 };
 
+function normalizeCookiesContent(raw) {
+  let content = String(raw || '').trim();
+  if (!content) return '';
+  // Some hosts store multiline env values with literal \n sequences.
+  if (!content.includes('\n') && content.includes('\\n')) {
+    content = content.replace(/\\n/g, '\n');
+  }
+  return content;
+}
+
 function resolveCookiesFilePath() {
   if (fs.existsSync(COOKIES_FILE_PATH)) return COOKIES_FILE_PATH;
-  console.warn(`[innertube/cookies] file not found: ${COOKIES_FILE_PATH}`);
   return null;
 }
 
@@ -57,44 +67,103 @@ function netscapeToCookieHeader(content) {
   };
 }
 
-function loadCookies() {
-  const filePath = resolveCookiesFilePath();
-  if (!filePath) {
-    cache = { path: COOKIES_FILE_PATH, mtimeMs: 0, header: '', count: 0, loggedIn: false };
-    return cache;
-  }
+function applyParsedCookies(parsed, meta) {
+  cache = {
+    source: meta.source,
+    path: meta.path,
+    mtimeMs: meta.revision,
+    header: parsed.header,
+    count: parsed.count,
+    loggedIn: parsed.loggedIn,
+  };
+  const label =
+    meta.source === 'file'
+      ? path.basename(meta.path || COOKIES_FILE_PATH)
+      : 'COOKIES_CONTENT env';
+  console.log(
+    `[innertube/cookies] loaded ${parsed.count} cookie(s) from ${label}` +
+      (parsed.loggedIn ? ' (logged-in session)' : ' (anonymous/visitor)')
+  );
+  return cache;
+}
 
+function loadCookiesFromFile(filePath) {
   let stat;
   try {
     stat = fs.statSync(filePath);
   } catch (err) {
     console.warn(`[innertube/cookies] stat failed for ${filePath}: ${err?.message || err}`);
-    cache = { path: filePath, mtimeMs: 0, header: '', count: 0, loggedIn: false };
-    return cache;
+    return null;
   }
 
-  if (cache.path === filePath && cache.mtimeMs === stat.mtimeMs) {
+  if (cache.source === 'file' && cache.path === filePath && cache.mtimeMs === stat.mtimeMs) {
     return cache;
   }
 
   try {
     const parsed = netscapeToCookieHeader(fs.readFileSync(filePath, 'utf8'));
-    cache = {
+    return applyParsedCookies(parsed, {
+      source: 'file',
       path: filePath,
-      mtimeMs: stat.mtimeMs,
-      header: parsed.header,
-      count: parsed.count,
-      loggedIn: parsed.loggedIn,
-    };
-    console.log(
-      `[innertube/cookies] loaded ${parsed.count} cookie(s) from ${path.basename(filePath)}` +
-        (parsed.loggedIn ? ' (logged-in session)' : ' (anonymous/visitor)')
-    );
+      revision: stat.mtimeMs,
+    });
   } catch (err) {
     console.warn(`[innertube/cookies] read failed for ${filePath}: ${err?.message || err}`);
-    cache = { path: filePath, mtimeMs: stat.mtimeMs, header: '', count: 0, loggedIn: false };
+    return null;
+  }
+}
+
+function loadCookiesFromEnv() {
+  const content = normalizeCookiesContent(process.env.COOKIES_CONTENT);
+  if (!content) return null;
+
+  const revision = Buffer.byteLength(content, 'utf8');
+  if (cache.source === 'env' && cache.mtimeMs === revision) {
+    return cache;
   }
 
+  try {
+    const parsed = netscapeToCookieHeader(content);
+    if (!parsed.header) {
+      console.warn('[innertube/cookies] COOKIES_CONTENT set but no valid Netscape cookie rows parsed');
+      return null;
+    }
+    return applyParsedCookies(parsed, {
+      source: 'env',
+      path: null,
+      revision,
+    });
+  } catch (err) {
+    console.warn(`[innertube/cookies] COOKIES_CONTENT parse failed: ${err?.message || err}`);
+    return null;
+  }
+}
+
+function loadCookies() {
+  const filePath = resolveCookiesFilePath();
+  if (filePath) {
+    const fromFile = loadCookiesFromFile(filePath);
+    if (fromFile?.header) return fromFile;
+  } else {
+    console.warn(`[innertube/cookies] file not found: ${COOKIES_FILE_PATH}`);
+  }
+
+  const fromEnv = loadCookiesFromEnv();
+  if (fromEnv?.header) return fromEnv;
+
+  cache = {
+    source: null,
+    path: null,
+    mtimeMs: 0,
+    header: '',
+    count: 0,
+    loggedIn: false,
+  };
+  if (!process.env.COOKIES_CONTENT?.trim()) {
+    console.warn(
+      '[innertube/cookies] no cookies — place www.youtube.com_cookies.txt on disk or set COOKIES_CONTENT on Render'
+    );
+  }
   return cache;
 }
 
@@ -116,8 +185,14 @@ function getStatus() {
     configured: Boolean(state.header),
     loggedIn: state.loggedIn,
     cookieCount: state.count,
-    file: 'www.youtube.com_cookies.txt',
-    path: COOKIES_FILE_PATH,
+    source: state.source,
+    file:
+      state.source === 'file'
+        ? 'www.youtube.com_cookies.txt'
+        : state.source === 'env'
+          ? 'COOKIES_CONTENT'
+          : null,
+    path: state.source === 'file' ? COOKIES_FILE_PATH : null,
   };
 }
 
@@ -127,6 +202,7 @@ function getCookiesRevision() {
 
 function invalidateCache() {
   cache.mtimeMs = 0;
+  cache.source = null;
 }
 
 module.exports = {
