@@ -21,24 +21,63 @@ const HEIGHT_BY_QUALITY = {
 
 /** Anonymous: ANDROID first for direct googlevideo URLs. */
 const STREAM_CLIENT_ORDER_ANON = ['ANDROID', 'IOS', 'WEB'];
-/** Logged-in cookies: WEB first (SAPISID auth + Cookie header). */
-const STREAM_CLIENT_ORDER_AUTH = ['WEB', 'ANDROID', 'IOS'];
+/** Logged-in cookies: WEB only — keeps MEDIA_USER_AGENT + SAPISID auth aligned with desktop cookies. */
+const STREAM_CLIENT_ORDER_AUTH = ['WEB'];
 const METADATA_CLIENT_ORDER_ANON = ['ANDROID', 'WEB', 'IOS'];
-const METADATA_CLIENT_ORDER_AUTH = ['WEB', 'ANDROID', 'IOS'];
+const METADATA_CLIENT_ORDER_AUTH = ['WEB'];
 
 const innertubeByClient = new Map();
 let cookiesRevision = -1;
-
-function syncInnertubeSessions() {
-  const rev = youtubeCookies.getCookiesRevision();
-  if (rev !== cookiesRevision) {
-    innertubeByClient.clear();
-    cookiesRevision = rev;
-  }
-}
+let mediaUserAgentRevision = '';
 
 function getMediaUserAgent() {
   return String(process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_DESKTOP_CHROME_UA;
+}
+
+/**
+ * youtubei.js overwrites User-Agent for ANDROID/IOS InnerTube calls.
+ * Wrap fetch so MEDIA_USER_AGENT is forced on every outbound request.
+ */
+function createMediaUserAgentFetch() {
+  const underlying = globalThis.fetch.bind(globalThis);
+  return async function mediaUserAgentFetch(input, init = {}) {
+    const ua = getMediaUserAgent();
+    const headers = new Headers(
+      init?.headers ||
+        (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined)
+    );
+    headers.set('User-Agent', ua);
+    return underlying(input, { ...init, headers });
+  };
+}
+
+function applyMediaUserAgentToSession(yt, clientName) {
+  const ua = getMediaUserAgent();
+  if (yt?.session) {
+    yt.session.user_agent = ua;
+    if (yt.session.context?.client) {
+      yt.session.context.client.userAgent = ua;
+    }
+  }
+  const fromEnv = Boolean(String(process.env.MEDIA_USER_AGENT || '').trim());
+  console.log(
+    `[innertube] session ready client=${clientName} ua=${ua.slice(0, 96)}${ua.length > 96 ? '…' : ''}` +
+      (fromEnv ? ' (MEDIA_USER_AGENT)' : ' (default desktop Chrome)')
+  );
+  return yt;
+}
+
+function syncInnertubeSessions() {
+  const rev = youtubeCookies.getCookiesRevision();
+  const uaRev = getMediaUserAgent();
+  if (rev !== cookiesRevision || uaRev !== mediaUserAgentRevision) {
+    if (innertubeByClient.size > 0) {
+      console.log('[innertube] cookie or MEDIA_USER_AGENT changed — clearing InnerTube session cache');
+    }
+    innertubeByClient.clear();
+    cookiesRevision = rev;
+    mediaUserAgentRevision = uaRev;
+  }
 }
 
 function streamClientOrder() {
@@ -63,7 +102,8 @@ async function getInnertube(clientName) {
   syncInnertubeSessions();
   const name = String(clientName || 'ANDROID').toUpperCase();
   const cookieHeader = youtubeCookies.getCookieHeader();
-  const cacheKey = `${name}:${cookieHeader ? 'auth' : 'anon'}`;
+  const ua = getMediaUserAgent();
+  const cacheKey = `${name}:${cookieHeader ? 'auth' : 'anon'}:${ua}`;
 
   if (!innertubeByClient.has(cacheKey)) {
     innertubeByClient.set(
@@ -74,7 +114,8 @@ async function getInnertube(clientName) {
           client_type,
           generate_session_locally: true,
           retrieve_player: true,
-          user_agent: getMediaUserAgent(),
+          user_agent: ua,
+          fetch: createMediaUserAgentFetch(),
         };
         if (cookieHeader) {
           options.cookie = cookieHeader;
@@ -82,7 +123,7 @@ async function getInnertube(clientName) {
         if (name === 'WEB' || name === 'MWEB') {
           options.device_category = 'desktop';
         }
-        return Innertube.create(options);
+        return Innertube.create(options).then((yt) => applyMediaUserAgentToSession(yt, name));
       })
     );
   }
@@ -159,9 +200,11 @@ async function getBasicInfoWithFallback(videoId, clientOrder) {
       if (isBotCheckMessage(reason)) {
         lastErr = new Error(
           reason ||
-            'YouTube bot check — export fresh cookies.txt and set YT_DLP_COOKIES_FILE on the bridge'
+            'YouTube bot check — ensure MEDIA_USER_AGENT matches the browser that exported cookies, then refresh COOKIES_CONTENT'
         );
-        console.warn(`[innertube] ${clientName} bot check video=${videoId}`);
+        console.warn(
+          `[innertube] ${clientName} bot check video=${videoId} ua=${getMediaUserAgent().slice(0, 72)}…`
+        );
         continue;
       }
 
@@ -281,7 +324,8 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
 
       console.log(
         `[innertube] resolved stream video=${id} client=${clientName} quality=${q}` +
-          (youtubeCookies.isLoggedIn() ? ' auth=cookies' : '')
+          (youtubeCookies.isLoggedIn() ? ' auth=cookies' : '') +
+          ` ua=${getMediaUserAgent().slice(0, 48)}…`
       );
 
       return {
