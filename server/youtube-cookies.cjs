@@ -3,10 +3,12 @@
 const fs = require('fs');
 const path = require('path');
 
-/** Fixed on-disk path (gitignored). */
+const LOG_PREFIX = '[innertube/cookies]';
+
+/** Local fallback path (gitignored). */
 const COOKIES_FILE_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
 
-/** @type {{ source: 'file'|'env'|null, path: string|null, mtimeMs: number, header: string, count: number, loggedIn: boolean }} */
+/** @type {{ source: 'env'|'file'|null, path: string|null, mtimeMs: number, header: string, count: number, loggedIn: boolean }} */
 let cache = {
   source: null,
   path: null,
@@ -24,6 +26,10 @@ function normalizeCookiesContent(raw) {
     content = content.replace(/\\n/g, '\n');
   }
   return content;
+}
+
+function hasEnvCookies() {
+  return Boolean(normalizeCookiesContent(process.env.COOKIES_CONTENT));
 }
 
 function resolveCookiesFilePath() {
@@ -68,6 +74,13 @@ function netscapeToCookieHeader(content) {
 }
 
 function applyParsedCookies(parsed, meta) {
+  if (!parsed.header) {
+    console.warn(
+      `${LOG_PREFIX} ${meta.source} source had no valid Netscape cookie rows (count=${parsed.count})`
+    );
+    return null;
+  }
+
   cache = {
     source: meta.source,
     path: meta.path,
@@ -76,15 +89,44 @@ function applyParsedCookies(parsed, meta) {
     count: parsed.count,
     loggedIn: parsed.loggedIn,
   };
+
   const label =
-    meta.source === 'file'
-      ? path.basename(meta.path || COOKIES_FILE_PATH)
-      : 'COOKIES_CONTENT env';
+    meta.source === 'env'
+      ? 'COOKIES_CONTENT (env, priority)'
+      : path.basename(meta.path || COOKIES_FILE_PATH) + ' (file fallback)';
+
   console.log(
-    `[innertube/cookies] loaded ${parsed.count} cookie(s) from ${label}` +
-      (parsed.loggedIn ? ' (logged-in session)' : ' (anonymous/visitor)')
+    `${LOG_PREFIX} using ${label}: ${parsed.count} cookie(s)` +
+      (parsed.loggedIn ? ', logged-in session' : ', anonymous/visitor only')
   );
   return cache;
+}
+
+function loadCookiesFromEnv() {
+  const content = normalizeCookiesContent(process.env.COOKIES_CONTENT);
+  if (!content) {
+    console.log(`${LOG_PREFIX} COOKIES_CONTENT not set — will try file fallback if present`);
+    return null;
+  }
+
+  const revision = Buffer.byteLength(content, 'utf8');
+  if (cache.source === 'env' && cache.mtimeMs === revision) {
+    return cache;
+  }
+
+  console.log(`${LOG_PREFIX} loading from COOKIES_CONTENT (${revision} bytes)`);
+
+  try {
+    const parsed = netscapeToCookieHeader(content);
+    return applyParsedCookies(parsed, {
+      source: 'env',
+      path: null,
+      revision,
+    });
+  } catch (err) {
+    console.warn(`${LOG_PREFIX} COOKIES_CONTENT parse failed: ${err?.message || err}`);
+    return null;
+  }
 }
 
 function loadCookiesFromFile(filePath) {
@@ -92,13 +134,15 @@ function loadCookiesFromFile(filePath) {
   try {
     stat = fs.statSync(filePath);
   } catch (err) {
-    console.warn(`[innertube/cookies] stat failed for ${filePath}: ${err?.message || err}`);
+    console.warn(`${LOG_PREFIX} file stat failed (${filePath}): ${err?.message || err}`);
     return null;
   }
 
   if (cache.source === 'file' && cache.path === filePath && cache.mtimeMs === stat.mtimeMs) {
     return cache;
   }
+
+  console.log(`${LOG_PREFIX} loading from file fallback: ${filePath}`);
 
   try {
     const parsed = netscapeToCookieHeader(fs.readFileSync(filePath, 'utf8'));
@@ -108,48 +152,32 @@ function loadCookiesFromFile(filePath) {
       revision: stat.mtimeMs,
     });
   } catch (err) {
-    console.warn(`[innertube/cookies] read failed for ${filePath}: ${err?.message || err}`);
+    console.warn(`${LOG_PREFIX} file read failed (${filePath}): ${err?.message || err}`);
     return null;
   }
 }
 
-function loadCookiesFromEnv() {
-  const content = normalizeCookiesContent(process.env.COOKIES_CONTENT);
-  if (!content) return null;
-
-  const revision = Buffer.byteLength(content, 'utf8');
-  if (cache.source === 'env' && cache.mtimeMs === revision) {
-    return cache;
-  }
-
-  try {
-    const parsed = netscapeToCookieHeader(content);
-    if (!parsed.header) {
-      console.warn('[innertube/cookies] COOKIES_CONTENT set but no valid Netscape cookie rows parsed');
-      return null;
-    }
-    return applyParsedCookies(parsed, {
-      source: 'env',
-      path: null,
-      revision,
-    });
-  } catch (err) {
-    console.warn(`[innertube/cookies] COOKIES_CONTENT parse failed: ${err?.message || err}`);
-    return null;
-  }
-}
-
+/**
+ * Priority: COOKIES_CONTENT env → server/www.youtube.com_cookies.txt file.
+ */
 function loadCookies() {
+  const fromEnv = loadCookiesFromEnv();
+  if (fromEnv?.header) return fromEnv;
+
+  if (hasEnvCookies()) {
+    console.warn(
+      `${LOG_PREFIX} COOKIES_CONTENT was set but unusable — falling back to www.youtube.com_cookies.txt`
+    );
+  }
+
   const filePath = resolveCookiesFilePath();
   if (filePath) {
     const fromFile = loadCookiesFromFile(filePath);
     if (fromFile?.header) return fromFile;
+    console.warn(`${LOG_PREFIX} file present but no usable cookies parsed: ${filePath}`);
   } else {
-    console.warn(`[innertube/cookies] file not found: ${COOKIES_FILE_PATH}`);
+    console.warn(`${LOG_PREFIX} file fallback not found: ${COOKIES_FILE_PATH}`);
   }
-
-  const fromEnv = loadCookiesFromEnv();
-  if (fromEnv?.header) return fromEnv;
 
   cache = {
     source: null,
@@ -159,11 +187,9 @@ function loadCookies() {
     count: 0,
     loggedIn: false,
   };
-  if (!process.env.COOKIES_CONTENT?.trim()) {
-    console.warn(
-      '[innertube/cookies] no cookies — place www.youtube.com_cookies.txt on disk or set COOKIES_CONTENT on Render'
-    );
-  }
+  console.error(
+    `${LOG_PREFIX} no cookies loaded — set COOKIES_CONTENT on Render or add www.youtube.com_cookies.txt`
+  );
   return cache;
 }
 
@@ -186,11 +212,12 @@ function getStatus() {
     loggedIn: state.loggedIn,
     cookieCount: state.count,
     source: state.source,
+    priority: 'COOKIES_CONTENT env, then www.youtube.com_cookies.txt file',
     file:
-      state.source === 'file'
-        ? 'www.youtube.com_cookies.txt'
-        : state.source === 'env'
-          ? 'COOKIES_CONTENT'
+      state.source === 'env'
+        ? 'COOKIES_CONTENT'
+        : state.source === 'file'
+          ? 'www.youtube.com_cookies.txt'
           : null,
     path: state.source === 'file' ? COOKIES_FILE_PATH : null,
   };
