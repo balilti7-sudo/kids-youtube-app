@@ -1022,6 +1022,7 @@ app.get('/health', (_req, res) => {
     ingestQueueConfigured: streamStatusStore.isConfigured(),
     ingestReady: useClientStreamResolve() || bunnyStream.isIngestResolverConfigured(),
     ytdlpBinary: useClientStreamResolve() ? null : bunnyStream.ingestYtdlp.resolveYtDlpBinary(),
+    innertubeCookies: youtubeInnertube.getCookiesStatus(),
   });
 });
 
@@ -1031,6 +1032,7 @@ app.get('/api/diagnostics', async (_req, res) => {
     if (useClientStreamResolve()) {
       web = {
         clientStreamResolve: true,
+        innertubeCookies: youtubeInnertube.getCookiesStatus(),
         note: 'Server yt-dlp/Bunny egress diagnostics disabled in client-side resolve mode',
       };
     } else {

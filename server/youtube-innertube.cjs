@@ -3,7 +3,10 @@
 /**
  * YouTube metadata + stream resolution via InnerTube (youtubei.js) on the bridge.
  * Replaces oEmbed (often 404 from datacenter IPs) and avoids browser CORS blocks.
+ * Authenticates via Netscape cookies.txt when configured (bypasses bot checks).
  */
+
+const youtubeCookies = require('./youtube-cookies.cjs');
 
 const DEFAULT_DESKTOP_CHROME_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -16,15 +19,40 @@ const HEIGHT_BY_QUALITY = {
   '1080p': 1080,
 };
 
-/** Prefer ANDROID for direct googlevideo URLs; fall back if blocked. */
-const STREAM_CLIENT_ORDER = ['ANDROID', 'IOS', 'WEB'];
-/** Metadata works across clients; ANDROID matches stream resolve path. */
-const METADATA_CLIENT_ORDER = ['ANDROID', 'WEB', 'IOS'];
+/** Anonymous: ANDROID first for direct googlevideo URLs. */
+const STREAM_CLIENT_ORDER_ANON = ['ANDROID', 'IOS', 'WEB'];
+/** Logged-in cookies: WEB first (SAPISID auth + Cookie header). */
+const STREAM_CLIENT_ORDER_AUTH = ['WEB', 'ANDROID', 'IOS'];
+const METADATA_CLIENT_ORDER_ANON = ['ANDROID', 'WEB', 'IOS'];
+const METADATA_CLIENT_ORDER_AUTH = ['WEB', 'ANDROID', 'IOS'];
 
 const innertubeByClient = new Map();
+let cookiesRevision = -1;
+
+function syncInnertubeSessions() {
+  const rev = youtubeCookies.getCookiesRevision();
+  if (rev !== cookiesRevision) {
+    innertubeByClient.clear();
+    cookiesRevision = rev;
+  }
+}
 
 function getMediaUserAgent() {
   return String(process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_DESKTOP_CHROME_UA;
+}
+
+function streamClientOrder() {
+  return youtubeCookies.isLoggedIn() ? STREAM_CLIENT_ORDER_AUTH : STREAM_CLIENT_ORDER_ANON;
+}
+
+function metadataClientOrder() {
+  return youtubeCookies.isLoggedIn() ? METADATA_CLIENT_ORDER_AUTH : METADATA_CLIENT_ORDER_ANON;
+}
+
+function isBotCheckMessage(text) {
+  return /sign in to confirm|not a bot|confirm you.?re not a bot|bot check|captcha/i.test(
+    String(text || '')
+  );
 }
 
 async function loadYoutubei() {
@@ -32,20 +60,34 @@ async function loadYoutubei() {
 }
 
 async function getInnertube(clientName) {
+  syncInnertubeSessions();
   const name = String(clientName || 'ANDROID').toUpperCase();
-  if (!innertubeByClient.has(name)) {
+  const cookieHeader = youtubeCookies.getCookieHeader();
+  const cacheKey = `${name}:${cookieHeader ? 'auth' : 'anon'}`;
+
+  if (!innertubeByClient.has(cacheKey)) {
     innertubeByClient.set(
-      name,
+      cacheKey,
       loadYoutubei().then(({ Innertube, ClientType }) => {
         const client_type = ClientType[name] ?? ClientType.ANDROID;
-        return Innertube.create({
+        const options = {
           client_type,
           generate_session_locally: true,
-        });
+          retrieve_player: true,
+          user_agent: getMediaUserAgent(),
+        };
+        if (cookieHeader) {
+          options.cookie = cookieHeader;
+        }
+        if (name === 'WEB' || name === 'MWEB') {
+          options.device_category = 'desktop';
+        }
+        return Innertube.create(options);
       })
     );
   }
-  const yt = await innertubeByClient.get(name);
+
+  const yt = await innertubeByClient.get(cacheKey);
   const { ClientType } = await loadYoutubei();
   return { yt, client: ClientType[name] ?? ClientType.ANDROID, clientName: name };
 }
@@ -114,6 +156,15 @@ async function getBasicInfoWithFallback(videoId, clientOrder) {
       const status = info.playability_status?.status;
       const reason = info.playability_status?.reason || status;
 
+      if (isBotCheckMessage(reason)) {
+        lastErr = new Error(
+          reason ||
+            'YouTube bot check — export fresh cookies.txt and set YT_DLP_COOKIES_FILE on the bridge'
+        );
+        console.warn(`[innertube] ${clientName} bot check video=${videoId}`);
+        continue;
+      }
+
       if (status === 'LOGIN_REQUIRED' || status === 'CONTENT_CHECK_REQUIRED') {
         lastErr = new Error(reason || status);
         console.warn(`[innertube] ${clientName} playability=${status} video=${videoId}`);
@@ -153,7 +204,7 @@ async function fetchYoutubeVideoInfo(videoId) {
     throw new Error('Invalid YouTube video id');
   }
 
-  const { info } = await getBasicInfoWithFallback(id, METADATA_CLIENT_ORDER);
+  const { info } = await getBasicInfoWithFallback(id, metadataClientOrder());
   return mapBasicInfoToVideoInfo(info);
 }
 
@@ -167,7 +218,7 @@ async function fetchYoutubeMetadata(videoId) {
     throw new Error('Invalid YouTube video id');
   }
 
-  const { info } = await getBasicInfoWithFallback(id, METADATA_CLIENT_ORDER);
+  const { info } = await getBasicInfoWithFallback(id, metadataClientOrder());
   const basic = info.basic_info || {};
   const thumbs = mapThumbnails(basic.thumbnail);
   const thumb =
@@ -200,12 +251,13 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
   const minHeight = HEIGHT_BY_QUALITY[q] || 360;
   let lastErr = null;
 
-  for (const clientName of STREAM_CLIENT_ORDER) {
+  for (const clientName of streamClientOrder()) {
     try {
       const { info, yt } = await getBasicInfoWithFallback(id, [clientName]);
       const status = info.playability_status?.status;
+      const reason = info.playability_status?.reason || status;
       if (status && status !== 'OK') {
-        throw new Error(info.playability_status?.reason || status || 'Video unplayable');
+        throw new Error(reason || status || 'Video unplayable');
       }
 
       const formats = [
@@ -227,7 +279,10 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
       const mime = format.mime_type || 'video/mp4';
       const isHls = /\.m3u8(\?|$)/i.test(playbackUrl) || /mpegurl/i.test(mime);
 
-      console.log(`[innertube] resolved stream video=${id} client=${clientName} quality=${q}`);
+      console.log(
+        `[innertube] resolved stream video=${id} client=${clientName} quality=${q}` +
+          (youtubeCookies.isLoggedIn() ? ' auth=cookies' : '')
+      );
 
       return {
         playbackUrl,
@@ -246,9 +301,14 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
   throw lastErr || new Error('InnerTube stream resolve failed');
 }
 
+function getCookiesStatus() {
+  return youtubeCookies.getStatus();
+}
+
 module.exports = {
   DEFAULT_DESKTOP_CHROME_UA,
   getMediaUserAgent,
+  getCookiesStatus,
   fetchYoutubeVideoInfo,
   fetchYoutubeMetadata,
   resolveYoutubeStream,
