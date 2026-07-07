@@ -25,9 +25,7 @@ const BUNNY_CONFIGURED = bunnyStream.isConfigured();
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || '0.0.0.0';
 
-const DEFAULT_ANDROID_YOUTUBE_UA =
-  'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36';
-const MEDIA_USER_AGENT = (process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_ANDROID_YOUTUBE_UA;
+const MEDIA_USER_AGENT = youtubeInnertube.getMediaUserAgent();
 const MEDIA_PROXY_TIMEOUT_MS = Number(process.env.MEDIA_PROXY_TIMEOUT_MS || 90_000);
 
 function sleepMs(ms) {
@@ -140,12 +138,17 @@ function buildClientResolveStatusResponse(req, videoId, rawQuality) {
   };
 }
 
+/** Last-resort metadata when InnerTube is unavailable (oEmbed often 404s from datacenter IPs). */
 async function fetchOembedVideoInfo(videoId) {
   const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
   const oembedRes = await fetch(oembedUrl, {
     signal: AbortSignal.timeout(15_000),
-    headers: { 'user-agent': MEDIA_USER_AGENT },
+    headers: {
+      'user-agent': MEDIA_USER_AGENT,
+      accept: 'application/json',
+      'accept-language': 'en-US,en;q=0.9',
+    },
   });
   if (!oembedRes.ok) {
     throw new Error(`YouTube oEmbed unavailable (${oembedRes.status})`);
@@ -161,7 +164,19 @@ async function fetchOembedVideoInfo(videoId) {
     thumbnail: thumbUrl ? [{ url: thumbUrl }] : [],
     isLiveContent: false,
     liveBroadcastDetails: { isLiveNow: false },
+    isUpcoming: false,
   };
+}
+
+async function fetchYoutubeVideoInfo(videoId) {
+  try {
+    return await youtubeInnertube.fetchYoutubeVideoInfo(videoId);
+  } catch (innertubeErr) {
+    console.warn(
+      `[video-info] InnerTube failed video=${videoId}: ${innertubeErr?.message || innertubeErr} — trying oEmbed`
+    );
+    return fetchOembedVideoInfo(videoId);
+  }
 }
 
 const ALLOWED_STREAM_QUALITIES = new Set(['240p', '360p', '480p', '720p', '1080p']);
@@ -726,7 +741,7 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = nul
 
 async function getVideoInfo(videoId) {
   if (useClientStreamResolve() || !BUNNY_CONFIGURED) {
-    return fetchOembedVideoInfo(videoId);
+    return fetchYoutubeVideoInfo(videoId);
   }
   return bunnyStream.getVideoInfo(videoId);
 }
@@ -1099,25 +1114,11 @@ app.get('/api/youtube/metadata/:videoId', async (req, res) => {
   }
 
   try {
-    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
-    const oembedRes = await fetch(oembedUrl, {
-      signal: AbortSignal.timeout(15_000),
-      headers: { 'user-agent': MEDIA_USER_AGENT },
-    });
-    if (!oembedRes.ok) {
-      return res.status(oembedRes.status).json({
-        error: 'metadata_unavailable',
-        detail: `oEmbed ${oembedRes.status}`,
-      });
-    }
-    const oembed = await oembedRes.json();
+    const meta = await youtubeInnertube.fetchYoutubeMetadata(videoId);
     res.json({
-      videoId,
-      title: oembed.title || null,
-      author: oembed.author_name || null,
-      thumbnail: oembed.thumbnail_url || null,
+      ...meta,
       resolveMode: useClientStreamResolve() ? 'client' : 'server',
+      source: 'innertube',
     });
   } catch (err) {
     console.error('[/api/youtube/metadata] failed:', err?.message || err);
@@ -1512,7 +1513,7 @@ app.get('/api/info/:videoId', async (req, res) => {
       thumbnail: thumb,
       live_status: info.isLiveContent ? 'is_live' : 'not_live',
       is_live: Boolean(info.liveBroadcastDetails?.isLiveNow),
-      is_upcoming: false,
+      is_upcoming: Boolean(info.isUpcoming),
       formats: [],
     });
   } catch (err) {
