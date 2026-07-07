@@ -20,7 +20,7 @@ let poTokenWarned = false;
 async function tryGetPoTokenSession() {
   if (!poTokenEnabled()) return null;
   try {
-    return await youtubePoToken.getPoTokenSession();
+    return await youtubePoToken.getPoTokenSession(getMediaUserAgent());
   } catch (err) {
     if (!poTokenWarned) {
       poTokenWarned = true;

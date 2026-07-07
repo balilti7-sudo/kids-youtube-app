@@ -34,21 +34,23 @@ let domInitialized = false;
 let sessionPromise = null;
 let sessionCreatedAt = 0;
 
-function ensureDom() {
-  if (domInitialized) return;
+let domUserAgent = null;
+
+function ensureDom(userAgent) {
+  if (domInitialized && domUserAgent === userAgent) return;
   const dom = new JSDOM('<!DOCTYPE html><html><head></head><body></body></html>', {
     url: 'https://www.youtube.com/',
     referrer: 'https://www.youtube.com/',
+    userAgent: userAgent || undefined,
   });
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
-  if (!Reflect.has(globalThis, 'navigator')) {
-    Object.defineProperty(globalThis, 'navigator', {
-      value: dom.window.navigator,
-      configurable: true,
-    });
-  }
+  Object.defineProperty(globalThis, 'navigator', {
+    value: dom.window.navigator,
+    configurable: true,
+  });
   domInitialized = true;
+  domUserAgent = userAgent;
 }
 
 async function loadBgUtils() {
@@ -60,23 +62,46 @@ async function loadYoutubei() {
 }
 
 /**
+ * Wraps fetch so every BotGuard/attestation network call carries the same User-Agent as
+ * the actual playback session. A mismatch between the "browser" that solved the BotGuard
+ * challenge and the one making the real request is exactly the kind of inconsistency an
+ * attestation/fingerprinting system is designed to flag.
+ */
+function createUaFetch(userAgent) {
+  if (!userAgent) return (input, init) => globalThis.fetch(input, init);
+  return (input, init = {}) => {
+    const headers = new Headers(init?.headers);
+    headers.set('User-Agent', userAgent);
+    return globalThis.fetch(input, { ...init, headers });
+  };
+}
+
+/**
  * Generates a fresh visitorData, runs the BotGuard challenge, and returns a minter
  * that can mint additional PO Tokens (per-video content-bound, or session-bound) cheaply
  * without re-running the VM challenge each time.
+ *
+ * @param {string} [userAgent] - Must match the User-Agent used by the actual playback
+ * sessions (MEDIA_USER_AGENT) so the attested environment matches the requesting one.
  */
-async function createSession() {
-  ensureDom();
+async function createSession(userAgent) {
+  ensureDom(userAgent);
   const { BG } = await loadBgUtils();
   const { Innertube } = await loadYoutubei();
+  const uaFetch = createUaFetch(userAgent);
 
-  const bare = await Innertube.create({ retrieve_player: false });
+  const bare = await Innertube.create({
+    retrieve_player: false,
+    user_agent: userAgent || undefined,
+    fetch: uaFetch,
+  });
   const visitorData = bare.session.context.client.visitorData;
   if (!visitorData) {
     throw new Error('PO Token: could not obtain visitorData from InnerTube');
   }
 
   const bgConfig = {
-    fetch: (input, init) => globalThis.fetch(input, init),
+    fetch: uaFetch,
     globalObj: globalThis,
     identifier: visitorData,
     requestKey: REQUEST_KEY,
@@ -104,7 +129,7 @@ async function createSession() {
   const webPoSignalOutput = [];
   const botguardResponse = await botguard.snapshot({ webPoSignalOutput });
 
-  const itRes = await globalThis.fetch(
+  const itRes = await uaFetch(
     `https://jnn-pa.googleapis.com/$rpc/google.internal.waa.v1.Waa/GenerateIT`,
     {
       method: 'POST',
@@ -128,14 +153,20 @@ async function createSession() {
   const sessionPoToken = await minter.mintAsWebsafeString(visitorData);
 
   console.log(
-    `[po-token] BotGuard session ready visitorData=${visitorData.slice(0, 24)}… sessionPoToken=${sessionPoToken.slice(0, 16)}…`
+    `[po-token] BotGuard session ready visitorData=${visitorData.slice(0, 24)}… sessionPoToken=${sessionPoToken.slice(0, 16)}… ua=${(userAgent || '(default)').slice(0, 48)}…`
   );
 
   return { minter, sessionPoToken, visitorData, createdAt: Date.now() };
 }
 
-function isStale() {
-  return !sessionPromise || Date.now() - sessionCreatedAt > MAX_SESSION_AGE_MS;
+let sessionUserAgent = null;
+
+function isStale(userAgent) {
+  return (
+    !sessionPromise ||
+    Date.now() - sessionCreatedAt > MAX_SESSION_AGE_MS ||
+    sessionUserAgent !== userAgent
+  );
 }
 
 /**
@@ -143,12 +174,14 @@ function isStale() {
  * a session-bound PO Token (for the `pot` query param on stream URLs), and a mint
  * function for per-video content-bound PO Tokens.
  *
+ * @param {string} [userAgent] - Should match the playback session's MEDIA_USER_AGENT.
  * @returns {Promise<{visitorData: string, sessionPoToken: string, mintContentBoundToken: (id: string) => Promise<string>}>}
  */
-async function getPoTokenSession() {
-  if (isStale()) {
+async function getPoTokenSession(userAgent) {
+  if (isStale(userAgent)) {
     sessionCreatedAt = Date.now();
-    sessionPromise = createSession().catch((err) => {
+    sessionUserAgent = userAgent;
+    sessionPromise = createSession(userAgent).catch((err) => {
       sessionPromise = null;
       throw err;
     });
