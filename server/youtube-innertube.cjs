@@ -19,12 +19,17 @@ const HEIGHT_BY_QUALITY = {
   '1080p': 1080,
 };
 
-/** Anonymous: TV_EMBEDDED first — bypasses YouTube's datacenter-IP "Sign in to confirm" gate for embeddable videos. */
-const STREAM_CLIENT_ORDER_ANON = ['TV_EMBEDDED', 'ANDROID', 'IOS', 'WEB'];
-/** Logged-in cookies: try TV_EMBEDDED first (no auth needed, avoids bot gate), then WEB for anything TV_EMBEDDED can't play (e.g. embedding-disabled videos), keeping MEDIA_USER_AGENT + SAPISID auth aligned with desktop cookies. */
-const STREAM_CLIENT_ORDER_AUTH = ['TV_EMBEDDED', 'WEB'];
-const METADATA_CLIENT_ORDER_ANON = ['TV_EMBEDDED', 'ANDROID', 'WEB', 'IOS'];
-const METADATA_CLIENT_ORDER_AUTH = ['TV_EMBEDDED', 'WEB'];
+/**
+ * TV_EMBEDDED (TVHTML5_SIMPLY_EMBEDDED_PLAYER) is rejected by YouTube's backend as of
+ * mid-2026 ("Invalid client") — removed. WEB_EMBEDDED and TV are the current PO-Token-free
+ * clients; TV requires cookies to avoid DRM'd formats, so it's prioritized when logged in.
+ */
+/** Anonymous: WEB_EMBEDDED/TV first (no PO Token required), ANDROID/IOS/WEB as last resort. */
+const STREAM_CLIENT_ORDER_ANON = ['WEB_EMBEDDED', 'TV', 'ANDROID', 'IOS', 'WEB'];
+/** Logged-in cookies: TV first (cookies unlock non-DRM formats without a PO Token), then WEB_EMBEDDED, then WEB. */
+const STREAM_CLIENT_ORDER_AUTH = ['TV', 'WEB_EMBEDDED', 'WEB'];
+const METADATA_CLIENT_ORDER_ANON = ['WEB_EMBEDDED', 'TV', 'ANDROID', 'WEB', 'IOS'];
+const METADATA_CLIENT_ORDER_AUTH = ['TV', 'WEB_EMBEDDED', 'WEB'];
 
 const innertubeByClient = new Map();
 let cookiesRevision = -1;
