@@ -1023,6 +1023,7 @@ app.get('/health', (_req, res) => {
     ingestReady: useClientStreamResolve() || bunnyStream.isIngestResolverConfigured(),
     ytdlpBinary: useClientStreamResolve() ? null : bunnyStream.ingestYtdlp.resolveYtDlpBinary(),
     innertubeCookies: youtubeInnertube.getCookiesStatus(),
+    innertubePoToken: youtubeInnertube.getPoTokenStatus(),
   });
 });
 

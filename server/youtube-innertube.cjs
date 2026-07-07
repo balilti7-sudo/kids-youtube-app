@@ -7,6 +7,28 @@
  */
 
 const youtubeCookies = require('./youtube-cookies.cjs');
+const youtubePoToken = require('./youtube-po-token.cjs');
+
+/** Kill switch in case BotGuard/PO Token generation ever needs to be disabled remotely. */
+function poTokenEnabled() {
+  const flag = String(process.env.USE_PO_TOKEN || '').trim().toLowerCase();
+  return flag !== '0' && flag !== 'false';
+}
+
+/** Never let PO Token generation failures break the existing (pre-PO-Token) resolve path. */
+let poTokenWarned = false;
+async function tryGetPoTokenSession() {
+  if (!poTokenEnabled()) return null;
+  try {
+    return await youtubePoToken.getPoTokenSession();
+  } catch (err) {
+    if (!poTokenWarned) {
+      poTokenWarned = true;
+      console.warn(`[innertube] PO Token session unavailable — continuing without it: ${err?.message || err}`);
+    }
+    return null;
+  }
+}
 
 const DEFAULT_DESKTOP_CHROME_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -20,16 +42,18 @@ const HEIGHT_BY_QUALITY = {
 };
 
 /**
- * TV_EMBEDDED (TVHTML5_SIMPLY_EMBEDDED_PLAYER) is rejected by YouTube's backend as of
- * mid-2026 ("Invalid client") — removed. WEB_EMBEDDED and TV are the current PO-Token-free
- * clients; TV requires cookies to avoid DRM'd formats, so it's prioritized when logged in.
+ * Confirmed via local testing (2026): TV_EMBEDDED, WEB_EMBEDDED, and TV are ALL rejected
+ * by YouTube's backend with "Invalid client" on this youtubei.js@17.2.0 build — their
+ * hardcoded client versions in Constants.js are stale. Only ANDROID, IOS, and WEB remain
+ * valid client identifiers. The real fix for "Sign in to confirm you're not a bot" is the
+ * PO Token (youtube-po-token.cjs) now attached to every request/session below, not client
+ * spoofing — confirmed locally: ANDROID + PO Token returned a valid playable stream.
  */
-/** Anonymous: WEB_EMBEDDED/TV first (no PO Token required), ANDROID/IOS/WEB as last resort. */
-const STREAM_CLIENT_ORDER_ANON = ['WEB_EMBEDDED', 'TV', 'ANDROID', 'IOS', 'WEB'];
-/** Logged-in cookies: TV first (cookies unlock non-DRM formats without a PO Token), then WEB_EMBEDDED, then WEB. */
-const STREAM_CLIENT_ORDER_AUTH = ['TV', 'WEB_EMBEDDED', 'WEB'];
-const METADATA_CLIENT_ORDER_ANON = ['WEB_EMBEDDED', 'TV', 'ANDROID', 'WEB', 'IOS'];
-const METADATA_CLIENT_ORDER_AUTH = ['TV', 'WEB_EMBEDDED', 'WEB'];
+const STREAM_CLIENT_ORDER_ANON = ['ANDROID', 'IOS', 'WEB'];
+/** Logged-in cookies: WEB first — keeps MEDIA_USER_AGENT + SAPISID auth aligned with desktop cookies, now backed by a PO Token. */
+const STREAM_CLIENT_ORDER_AUTH = ['WEB', 'ANDROID', 'IOS'];
+const METADATA_CLIENT_ORDER_ANON = ['ANDROID', 'WEB', 'IOS'];
+const METADATA_CLIENT_ORDER_AUTH = ['WEB', 'ANDROID', 'IOS'];
 
 const innertubeByClient = new Map();
 let cookiesRevision = -1;
@@ -72,16 +96,22 @@ function applyMediaUserAgentToSession(yt, clientName) {
   return yt;
 }
 
-function syncInnertubeSessions() {
+let poTokenVisitorRevision = '';
+
+function syncInnertubeSessions(poTokenVisitorData) {
   const rev = youtubeCookies.getCookiesRevision();
   const uaRev = getMediaUserAgent();
-  if (rev !== cookiesRevision || uaRev !== mediaUserAgentRevision) {
+  const potRev = poTokenVisitorData || '';
+  if (rev !== cookiesRevision || uaRev !== mediaUserAgentRevision || potRev !== poTokenVisitorRevision) {
     if (innertubeByClient.size > 0) {
-      console.log('[innertube] cookie or MEDIA_USER_AGENT changed — clearing InnerTube session cache');
+      console.log(
+        '[innertube] cookie, MEDIA_USER_AGENT, or PO Token session changed — clearing InnerTube session cache'
+      );
     }
     innertubeByClient.clear();
     cookiesRevision = rev;
     mediaUserAgentRevision = uaRev;
+    poTokenVisitorRevision = potRev;
   }
 }
 
@@ -104,11 +134,12 @@ async function loadYoutubei() {
 }
 
 async function getInnertube(clientName) {
-  syncInnertubeSessions();
   const name = String(clientName || 'ANDROID').toUpperCase();
   const cookieHeader = youtubeCookies.getCookieHeader();
   const ua = getMediaUserAgent();
-  const cacheKey = `${name}:${cookieHeader ? 'auth' : 'anon'}:${ua}`;
+  const poTokenSession = await tryGetPoTokenSession();
+  syncInnertubeSessions(poTokenSession?.visitorData);
+  const cacheKey = `${name}:${cookieHeader ? 'auth' : 'anon'}:${ua}:${poTokenSession?.visitorData || 'no-pot'}`;
 
   if (!innertubeByClient.has(cacheKey)) {
     innertubeByClient.set(
@@ -125,6 +156,10 @@ async function getInnertube(clientName) {
         if (cookieHeader) {
           options.cookie = cookieHeader;
         }
+        if (poTokenSession) {
+          options.visitor_data = poTokenSession.visitorData;
+          options.po_token = poTokenSession.sessionPoToken;
+        }
         if (name === 'WEB' || name === 'MWEB') {
           options.device_category = 'desktop';
         }
@@ -135,7 +170,7 @@ async function getInnertube(clientName) {
 
   const yt = await innertubeByClient.get(cacheKey);
   const { ClientType } = await loadYoutubei();
-  return { yt, client: ClientType[name] ?? ClientType.ANDROID, clientName: name };
+  return { yt, client: ClientType[name] ?? ClientType.ANDROID, clientName: name, poTokenSession };
 }
 
 function pickProgressiveFormat(formats, minHeight) {
@@ -197,8 +232,18 @@ async function getBasicInfoWithFallback(videoId, clientOrder) {
 
   for (const clientName of clientOrder) {
     try {
-      const { yt, client } = await getInnertube(clientName);
-      const info = await yt.getBasicInfo(videoId, { client });
+      const { yt, client, poTokenSession } = await getInnertube(clientName);
+      const basicInfoOptions = { client };
+      if (poTokenSession) {
+        try {
+          basicInfoOptions.po_token = await poTokenSession.mintContentBoundToken(videoId);
+        } catch (mintErr) {
+          console.warn(
+            `[innertube] content PO Token mint failed video=${videoId}: ${mintErr?.message || mintErr}`
+          );
+        }
+      }
+      const info = await yt.getBasicInfo(videoId, basicInfoOptions);
       const status = info.playability_status?.status;
       const reason = info.playability_status?.reason || status;
 
@@ -224,13 +269,13 @@ async function getBasicInfoWithFallback(videoId, clientOrder) {
           console.warn(
             `[innertube] ${clientName} playability=${status} video=${videoId} — using partial metadata`
           );
-          return { info, clientName, yt };
+          return { info, clientName, yt, poTokenSession };
         }
         lastErr = new Error(reason || status);
         continue;
       }
 
-      return { info, clientName, yt };
+      return { info, clientName, yt, poTokenSession };
     } catch (err) {
       lastErr = err;
       console.warn(
@@ -301,7 +346,7 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
 
   for (const clientName of streamClientOrder()) {
     try {
-      const { info, yt } = await getBasicInfoWithFallback(id, [clientName]);
+      const { info, yt, poTokenSession } = await getBasicInfoWithFallback(id, [clientName]);
       const status = info.playability_status?.status;
       const reason = info.playability_status?.reason || status;
       if (status && status !== 'OK') {
@@ -323,13 +368,21 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
         throw new Error(`No ${q} stream format available`);
       }
 
-      const playbackUrl = await formatPlaybackUrl(format, yt.session.player);
+      let playbackUrl = await formatPlaybackUrl(format, yt.session.player);
       const mime = format.mime_type || 'video/mp4';
       const isHls = /\.m3u8(\?|$)/i.test(playbackUrl) || /mpegurl/i.test(mime);
+
+      // GVS (googlevideo) checks the `pot` query param on the actual media request,
+      // separately from the po_token used on the metadata/player API call above.
+      if (!isHls && poTokenSession?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
+        const sep = playbackUrl.includes('?') ? '&' : '?';
+        playbackUrl = `${playbackUrl}${sep}pot=${encodeURIComponent(poTokenSession.sessionPoToken)}`;
+      }
 
       console.log(
         `[innertube] resolved stream video=${id} client=${clientName} quality=${q}` +
           (youtubeCookies.isLoggedIn() ? ' auth=cookies' : '') +
+          (poTokenSession ? ' poToken=yes' : ' poToken=no') +
           ` ua=${getMediaUserAgent().slice(0, 48)}…`
       );
 
@@ -354,10 +407,20 @@ function getCookiesStatus() {
   return youtubeCookies.getStatus();
 }
 
+/** Best-effort status for /health — does not force a new BotGuard run if none exists yet. */
+function getPoTokenStatus() {
+  return {
+    enabled: poTokenEnabled(),
+    ready: Boolean(poTokenWarned === false && innertubeByClient.size > 0),
+    lastErrorLogged: poTokenWarned,
+  };
+}
+
 module.exports = {
   DEFAULT_DESKTOP_CHROME_UA,
   getMediaUserAgent,
   getCookiesStatus,
+  getPoTokenStatus,
   fetchYoutubeVideoInfo,
   fetchYoutubeMetadata,
   resolveYoutubeStream,
