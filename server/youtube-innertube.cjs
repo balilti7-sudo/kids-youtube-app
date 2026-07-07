@@ -19,12 +19,12 @@ const HEIGHT_BY_QUALITY = {
   '1080p': 1080,
 };
 
-/** Anonymous: ANDROID first for direct googlevideo URLs. */
-const STREAM_CLIENT_ORDER_ANON = ['ANDROID', 'IOS', 'WEB'];
-/** Logged-in cookies: WEB only — keeps MEDIA_USER_AGENT + SAPISID auth aligned with desktop cookies. */
-const STREAM_CLIENT_ORDER_AUTH = ['WEB'];
-const METADATA_CLIENT_ORDER_ANON = ['ANDROID', 'WEB', 'IOS'];
-const METADATA_CLIENT_ORDER_AUTH = ['WEB'];
+/** Anonymous: TV_EMBEDDED first — bypasses YouTube's datacenter-IP "Sign in to confirm" gate for embeddable videos. */
+const STREAM_CLIENT_ORDER_ANON = ['TV_EMBEDDED', 'ANDROID', 'IOS', 'WEB'];
+/** Logged-in cookies: try TV_EMBEDDED first (no auth needed, avoids bot gate), then WEB for anything TV_EMBEDDED can't play (e.g. embedding-disabled videos), keeping MEDIA_USER_AGENT + SAPISID auth aligned with desktop cookies. */
+const STREAM_CLIENT_ORDER_AUTH = ['TV_EMBEDDED', 'WEB'];
+const METADATA_CLIENT_ORDER_ANON = ['TV_EMBEDDED', 'ANDROID', 'WEB', 'IOS'];
+const METADATA_CLIENT_ORDER_AUTH = ['TV_EMBEDDED', 'WEB'];
 
 const innertubeByClient = new Map();
 let cookiesRevision = -1;
