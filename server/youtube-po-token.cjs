@@ -23,6 +23,7 @@
  */
 
 const { JSDOM } = require('jsdom');
+const mediaProxy = require('./media-proxy.cjs');
 
 /** Public "WEB" BotGuard request key used by all known self-hosted BotGuard integrations. */
 const REQUEST_KEY = 'O43z0dpjhgX20SCx4KAo';
@@ -63,16 +64,19 @@ async function loadYoutubei() {
 
 /**
  * Wraps fetch so every BotGuard/attestation network call carries the same User-Agent as
- * the actual playback session. A mismatch between the "browser" that solved the BotGuard
- * challenge and the one making the real request is exactly the kind of inconsistency an
- * attestation/fingerprinting system is designed to flag.
+ * the actual playback session, and — when a residential/rotating proxy is configured —
+ * goes out through it instead of Render's own egress. A mismatch between the "browser"
+ * that solved the BotGuard challenge and the one making the real request is exactly the
+ * kind of inconsistency an attestation/fingerprinting system is designed to flag, and if
+ * Render's IP is what's actually gated, the challenge itself must run from the proxy too
+ * (not just the playback session) or the two halves of the attestation won't agree.
  */
 function createUaFetch(userAgent) {
-  if (!userAgent) return (input, init) => globalThis.fetch(input, init);
   return (input, init = {}) => {
     const headers = new Headers(init?.headers);
-    headers.set('User-Agent', userAgent);
-    return globalThis.fetch(input, { ...init, headers });
+    if (userAgent) headers.set('User-Agent', userAgent);
+    const dispatcher = mediaProxy.getProxyDispatcher();
+    return globalThis.fetch(input, { ...init, headers, ...(dispatcher ? { dispatcher } : {}) });
   };
 }
 

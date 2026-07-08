@@ -13,14 +13,34 @@ const cors = require('cors');
 const http = require('http');
 const https = require('https');
 
-const bunnyStream = require('./bunny-stream.cjs');
 const streamStatusStore = require('./stream-status-store.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
-const { ensureYtDlpBinary } = require('./ensure-ytdlp.cjs');
 const youtubeInnertube = require('./youtube-innertube.cjs');
 const innertubeProxy = require('./innertube-proxy.cjs');
 
-const BUNNY_CONFIGURED = bunnyStream.isConfigured();
+/**
+ * bunny-stream.cjs (+ its axios / ingest-ytdlp.cjs / child_process dependents) and
+ * ensure-ytdlp.cjs are only relevant to the legacy server-side yt-dlp/Bunny resolver.
+ * Lazy-require them so they are never loaded into memory at all when
+ * USE_CLIENT_STREAM_RESOLVE=1 — one less thing competing for this box's 512MB.
+ */
+let _bunnyStream = null;
+function getBunnyStream() {
+  if (!_bunnyStream) _bunnyStream = require('./bunny-stream.cjs');
+  return _bunnyStream;
+}
+
+let _ensureYtDlpBinary = null;
+function getEnsureYtDlpBinary() {
+  if (!_ensureYtDlpBinary) _ensureYtDlpBinary = require('./ensure-ytdlp.cjs').ensureYtDlpBinary;
+  return _ensureYtDlpBinary;
+}
+
+/** false in client mode without ever loading bunny-stream.cjs. */
+function isBunnyConfigured() {
+  if (useClientStreamResolve()) return false;
+  return getBunnyStream().isConfigured();
+}
 
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -708,7 +728,7 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = nul
       'CLIENT_RESOLVE_REQUIRED: server-side resolve disabled — browser must POST /api/stream/:videoId/client-ready'
     );
   }
-  if (!BUNNY_CONFIGURED) {
+  if (!isBunnyConfigured()) {
     throw new Error(
       'Bunny Stream is not configured (set BUNNY_STREAM_API_KEY and BUNNY_LIBRARY_ID on the Media Bridge)'
     );
@@ -723,7 +743,7 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = nul
     progress.retryAfterMs = progress.retryAfterMs || 3000;
   }
 
-  const resolved = await bunnyStream.resolveVideoDownloadUrl(videoId, targetQuality, progress);
+  const resolved = await getBunnyStream().resolveVideoDownloadUrl(videoId, targetQuality, progress);
   if (!resolved.url) {
     throw new Error('Bunny Stream returned no playable URL');
   }
@@ -740,10 +760,10 @@ async function resolveVideoDownloadUrl(videoId, quality = '360p', progress = nul
 }
 
 async function getVideoInfo(videoId) {
-  if (useClientStreamResolve() || !BUNNY_CONFIGURED) {
+  if (useClientStreamResolve() || !isBunnyConfigured()) {
     return fetchYoutubeVideoInfo(videoId);
   }
-  return bunnyStream.getVideoInfo(videoId);
+  return getBunnyStream().getVideoInfo(videoId);
 }
 
 async function getCachedUpstreamUrl(
@@ -1008,22 +1028,24 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
 }
 
 app.get('/health', (_req, res) => {
+  const clientMode = useClientStreamResolve();
   res.json({
     ok: true,
     bridge: { port: PORT, host: HOST },
-    resolver: useClientStreamResolve() ? 'client-innertube' : 'bunny-stream',
-    clientStreamResolve: useClientStreamResolve(),
-    bunnyLibraryId: bunnyStream.BUNNY_LIBRARY_ID || null,
-    bunnyConfigured: BUNNY_CONFIGURED,
+    resolver: clientMode ? 'client-innertube' : 'bunny-stream',
+    clientStreamResolve: clientMode,
+    bunnyLibraryId: clientMode ? null : getBunnyStream().BUNNY_LIBRARY_ID || null,
+    bunnyConfigured: isBunnyConfigured(),
     ingestResolvers: {
-      ytdlp: !useClientStreamResolve() && bunnyStream.isIngestResolverConfigured(),
+      ytdlp: !clientMode && getBunnyStream().isIngestResolverConfigured(),
     },
     ingestWorkerMode: useIngestWorker(),
     ingestQueueConfigured: streamStatusStore.isConfigured(),
-    ingestReady: useClientStreamResolve() || bunnyStream.isIngestResolverConfigured(),
-    ytdlpBinary: useClientStreamResolve() ? null : bunnyStream.ingestYtdlp.resolveYtDlpBinary(),
+    ingestReady: clientMode || getBunnyStream().isIngestResolverConfigured(),
+    ytdlpBinary: clientMode ? null : getBunnyStream().ingestYtdlp.resolveYtDlpBinary(),
     innertubeCookies: youtubeInnertube.getCookiesStatus(),
     innertubePoToken: youtubeInnertube.getPoTokenStatus(),
+    innertubeProxy: youtubeInnertube.getProxyStatus(),
   });
 });
 
@@ -1034,10 +1056,11 @@ app.get('/api/diagnostics', async (_req, res) => {
       web = {
         clientStreamResolve: true,
         innertubeCookies: youtubeInnertube.getCookiesStatus(),
+        innertubeProxy: youtubeInnertube.getProxyStatus(),
         note: 'Server yt-dlp/Bunny egress diagnostics disabled in client-side resolve mode',
       };
     } else {
-      web = await bunnyStream.ingestYtdlp.runEgressDiagnostics();
+      web = await getBunnyStream().ingestYtdlp.runEgressDiagnostics();
     }
 
     let workers = [];
@@ -1536,7 +1559,7 @@ app.post('/admin/clear-resolve-cache', (_req, res) => {
 app.listen(PORT, HOST, () => {
   if (!useClientStreamResolve()) {
     try {
-      ensureYtDlpBinary({ strict: false, probe: true });
+      getEnsureYtDlpBinary()({ strict: false, probe: true });
     } catch (err) {
       console.error(`[bridge] yt-dlp startup check failed: ${err.message}`);
       if (err.stderr) console.error(`[bridge] yt-dlp stderr:\n${err.stderr}`);
@@ -1548,11 +1571,18 @@ app.listen(PORT, HOST, () => {
     console.log(
       '[bridge] YouTube resolver: CLIENT (browser InnerTube) — yt-dlp worker disabled; playback via /api/media proxy'
     );
+    const proxyMode = youtubeInnertube.getProxyStatus();
+    console.log(
+      proxyMode.configured
+        ? `[bridge] InnerTube/PO-Token proxy: ${proxyMode.endpoint} source=${proxyMode.source}`
+        : '[bridge] InnerTube/PO-Token proxy: (none — direct from this box)'
+    );
   } else {
+    const bunnyStream = getBunnyStream();
     console.log(
       `[bridge] YouTube resolver: Bunny Stream (library=${bunnyStream.BUNNY_LIBRARY_ID || '?'})`
     );
-    if (!BUNNY_CONFIGURED) {
+    if (!isBunnyConfigured()) {
       console.error(
         '[bridge] WARNING: BUNNY_STREAM_API_KEY and/or BUNNY_LIBRARY_ID not set — /api/stream will fail.'
       );

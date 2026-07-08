@@ -13,10 +13,20 @@ try {
 // Supabase failed on the first "Error code: 152" (may be an IP/session block).
 process.env.YT_DLP_DEFER_FAILURE_MARKING = '1';
 
-const { ensureYtDlpBinary, updateYtDlpBinary } = require('./ensure-ytdlp.cjs');
-const streamStatusStore = require('./stream-status-store.cjs');
-const ingestYtdlp = require('./ingest-ytdlp.cjs');
-const cookiePool = require('./cookie-pool.cjs');
+/**
+ * ensure-ytdlp.cjs, stream-status-store.cjs, ingest-ytdlp.cjs, and cookie-pool.cjs are
+ * only needed for the legacy server-side yt-dlp ingest queue. In USE_CLIENT_STREAM_RESOLVE=1
+ * mode this whole worker does nothing but a keepalive ping (see main() below), so these are
+ * loaded lazily — this dyno's entire memory footprint drops to "Node + a fetch timer".
+ */
+let ensureYtDlpBinary, updateYtDlpBinary, streamStatusStore, ingestYtdlp, cookiePool;
+
+function loadLegacyIngestDeps() {
+  ({ ensureYtDlpBinary, updateYtDlpBinary } = require('./ensure-ytdlp.cjs'));
+  streamStatusStore = require('./stream-status-store.cjs');
+  ingestYtdlp = require('./ingest-ytdlp.cjs');
+  cookiePool = require('./cookie-pool.cjs');
+}
 
 const WORKER_ID =
   String(process.env.INGEST_WORKER_ID || '').trim() ||
@@ -266,6 +276,8 @@ async function main() {
     await new Promise(() => {});
     return;
   }
+
+  loadLegacyIngestDeps();
 
   if (!streamStatusStore.isConfigured()) {
     console.error('[ingest-worker] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');

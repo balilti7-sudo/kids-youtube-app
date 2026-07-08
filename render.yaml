@@ -16,6 +16,21 @@ services:
         value: "1"
       - key: USE_CLIENT_STREAM_RESOLVE
         value: "1"
+      # Optional: residential/rotating proxy for InnerTube + PO-Token requests only (not
+      # /api/media). Render env vars are per-service — copy the SAME Webshare credential
+      # values already entered on safetube-ingest-worker's YT_DLP_PROXY_* into these
+      # MEDIA_PROXY_* fields here (dashboard → this service → Environment). See
+      # server/.env.example for details and the alternate YT_DLP_PROXY_* naming.
+      - key: MEDIA_PROXY_SCHEME
+        sync: false
+      - key: MEDIA_PROXY_USER
+        sync: false
+      - key: MEDIA_PROXY_PASSWORD
+        sync: false
+      - key: MEDIA_PROXY_HOST
+        sync: false
+      - key: MEDIA_PROXY_PORT
+        sync: false
       - key: CORS_ORIGIN
         sync: false
       - key: PUBLIC_BASE_URL
@@ -51,6 +66,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22
+      # Must match the web service — without this, the worker doesn't know client-resolve
+      # mode is active and stays on the (unused) legacy yt-dlp/Supabase-queue poll path
+      # instead of the lightweight keepalive-only path in ingest-worker.cjs.
+      - key: USE_CLIENT_STREAM_RESOLVE
+        value: "1"
       # Worker is Bunny-free: it resolves direct googlevideo URLs via yt-dlp -g.
       - key: SUPABASE_URL
         sync: false

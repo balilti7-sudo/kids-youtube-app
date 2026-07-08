@@ -8,6 +8,7 @@
 
 const youtubeCookies = require('./youtube-cookies.cjs');
 const youtubePoToken = require('./youtube-po-token.cjs');
+const mediaProxy = require('./media-proxy.cjs');
 
 /** Kill switch in case BotGuard/PO Token generation ever needs to be disabled remotely. */
 function poTokenEnabled() {
@@ -65,7 +66,9 @@ function getMediaUserAgent() {
 
 /**
  * youtubei.js overwrites User-Agent for ANDROID/IOS InnerTube calls.
- * Wrap fetch so MEDIA_USER_AGENT is forced on every outbound request.
+ * Wrap fetch so MEDIA_USER_AGENT is forced on every outbound request, and — when
+ * a residential/rotating proxy is configured — every InnerTube API call goes out
+ * through it instead of Render's own (likely IP-reputation-flagged) egress.
  */
 function createMediaUserAgentFetch() {
   const underlying = globalThis.fetch.bind(globalThis);
@@ -76,7 +79,8 @@ function createMediaUserAgentFetch() {
         (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined)
     );
     headers.set('User-Agent', ua);
-    return underlying(input, { ...init, headers });
+    const dispatcher = mediaProxy.getProxyDispatcher();
+    return underlying(input, { ...init, headers, ...(dispatcher ? { dispatcher } : {}) });
   };
 }
 
@@ -416,11 +420,17 @@ function getPoTokenStatus() {
   };
 }
 
+/** Proxy status for InnerTube/PO-Token egress (not the /api/media byte-stream). */
+function getProxyStatus() {
+  return mediaProxy.describeProxyMode();
+}
+
 module.exports = {
   DEFAULT_DESKTOP_CHROME_UA,
   getMediaUserAgent,
   getCookiesStatus,
   getPoTokenStatus,
+  getProxyStatus,
   fetchYoutubeVideoInfo,
   fetchYoutubeMetadata,
   resolveYoutubeStream,
