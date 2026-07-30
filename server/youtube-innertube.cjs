@@ -467,13 +467,23 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
     }
 
     const allBotChecked = attemptsThisPass > 0 && botChecksThisPass === attemptsThisPass;
-    if (pass === 0 && allBotChecked && poTokenEnabled()) {
+    // A fresh BotGuard identity only helps when we can also present a different EGRESS IP
+    // (residential proxy). From a flagged datacenter IP, re-minting just doubles the wait
+    // before the same bot check — verified in production (~88s for a doomed 2nd pass).
+    const proxyConfigured = mediaProxy.describeProxyMode().configured;
+    if (pass === 0 && allBotChecked && poTokenEnabled() && proxyConfigured) {
       console.warn(
-        `[innertube] all clients bot-checked video=${id} — minting fresh BotGuard identity and retrying once`
+        `[innertube] all clients bot-checked video=${id} — minting fresh BotGuard identity and retrying once (proxy active)`
       );
       youtubePoToken.invalidate();
       innertubeByClient.clear();
       continue;
+    }
+    if (pass === 0 && allBotChecked && !proxyConfigured) {
+      console.error(
+        `[innertube] all clients bot-checked video=${id} and NO residential proxy is configured — ` +
+          `this is a datacenter-IP block that no token/cookie can fix. Set MEDIA_PROXY_* / YT_DLP_PROXY_*.`
+      );
     }
     break;
   }
