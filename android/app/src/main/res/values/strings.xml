@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SafeTube</string>
+    <string name="title_activity_main">SafeTube</string>
+    <string name="package_name">app.safetube.kids</string>
+    <string name="custom_url_scheme">app.safetube.kids</string>
+</resources>

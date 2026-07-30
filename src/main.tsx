@@ -4,11 +4,13 @@ import './index.css'
 import { normalizePairingUrlInAddressBar } from './lib/pairingCodeFromQr'
 import { installAuthDiagnostics } from './lib/authDiagnostics'
 import { initTheme } from './lib/theme'
+import { initCapacitorDeviceResolve } from './lib/deviceResolve/capacitorBridge'
 import App from './App.tsx'
 
 normalizePairingUrlInAddressBar()
 installAuthDiagnostics()
 initTheme()
+initCapacitorDeviceResolve()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

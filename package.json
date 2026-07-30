@@ -14,10 +14,13 @@
     "electron:dev": "node scripts/electron-dev.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
     "@hookform/resolvers": "^3.9.1",
     "@supabase/supabase-js": "^2.47.10",
     "@videojs/http-streaming": "^3.17.4",
-    "bgutils-js": "^4.0.2",
+    "bgutils-js": "3.2.0",
     "framer-motion": "^12.38.0",
     "hls.js": "^1.6.16",
     "html5-qrcode": "^2.3.8",
