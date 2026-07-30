@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import { assertChildPlaybackAllowedForStream, ChildPlaybackBlockedError } from './childRuntime'
 import { isClientStreamResolveEnabled } from './clientStreamConfig'
 import { resolveClientYoutubeStream, type ClientResolvedStream } from './clientYoutubeResolve'
+import { isDeviceResolveAvailable, resolveOnDevice } from './deviceResolve'
 import {
   LIVE_UPCOMING_PLAYBACK_MESSAGE,
   normalizeBridgeErrorDetail,
@@ -1068,6 +1069,25 @@ export async function fetchStreamInfo(
 
   const inflightKey = streamInfoCacheKey(id, requestedQuality)
 
+  // On-device (Electron/Capacitor): resolve from the child's own residential IP and play
+  // the googlevideo URL directly — no Media Bridge, no proxy, no server bandwidth.
+  if (isDeviceResolveAvailable()) {
+    const existingDevice = streamInfoInflight.get(inflightKey)
+    if (existingDevice) {
+      return signal ? Promise.race([existingDevice, waitForAbortSignal(signal)]) : existingDevice
+    }
+    const devicePromise = resolveStreamOnDevice(id, requestedQuality, signal)
+      .then((data) => {
+        setCachedStreamInfo(id, data, requestedQuality)
+        return data
+      })
+      .finally(() => {
+        streamInfoInflight.delete(inflightKey)
+      })
+    streamInfoInflight.set(inflightKey, devicePromise)
+    return devicePromise
+  }
+
   if (await shouldUseClientStreamResolve()) {
     const existingClient = streamInfoInflight.get(inflightKey)
     if (existingClient) {
@@ -1188,6 +1208,32 @@ async function registerClientStreamOnBridge(
  * Resolve a stream via the media bridge (InnerTube on the server), then register
  * the googlevideo URL on the bridge for proxied playback (/api/media).
  */
+/**
+ * On-device resolve (Electron/Capacitor). The returned googlevideo URL is IP-bound to the
+ * device, so `<video>` plays it directly (`proxied: false`) — no bridge round-trip for bytes.
+ */
+async function resolveStreamOnDevice(
+  videoId: string,
+  quality: string,
+  signal?: AbortSignal
+): Promise<StreamApiResponse> {
+  await assertChildPlaybackAllowedForStream()
+  console.info('[streamApi] on-device resolve', { videoId, quality })
+  const resolved = await Promise.race([
+    resolveOnDevice(videoId, quality),
+    ...(signal ? [waitForAbortSignal(signal)] : []),
+  ])
+  return {
+    videoId,
+    url: resolved.playbackUrl,
+    format: resolved.format,
+    mimeType: resolved.mime,
+    quality: resolved.quality,
+    source: 'device',
+    proxied: false,
+  }
+}
+
 async function resolveStreamOnClient(
   videoId: string,
   quality: string,
