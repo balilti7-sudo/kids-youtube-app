@@ -1093,6 +1093,45 @@ app.get('/health', (_req, res) => {
   });
 });
 
+/**
+ * Runs the exact InnerTube egress path (undici fetch through the configured proxy
+ * dispatcher) FROM this box and reports timing + egress IP + error cause — never the
+ * proxy credentials. Purpose: pinpoint why resolves fail through the proxy on Render
+ * when the same proxy + code work from other IPs. Safe to expose (read-only, no secrets).
+ */
+app.get('/api/proxy-selftest', async (_req, res) => {
+  const mediaProxy = require('./media-proxy.cjs');
+  const mode = mediaProxy.describeProxyMode();
+  const dispatcher = mediaProxy.getProxyDispatcher();
+
+  async function probe(url, useProxy) {
+    const t0 = Date.now();
+    try {
+      const r = await fetch(url, {
+        ...(useProxy && dispatcher ? { dispatcher } : {}),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const body = url.includes('ipify') ? (await r.text()).trim() : null;
+      return { ok: true, status: r.status, ms: Date.now() - t0, egressIp: body };
+    } catch (err) {
+      return {
+        ok: false,
+        ms: Date.now() - t0,
+        error: err?.name || 'Error',
+        message: String(err?.message || err).slice(0, 200),
+        cause: err?.cause?.code || err?.cause?.message || null,
+      };
+    }
+  }
+
+  res.json({
+    proxy: { configured: mode.configured, endpoint: mode.endpoint, dispatcherBuilt: Boolean(dispatcher) },
+    directEgressIp: await probe('https://api.ipify.org', false),
+    viaProxyEgressIp: await probe('https://api.ipify.org', true),
+    viaProxyYoutube: await probe('https://www.youtube.com', true),
+  });
+});
+
 app.get('/api/diagnostics', async (_req, res) => {
   try {
     let web;
