@@ -897,6 +897,14 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
   }
   if (req.headers.range) headers.Range = req.headers.range;
 
+  /**
+   * INVARIANT — video bytes egress DIRECT from this box, never through the residential
+   * proxy. The proxy (media-proxy.cjs) is an undici ProxyAgent *dispatcher* that only the
+   * `fetch()`-based InnerTube/BotGuard API calls opt into; Node's http/https client used
+   * here cannot use an undici dispatcher, and we never set an `agent`. Routing bulk media
+   * through the metered residential proxy would burn its bandwidth cap at scale — so this
+   * request must stay on the default (direct) agent. Do NOT add `agent`/`dispatcher` here.
+   */
   const proxyReq = lib.request(
     upstream,
     { method: 'GET', headers, timeout: MEDIA_PROXY_TIMEOUT_MS },
@@ -1075,6 +1083,13 @@ app.get('/health', (_req, res) => {
     innertubeCookies: youtubeInnertube.getCookiesStatus(),
     innertubePoToken: youtubeInnertube.getPoTokenStatus(),
     innertubeProxy: youtubeInnertube.getProxyStatus(),
+    // Egress separation invariant, made observable: the residential proxy (when set)
+    // carries ONLY InnerTube API + BotGuard/PO-Token calls. Bulk video bytes (/api/media)
+    // always go direct from this box, never through the metered proxy.
+    egress: {
+      apiViaProxy: youtubeInnertube.getProxyStatus().configured,
+      mediaBytes: 'direct',
+    },
   });
 });
 
@@ -1605,6 +1620,10 @@ app.listen(PORT, HOST, () => {
       proxyMode.configured
         ? `[bridge] InnerTube/PO-Token proxy: ${proxyMode.endpoint} source=${proxyMode.source}`
         : '[bridge] InnerTube/PO-Token proxy: (none — direct from this box)'
+    );
+    console.log(
+      `[bridge] egress separation: API/PO-Token=${proxyMode.configured ? 'via proxy' : 'direct'}, ` +
+        `video bytes (/api/media)=DIRECT (never proxied — protects residential proxy bandwidth)`
     );
 
     // Build the BotGuard/InnerTube session NOW (not on the first play — that cost users
