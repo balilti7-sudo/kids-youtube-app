@@ -201,6 +201,7 @@ async function getPoTokenSession(userAgent) {
 function invalidate() {
   sessionPromise = null;
   sessionCreatedAt = 0;
+  sessionUserAgent = null;
 }
 
 module.exports = { getPoTokenSession, invalidate };

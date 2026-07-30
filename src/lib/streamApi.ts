@@ -1199,19 +1199,14 @@ async function resolveStreamOnClient(
   try {
     return await registerClientStreamOnBridge(videoId, quality, resolved, signal)
   } catch (err) {
+    // The googlevideo URL is IP-bound to the bridge, so handing it to the browser
+    // directly can never play (403) — retry the registration once instead.
     console.warn(
-      '[streamApi] bridge client-ready failed — falling back to direct googlevideo URL',
+      '[streamApi] bridge client-ready failed — retrying once',
       err instanceof Error ? err.message : err
     )
-    return {
-      videoId,
-      url: resolved.playbackUrl,
-      format: resolved.format,
-      mimeType: resolved.mime,
-      quality: resolved.quality,
-      source: 'client',
-      proxied: false,
-    }
+    await sleepWithAbort(2_000, signal)
+    return registerClientStreamOnBridge(videoId, quality, resolved, signal)
   }
 }
 

@@ -216,6 +216,31 @@ function playbackMediaPath(videoId, rawQuality, fallback = '360p') {
   return `/api/media/${encodeURIComponent(videoId)}?quality=${encodeURIComponent(q)}`;
 }
 
+/** Cap for expire-derived cache entries (googlevideo URLs are typically valid ~6h). */
+const RESOLVE_CACHE_MAX_TTL_MS = Number(process.env.RESOLVE_CACHE_MAX_TTL_MS || 4 * 60 * 60 * 1000);
+
+/**
+ * googlevideo URLs carry their own `expire` (unix seconds). Cache until 30 min before
+ * that instead of the short fixed TTL — the old 8-minute TTL was shorter than the
+ * browser's 20-minute stream cache, so seeking/resuming after ~8 min hit a dead
+ * /api/media entry and playback failed with FILE_NOT_READY mid-video.
+ */
+function resolveEntryTtlMs(upstreamUrl) {
+  try {
+    const u = new URL(String(upstreamUrl || ''));
+    if (/(^|\.)googlevideo\.com$/i.test(u.hostname) || /videoplayback/i.test(u.pathname)) {
+      const expire = Number(u.searchParams.get('expire'));
+      if (Number.isFinite(expire) && expire > 0) {
+        const ttl = expire * 1000 - Date.now() - 30 * 60 * 1000;
+        if (ttl > RESOLVE_CACHE_TTL_MS) return Math.min(ttl, RESOLVE_CACHE_MAX_TTL_MS);
+      }
+    }
+  } catch {
+    /* not a URL — fall through to fixed TTL */
+  }
+  return RESOLVE_CACHE_TTL_MS;
+}
+
 function buildResolveCacheEntry(upstreamUrl, meta = {}) {
   return {
     upstreamUrl,
@@ -224,7 +249,7 @@ function buildResolveCacheEntry(upstreamUrl, meta = {}) {
     source: meta.source || null,
     proxied: meta.proxied,
     requestedQuality: meta.requestedQuality || null,
-    expiresAt: Date.now() + RESOLVE_CACHE_TTL_MS,
+    expiresAt: Date.now() + resolveEntryTtlMs(upstreamUrl),
   };
 }
 
@@ -910,6 +935,10 @@ function proxyUpstreamMedia(req, res, upstreamUrl, proxyOpts = {}) {
         if (staleUpstream && cacheKey) {
           resolveCache.delete(cacheKey);
         }
+        if (staleUpstream && videoId) {
+          // Also drop the InnerTube-level resolve cache so the next resolve is fresh.
+          youtubeInnertube.invalidateStreamCache(videoId);
+        }
         console.error(
           `[/api/media] upstream HTTP ${status} video=${videoId || '?'} quality=${quality || '?'} source=${source || '?'} url=${upstreamUrl.slice(0, 96)}…`
         );
@@ -1577,6 +1606,14 @@ app.listen(PORT, HOST, () => {
         ? `[bridge] InnerTube/PO-Token proxy: ${proxyMode.endpoint} source=${proxyMode.source}`
         : '[bridge] InnerTube/PO-Token proxy: (none — direct from this box)'
     );
+
+    // Build the BotGuard/InnerTube session NOW (not on the first play — that cost users
+    // ~90s of spinner) and re-mint it before the PO-Token session TTL (55 min) lapses.
+    void youtubeInnertube.warmup();
+    const warmIntervalMs = Number(process.env.INNERTUBE_WARM_INTERVAL_MS || 45 * 60 * 1000);
+    if (warmIntervalMs > 0) {
+      setInterval(() => void youtubeInnertube.warmup(), warmIntervalMs).unref();
+    }
   } else {
     const bunnyStream = getBunnyStream();
     console.log(

@@ -60,6 +60,45 @@ const innertubeByClient = new Map();
 let cookiesRevision = -1;
 let mediaUserAgentRevision = '';
 
+/**
+ * Successful stream resolves are cached until shortly before the googlevideo URL's own
+ * `expire` timestamp (~6h from mint). Kids replay the same videos constantly — without
+ * this every replay was a fresh InnerTube round-trip: slow, and more bot-check exposure.
+ * Safe to share across users: the URL is IP-bound to THIS server, and /api/media proxies it.
+ */
+const STREAM_RESOLVE_CACHE_MAX_TTL_MS = Number(
+  process.env.STREAM_RESOLVE_CACHE_MAX_TTL_MS || 4 * 60 * 60 * 1000
+);
+const STREAM_RESOLVE_CACHE_SAFETY_MS = 30 * 60 * 1000;
+const streamResolveCache = new Map();
+
+function googlevideoExpiryMs(url) {
+  try {
+    const expire = Number(new URL(url).searchParams.get('expire'));
+    if (Number.isFinite(expire) && expire > 0) return expire * 1000;
+  } catch {
+    /* not a URL */
+  }
+  return null;
+}
+
+function streamResolveCacheTtlMs(playbackUrl) {
+  const expiryMs = googlevideoExpiryMs(playbackUrl);
+  if (!expiryMs) return Math.min(30 * 60 * 1000, STREAM_RESOLVE_CACHE_MAX_TTL_MS);
+  return Math.max(
+    0,
+    Math.min(expiryMs - Date.now() - STREAM_RESOLVE_CACHE_SAFETY_MS, STREAM_RESOLVE_CACHE_MAX_TTL_MS)
+  );
+}
+
+/** Drop cached resolves for a video (e.g. after the media proxy saw upstream 403/404/410). */
+function invalidateStreamCache(videoId) {
+  const prefix = `${String(videoId || '').trim()}:`;
+  for (const key of streamResolveCache.keys()) {
+    if (key.startsWith(prefix)) streamResolveCache.delete(key);
+  }
+}
+
 function getMediaUserAgent() {
   return String(process.env.MEDIA_USER_AGENT || '').trim() || DEFAULT_DESKTOP_CHROME_UA;
 }
@@ -346,62 +385,97 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
 
   const q = String(quality || '360p').trim().toLowerCase();
   const minHeight = HEIGHT_BY_QUALITY[q] || 360;
+
+  const cacheKey = `${id}:${q}`;
+  const cached = streamResolveCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log(`[innertube] stream cache hit video=${id} quality=${q}`);
+    return cached.result;
+  }
+  if (cached) streamResolveCache.delete(cacheKey);
+
   let lastErr = null;
 
-  for (const clientName of streamClientOrder()) {
-    try {
-      const { info, yt, poTokenSession } = await getBasicInfoWithFallback(id, [clientName]);
-      const status = info.playability_status?.status;
-      const reason = info.playability_status?.reason || status;
-      if (status && status !== 'OK') {
-        throw new Error(reason || status || 'Video unplayable');
+  // Two passes: if EVERY client hits the bot check, the BotGuard identity (visitorData +
+  // PO Token) is likely flagged — mint a fresh one and retry the whole client order once.
+  for (let pass = 0; pass < 2; pass++) {
+    let botChecksThisPass = 0;
+    let attemptsThisPass = 0;
+
+    for (const clientName of streamClientOrder()) {
+      attemptsThisPass++;
+      try {
+        const { info, yt, poTokenSession } = await getBasicInfoWithFallback(id, [clientName]);
+        const status = info.playability_status?.status;
+        const reason = info.playability_status?.reason || status;
+        if (status && status !== 'OK') {
+          throw new Error(reason || status || 'Video unplayable');
+        }
+
+        const formats = [
+          ...(info.streaming_data?.formats || []),
+          ...(info.streaming_data?.adaptive_formats || []),
+        ];
+
+        if (!formats.length) {
+          throw new Error('No stream formats returned by YouTube');
+        }
+
+        const format =
+          pickProgressiveFormat(formats, minHeight) || pickAdaptiveVideoFormat(formats, minHeight);
+        if (!format) {
+          throw new Error(`No ${q} stream format available`);
+        }
+
+        let playbackUrl = await formatPlaybackUrl(format, yt.session.player);
+        const mime = format.mime_type || 'video/mp4';
+        const isHls = /\.m3u8(\?|$)/i.test(playbackUrl) || /mpegurl/i.test(mime);
+
+        // GVS (googlevideo) checks the `pot` query param on the actual media request,
+        // separately from the po_token used on the metadata/player API call above.
+        if (!isHls && poTokenSession?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
+          const sep = playbackUrl.includes('?') ? '&' : '?';
+          playbackUrl = `${playbackUrl}${sep}pot=${encodeURIComponent(poTokenSession.sessionPoToken)}`;
+        }
+
+        console.log(
+          `[innertube] resolved stream video=${id} client=${clientName} quality=${q}` +
+            (youtubeCookies.isLoggedIn() ? ' auth=cookies' : '') +
+            (poTokenSession ? ' poToken=yes' : ' poToken=no') +
+            (pass > 0 ? ' (after fresh BotGuard identity)' : '') +
+            ` ua=${getMediaUserAgent().slice(0, 48)}…`
+        );
+
+        const result = {
+          playbackUrl,
+          mime,
+          format: isHls ? 'hls' : 'direct',
+          quality: format.quality_label || q,
+        };
+        const ttlMs = streamResolveCacheTtlMs(playbackUrl);
+        if (ttlMs > 0) {
+          streamResolveCache.set(cacheKey, { result, expiresAt: Date.now() + ttlMs });
+        }
+        return result;
+      } catch (err) {
+        lastErr = err;
+        if (isBotCheckMessage(err?.message)) botChecksThisPass++;
+        console.warn(
+          `[innertube] resolve ${clientName} failed video=${id} (pass ${pass + 1}): ${err?.message || err}`
+        );
       }
-
-      const formats = [
-        ...(info.streaming_data?.formats || []),
-        ...(info.streaming_data?.adaptive_formats || []),
-      ];
-
-      if (!formats.length) {
-        throw new Error('No stream formats returned by YouTube');
-      }
-
-      const format =
-        pickProgressiveFormat(formats, minHeight) || pickAdaptiveVideoFormat(formats, minHeight);
-      if (!format) {
-        throw new Error(`No ${q} stream format available`);
-      }
-
-      let playbackUrl = await formatPlaybackUrl(format, yt.session.player);
-      const mime = format.mime_type || 'video/mp4';
-      const isHls = /\.m3u8(\?|$)/i.test(playbackUrl) || /mpegurl/i.test(mime);
-
-      // GVS (googlevideo) checks the `pot` query param on the actual media request,
-      // separately from the po_token used on the metadata/player API call above.
-      if (!isHls && poTokenSession?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
-        const sep = playbackUrl.includes('?') ? '&' : '?';
-        playbackUrl = `${playbackUrl}${sep}pot=${encodeURIComponent(poTokenSession.sessionPoToken)}`;
-      }
-
-      console.log(
-        `[innertube] resolved stream video=${id} client=${clientName} quality=${q}` +
-          (youtubeCookies.isLoggedIn() ? ' auth=cookies' : '') +
-          (poTokenSession ? ' poToken=yes' : ' poToken=no') +
-          ` ua=${getMediaUserAgent().slice(0, 48)}…`
-      );
-
-      return {
-        playbackUrl,
-        mime,
-        format: isHls ? 'hls' : 'direct',
-        quality: format.quality_label || q,
-      };
-    } catch (err) {
-      lastErr = err;
-      console.warn(
-        `[innertube] resolve ${clientName} failed video=${id}: ${err?.message || err}`
-      );
     }
+
+    const allBotChecked = attemptsThisPass > 0 && botChecksThisPass === attemptsThisPass;
+    if (pass === 0 && allBotChecked && poTokenEnabled()) {
+      console.warn(
+        `[innertube] all clients bot-checked video=${id} — minting fresh BotGuard identity and retrying once`
+      );
+      youtubePoToken.invalidate();
+      innertubeByClient.clear();
+      continue;
+    }
+    break;
   }
 
   throw lastErr || new Error('InnerTube stream resolve failed');
@@ -409,6 +483,29 @@ async function resolveYoutubeStream(videoId, quality = '360p') {
 
 function getCookiesStatus() {
   return youtubeCookies.getStatus();
+}
+
+/**
+ * Pre-builds the BotGuard/PO-Token session and the primary InnerTube session so the
+ * first playback after boot doesn't pay the full attestation cost (measured ~90s on
+ * a Render free instance when done lazily). Also called periodically to re-mint the
+ * session before its TTL (default 55 min) lapses, so no user ever hits a cold session.
+ */
+let warmupInFlight = null;
+async function warmup() {
+  if (warmupInFlight) return warmupInFlight;
+  warmupInFlight = (async () => {
+    const t0 = Date.now();
+    try {
+      await getInnertube(streamClientOrder()[0]);
+      console.log(`[innertube] warmup complete in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.warn(`[innertube] warmup failed after ${Date.now() - t0}ms: ${err?.message || err}`);
+    } finally {
+      warmupInFlight = null;
+    }
+  })();
+  return warmupInFlight;
 }
 
 /** Best-effort status for /health — does not force a new BotGuard run if none exists yet. */
@@ -434,4 +531,6 @@ module.exports = {
   fetchYoutubeVideoInfo,
   fetchYoutubeMetadata,
   resolveYoutubeStream,
+  invalidateStreamCache,
+  warmup,
 };
