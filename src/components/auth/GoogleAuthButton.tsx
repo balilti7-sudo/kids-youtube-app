@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { setAppModeParent } from '../../lib/appMode'
+import { isNativeApp, signInWithGoogleNative } from '../../lib/capacitorAuth'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
@@ -17,6 +18,19 @@ export function GoogleAuthButton() {
     setLoading(true)
     try {
       setAppModeParent()
+
+      if (isNativeApp()) {
+        // Google blocks OAuth inside WebViews — hand off to the system browser;
+        // the deep-link listener (capacitorAuth) finishes the sign-in when we return.
+        const { error } = await signInWithGoogleNative()
+        if (error) {
+          console.error('[Google OAuth native]', error)
+          toast.error(error.message || 'התחברות עם Google נכשלה.')
+        }
+        setLoading(false)
+        return
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
