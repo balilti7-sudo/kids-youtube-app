@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "icons": "node scripts/generate-pwa-icons.mjs",
     "electron": "electron electron/main.cjs",
-    "electron:dev": "node scripts/electron-dev.mjs"
+    "electron:dev": "node scripts/electron-dev.mjs",
+    "android:apk": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-android-apk.ps1"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
