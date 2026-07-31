@@ -15,6 +15,7 @@
  */
 import { Capacitor } from '@capacitor/core'
 import { App } from '@capacitor/app'
+import { AppLauncher } from '@capacitor/app-launcher'
 import { Browser } from '@capacitor/browser'
 import { toast } from 'sonner'
 import { supabase } from './supabase'
@@ -24,6 +25,24 @@ export const NATIVE_OAUTH_REDIRECT = 'app.safetube.kids://auth-callback'
 
 export function isNativeApp(): boolean {
   return Capacitor.isNativePlatform()
+}
+
+/**
+ * Opens a URL outside the WebView. Prefers a Chrome Custom Tab; if the device has no
+ * custom-tabs-capable browser reachable ("Unable to display URL"), falls back to a plain
+ * ACTION_VIEW launch of the default browser.
+ */
+async function openInSystemBrowser(url: string): Promise<void> {
+  try {
+    await Browser.open({ url })
+    return
+  } catch (err) {
+    console.warn('[capacitorAuth] Browser.open failed, falling back to AppLauncher', err)
+  }
+  const { completed } = await AppLauncher.openUrl({ url })
+  if (!completed) {
+    throw new Error('לא נמצא דפדפן פעיל במכשיר. הפעילו דפדפן (למשל Chrome) ונסו שוב.')
+  }
 }
 
 /** Starts Google sign-in from inside the native app. Resolves once the system browser opens. */
@@ -37,7 +56,11 @@ export async function signInWithGoogleNative(): Promise<{ error: Error | null }>
   })
   if (error) return { error: new Error(error.message) }
   if (!data?.url) return { error: new Error('Supabase returned no OAuth URL') }
-  await Browser.open({ url: data.url })
+  try {
+    await openInSystemBrowser(data.url)
+  } catch (err) {
+    return { error: err instanceof Error ? err : new Error(String(err)) }
+  }
   return { error: null }
 }
 
