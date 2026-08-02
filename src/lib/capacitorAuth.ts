@@ -74,6 +74,27 @@ export function initCapacitorAuthDeepLinks(): void {
   })
 }
 
+/** Parse query params from custom-scheme deep links (`app.safetube.kids://host?a=b`). */
+function paramsFromDeepLink(url: string): URLSearchParams {
+  try {
+    return new URL(url).searchParams
+  } catch {
+    /* some WebViews reject custom schemes in `new URL` — fall back to manual parse */
+  }
+  const q = url.indexOf('?')
+  return new URLSearchParams(q >= 0 ? url.slice(q + 1).split('#')[0] : '')
+}
+
+function humanizeOAuthError(raw: string | null | undefined): string {
+  const msg = String(raw || '').trim()
+  if (!msg) return 'התחברות עם Google נכשלה.'
+  // GoTrue truncates the Google auth code into this message when Client Secret / redirect is wrong.
+  if (/unable to exchange external code/i.test(msg)) {
+    return 'Google ב-Supabase לא מוגדר נכון (Client Secret). עדכנו את ה-Secret ב-Supabase ושמרו.'
+  }
+  return msg
+}
+
 async function completeOAuthCallback(url: string): Promise<void> {
   // Best effort — Browser.close() is a no-op/unsupported on some Android versions.
   try {
@@ -82,25 +103,19 @@ async function completeOAuthCallback(url: string): Promise<void> {
     /* ignore */
   }
 
-  let params: URLSearchParams
-  try {
-    params = new URL(url).searchParams
-  } catch {
-    return
-  }
-
+  const params = paramsFromDeepLink(url)
   const oauthError = params.get('error_description') || params.get('error')
   const code = params.get('code')
   if (!code) {
     console.error('[capacitorAuth] OAuth callback without code', { url, oauthError })
-    toast.error(oauthError || 'התחברות עם Google נכשלה.')
+    toast.error(humanizeOAuthError(oauthError))
     return
   }
 
   const { error } = await supabase.auth.exchangeCodeForSession(code)
   if (error) {
     console.error('[capacitorAuth] exchangeCodeForSession failed', error)
-    toast.error(error.message || 'התחברות עם Google נכשלה.')
+    toast.error(humanizeOAuthError(error.message))
     return
   }
 
