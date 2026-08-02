@@ -2,8 +2,12 @@ import { create } from 'zustand'
 import type { PostgrestError } from '@supabase/supabase-js'
 import type { Device } from '../types'
 import { getChildDeviceState } from '../lib/childDevice'
-import { parentUpdateDeviceSettings } from '../lib/deviceSettings'
+import { parentUpdateDeviceSettings, type DeviceSettingsUpdate } from '../lib/deviceSettings'
+import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import { supabase } from '../lib/supabase'
+
+const DEVICE_SELECT =
+  'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts, block_youtube_app, browser_filter_enabled, browser_whitelist'
 
 function formatSupabaseError(error: PostgrestError): string {
   const parts = [error.message, error.details, error.hint].filter((p) => p && String(p).trim())
@@ -19,6 +23,10 @@ interface DeviceState {
   fetchDevices: (userId: string) => Promise<void>
   toggleBlock: (deviceId: string, isBlocked: boolean) => Promise<{ error: Error | null }>
   updateAllowShorts: (deviceId: string, allowShorts: boolean) => Promise<{ error: Error | null }>
+  updateDeviceSettings: (
+    deviceId: string,
+    updates: DeviceSettingsUpdate
+  ) => Promise<{ error: Error | null }>
   addDevice: (payload: {
     userId: string
     name: string
@@ -62,7 +70,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         updated_at: new Date(0).toISOString(),
         channel_count: 0,
         allow_shorts: data.allow_shorts,
+        block_youtube_app: data.block_youtube_app,
+        browser_filter_enabled: data.browser_filter_enabled,
+        browser_whitelist: data.browser_whitelist,
       }
+      void syncParentalControlPolicy(policyFromDeviceFields(device))
       set({ devices: [device], loading: false })
     } catch (err) {
       console.error('[deviceStore.fetchDeviceFromChildToken]', err)
@@ -95,7 +107,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       const withCount: Device = {
         ...d,
         channel_count: typeof d.channel_count === 'number' ? d.channel_count : Number(d.channel_count ?? 0),
+        browser_whitelist: Array.isArray(d.browser_whitelist) ? d.browser_whitelist : [],
       }
+      void syncParentalControlPolicy(policyFromDeviceFields(withCount))
       set({ devices: [withCount], loading: false })
     } catch (err) {
       console.error('[deviceStore.fetchLocalParentDeviceFromToken]', err)
@@ -112,9 +126,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     try {
       const { data, error } = await supabase
         .from('devices')
-        .select(
-          'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts'
-        )
+        .select(DEVICE_SELECT)
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
 
@@ -160,19 +172,28 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   updateAllowShorts: async (deviceId, allowShorts) => {
-    const { data, error } = await parentUpdateDeviceSettings(deviceId, { allowShorts })
+    return get().updateDeviceSettings(deviceId, { allowShorts })
+  },
+
+  updateDeviceSettings: async (deviceId, updates) => {
+    const { data, error } = await parentUpdateDeviceSettings(deviceId, updates)
     if (error) {
-      console.error('[deviceStore.updateAllowShorts]', error)
+      console.error('[deviceStore.updateDeviceSettings]', error)
       return { error }
     }
     if (!data) {
       return { error: new Error('DEVICE_SETTINGS_UPDATE_FAILED') }
     }
+    const nextFields = {
+      allow_shorts: data.allowShorts,
+      block_youtube_app: data.blockYoutubeApp,
+      browser_filter_enabled: data.browserFilterEnabled,
+      browser_whitelist: data.browserWhitelist,
+    }
     set({
-      devices: get().devices.map((d) =>
-        d.id === deviceId ? { ...d, allow_shorts: data.allowShorts } : d
-      ),
+      devices: get().devices.map((d) => (d.id === deviceId ? { ...d, ...nextFields } : d)),
     })
+    void syncParentalControlPolicy(policyFromDeviceFields(nextFields))
     return { error: null }
   },
 
@@ -181,9 +202,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     const { data, error } = await supabase
       .from('devices')
       .insert(row)
-      .select(
-        'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts'
-      )
+      .select(DEVICE_SELECT)
       .single()
     if (error) {
       console.error('Connection Error:', error)

@@ -12,6 +12,9 @@ export interface ChildDeviceState {
   is_online: boolean
   last_seen_at: string | null
   allow_shorts: boolean
+  block_youtube_app: boolean
+  browser_filter_enabled: boolean
+  browser_whitelist: string[]
 }
 
 export interface ChildAllowedVideo {
@@ -111,6 +114,11 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
   const deviceId = rawId != null && String(rawId).trim() ? String(rawId).trim() : ''
   const rawName = r.device_name ?? r.name
   const deviceName = rawName != null ? String(rawName) : ''
+  const whitelistRaw = r.browser_whitelist ?? r.browserWhitelist
+  const browser_whitelist = Array.isArray(whitelistRaw)
+    ? whitelistRaw.map((h) => String(h ?? '').trim()).filter(Boolean)
+    : []
+
   return {
     data: {
       device_id: deviceId,
@@ -119,6 +127,9 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
       is_online: Boolean(r.is_online),
       last_seen_at: r.last_seen_at != null ? String(r.last_seen_at) : null,
       allow_shorts: Boolean(r.allow_shorts ?? r.allowShorts),
+      block_youtube_app: Boolean(r.block_youtube_app ?? r.blockYoutubeApp),
+      browser_filter_enabled: Boolean(r.browser_filter_enabled ?? r.browserFilterEnabled),
+      browser_whitelist,
     },
     error: null,
   }

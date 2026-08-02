@@ -41,6 +41,7 @@ import {
   isVideoShortOrSuspected,
 } from '../lib/videoFormatClassification'
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
+import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
@@ -410,6 +411,7 @@ function KidModePageInner() {
     if (!stateRes.data) throw new Error('המכשיר לא נמצא. התחברו מחדש עם קוד צימוד.')
 
     setDevice(stateRes.data)
+    void syncParentalControlPolicy(policyFromDeviceFields(stateRes.data))
     if (channelsRes.error) {
       setChannels([])
       setError(channelsRes.error.message)

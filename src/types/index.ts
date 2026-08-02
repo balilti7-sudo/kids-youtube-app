@@ -25,6 +25,11 @@ export interface Device {
   updated_at: string
   channel_count?: number
   allow_shorts?: boolean
+  /** Block the system YouTube app on the child device (Accessibility). */
+  block_youtube_app?: boolean
+  /** Deny-by-default browser filtering; only browser_whitelist hosts allowed. */
+  browser_filter_enabled?: boolean
+  browser_whitelist?: string[]
 }
 
 export interface WhitelistedChannel {

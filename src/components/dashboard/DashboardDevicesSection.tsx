@@ -12,6 +12,7 @@ import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui/ErrorState'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
+import { DeviceOsControlsSettings } from './DeviceOsControlsSettings'
 import { toast } from 'sonner'
 
 function randomSixDigits() {
@@ -177,6 +178,7 @@ export function DashboardDevicesSection({
                 </Button>
               </div>
               <AllowShortsDeviceSettings device={d} />
+              <DeviceOsControlsSettings device={d} />
             </li>
           ))}
         </ul>
