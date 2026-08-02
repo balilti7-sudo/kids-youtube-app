@@ -11,16 +11,19 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * Capacitor's default onPause pauses the WebView timers/media. Resume them so HTML5
-     * {@code <video>} keeps playing when the screen turns off or another app is opened.
-     * Pair with {@link MediaPlaybackService} so Android does not kill the process.
+     * Capacitor pauses WebView timers on onPause. Resume timers so HTML5 media can keep
+     * playing when the screen turns off or another app is opened. Do NOT call
+     * WebView.onResume() here — that fights the Activity lifecycle and can stall playback.
      */
     @Override
     public void onPause() {
         super.onPause();
-        if (bridge != null && bridge.getWebView() != null) {
-            bridge.getWebView().onResume();
-            bridge.getWebView().resumeTimers();
+        try {
+            if (bridge != null && bridge.getWebView() != null) {
+                bridge.getWebView().resumeTimers();
+            }
+        } catch (Exception ignored) {
+            /* ignore */
         }
     }
 }

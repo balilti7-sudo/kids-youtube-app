@@ -13,13 +13,9 @@ const config: CapacitorConfig = {
     // (crypto.subtle etc., needed by BotGuard) are available in the WebView.
     androidScheme: 'https',
   },
-  plugins: {
-    // Patch window.fetch / XHR through native HTTP so Media Bridge + Google APIs
-    // are not blocked by WebView CORS on https://localhost.
-    CapacitorHttp: {
-      enabled: true,
-    },
-  },
+  // IMPORTANT: do NOT enable CapacitorHttp globally — patching window.fetch/XHR
+  // breaks on-device YouTube resolve, HLS.js, and <video> playback. Callers that
+  // need CORS bypass use capacitorAwareFetch() / CapacitorHttp.request explicitly.
 }
 
 export default config

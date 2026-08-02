@@ -43,7 +43,8 @@ export async function capacitorAwareFetch(
     responseType: 'text',
   })
   const bodyText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '')
-  const status = res.status && res.status >= 200 ? res.status : 200
+  // Preserve real HTTP status (including < 200). Only fall back when status is missing.
+  const status = typeof res.status === 'number' && res.status > 0 ? res.status : 200
   return new Response(bodyText, {
     status,
     headers: (res.headers as Record<string, string>) || {},
