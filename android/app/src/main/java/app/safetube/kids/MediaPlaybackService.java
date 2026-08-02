@@ -10,14 +10,13 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.support.v4.media.session.MediaSessionCompat;
 import androidx.core.app.NotificationCompat;
+import androidx.media.app.NotificationCompat.MediaStyle;
 
 /**
- * Foreground service that keeps the process (and WebView media) alive while audio plays
- * with the screen off or another app (Waze / WhatsApp) in the foreground.
- *
- * Intentionally does NOT take exclusive audio focus — fighting Waze/WhatsApp for focus
- * was pausing/stopping playback. Keeping the process alive is enough for HTML5 media.
+ * Foreground media service — keeps the process alive and signals OEMs that audio
+ * is intentionally playing while the screen is off or another app is open.
  */
 public class MediaPlaybackService extends Service {
     public static final String CHANNEL_ID = "safetube_playback";
@@ -26,7 +25,14 @@ public class MediaPlaybackService extends Service {
     public static final String EXTRA_ARTIST = "artist";
     public static final String ACTION_STOP = "app.safetube.kids.STOP_PLAYBACK";
 
+    private static volatile boolean active = false;
+
     private PowerManager.WakeLock wakeLock;
+    private MediaSessionCompat mediaSession;
+
+    public static boolean isActive() {
+        return active;
+    }
 
     @Override
     public void onCreate() {
@@ -37,6 +43,8 @@ public class MediaPlaybackService extends Service {
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SafeTube:MediaPlayback");
             wakeLock.setReferenceCounted(false);
         }
+        mediaSession = new MediaSessionCompat(this, "SafeTubeMedia");
+        mediaSession.setActive(true);
     }
 
     @Override
@@ -51,6 +59,7 @@ public class MediaPlaybackService extends Service {
         if (title == null || title.isEmpty()) title = "SafeTube";
         if (artist == null || artist.isEmpty()) artist = "מתנגן עכשיו";
 
+        active = true;
         acquireWakeLock();
 
         try {
@@ -65,7 +74,7 @@ public class MediaPlaybackService extends Service {
                 startForeground(NOTIFICATION_ID, notification);
             }
         } catch (Exception e) {
-            // If FGS cannot start, do not crash the app — playback can still work in-foreground.
+            active = false;
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -94,7 +103,13 @@ public class MediaPlaybackService extends Service {
     }
 
     private void stopPlayback() {
+        active = false;
         releaseWakeLock();
+        try {
+            if (mediaSession != null) mediaSession.setActive(false);
+        } catch (Exception ignored) {
+            /* ignore */
+        }
         try {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } catch (Exception ignored) {
@@ -112,7 +127,7 @@ public class MediaPlaybackService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(artist)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -122,7 +137,13 @@ public class MediaPlaybackService extends Service {
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build();
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
+
+        if (mediaSession != null) {
+            builder.setStyle(new MediaStyle().setMediaSession(mediaSession.getSessionToken()));
+        }
+
+        return builder.build();
     }
 
     private void createChannel() {
@@ -140,7 +161,17 @@ public class MediaPlaybackService extends Service {
 
     @Override
     public void onDestroy() {
+        active = false;
         releaseWakeLock();
+        try {
+            if (mediaSession != null) {
+                mediaSession.setActive(false);
+                mediaSession.release();
+                mediaSession = null;
+            }
+        } catch (Exception ignored) {
+            /* ignore */
+        }
         super.onDestroy();
     }
 

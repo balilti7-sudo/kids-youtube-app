@@ -1011,17 +1011,38 @@ function CleanPlayerMediaBridge({
     const el = videoRef.current
     if (!el) return
 
-    const sync = () => {
+    // Marks this element so native MainActivity can nudge play() while backgrounded.
+    el.setAttribute('data-safetube-bg', '1')
+
+    const meta = {
+      title: title || 'SafeTube',
+      artist: channelTitle || 'מתנגן עכשיו',
+    }
+
+    const sync = (opts?: { fromPause?: boolean }) => {
       if (useDailyWatchBudgetStore.getState().isLimitReached) {
         if (!el.paused) el.pause()
         setMediaPlaybackActive(false)
         return
       }
+      const hidden =
+        typeof document !== 'undefined' &&
+        (document.visibilityState === 'hidden' || document.hidden)
+
+      // While backgrounded, Android may briefly pause the element — keep the FGS
+      // running and try to resume instead of tearing down background playback.
+      if (opts?.fromPause && hidden && !el.ended) {
+        setMediaPlaybackActive(true, meta)
+        window.setTimeout(() => {
+          if (useDailyWatchBudgetStore.getState().isLimitReached) return
+          if (document.visibilityState === 'visible') return
+          if (!el.ended) void el.play().catch(() => {})
+        }, 120)
+        return
+      }
+
       const on = !el.paused && !el.ended
-      setMediaPlaybackActive(on, {
-        title: title || 'SafeTube',
-        artist: channelTitle || 'מתנגן עכשיו',
-      })
+      setMediaPlaybackActive(on, meta)
       if (on) touchParentalGateActivity()
     }
 
@@ -1033,12 +1054,14 @@ function CleanPlayerMediaBridge({
       }
       sync()
     }
-    const onPause = () => sync()
+    const onPause = () => sync({ fromPause: true })
     const onEndedForActivity = () => sync()
 
     el.addEventListener('play', onPlay)
     el.addEventListener('pause', onPause)
     el.addEventListener('ended', onEndedForActivity)
+    // Ensure FGS is up as soon as the playing phase mounts.
+    setMediaPlaybackActive(true, meta)
     sync()
 
     const tick = window.setInterval(() => {
@@ -1047,6 +1070,7 @@ function CleanPlayerMediaBridge({
 
     return () => {
       window.clearInterval(tick)
+      el.removeAttribute('data-safetube-bg')
       el.removeEventListener('play', onPlay)
       el.removeEventListener('pause', onPause)
       el.removeEventListener('ended', onEndedForActivity)
@@ -1110,9 +1134,28 @@ function CleanPlayerMediaBridge({
     const el = videoRef.current
     if (!el) return
 
+    const resumeIfNeeded = () => {
+      if (useDailyWatchBudgetStore.getState().isLimitReached) return
+      if (el.ended) return
+      if (el.paused) void el.play().catch(() => {})
+      setMediaPlaybackActive(true, {
+        title: title || 'SafeTube',
+        artist: channelTitle || 'מתנגן עכשיו',
+      })
+    }
+
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        wasPlayingBeforeHiddenRef.current = !el.paused
+        wasPlayingBeforeHiddenRef.current = !el.paused || wasPlayingBeforeHiddenRef.current
+        // Keep native background media session alive and try to continue.
+        if (wasPlayingBeforeHiddenRef.current) {
+          setMediaPlaybackActive(true, {
+            title: title || 'SafeTube',
+            artist: channelTitle || 'מתנגן עכשיו',
+          })
+          window.setTimeout(resumeIfNeeded, 80)
+          window.setTimeout(resumeIfNeeded, 400)
+        }
         return
       }
       if (
@@ -1124,11 +1167,25 @@ function CleanPlayerMediaBridge({
       }
     }
 
+    // Cordova/Capacitor fires a document "pause" event on Android backgrounding.
+    const onCordovaPause = () => {
+      wasPlayingBeforeHiddenRef.current = !el.paused || wasPlayingBeforeHiddenRef.current
+      if (!wasPlayingBeforeHiddenRef.current) return
+      setMediaPlaybackActive(true, {
+        title: title || 'SafeTube',
+        artist: channelTitle || 'מתנגן עכשיו',
+      })
+      window.setTimeout(resumeIfNeeded, 80)
+      window.setTimeout(resumeIfNeeded, 400)
+    }
+
     document.addEventListener('visibilitychange', onVisibility)
+    document.addEventListener('pause', onCordovaPause)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
+      document.removeEventListener('pause', onCordovaPause)
     }
-  }, [phase.kind, videoId])
+  }, [phase.kind, videoId, title, channelTitle])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return

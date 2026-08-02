@@ -12,6 +12,7 @@
     "icons": "node scripts/generate-pwa-icons.mjs",
     "electron": "electron electron/main.cjs",
     "electron:dev": "node scripts/electron-dev.mjs",
+    "postinstall": "node scripts/patch-capacitor-webview.mjs",
     "android:apk": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-android-apk.ps1"
   },
   "dependencies": {
@@ -47,6 +48,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^43.2.0",
+    "patch-package": "^8.0.1",
     "postcss": "^8.4.49",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.16",

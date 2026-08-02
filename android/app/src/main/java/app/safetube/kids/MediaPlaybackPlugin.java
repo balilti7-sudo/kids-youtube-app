@@ -2,6 +2,7 @@ package app.safetube.kids;
 
 import android.content.Intent;
 import android.os.Build;
+import com.getcapacitor.CapacitorWebView;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -12,8 +13,9 @@ public class MediaPlaybackPlugin extends Plugin {
 
     @PluginMethod
     public void start(PluginCall call) {
-        // Never gate playback on permissions or dialogs — just best-effort FGS.
         try {
+            CapacitorWebView.allowBackgroundMedia = true;
+
             String title = call.getString("title", "SafeTube");
             String artist = call.getString("artist", "מתנגן עכשיו");
 
@@ -26,6 +28,16 @@ public class MediaPlaybackPlugin extends Plugin {
             } else {
                 getContext().startService(intent);
             }
+
+            // Immediately keep WebView alive in case the user backgrounds right away.
+            try {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().onResume();
+                    getBridge().getWebView().resumeTimers();
+                }
+            } catch (Exception ignored) {
+                /* ignore */
+            }
         } catch (Exception ignored) {
             /* ignore — foreground playback must keep working */
         }
@@ -34,6 +46,7 @@ public class MediaPlaybackPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
+        CapacitorWebView.allowBackgroundMedia = false;
         try {
             Intent intent = new Intent(getContext(), MediaPlaybackService.class);
             intent.setAction(MediaPlaybackService.ACTION_STOP);

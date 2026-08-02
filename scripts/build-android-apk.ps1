@@ -9,6 +9,8 @@ if (Test-Path 'C:\android-tools\sdk') { $env:ANDROID_HOME = 'C:\android-tools\sd
 if ($env:JAVA_HOME) { $env:Path = "$env:JAVA_HOME\bin;$env:Path" }
 
 Set-Location $root
+node ./scripts/patch-capacitor-webview.mjs
+if ($LASTEXITCODE -ne 0) { throw 'capacitor webview patch failed' }
 npm run build
 if ($LASTEXITCODE -ne 0) { throw 'web build failed' }
 npx cap sync android
