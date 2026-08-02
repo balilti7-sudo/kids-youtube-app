@@ -12,7 +12,7 @@
  *   - BotGuard runs against the real `window` (no jsdom needed)
  *   - ANDROID client first, so stream URLs come pre-deciphered (no JS interpreter required)
  */
-import { CapacitorHttp } from '@capacitor/core'
+import { capacitorAwareFetch } from '../capacitorHttpFetch'
 import type { DeviceResolvedStream } from './index'
 
 const REQUEST_KEY = 'O43z0dpjhgX20SCx4KAo'
@@ -24,32 +24,8 @@ const HEIGHT_BY_QUALITY: Record<string, number> = {
 }
 const CLIENT_ORDER = ['ANDROID', 'IOS', 'WEB'] as const
 
-function headersToObject(h: HeadersInit | undefined): Record<string, string> {
-  const out: Record<string, string> = {}
-  if (!h) return out
-  if (h instanceof Headers) h.forEach((v, k) => { out[k] = v })
-  else if (Array.isArray(h)) for (const [k, v] of h) out[k] = String(v)
-  else for (const k of Object.keys(h)) out[k] = String((h as Record<string, unknown>)[k])
-  return out
-}
-
 /** fetch() shim that routes through native HTTP (no CORS) and returns a real Response. */
-async function nativeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const url =
-    typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-  const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase()
-  const headers = headersToObject(
-    init?.headers || (input instanceof Request ? input.headers : undefined)
-  )
-  let data: unknown = init?.body
-  if (data instanceof ArrayBuffer) data = new TextDecoder().decode(data)
-  else if (ArrayBuffer.isView(data)) data = new TextDecoder().decode(data as Uint8Array)
-
-  const res = await CapacitorHttp.request({ url, method, headers, data, responseType: 'text' })
-  const bodyText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '')
-  const status = res.status && res.status >= 200 ? res.status : 200
-  return new Response(bodyText, { status, headers: (res.headers as Record<string, string>) || {} })
-}
+const nativeFetch = capacitorAwareFetch
 
 type PoTokenSession = {
   visitorData: string

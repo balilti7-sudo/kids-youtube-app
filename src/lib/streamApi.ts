@@ -577,7 +577,8 @@ async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promis
       mode: 'cors',
       credentials: init?.credentials ?? 'omit',
     })
-    return await fetch(input, { ...init, mode: init?.mode ?? 'cors' })
+    const { capacitorAwareFetch } = await import('./capacitorHttpFetch')
+    return await capacitorAwareFetch(input, { ...init, mode: init?.mode ?? 'cors' })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const likelyCorsOrNetwork = /Failed to fetch|NetworkError|Load failed|CORS/i.test(message)

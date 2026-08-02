@@ -40,6 +40,7 @@ function mapVideoItems(items) {
         (Array.isArray(item.thumbnails) && item.thumbnails[0]?.url) ||
         `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
       channelTitle: item.author?.name || '',
+      channelId: item.author?.channelID || item.author?.channelId || null,
     }));
 }
 

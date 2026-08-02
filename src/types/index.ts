@@ -101,4 +101,6 @@ export interface YouTubeVideoResult {
   title: string
   thumbnail: string
   channelTitle: string
+  /** YouTube channel id (UC…) when the search backend provides it. */
+  channelId?: string
 }

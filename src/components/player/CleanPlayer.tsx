@@ -1018,7 +1018,10 @@ function CleanPlayerMediaBridge({
         return
       }
       const on = !el.paused && !el.ended
-      setMediaPlaybackActive(on)
+      setMediaPlaybackActive(on, {
+        title: title || 'SafeTube',
+        artist: channelTitle || 'מתנגן עכשיו',
+      })
       if (on) touchParentalGateActivity()
     }
 
@@ -1049,7 +1052,7 @@ function CleanPlayerMediaBridge({
       el.removeEventListener('ended', onEndedForActivity)
       setMediaPlaybackActive(false)
     }
-  }, [phase.kind, videoId])
+  }, [phase.kind, videoId, title, channelTitle])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
@@ -1080,14 +1083,27 @@ function CleanPlayerMediaBridge({
         void el.play().catch(() => {})
         return
       }
-      if (hasNextTrackRef.current) {
-        onNextTrackRef.current?.()
-      }
+      // Always go through the shared next handler so end-of-playlist toasts fire.
+      handleNextVideoRef.current()
     }
 
     el.addEventListener('ended', onQueueEnded)
     return () => el.removeEventListener('ended', onQueueEnded)
   }, [phase.kind, videoId, loopEnabled])
+
+  // Playlist resilience: if resolve/playback fails and there is a next track, skip forward
+  // instead of getting stuck on an error card mid-playlist.
+  useEffect(() => {
+    if (phase.kind !== 'error') return
+    if (!hasNextTrackRef.current || !onNextTrackRef.current) return
+    if (useDailyWatchBudgetStore.getState().isLimitReached) return
+    const t = window.setTimeout(() => {
+      if (!hasNextTrackRef.current) return
+      toast.message('מדלג לסרטון הבא…', { duration: 1800 })
+      onNextTrackRef.current?.()
+    }, 1600)
+    return () => window.clearTimeout(t)
+  }, [phase.kind, videoId])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return

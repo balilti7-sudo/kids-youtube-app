@@ -13,6 +13,13 @@ const config: CapacitorConfig = {
     // (crypto.subtle etc., needed by BotGuard) are available in the WebView.
     androidScheme: 'https',
   },
+  plugins: {
+    // Patch window.fetch / XHR through native HTTP so Media Bridge + Google APIs
+    // are not blocked by WebView CORS on https://localhost.
+    CapacitorHttp: {
+      enabled: true,
+    },
+  },
 }
 
 export default config

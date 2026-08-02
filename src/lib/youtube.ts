@@ -460,11 +460,23 @@ export function normalizeYouTubeVideoSearchResults(raw: unknown): YouTubeVideoRe
       channelTitle = String((row.author as { name?: string }).name ?? '')
     }
 
+    let channelId = ''
+    if (typeof row.channelId === 'string') channelId = row.channelId.trim()
+    else if (typeof row.channel_id === 'string') channelId = row.channel_id.trim()
+    else if (typeof row.youtube_channel_id === 'string') channelId = row.youtube_channel_id.trim()
+    else if (row.snippet && typeof row.snippet === 'object' && !Array.isArray(row.snippet)) {
+      channelId = String((row.snippet as { channelId?: string }).channelId ?? '').trim()
+    } else if (row.author && typeof row.author === 'object' && !Array.isArray(row.author)) {
+      const author = row.author as { channelID?: string; channelId?: string }
+      channelId = String(author.channelID ?? author.channelId ?? '').trim()
+    }
+
     out.push({
       videoId,
       title,
       thumbnail: readThumbnailFromRecord(row, videoId),
       channelTitle,
+      ...(channelId ? { channelId } : {}),
     })
   }
   return out
@@ -535,7 +547,8 @@ export async function searchYouTubeVideos(
         requestOrigin: getMediaBridgeRequestOrigin(),
       })
     }
-    const res = await fetch(url, {
+    const { capacitorAwareFetch } = await import('./capacitorHttpFetch')
+    const res = await capacitorAwareFetch(url, {
       method: 'GET',
       credentials: 'omit',
       cache: 'no-store',

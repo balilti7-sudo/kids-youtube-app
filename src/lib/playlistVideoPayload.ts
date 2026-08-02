@@ -7,7 +7,7 @@ export function isValidYoutubeVideoId(value: string | null | undefined): value i
 
 /** Build playlist RPC/table payload from a YouTube search row (same shape as ChannelManager preview). */
 export function playlistVideoPayloadFromSearchResult(
-  video: Pick<YouTubeVideoResult, 'videoId' | 'title' | 'thumbnail' | 'channelTitle'> & {
+  video: Pick<YouTubeVideoResult, 'videoId' | 'title' | 'thumbnail' | 'channelTitle' | 'channelId'> & {
     youtube_channel_id?: string | null
   }
 ): PlaylistVideoPayload | null {
@@ -17,7 +17,7 @@ export function playlistVideoPayloadFromSearchResult(
     youtube_video_id,
     title: video.title?.trim() || youtube_video_id,
     thumbnail_url: video.thumbnail?.trim() || null,
-    youtube_channel_id: video.youtube_channel_id?.trim() || null,
+    youtube_channel_id: video.youtube_channel_id?.trim() || video.channelId?.trim() || null,
     channel_name: video.channelTitle?.trim() || null,
   }
 }

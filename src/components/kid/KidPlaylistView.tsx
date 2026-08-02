@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ListMusic, Plus, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { Button } from '../ui/Button'
@@ -28,7 +29,7 @@ type Props = {
 }
 
 export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
-  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos } = usePlaylists({
+  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh } = usePlaylists({
     mode: 'kid',
     userId: null,
     childAccessToken,
@@ -108,11 +109,20 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
     setCreating(true)
     const { data, error } = await createPlaylist(name)
     setCreating(false)
-    if (error) return
+    if (error) {
+      toast.error(error.message || 'יצירת הפלייליסט נכשלה')
+      return
+    }
     setNewName('')
     setCreateOpen(false)
+    toast.success('הפלייליסט נוצר')
     if (data?.id) setSelectedId(data.id)
   }
+
+  const handlePlaylistMembershipChanged = useCallback(() => {
+    if (selectedId) void loadVideos(selectedId)
+    void refresh()
+  }, [selectedId, loadVideos, refresh])
 
   const cancelCreate = () => {
     if (creating) return
@@ -312,7 +322,7 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
                         youtube_channel_id: active.youtube_channel_id,
                         channel_name: active.channel_name,
                       }}
-                      onAdded={() => selectedId && void loadVideos(selectedId)}
+                      onAdded={handlePlaylistMembershipChanged}
                     />
                   }
                 />
@@ -321,7 +331,7 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
           }
           sidebar={
             <YoutubeSuggestedList title="סדר הניגון">
-              {videos.map((video) => {
+              {videos.map((video, index) => {
                 const isCurrent = video.youtube_video_id === activeVideoId
                 return (
                   <li key={video.youtube_video_id} className="w-full">
@@ -347,12 +357,19 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
                             cachedPin={parentQuickBlock.cachedPin}
                             verifyPin={parentQuickBlock.verifyPin}
                             onSuccess={() => {
+                              const nextId =
+                                activeVideoId === video.youtube_video_id
+                                  ? videos[index + 1]?.youtube_video_id ??
+                                    videos[index - 1]?.youtube_video_id ??
+                                    null
+                                  : activeVideoId
                               setVideos((prev) =>
                                 prev.filter((x) => x.youtube_video_id !== video.youtube_video_id)
                               )
                               if (activeVideoId === video.youtube_video_id) {
-                                setActiveVideoId(null)
+                                setActiveVideoId(nextId)
                               }
+                              void refresh()
                             }}
                           />
                         ) : null
@@ -370,6 +387,7 @@ export function KidPlaylistView({ childAccessToken, parentQuickBlock }: Props) {
                             youtube_channel_id: video.youtube_channel_id,
                             channel_name: video.channel_name,
                           }}
+                          onAdded={handlePlaylistMembershipChanged}
                         />
                       }
                     />
