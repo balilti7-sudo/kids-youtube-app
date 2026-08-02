@@ -13,6 +13,24 @@ function headersToObject(h: HeadersInit | undefined): Record<string, string> {
   return out
 }
 
+async function bodyToData(body: BodyInit | null | undefined): Promise<unknown> {
+  if (body == null) return undefined
+  if (typeof body === 'string') return body
+  if (body instanceof URLSearchParams) return body.toString()
+  if (body instanceof Blob) return await body.text()
+  if (body instanceof ArrayBuffer) return new TextDecoder().decode(body)
+  if (ArrayBuffer.isView(body)) {
+    const view = body as ArrayBufferView
+    return new TextDecoder().decode(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
+  }
+  // ReadableStream / FormData / others — best-effort text via Response helper
+  try {
+    return await new Response(body).text()
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Drop-in replacement for `fetch` that bypasses WebView CORS on Capacitor Android/iOS.
  * Returns a real `Response` so callers can use `.json()`, `.text()`, etc.
@@ -25,15 +43,20 @@ export async function capacitorAwareFetch(
     return fetch(input, init)
   }
 
+  const request = input instanceof Request ? input : null
   const url =
-    typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-  const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase()
-  const headers = headersToObject(
-    init?.headers || (input instanceof Request ? input.headers : undefined)
-  )
-  let data: unknown = init?.body
-  if (data instanceof ArrayBuffer) data = new TextDecoder().decode(data)
-  else if (ArrayBuffer.isView(data)) data = new TextDecoder().decode(data as Uint8Array)
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url
+  const method = (
+    init?.method ||
+    request?.method ||
+    'GET'
+  ).toUpperCase()
+  const headers = headersToObject(init?.headers ?? request?.headers)
+  const data = await bodyToData(init?.body ?? (request ? await request.clone().text() : undefined))
 
   const res = await CapacitorHttp.request({
     url,

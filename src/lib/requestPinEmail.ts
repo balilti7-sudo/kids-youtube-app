@@ -22,12 +22,16 @@ export function requestPinEmail(opts: { email: string; pin: string; accessToken:
     return
   }
 
-  void fetch(`${base}/api/email/pin`, {
-    method: 'POST',
-    credentials: 'omit',
-    headers,
-    body: JSON.stringify({ email, pin }),
-  }).catch((err) => {
-    console.warn('[pinEmail] request failed:', err)
-  })
+  void import('./capacitorHttpFetch')
+    .then(({ capacitorAwareFetch }) =>
+      capacitorAwareFetch(`${base}/api/email/pin`, {
+        method: 'POST',
+        credentials: 'omit',
+        headers,
+        body: JSON.stringify({ email, pin }),
+      })
+    )
+    .catch((err) => {
+      console.warn('[pinEmail] request failed:', err)
+    })
 }

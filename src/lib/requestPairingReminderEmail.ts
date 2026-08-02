@@ -27,7 +27,8 @@ export async function requestPairingReminderEmail(emailRaw: string): Promise<Pai
 
   let res: Response
   try {
-    res = await fetch(`${base}/api/email/pairing-reminder`, {
+    const { capacitorAwareFetch } = await import('./capacitorHttpFetch')
+    res = await capacitorAwareFetch(`${base}/api/email/pairing-reminder`, {
       method: 'POST',
       credentials: 'omit',
       headers,

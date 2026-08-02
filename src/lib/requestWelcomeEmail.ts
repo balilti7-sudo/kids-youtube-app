@@ -26,12 +26,16 @@ export function requestWelcomeEmail(opts: { email: string; accessToken: string |
     return
   }
 
-  void fetch(`${base}/api/email/welcome`, {
-    method: 'POST',
-    credentials: 'omit',
-    headers,
-    body: JSON.stringify({ email }),
-  }).catch((err) => {
-    console.warn('[welcomeEmail] request failed:', err)
-  })
+  void import('./capacitorHttpFetch')
+    .then(({ capacitorAwareFetch }) =>
+      capacitorAwareFetch(`${base}/api/email/welcome`, {
+        method: 'POST',
+        credentials: 'omit',
+        headers,
+        body: JSON.stringify({ email }),
+      })
+    )
+    .catch((err) => {
+      console.warn('[welcomeEmail] request failed:', err)
+    })
 }

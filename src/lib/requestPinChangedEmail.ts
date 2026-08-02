@@ -14,16 +14,20 @@ export function requestPinChangedEmail(accessToken: string | null | undefined): 
   }
 
   const base = getStreamApiBaseUrl()
-  void fetch(`${base}/api/email/pin-changed`, {
-    method: 'POST',
-    credentials: 'omit',
-    headers: {
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({}),
-  }).catch((err) => {
-    console.warn('[pinChangedEmail] request failed:', err)
-  })
+  void import('./capacitorHttpFetch')
+    .then(({ capacitorAwareFetch }) =>
+      capacitorAwareFetch(`${base}/api/email/pin-changed`, {
+        method: 'POST',
+        credentials: 'omit',
+        headers: {
+          accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      })
+    )
+    .catch((err) => {
+      console.warn('[pinChangedEmail] request failed:', err)
+    })
 }

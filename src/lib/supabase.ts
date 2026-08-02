@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { capacitorAwareFetch } from './capacitorHttpFetch'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -21,6 +22,11 @@ export const supabase = createClient(
   hasValidUrl ? url! : 'https://placeholder.supabase.co',
   key || 'placeholder-anon-key',
   {
+    // Capacitor Android WebView blocks cross-origin fetch (CORS) from https://localhost.
+    // Route Supabase Auth + Edge Functions through native HTTP.
+    global: {
+      fetch: capacitorAwareFetch,
+    },
     auth: {
       persistSession: true,
       autoRefreshToken: true,

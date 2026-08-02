@@ -29,6 +29,9 @@ function mapPinResetError(raw: string): string {
   if (/failed to send a request to the edge function/i.test(err)) {
     return 'שירות השחזור לא זמין כרגע. נסו שוב בעוד דקה.'
   }
+  if (/Failed to fetch|NetworkError|Load failed|ERR_CONNECTION|ERR_NETWORK/i.test(err)) {
+    return 'לא ניתן להתחבר לשרת השחזור. בדקו חיבור לאינטרנט ונסו שוב.'
+  }
   return err || 'שגיאה בשליחת המייל'
 }
 
@@ -117,7 +120,8 @@ async function requestViaMediaBridge(
 
   let res: Response
   try {
-    res = await fetch(`${base}/api/email/pin-reset-request`, {
+    const { capacitorAwareFetch } = await import('./capacitorHttpFetch')
+    res = await capacitorAwareFetch(`${base}/api/email/pin-reset-request`, {
       method: 'POST',
       credentials: 'omit',
       headers,
