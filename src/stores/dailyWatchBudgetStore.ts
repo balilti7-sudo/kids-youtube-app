@@ -66,6 +66,8 @@ export type DailyWatchBudgetStore = {
   incrementLocalWatchSeconds: (delta?: number) => void
   applyServerTotals: (watchSecondsToday: number, dailyTimeLimitMinutes: number) => void
   snoozeMinutes: (minutes?: number) => void
+  /** Clear today's watch total (after parent PIN unlock). */
+  clearWatchToday: (state: DailyWatchState) => void
 }
 
 export const useDailyWatchBudgetStore = create<DailyWatchBudgetStore>((set, get) => ({
@@ -166,6 +168,19 @@ export const useDailyWatchBudgetStore = create<DailyWatchBudgetStore>((set, get)
         dailyTimeLimitMinutes,
         nextSnooze
       ),
+    })
+  },
+
+  clearWatchToday: (state) => {
+    const deviceId = state.deviceId.trim()
+    clearPersistedSnooze()
+    set({
+      deviceId,
+      watchDate: state.watchDate,
+      watchSecondsToday: 0,
+      dailyTimeLimitMinutes: state.dailyTimeLimitMinutes,
+      snoozeBonusSeconds: 0,
+      isLimitReached: false,
     })
   },
 }))

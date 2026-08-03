@@ -89,13 +89,47 @@ export async function reportDailyWatchSeconds(
   return { data: mapDailyWatchReportRow(row as Record<string, unknown>), error: null }
 }
 
+/** Parent unlock: clear today's watch counter so playback can continue after a false lockout. */
+export async function resetDailyWatchToday(
+  deviceId: string
+): Promise<{ data: DailyWatchState | null; error: Error | null }> {
+  const trimmedDeviceId = deviceId.trim()
+  if (!trimmedDeviceId) {
+    return { data: null, error: new Error('DEVICE_ID_REQUIRED') }
+  }
+
+  const token = getSavedChildAccessToken()
+  if (token) {
+    const { data, error } = await supabase.rpc('child_reset_daily_watch_today', {
+      p_access_token: token,
+    })
+    if (error) return { data: null, error: new Error(error.message) }
+    const row = Array.isArray(data) ? data[0] : null
+    if (!row) return { data: null, error: null }
+    return { data: mapDailyWatchStateRow(row as Record<string, unknown>), error: null }
+  }
+
+  const { data, error } = await supabase.rpc('owner_reset_daily_watch_today', {
+    p_device_id: trimmedDeviceId,
+  })
+  if (error) return { data: null, error: new Error(error.message) }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return { data: null, error: null }
+  return { data: mapDailyWatchStateRow(row as Record<string, unknown>), error: null }
+}
+
 export function isDailyWatchBudgetExceeded(
   watchSecondsToday: number,
   dailyTimeLimitMinutes: number,
   snoozeBonusSeconds = 0
 ): boolean {
-  const limitSeconds = Math.max(1, dailyTimeLimitMinutes) * 60 + Math.max(0, snoozeBonusSeconds)
-  return watchSecondsToday >= limitSeconds
+  const limitMin = Number(dailyTimeLimitMinutes)
+  // Invalid / non-positive limit → do not block playback.
+  if (!Number.isFinite(limitMin) || limitMin <= 0) return false
+  const watched = Math.max(0, Number(watchSecondsToday) || 0)
+  const bonus = Math.max(0, Number(snoozeBonusSeconds) || 0)
+  const limitSeconds = limitMin * 60 + bonus
+  return watched >= limitSeconds
 }
 
 export function logDailyWatchBudgetExceeded(state: DailyWatchState): void {

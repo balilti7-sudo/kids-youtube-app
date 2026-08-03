@@ -1,10 +1,12 @@
 import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Clock } from 'lucide-react'
+import { toast } from 'sonner'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { Button } from '../ui/Button'
 import { LionMascot } from './LionMascot'
 import { useParentManagementPinVerify } from '../../hooks/useParentManagementPinVerify'
+import { resetDailyWatchToday } from '../../lib/dailyWatchBudget'
 import {
   DAILY_WATCH_SNOOZE_MINUTES,
   useDailyWatchBudgetStore,
@@ -19,6 +21,8 @@ type Props = {
 
 export function DailyLimitOverlay({ className, onSnoozed }: Props) {
   const snoozeMinutes = useDailyWatchBudgetStore((s) => s.snoozeMinutes)
+  const clearWatchToday = useDailyWatchBudgetStore((s) => s.clearWatchToday)
+  const deviceId = useDailyWatchBudgetStore((s) => s.deviceId)
   const lion = useLionProgressionOptional()
   const outfitId = lion?.activeOutfitId ?? 'cub'
   const verifyParentPin = useParentManagementPinVerify()
@@ -26,9 +30,28 @@ export function DailyLimitOverlay({ className, onSnoozed }: Props) {
   /** Show parent PIN immediately — no extra tap when limit is already reached. */
   const [pinOpen, setPinOpen] = useState(true)
   const [parentVerified, setParentVerified] = useState(false)
+  const [unlocking, setUnlocking] = useState(false)
 
-  const handleSnooze = () => {
-    snoozeMinutes(DAILY_WATCH_SNOOZE_MINUTES)
+  const handleUnlockContinue = async () => {
+    if (!deviceId) {
+      snoozeMinutes(DAILY_WATCH_SNOOZE_MINUTES)
+      setParentVerified(false)
+      setPinOpen(false)
+      onSnoozed?.()
+      return
+    }
+    setUnlocking(true)
+    const { data, error } = await resetDailyWatchToday(deviceId)
+    setUnlocking(false)
+    if (error || !data) {
+      // Fallback: local snooze if server reset is unavailable (migration not applied yet).
+      console.warn('[DailyLimitOverlay] reset today failed', error?.message)
+      snoozeMinutes(DAILY_WATCH_SNOOZE_MINUTES)
+      toast.message('הוארכו כמה דקות צפייה. אם החסימה חוזרת, הריצו את עדכון מסד הנתונים.')
+    } else {
+      clearWatchToday(data)
+      toast.success('הצפייה שוחררה להיום')
+    }
     setParentVerified(false)
     setPinOpen(false)
     onSnoozed?.()
@@ -49,12 +72,12 @@ export function DailyLimitOverlay({ className, onSnoozed }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="daily-limit-title"
-        dir="ltr"
+        dir="rtl"
       >
         <div className="flex items-center gap-2 text-violet-200/90">
           <Clock className="h-5 w-5" aria-hidden />
           <span className="text-xs font-bold uppercase tracking-widest text-violet-100/80">
-            Daily limit
+            מגבלת צפייה יומית
           </span>
         </div>
 
@@ -68,22 +91,27 @@ export function DailyLimitOverlay({ className, onSnoozed }: Props) {
 
         <div className="space-y-4">
           <h2 id="daily-limit-title" className="max-w-sm text-lg font-bold leading-relaxed text-zinc-50">
-            Your daily screen time is finished! Ask a parent to enter their PIN below.
+            הזמן היומי לצפייה נגמר. בקשו מההורה להזין את קוד ה-PIN כדי להמשיך.
           </h2>
 
           {parentVerified ? (
-            <Button type="button" className="min-w-[180px]" onClick={handleSnooze}>
-              Snooze (+{DAILY_WATCH_SNOOZE_MINUTES} minutes)
+            <Button
+              type="button"
+              className="min-w-[180px]"
+              disabled={unlocking}
+              onClick={() => void handleUnlockContinue()}
+            >
+              {unlocking ? 'משחרר…' : 'המשך צפייה'}
             </Button>
           ) : (
             <p className="max-w-xs text-sm text-violet-200/90">
-              Parent PIN dialog is open — enter the code to unlock extra time.
+              נפתח חלון להזנת קוד הורה — אחרי אימות אפשר להמשיך לצפות.
             </p>
           )}
 
           {!parentVerified && !pinOpen ? (
             <Button type="button" className="min-w-[180px]" onClick={() => setPinOpen(true)}>
-              Show parent PIN
+              הזנת קוד הורה
             </Button>
           ) : null}
         </div>
@@ -94,8 +122,8 @@ export function DailyLimitOverlay({ className, onSnoozed }: Props) {
         onClose={() => setPinOpen(false)}
         onVerified={handleVerified}
         verifyPin={verifyParentPin}
-        title="Parent verification"
-        description="Enter the parent PIN to unlock extra watch time for today."
+        title="אימות הורה"
+        description="הזינו את קוד ה-PIN של ההורה כדי לשחרר את הצפייה."
       />
     </>
   )

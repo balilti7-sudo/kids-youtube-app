@@ -1029,10 +1029,10 @@ function CleanPlayerMediaBridge({
         typeof document !== 'undefined' &&
         (document.visibilityState === 'hidden' || document.hidden)
 
-      // While backgrounded, Android may briefly pause the element — keep the FGS
-      // running and try to resume instead of tearing down background playback.
+      // Background may briefly pause the element. Keep the native service alive so
+      // resume can work, but do NOT mark content as playing (watch budget must stop).
       if (opts?.fromPause && hidden && !el.ended) {
-        setMediaPlaybackActive(true, meta)
+        setMediaPlaybackActive(false, meta, { maintainNativeService: true })
         window.setTimeout(() => {
           if (useDailyWatchBudgetStore.getState().isLimitReached) return
           if (document.visibilityState === 'visible') return
@@ -1060,8 +1060,7 @@ function CleanPlayerMediaBridge({
     el.addEventListener('play', onPlay)
     el.addEventListener('pause', onPause)
     el.addEventListener('ended', onEndedForActivity)
-    // Ensure FGS is up as soon as the playing phase mounts.
-    setMediaPlaybackActive(true, meta)
+    // Sync from the real element state — do not force "playing" before playback starts.
     sync()
 
     const tick = window.setInterval(() => {
@@ -1137,7 +1136,19 @@ function CleanPlayerMediaBridge({
     const resumeIfNeeded = () => {
       if (useDailyWatchBudgetStore.getState().isLimitReached) return
       if (el.ended) return
-      if (el.paused) void el.play().catch(() => {})
+      if (el.paused) {
+        void el.play()
+          .then(() => {
+            setMediaPlaybackActive(true, {
+              title: title || 'SafeTube',
+              artist: channelTitle || 'מתנגן עכשיו',
+            })
+          })
+          .catch(() => {
+            setMediaPlaybackActive(false, undefined, { maintainNativeService: true })
+          })
+        return
+      }
       setMediaPlaybackActive(true, {
         title: title || 'SafeTube',
         artist: channelTitle || 'מתנגן עכשיו',
@@ -1147,12 +1158,11 @@ function CleanPlayerMediaBridge({
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
         wasPlayingBeforeHiddenRef.current = !el.paused || wasPlayingBeforeHiddenRef.current
-        // Keep native background media session alive and try to continue.
         if (wasPlayingBeforeHiddenRef.current) {
-          setMediaPlaybackActive(true, {
-            title: title || 'SafeTube',
-            artist: channelTitle || 'מתנגן עכשיו',
-          })
+          // Prefer real playback; if paused, keep service only (no budget tick).
+          if (el.paused) {
+            setMediaPlaybackActive(false, undefined, { maintainNativeService: true })
+          }
           window.setTimeout(resumeIfNeeded, 80)
           window.setTimeout(resumeIfNeeded, 400)
         }
@@ -1171,10 +1181,9 @@ function CleanPlayerMediaBridge({
     const onCordovaPause = () => {
       wasPlayingBeforeHiddenRef.current = !el.paused || wasPlayingBeforeHiddenRef.current
       if (!wasPlayingBeforeHiddenRef.current) return
-      setMediaPlaybackActive(true, {
-        title: title || 'SafeTube',
-        artist: channelTitle || 'מתנגן עכשיו',
-      })
+      if (el.paused) {
+        setMediaPlaybackActive(false, undefined, { maintainNativeService: true })
+      }
       window.setTimeout(resumeIfNeeded, 80)
       window.setTimeout(resumeIfNeeded, 400)
     }
