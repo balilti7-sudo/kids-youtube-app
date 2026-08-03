@@ -15,6 +15,7 @@ export interface ChildDeviceState {
   block_youtube_app: boolean
   browser_filter_enabled: boolean
   browser_whitelist: string[]
+  daily_time_limit_minutes: number
 }
 
 export interface ChildAllowedVideo {
@@ -130,6 +131,14 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
       block_youtube_app: Boolean(r.block_youtube_app ?? r.blockYoutubeApp),
       browser_filter_enabled: Boolean(r.browser_filter_enabled ?? r.browserFilterEnabled),
       browser_whitelist,
+      daily_time_limit_minutes: (() => {
+        const n = Number(r.daily_time_limit_minutes ?? r.dailyTimeLimitMinutes ?? 60)
+        if (!Number.isFinite(n)) return 60
+        const rounded = Math.round(n)
+        if (rounded === 0) return 0
+        if (rounded < 1) return 60
+        return Math.min(1440, rounded)
+      })(),
     },
     error: null,
   }

@@ -6,6 +6,8 @@ export type DeviceSettingsUpdate = {
   blockYoutubeApp?: boolean | null
   browserFilterEnabled?: boolean | null
   browserWhitelist?: string[] | null
+  /** 0 = unlimited; 1–1440 = minutes per day */
+  dailyTimeLimitMinutes?: number | null
 }
 
 export type DeviceSettingsRow = {
@@ -14,11 +16,21 @@ export type DeviceSettingsRow = {
   blockYoutubeApp: boolean
   browserFilterEnabled: boolean
   browserWhitelist: string[]
+  dailyTimeLimitMinutes: number
 }
 
 function mapWhitelist(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   return raw.map((h) => String(h ?? '').trim()).filter(Boolean)
+}
+
+function mapDailyLimit(raw: unknown): number {
+  const n = Number(raw ?? 60)
+  if (!Number.isFinite(n)) return 60
+  const rounded = Math.round(n)
+  if (rounded === 0) return 0
+  if (rounded < 1) return 60
+  return Math.min(1440, rounded)
 }
 
 function mapDeviceSettingsRow(row: Record<string, unknown>): DeviceSettingsRow {
@@ -28,6 +40,7 @@ function mapDeviceSettingsRow(row: Record<string, unknown>): DeviceSettingsRow {
     blockYoutubeApp: Boolean(row.block_youtube_app ?? row.blockYoutubeApp),
     browserFilterEnabled: Boolean(row.browser_filter_enabled ?? row.browserFilterEnabled),
     browserWhitelist: mapWhitelist(row.browser_whitelist ?? row.browserWhitelist),
+    dailyTimeLimitMinutes: mapDailyLimit(row.daily_time_limit_minutes ?? row.dailyTimeLimitMinutes),
   }
 }
 
@@ -40,6 +53,7 @@ export function buildParentUpdateDeviceSettingsRpcArgs(
   p_block_youtube_app: boolean | null
   p_browser_filter_enabled: boolean | null
   p_browser_whitelist: string[] | null
+  p_daily_time_limit_minutes: number | null
 } {
   return {
     p_device_id: deviceId,
@@ -48,6 +62,10 @@ export function buildParentUpdateDeviceSettingsRpcArgs(
     p_browser_filter_enabled:
       typeof updates.browserFilterEnabled === 'boolean' ? updates.browserFilterEnabled : null,
     p_browser_whitelist: Array.isArray(updates.browserWhitelist) ? updates.browserWhitelist : null,
+    p_daily_time_limit_minutes:
+      typeof updates.dailyTimeLimitMinutes === 'number' && Number.isFinite(updates.dailyTimeLimitMinutes)
+        ? Math.round(updates.dailyTimeLimitMinutes)
+        : null,
   }
 }
 
@@ -65,6 +83,10 @@ export async function parentUpdateDeviceSettings(
       p_browser_filter_enabled:
         typeof updates.browserFilterEnabled === 'boolean' ? updates.browserFilterEnabled : null,
       p_browser_whitelist: Array.isArray(updates.browserWhitelist) ? updates.browserWhitelist : null,
+      p_daily_time_limit_minutes:
+        typeof updates.dailyTimeLimitMinutes === 'number' && Number.isFinite(updates.dailyTimeLimitMinutes)
+          ? Math.round(updates.dailyTimeLimitMinutes)
+          : null,
     })
     if (error) return { data: null, error: new Error(error.message) }
     if (!data || typeof data !== 'object' || Array.isArray(data)) {

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Plus, Settings2, Smartphone } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronDown, Plus, Settings2, Smartphone } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
@@ -12,11 +12,102 @@ import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui/ErrorState'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
+import { DailyTimeLimitDeviceSettings } from './DailyTimeLimitDeviceSettings'
 import { DeviceOsControlsSettings } from './DeviceOsControlsSettings'
 import { toast } from 'sonner'
+import type { Device } from '../../types'
 
 function randomSixDigits() {
   return String(Math.floor(100000 + Math.random() * 900000))
+}
+
+function formatLimitBrief(minutes: number | undefined): string {
+  const n = Number(minutes ?? 60)
+  if (!Number.isFinite(n) || n < 0) return '60 דק׳'
+  if (n === 0) return 'ללא הגבלה'
+  if (n < 60) return `${Math.round(n)} דק׳`
+  const h = Math.floor(n / 60)
+  const m = Math.round(n % 60)
+  if (m === 0) return h === 1 ? 'שעה' : `${h} שעות`
+  return `${h}ש׳ ${m}ד׳`
+}
+
+function ProfileDeviceCard({
+  device,
+  expanded,
+  onToggleExpanded,
+  activeManagementDeviceId,
+  onManageChannels,
+}: {
+  device: Device
+  expanded: boolean
+  onToggleExpanded: () => void
+  activeManagementDeviceId?: string | null
+  onManageChannels: (deviceId: string) => void
+}) {
+  const limitLabel = formatLimitBrief(device.daily_time_limit_minutes)
+  const shortsLabel = device.allow_shorts ? 'Shorts מותר' : 'Shorts חסום'
+
+  return (
+    <li className="flex flex-col gap-2 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60">
+      <div className="flex flex-row items-center justify-between gap-3">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 text-start"
+          onClick={onToggleExpanded}
+          aria-expanded={expanded}
+          aria-controls={`profile-settings-${device.id}`}
+        >
+          <span
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800/90 text-zinc-400 ring-1 ring-zinc-700/80"
+            aria-hidden
+          >
+            <Smartphone className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-zinc-100 sm:text-base">
+              {device.name}
+            </span>
+            {!expanded ? (
+              <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
+                {limitLabel} · {shortsLabel}
+              </span>
+            ) : null}
+          </span>
+          <ChevronDown
+            className={cn(
+              'h-5 w-5 shrink-0 text-zinc-500 transition-transform duration-200',
+              expanded && 'rotate-180'
+            )}
+            aria-hidden
+          />
+        </button>
+        <Button
+          type="button"
+          variant="primary"
+          className={cn(
+            'h-9 shrink-0 justify-center gap-1.5 rounded-lg !px-4 !py-2 text-xs font-semibold sm:text-sm',
+            activeManagementDeviceId === device.id &&
+              'ring-2 ring-brand-300/80 ring-offset-1 ring-offset-zinc-950'
+          )}
+          onClick={() => onManageChannels(device.id)}
+          aria-label={`ניהול ערוצים עבור ${device.name}`}
+          aria-current={activeManagementDeviceId === device.id ? 'true' : undefined}
+        >
+          <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
+          <span className="whitespace-nowrap">ניהול ערוצים</span>
+        </Button>
+      </div>
+
+      {expanded ? (
+        <div id={`profile-settings-${device.id}`} className="flex flex-col gap-2">
+          <DailyTimeLimitDeviceSettings device={device} />
+          <AllowShortsDeviceSettings device={device} />
+          <DeviceOsControlsSettings device={device} />
+        </div>
+      ) : null}
+    </li>
+  )
 }
 
 export function DashboardDevicesSection({
@@ -34,9 +125,31 @@ export function DashboardDevicesSection({
   const [modalOpen, setModalOpen] = useState(false)
   const [deviceName, setDeviceName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [collapseSeeded, setCollapseSeeded] = useState(false)
 
   const max = subscription?.max_devices ?? 3
   const atLimit = devices.length >= max
+
+  // With 2+ profiles, start collapsed; with a single profile, start expanded.
+  useEffect(() => {
+    if (loading || collapseSeeded || devices.length === 0) return
+    if (devices.length === 1) {
+      setExpandedIds(new Set([devices[0].id]))
+    } else {
+      setExpandedIds(new Set())
+    }
+    setCollapseSeeded(true)
+  }, [loading, devices, collapseSeeded])
+
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const openModal = () => {
     setDeviceName('פרופיל הילד')
@@ -78,6 +191,7 @@ export function DashboardDevicesSection({
       }
       if (data) {
         toast.success('הפרופיל נוסף', { description: 'הפרופיל זמין בהגדרות ובמסך הילד.' })
+        setExpandedIds((prev) => new Set(prev).add(data.id))
         await refetch()
         setModalOpen(false)
         setDeviceName('')
@@ -147,39 +261,14 @@ export function DashboardDevicesSection({
       ) : (
         <ul className="flex flex-col gap-2">
           {devices.map((d) => (
-            <li
+            <ProfileDeviceCard
               key={d.id}
-              className="flex flex-col gap-2 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60"
-            >
-              <div className="flex flex-row items-center justify-between gap-3">
-                <div className="flex min-w-0 flex-1 items-center gap-3 text-start">
-                  <span
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800/90 text-zinc-400 ring-1 ring-zinc-700/80"
-                    aria-hidden
-                  >
-                    <Smartphone className="h-5 w-5" />
-                  </span>
-                  <p className="truncate text-sm font-semibold text-zinc-100 sm:text-base">{d.name}</p>
-                </div>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className={cn(
-                    'h-9 shrink-0 justify-center gap-1.5 rounded-lg !px-4 !py-2 text-xs font-semibold sm:text-sm',
-                    activeManagementDeviceId === d.id &&
-                      'ring-2 ring-brand-300/80 ring-offset-1 ring-offset-zinc-950'
-                  )}
-                  onClick={() => onManageChannels(d.id)}
-                  aria-label={`ניהול ערוצים עבור ${d.name}`}
-                  aria-current={activeManagementDeviceId === d.id ? 'true' : undefined}
-                >
-                  <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
-                  <span className="whitespace-nowrap">ניהול ערוצים</span>
-                </Button>
-              </div>
-              <AllowShortsDeviceSettings device={d} />
-              <DeviceOsControlsSettings device={d} />
-            </li>
+              device={d}
+              expanded={expandedIds.has(d.id)}
+              onToggleExpanded={() => toggleExpanded(d.id)}
+              activeManagementDeviceId={activeManagementDeviceId}
+              onManageChannels={onManageChannels}
+            />
           ))}
         </ul>
       )}

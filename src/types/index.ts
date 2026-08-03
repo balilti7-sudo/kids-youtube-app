@@ -30,6 +30,8 @@ export interface Device {
   /** Deny-by-default browser filtering; only browser_whitelist hosts allowed. */
   browser_filter_enabled?: boolean
   browser_whitelist?: string[]
+  /** Per-profile daily watch budget in minutes (0 = unlimited). */
+  daily_time_limit_minutes?: number
 }
 
 export interface WhitelistedChannel {
