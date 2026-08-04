@@ -26,7 +26,8 @@
     "hide": "Hide",
     "show": "Show",
     "saving": "Saving…",
-    "creating": "Creating…"
+    "creating": "Creating…",
+    "clear": "Clear"
   },
   "nav": {
     "parentControl": "Parent controls",
@@ -160,7 +161,13 @@
     "skippedEmpty": "{{count}} channels with no cached videos were skipped",
     "noLocalPermission": "No local permission to load channel videos.",
     "loadOlderVideos": "Load older videos",
-    "loadingOlderVideos": "Loading older videos…"
+    "loadingOlderVideos": "Loading older videos…",
+    "whitelistSearchTitle": "Search whitelist",
+    "whitelistSearchPlaceholder": "Search added channels or videos…",
+    "whitelistSearchHint": "{{channels}} channels · {{videos}} videos",
+    "whitelistFilteredCount": "{{filtered}} of {{total}} channels",
+    "whitelistVideoHits": "Matching videos",
+    "whitelistSearchEmpty": "No channels or videos match this search."
   },
   "playlists": {
     "addToPlaylist": "Add to playlist",

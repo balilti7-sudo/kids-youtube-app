@@ -26,7 +26,8 @@
     "hide": "הסתר",
     "show": "הצג",
     "saving": "שומר…",
-    "creating": "יוצר…"
+    "creating": "יוצר…",
+    "clear": "נקה"
   },
   "nav": {
     "parentControl": "בקרת הורים",
@@ -160,7 +161,13 @@
     "skippedEmpty": "דולגו {{count}} ערוצים ללא סרטונים במטמון",
     "noLocalPermission": "אין הרשאה מקומית לטעון סרטוני ערוץ.",
     "loadOlderVideos": "טען סרטונים ישנים יותר",
-    "loadingOlderVideos": "טוען סרטונים ישנים יותר…"
+    "loadingOlderVideos": "טוען סרטונים ישנים יותר…",
+    "whitelistSearchTitle": "חיפוש ברשימה",
+    "whitelistSearchPlaceholder": "חפשו ערוץ או סרטון שכבר נוסף…",
+    "whitelistSearchHint": "{{channels}} ערוצים · {{videos}} סרטונים",
+    "whitelistFilteredCount": "{{filtered}} מתוך {{total}} ערוצים",
+    "whitelistVideoHits": "סרטונים תואמים",
+    "whitelistSearchEmpty": "לא נמצאו ערוצים או סרטונים לחיפוש הזה."
   },
   "playlists": {
     "addToPlaylist": "הוסף לפלייליסט",

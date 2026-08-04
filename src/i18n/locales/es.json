@@ -26,7 +26,8 @@
     "hide": "Ocultar",
     "show": "Mostrar",
     "saving": "Guardando…",
-    "creating": "Creando…"
+    "creating": "Creando…",
+    "clear": "Borrar"
   },
   "nav": {
     "parentControl": "Control parental",
@@ -160,7 +161,13 @@
     "skippedEmpty": "Se omitieron {{count}} canales sin vídeos en caché",
     "noLocalPermission": "Sin permiso local para cargar vídeos del canal.",
     "loadOlderVideos": "Cargar vídeos anteriores",
-    "loadingOlderVideos": "Cargando vídeos anteriores…"
+    "loadingOlderVideos": "Cargando vídeos anteriores…",
+    "whitelistSearchTitle": "Buscar en la lista",
+    "whitelistSearchPlaceholder": "Buscar canales o vídeos añadidos…",
+    "whitelistSearchHint": "{{channels}} canales · {{videos}} vídeos",
+    "whitelistFilteredCount": "{{filtered}} de {{total}} canales",
+    "whitelistVideoHits": "Vídeos coincidentes",
+    "whitelistSearchEmpty": "Ningún canal o vídeo coincide con esta búsqueda."
   },
   "playlists": {
     "addToPlaylist": "Añadir a la lista",

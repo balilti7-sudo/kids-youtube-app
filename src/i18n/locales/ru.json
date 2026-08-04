@@ -26,7 +26,8 @@
     "hide": "Скрыть",
     "show": "Показать",
     "saving": "Сохранение…",
-    "creating": "Создание…"
+    "creating": "Создание…",
+    "clear": "Очистить"
   },
   "nav": {
     "parentControl": "Родительский контроль",
@@ -160,7 +161,13 @@
     "skippedEmpty": "Пропущено каналов без кэша: {{count}}",
     "noLocalPermission": "Нет локального доступа для загрузки видео канала.",
     "loadOlderVideos": "Загрузить более старые видео",
-    "loadingOlderVideos": "Загрузка старых видео…"
+    "loadingOlderVideos": "Загрузка старых видео…",
+    "whitelistSearchTitle": "Поиск в списке",
+    "whitelistSearchPlaceholder": "Искать добавленные каналы или видео…",
+    "whitelistSearchHint": "{{channels}} каналов · {{videos}} видео",
+    "whitelistFilteredCount": "{{filtered}} из {{total}} каналов",
+    "whitelistVideoHits": "Подходящие видео",
+    "whitelistSearchEmpty": "Нет каналов или видео по этому запросу."
   },
   "playlists": {
     "addToPlaylist": "Добавить в плейлист",

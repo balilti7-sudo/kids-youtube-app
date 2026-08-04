@@ -92,6 +92,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [previewReloadToken, setPreviewReloadToken] = useState(0)
   const [videoSearchOpenSignal, setVideoSearchOpenSignal] = useState(0)
   const previewAutoRefreshTriedRef = useRef<string | null>(null)
+  const preferredPreviewVideoIdRef = useRef<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
 
@@ -460,7 +461,10 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         setPreviewVideos(rows)
         setHiddenVideoIds(hidden)
         const visible = rows.filter((r) => !hidden.has(r.videoId))
-        setActivePreviewVideoId(visible[0]?.videoId ?? null)
+        const preferred = preferredPreviewVideoIdRef.current
+        preferredPreviewVideoIdRef.current = null
+        const preferredVisible = preferred && visible.some((r) => r.videoId === preferred) ? preferred : null
+        setActivePreviewVideoId(preferredVisible ?? visible[0]?.videoId ?? null)
       } catch (e) {
         if (cancelled) return
         setPreviewError(e instanceof Error ? e.message : t('channels.loadVideosFailed'))
@@ -655,9 +659,11 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
           <WhitelistView
             channels={whitelist}
             onRemoveRequest={requestRemoveChannel}
-            onPreviewRequest={(c) => {
-              setPreviewVideoSearch('')
+            onPreviewRequest={(c, opts) => {
+              preferredPreviewVideoIdRef.current = opts?.videoId ?? null
+              setPreviewVideoSearch(opts?.videoSearch ?? '')
               setPreviewChannel(c)
+              if (opts?.videoId) setActivePreviewVideoId(opts.videoId)
             }}
             onOpenSearch={requestOpenChannelSearch}
             canMultiSelect={canUsePlaylists}
@@ -666,7 +672,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             onEnterSelectionMode={channelMultiSelect.enterSelectionMode}
             onExitSelectionMode={channelMultiSelect.exitSelectionMode}
             onToggleSelect={channelMultiSelect.toggle}
-            onSelectAll={() => channelMultiSelect.selectMany(whitelist.map((c) => c.id))}
+            onSelectAll={(ids) => channelMultiSelect.selectMany(ids)}
             onClearSelection={channelMultiSelect.clear}
             onBulkAddToPlaylist={() => void handleBulkAddChannelsToPlaylist()}
             bulkLoading={channelBulkLoading}
