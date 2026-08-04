@@ -14,6 +14,10 @@ type Props = {
   className?: string
   /** Compact toolbar for tight sidebars */
   compact?: boolean
+  /** Hebrew noun for items being selected (default: סרטונים) */
+  itemNoun?: string
+  enterLabel?: string
+  addButtonLabel?: string
 }
 
 /** Enter multi-select / floating actions for bulk add-to-playlist. */
@@ -28,6 +32,9 @@ export function PlaylistMultiSelectToolbar({
   onAddToPlaylist,
   className,
   compact,
+  itemNoun = 'סרטונים',
+  enterLabel = 'בחירה מרובה',
+  addButtonLabel = 'הוסף לפלייליסט',
 }: Props) {
   if (!selectionMode) {
     return (
@@ -41,7 +48,7 @@ export function PlaylistMultiSelectToolbar({
           )}
         >
           <CheckSquare className={cn('shrink-0', compact ? 'h-3.5 w-3.5' : 'h-4 w-4')} aria-hidden />
-          בחירה מרובה
+          {enterLabel}
         </button>
       </div>
     )
@@ -58,7 +65,7 @@ export function PlaylistMultiSelectToolbar({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className={cn('font-semibold text-yt-text', compact ? 'text-xs' : 'text-sm')}>
-          {selectedCount === 0 ? 'בחרו סרטונים' : `נבחרו ${selectedCount}`}
+          {selectedCount === 0 ? `בחרו ${itemNoun}` : `נבחרו ${selectedCount}`}
         </p>
         <button
           type="button"
@@ -101,7 +108,7 @@ export function PlaylistMultiSelectToolbar({
           onClick={onAddToPlaylist}
         >
           <ListMusic className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          הוסף לפלייליסט
+          {addButtonLabel}
         </Button>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { CheckCircle2 } from 'lucide-react'
 import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
 import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
+import { PlaylistSelectCheckbox } from '../playlists/PlaylistMultiSelectToolbar'
 import { cn } from '../../lib/utils'
 
 type Props =
@@ -18,6 +19,9 @@ type Props =
       channel: WhitelistedChannel
       onRemove: () => void
       onOpenChannel: () => void
+      selectionMode?: boolean
+      selected?: boolean
+      onToggleSelect?: () => void
     }
 
 export function ChannelCard(props: Props) {
@@ -51,8 +55,26 @@ export function ChannelCard(props: Props) {
     setFailed(true)
   }
 
+  const selectionMode = props.variant === 'whitelist' && Boolean(props.selectionMode)
+  const selected = props.variant === 'whitelist' && Boolean(props.selected)
+
   return (
-    <div className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+    <div
+      className={cn(
+        'flex gap-3 rounded-xl border bg-white p-3 dark:bg-zinc-900',
+        selected
+          ? 'border-brand-500/50 ring-1 ring-brand-500/30'
+          : 'border-slate-200 dark:border-zinc-800'
+      )}
+    >
+      {selectionMode ? (
+        <PlaylistSelectCheckbox
+          checked={selected}
+          onChange={() => props.variant === 'whitelist' && props.onToggleSelect?.()}
+          label={selected ? 'הסר מהבחירה' : 'בחר ערוץ'}
+          className="self-center !h-11 !w-11"
+        />
+      ) : null}
       {failed ? (
         <div
           className={cn(
@@ -72,13 +94,23 @@ export function ChannelCard(props: Props) {
           className={cn('h-14 w-14 shrink-0 rounded-lg bg-slate-100 object-cover dark:bg-zinc-800')}
         />
       )}
-      <div className="min-w-0 flex-1">
+      <button
+        type="button"
+        className="min-w-0 flex-1 text-right"
+        onClick={() => {
+          if (props.variant === 'whitelist' && selectionMode) {
+            props.onToggleSelect?.()
+            return
+          }
+          if (props.variant === 'whitelist') props.onOpenChannel()
+        }}
+      >
         <p className="truncate font-semibold text-slate-900 dark:text-zinc-100">{title}</p>
         {props.variant === 'whitelist' && props.channel.category ? (
           <p className="text-xs text-brand-600 dark:text-brand-400">{props.channel.category}</p>
         ) : null}
         {subs ? <p className="text-xs text-slate-500 dark:text-zinc-500">{subs} מנויים</p> : null}
-      </div>
+      </button>
       {props.variant === 'search' ? (
         <Button
           className={cn('min-h-[44px] min-w-[5.5rem] shrink-0 self-center', props.added ? '!bg-brand-700 hover:!bg-brand-800' : '')}
@@ -103,7 +135,7 @@ export function ChannelCard(props: Props) {
             'הוסף'
           )}
         </Button>
-      ) : (
+      ) : selectionMode ? null : (
         <div className="flex shrink-0 flex-col gap-1 self-center sm:flex-row sm:items-center">
           <Button type="button" variant="secondary" className="!px-3 !py-2 text-xs whitespace-nowrap" onClick={props.onOpenChannel}>
             כנס לערוץ

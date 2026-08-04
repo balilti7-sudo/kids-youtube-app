@@ -16,7 +16,10 @@ import {
   PlaylistSelectCheckbox,
 } from '../components/playlists/PlaylistMultiSelectToolbar'
 import { useVideoMultiSelect } from '../hooks/useVideoMultiSelect'
+import { useIdMultiSelect } from '../hooks/useIdMultiSelect'
 import type { PlaylistVideoPayload } from '../lib/playlists'
+import { collectCachedVideosForChildChannels } from '../lib/collectCachedChannelVideos'
+import { toast } from 'sonner'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
@@ -142,6 +145,10 @@ function KidModePageInner() {
   const pendingGlobalSearchQueryRef = useRef<string | null>(null)
   const videoMultiSelect = useVideoMultiSelect()
   const [bulkPlaylistOpen, setBulkPlaylistOpen] = useState(false)
+  const channelMultiSelect = useIdMultiSelect()
+  const [channelBulkVideos, setChannelBulkVideos] = useState<PlaylistVideoPayload[]>([])
+  const [channelBulkOpen, setChannelBulkOpen] = useState(false)
+  const [channelBulkLoading, setChannelBulkLoading] = useState(false)
   const parentTabLongPressRef = useRef<number | null>(null)
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
@@ -413,6 +420,54 @@ function KidModePageInner() {
     if (rid !== channelVideosRequestRef.current) return
     setChannelVideos(next)
   }, [accessToken])
+
+  const handleBulkAddChannelsToPlaylist = useCallback(async () => {
+    if (!accessToken) return
+    const selected = channels.filter((c) => channelMultiSelect.selectedIds.has(c.youtube_channel_id))
+    if (selected.length === 0) {
+      toast.info('בחרו לפחות ערוץ אחד')
+      return
+    }
+    setChannelBulkLoading(true)
+    try {
+      const { videos, error, skippedEmptyChannels } = await collectCachedVideosForChildChannels({
+        accessToken,
+        channels: selected.map((c) => ({
+          youtube_channel_id: c.youtube_channel_id,
+          channel_name: c.channel_name,
+        })),
+      })
+      if (error) {
+        toast.error('טעינת סרטונים נכשלה', { description: error.message })
+        return
+      }
+      // Apply same kid-safe filters as browse (shorts / live) when possible.
+      const allowShorts = device?.allow_shorts ?? false
+      const safeVideos = videos.filter((v) => {
+        if (shouldHideFromChildBrowse(v.title)) return false
+        if (allowShorts) return true
+        return !isVideoShortOrSuspected({
+          title: v.title,
+          durationSeconds: null,
+          watchUrl: buildYoutubeWatchUrl(v.youtube_video_id),
+          youtubeVideoId: v.youtube_video_id,
+        })
+      })
+      if (safeVideos.length === 0) {
+        toast.info('לא נמצאו סרטונים במטמון לערוצים שנבחרו')
+        return
+      }
+      if (skippedEmptyChannels > 0) {
+        toast.message(`${safeVideos.length} סרטונים נמצאו`, {
+          description: `${skippedEmptyChannels} ערוצים ללא סרטונים במטמון דולגו`,
+        })
+      }
+      setChannelBulkVideos(safeVideos)
+      setChannelBulkOpen(true)
+    } finally {
+      setChannelBulkLoading(false)
+    }
+  }, [accessToken, channels, channelMultiSelect.selectedIds, device?.allow_shorts])
 
   const loadChildData = useCallback(async (token: string) => {
     const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
@@ -1289,27 +1344,64 @@ function KidModePageInner() {
                 </div>
                 <p className="border-b border-black/[0.06] bg-white/80 px-3 py-2.5 text-xs font-bold text-slate-600 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80 dark:text-zinc-400">
                   הערוצים שלי
+                  {channelBulkLoading ? (
+                    <span className="ms-2 font-medium text-slate-400">טוען…</span>
+                  ) : null}
                 </p>
+                {accessToken ? (
+                  <div className="border-b border-black/[0.06] px-2 py-2 dark:border-zinc-800">
+                    <PlaylistMultiSelectToolbar
+                      compact
+                      selectionMode={channelMultiSelect.selectionMode}
+                      selectedCount={channelMultiSelect.selectedCount}
+                      totalVisible={channels.length}
+                      itemNoun="ערוצים"
+                      enterLabel="בחירת ערוצים"
+                      addButtonLabel="הוסף לפלייליסט"
+                      onEnterSelectionMode={channelMultiSelect.enterSelectionMode}
+                      onExitSelectionMode={channelMultiSelect.exitSelectionMode}
+                      onSelectAllVisible={() =>
+                        channelMultiSelect.selectMany(channels.map((c) => c.youtube_channel_id))
+                      }
+                      onClearSelection={channelMultiSelect.clear}
+                      onAddToPlaylist={() => void handleBulkAddChannelsToPlaylist()}
+                    />
+                  </div>
+                ) : null}
                 <div className="flex flex-col gap-0.5 p-2">
                   {channels.map((channel) => {
                     const yt = channel.youtube_channel_id
                     const selected = yt === (activeChannelId ?? '')
+                    const checked = channelMultiSelect.isSelected(yt)
                     return (
                       <button
                         key={channel.channel_id}
                         type="button"
                         onClick={() => {
+                          if (channelMultiSelect.selectionMode) {
+                            channelMultiSelect.toggle(yt)
+                            return
+                          }
                           setVideoSearch('')
                           clearGlobalSearch()
                           setActiveChannelId(yt)
                           setChannelPickNonce((n) => n + 1)
                         }}
                         className={`flex w-full items-center gap-2 rounded-xl p-2 text-right transition ${
-                          selected
-                            ? 'bg-slate-200/80 dark:bg-zinc-800'
-                            : 'hover:bg-slate-100 dark:hover:bg-zinc-800/80'
+                          channelMultiSelect.selectionMode && checked
+                            ? 'bg-brand-500/15 ring-1 ring-brand-500/40'
+                            : selected
+                              ? 'bg-slate-200/80 dark:bg-zinc-800'
+                              : 'hover:bg-slate-100 dark:hover:bg-zinc-800/80'
                         }`}
                       >
+                        {channelMultiSelect.selectionMode ? (
+                          <PlaylistSelectCheckbox
+                            checked={checked}
+                            onChange={() => channelMultiSelect.toggle(yt)}
+                            className="!h-9 !w-9"
+                          />
+                        ) : null}
                         {channel.channel_thumbnail ? (
                           <img
                             src={channel.channel_thumbnail}
@@ -1336,25 +1428,66 @@ function KidModePageInner() {
 
               <div className="min-w-0 flex-1 bg-gradient-to-b from-sky-50/80 via-white to-violet-50/60 dark:from-slate-950 dark:via-[#0f0f0f] dark:to-indigo-950/20 lg:pt-0">
                 <div className="border-b border-black/[0.06] bg-white px-1.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/90 lg:hidden">
-                  <p className="mb-1 px-0.5 text-[11px] font-bold text-slate-500">ערוץ</p>
+                  <div className="mb-1.5 flex flex-col gap-1.5 px-0.5">
+                    <p className="text-[11px] font-bold text-slate-500">ערוץ</p>
+                    {accessToken ? (
+                      <PlaylistMultiSelectToolbar
+                        compact
+                        selectionMode={channelMultiSelect.selectionMode}
+                        selectedCount={channelMultiSelect.selectedCount}
+                        totalVisible={channels.length}
+                        itemNoun="ערוצים"
+                        enterLabel="בחירת ערוצים"
+                        addButtonLabel="הוסף לפלייליסט"
+                        onEnterSelectionMode={channelMultiSelect.enterSelectionMode}
+                        onExitSelectionMode={channelMultiSelect.exitSelectionMode}
+                        onSelectAllVisible={() =>
+                          channelMultiSelect.selectMany(channels.map((c) => c.youtube_channel_id))
+                        }
+                        onClearSelection={channelMultiSelect.clear}
+                        onAddToPlaylist={() => void handleBulkAddChannelsToPlaylist()}
+                      />
+                    ) : null}
+                  </div>
                   <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5">
                     {channels.map((channel) => {
                       const yt = channel.youtube_channel_id
                       const selected = yt === (activeChannelId ?? '')
+                      const checked = channelMultiSelect.isSelected(yt)
                       return (
                         <button
                           key={channel.channel_id}
                           type="button"
                           onClick={() => {
+                            if (channelMultiSelect.selectionMode) {
+                              channelMultiSelect.toggle(yt)
+                              return
+                            }
                             setVideoSearch('')
                             clearGlobalSearch()
                             setActiveChannelId(yt)
                             setChannelPickNonce((n) => n + 1)
                           }}
                           className={`flex shrink-0 flex-col items-center gap-1 rounded-2xl px-2 py-1.5 ${
-                            selected ? 'bg-slate-200 dark:bg-zinc-800' : 'bg-slate-100/80 dark:bg-zinc-900/80'
+                            channelMultiSelect.selectionMode && checked
+                              ? 'bg-brand-500/20 ring-1 ring-brand-500/50'
+                              : selected
+                                ? 'bg-slate-200 dark:bg-zinc-800'
+                                : 'bg-slate-100/80 dark:bg-zinc-900/80'
                           }`}
                         >
+                          {channelMultiSelect.selectionMode ? (
+                            <span
+                              className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
+                                checked
+                                  ? 'border-brand-600 bg-brand-600 text-white'
+                                  : 'border-slate-400 text-transparent'
+                              }`}
+                              aria-hidden
+                            >
+                              ✓
+                            </span>
+                          ) : null}
                           {channel.channel_thumbnail ? (
                             <img
                               src={channel.channel_thumbnail}
@@ -1701,6 +1834,25 @@ function KidModePageInner() {
           onSuccess={() => {
             videoMultiSelect.exitSelectionMode()
             setBulkPlaylistOpen(false)
+          }}
+        />
+      ) : null}
+
+      {accessToken ? (
+        <AddToPlaylistModal
+          open={channelBulkOpen}
+          onClose={() => {
+            setChannelBulkOpen(false)
+            setChannelBulkVideos([])
+          }}
+          mode="kid"
+          userId={null}
+          childAccessToken={accessToken}
+          videos={channelBulkVideos}
+          onSuccess={() => {
+            channelMultiSelect.exitSelectionMode()
+            setChannelBulkOpen(false)
+            setChannelBulkVideos([])
           }}
         />
       ) : null}

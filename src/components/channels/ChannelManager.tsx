@@ -24,7 +24,9 @@ import {
   PlaylistSelectCheckbox,
 } from '../playlists/PlaylistMultiSelectToolbar'
 import { useVideoMultiSelect } from '../../hooks/useVideoMultiSelect'
+import { useIdMultiSelect } from '../../hooks/useIdMultiSelect'
 import type { PlaylistVideoPayload } from '../../lib/playlists'
+import { collectCachedVideosForParentChannels } from '../../lib/collectCachedChannelVideos'
 import { QuickBlockButton } from './QuickBlockButton'
 import { useHideVideoContext } from '../../hooks/useHideVideoContext'
 import { ChannelManagerVideoSearch } from './ChannelManagerVideoSearch'
@@ -80,6 +82,10 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
   const videoMultiSelect = useVideoMultiSelect()
   const [bulkPlaylistOpen, setBulkPlaylistOpen] = useState(false)
+  const channelMultiSelect = useIdMultiSelect()
+  const [channelBulkVideos, setChannelBulkVideos] = useState<PlaylistVideoPayload[]>([])
+  const [channelBulkOpen, setChannelBulkOpen] = useState(false)
+  const [channelBulkLoading, setChannelBulkLoading] = useState(false)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
 
@@ -115,6 +121,54 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
     getLocalParentPin: localParent.isActive ? getLocalParentPin : undefined,
   })
+
+  const handleBulkAddChannelsToPlaylist = useCallback(async () => {
+    const selected = whitelist.filter((c) => channelMultiSelect.selectedIds.has(c.id))
+    if (selected.length === 0) {
+      toast.info('בחרו לפחות ערוץ אחד')
+      return
+    }
+    setChannelBulkLoading(true)
+    try {
+      const { videos, error, skippedEmptyChannels } = await collectCachedVideosForParentChannels({
+        channels: selected,
+        deviceId,
+        localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
+        localPin: localParent.isActive ? (getLocalParentPin?.() ?? localParent.pin ?? '') : null,
+      })
+      if (error) {
+        toast.error('טעינת סרטונים נכשלה', { description: error.message })
+        return
+      }
+      if (videos.length === 0) {
+        toast.info('לא נמצאו סרטונים במטמון לערוצים שנבחרו')
+        return
+      }
+      if (skippedEmptyChannels > 0) {
+        toast.message(`${videos.length} סרטונים נמצאו`, {
+          description: `${skippedEmptyChannels} ערוצים ללא סרטונים במטמון דולגו`,
+        })
+      }
+      setChannelBulkVideos(videos)
+      setChannelBulkOpen(true)
+    } finally {
+      setChannelBulkLoading(false)
+    }
+  }, [
+    whitelist,
+    channelMultiSelect.selectedIds,
+    deviceId,
+    localParent.isActive,
+    localParent.localAccessToken,
+    localParent.pin,
+    getLocalParentPin,
+  ])
+
+  useEffect(() => {
+    channelMultiSelect.exitSelectionMode()
+    setChannelBulkOpen(false)
+    setChannelBulkVideos([])
+  }, [deviceId, channelMultiSelect.exitSelectionMode])
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -453,6 +507,16 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
               setPreviewVideoSearch('')
               setPreviewChannel(c)
             }}
+            canMultiSelect={canUsePlaylists}
+            selectionMode={channelMultiSelect.selectionMode}
+            selectedIds={channelMultiSelect.selectedIds}
+            onEnterSelectionMode={channelMultiSelect.enterSelectionMode}
+            onExitSelectionMode={channelMultiSelect.exitSelectionMode}
+            onToggleSelect={channelMultiSelect.toggle}
+            onSelectAll={() => channelMultiSelect.selectMany(whitelist.map((c) => c.id))}
+            onClearSelection={channelMultiSelect.clear}
+            onBulkAddToPlaylist={() => void handleBulkAddChannelsToPlaylist()}
+            bulkLoading={channelBulkLoading}
           />
           {previewChannel ? (
             <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
@@ -729,6 +793,25 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
           onSuccess={() => {
             videoMultiSelect.exitSelectionMode()
             setBulkPlaylistOpen(false)
+          }}
+        />
+      ) : null}
+
+      {canUsePlaylists ? (
+        <AddToPlaylistModal
+          open={channelBulkOpen}
+          onClose={() => {
+            setChannelBulkOpen(false)
+            setChannelBulkVideos([])
+          }}
+          mode={playlistMode}
+          userId={playlistUserId}
+          childAccessToken={playlistChildToken}
+          videos={channelBulkVideos}
+          onSuccess={() => {
+            channelMultiSelect.exitSelectionMode()
+            setChannelBulkOpen(false)
+            setChannelBulkVideos([])
           }}
         />
       ) : null}
