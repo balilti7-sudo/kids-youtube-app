@@ -92,8 +92,6 @@ function ParentDashboardInner() {
         }}
       />
 
-      <StatsGrid devices={devices} />
-      <LocalScreenTimeParentCard />
       <DashboardDevicesSection
         activeManagementDeviceId={managedDeviceId}
         onManageChannels={setManagedDeviceId}
@@ -134,6 +132,9 @@ function ParentDashboardInner() {
           </footer>
         </section>
       ) : null}
+
+      <StatsGrid devices={devices} />
+      <LocalScreenTimeParentCard />
     </div>
   )
 }
