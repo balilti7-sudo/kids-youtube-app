@@ -33,6 +33,7 @@ interface DeviceState {
     device_type: 'phone' | 'tablet'
     pairing_code: string | null
   }) => Promise<{ data: Device | null; error: Error | null }>
+  regeneratePairingCode: (deviceId: string) => Promise<{ data: string | null; error: Error | null }>
   removeDevice: (deviceId: string) => Promise<{ error: Error | null }>
   setDevices: (devices: Device[]) => void
   setFromRealtime: (device: Device) => void
@@ -213,6 +214,27 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     const device = { ...(data as Device), channel_count: 0 }
     set({ devices: [device, ...get().devices] })
     return { data: device, error: null }
+  },
+
+  regeneratePairingCode: async (deviceId) => {
+    const code = String(Math.floor(100000 + Math.random() * 900000))
+    const { data, error } = await supabase
+      .from('devices')
+      .update({ pairing_code: code })
+      .eq('id', deviceId)
+      .select(DEVICE_SELECT)
+      .single()
+    if (error) {
+      console.error('[deviceStore.regeneratePairingCode]', error)
+      return { data: null, error: new Error(formatSupabaseError(error)) }
+    }
+    const updated = data as Device
+    set({
+      devices: get().devices.map((d) =>
+        d.id === deviceId ? { ...d, ...updated, channel_count: d.channel_count } : d
+      ),
+    })
+    return { data: code, error: null }
   },
 
   removeDevice: async (deviceId) => {

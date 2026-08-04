@@ -30,10 +30,8 @@ import { collectCachedVideosForParentChannels } from '../../lib/collectCachedCha
 import { QuickBlockButton } from './QuickBlockButton'
 import { useHideVideoContext } from '../../hooks/useHideVideoContext'
 import { ChannelManagerVideoSearch } from './ChannelManagerVideoSearch'
-import {
-  CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
-  CHANNEL_MANAGER_SEARCH_SHELL_CLASS,
-} from './channelManagerSearchStyles'
+import { CHANNEL_MANAGER_SEARCH_CONTROL_CLASS, CHANNEL_MANAGER_SEARCH_SHELL_CLASS } from './channelManagerSearchStyles'
+import { cn } from '../../lib/utils'
 import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
@@ -479,10 +477,14 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
           <Button
             type="button"
-            className={CHANNEL_MANAGER_SEARCH_CONTROL_CLASS}
+            className={cn(
+              CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
+              whitelist.length === 0 &&
+                'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-zinc-950 animate-pulse'
+            )}
             onClick={requestOpenChannelSearch}
           >
-            חיפוש ערוץ
+            {whitelist.length === 0 ? 'התחילו כאן — חיפוש ערוץ' : 'חיפוש ערוץ'}
           </Button>
         </div>
         {user?.id || ownerUserId || localParent.localAccessToken ? (
@@ -507,6 +509,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
               setPreviewVideoSearch('')
               setPreviewChannel(c)
             }}
+            onOpenSearch={requestOpenChannelSearch}
             canMultiSelect={canUsePlaylists}
             selectionMode={channelMultiSelect.selectionMode}
             selectedIds={channelMultiSelect.selectedIds}
@@ -539,7 +542,19 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
               ) : previewVideos.length > 0 && visiblePreviewVideos.length === 0 ? (
                 <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים זמינים להצגה בערוץ הזה.</p>
               ) : activePreviewVideo ? (
-                <YoutubeWatchLayout
+                <>
+                  {/* Mobile: search above the player so new users find it immediately */}
+                  <div className="mb-3 xl:hidden">
+                    <ChannelVideoSearchBar
+                      id="parent-channel-video-search-mobile"
+                      value={previewVideoSearch}
+                      onChange={setPreviewVideoSearch}
+                      totalCount={baseVisiblePreviewCount}
+                      filteredCount={visiblePreviewVideos.length}
+                      channelLabel={previewChannel.channel_name}
+                    />
+                  </div>
+                  <YoutubeWatchLayout
                   className="mt-2"
                   main={
                     <>
@@ -611,7 +626,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                         totalCount={baseVisiblePreviewCount}
                         filteredCount={visiblePreviewVideos.length}
                         channelLabel={previewChannel.channel_name}
-                        className="mb-3"
+                        className="mb-3 hidden xl:block"
                       />
                       {canUsePlaylists ? (
                         <PlaylistMultiSelectToolbar
@@ -699,6 +714,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                     </>
                   }
                 />
+                </>
               ) : (
                 <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים במטמון לערוץ זה.</p>
               )}

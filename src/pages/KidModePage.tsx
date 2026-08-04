@@ -123,7 +123,6 @@ function KidModePageInner() {
   const [parentModePinError, setParentModePinError] = useState<string | null>(null)
   const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
   const [parentBootstrapBusy, setParentBootstrapBusy] = useState(false)
-  const [showManualPairing, setShowManualPairing] = useState(false)
   const [forgotPairingOpen, setForgotPairingOpen] = useState(false)
   const [forgotParentEmail, setForgotParentEmail] = useState('')
   const [forgotBusy, setForgotBusy] = useState(false)
@@ -803,7 +802,6 @@ function KidModePageInner() {
       setActiveChannelId(null)
       setActiveVideoId(null)
       setPairingCode('')
-      setShowManualPairing(false)
       setPinInput('')
       setPinError(null)
       setPinModalOpen(false)
@@ -977,137 +975,100 @@ function KidModePageInner() {
 
   if (!accessToken || !device) {
     return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-10 pt-8">
+      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 px-4 pb-10 pt-8">
         <div className="text-center">
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">{KID_APP_DISPLAY_NAME}</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-            <strong className="text-slate-800 dark:text-zinc-200">ההתקנה העיקרית כאן:</strong> התחברו כהורה באותו דפדפן (אימייל וסיסמה), צרו פרופיל בלוח הבקרה, והזינו למטה את <strong>קוד הצימוד בן 6 הספרות</strong> — החיבור נשמר במכשיר ולא יבקשו שוב התחברות הורה.
-          </p>
-          <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-zinc-500">
-            קוד ה־QR בלוח ההורה מיועד ל<strong className="font-semibold text-slate-700 dark:text-zinc-300">טלפון נוסף</strong> של ההורה (צפייה / ניטור) — לא חובה להגדרה על המכשיר הזה.
-          </p>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
-            אם נפתח מסך התחברות (אימייל) במקום צימוד — סגרו אותו ופתחו שוב את הקישור מה־QR, או הזינו את קוד ה־6 ספרות ידנית כאן.
+            הזינו את <strong className="text-slate-800 dark:text-zinc-200">קוד הצימוד בן 6 הספרות</strong> שמופיע אצל ההורה
+            אחרי יצירת פרופיל — והצפייה מתחילה.
           </p>
         </div>
 
-        {!showManualPairing ? (
-          <section className="rounded-2xl border border-slate-200 bg-brand-50/80 p-5 text-center shadow-sm dark:border-zinc-700 dark:bg-zinc-900/80">
-            <p className="text-sm font-medium text-slate-800 dark:text-zinc-200">סריקת QR (אופציונלי)</p>
-            <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-              אם יש לכם קישור עם קוד מההורה — אפשר לסרוק. אחרת מומלץ להתחבר כהורה כאן ולהזין קוד ידנית.
-            </p>
-            <Button
-              type="button"
-              className="mt-4 w-full"
-              onClick={() => setQrScanOpen(true)}
-            >
-              <Camera className="h-4 w-4" aria-hidden />
-              סריקה במצלמה
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              className="mt-3 w-full"
-              onClick={() => {
-                setShowManualPairing(true)
-                setForgotPairingOpen(false)
-                setForgotParentEmail('')
-                setForgotInfo(null)
-                setError(null)
-              }}
-            >
-              הזנת קוד ידנית (גיבוי)
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              className="mt-3 w-full"
-              onClick={() => void requestParentAction('home')}
-            >
-              {isAuthenticated ? 'מעבר ללוח ההורה (אותו מכשיר)' : 'התחברות הורה — הגדרה על המכשיר הזה'}
-            </Button>
-            {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
-          </section>
-        ) : (
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-zinc-300">קוד צימוד (6 ספרות)</label>
-            <Input
-              inputMode="numeric"
-              value={pairingCode}
-              onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="לדוגמה: 123456"
-              className="text-center text-lg tracking-[0.2em]"
-              onKeyDown={(e) => e.key === 'Enter' && void handlePair()}
-              autoFocus
-            />
-            <div className="mt-2 flex justify-center">
-              <button
-                type="button"
-                className="text-xs font-normal text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline dark:text-zinc-500 dark:hover:text-zinc-400"
-                onClick={() => {
-                  setForgotPairingOpen((o) => !o)
-                  setForgotInfo(null)
-                  setError(null)
-                }}
-              >
-                שכחתי קוד?
-              </button>
-            </div>
-            {forgotPairingOpen ? (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
-                <p className="mb-2 text-xs text-slate-600 dark:text-zinc-400">
-                  הזינו את אימייל ההורה הרשום — נשלח מייל עם קודי צימוד פעילים (אם קיימים).
-                </p>
-                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-zinc-400">אימייל ההורה</label>
-                <Input
-                  dir="ltr"
-                  type="email"
-                  autoComplete="email"
-                  value={forgotParentEmail}
-                  onChange={(e) => setForgotParentEmail(e.target.value)}
-                  placeholder="parent@example.com"
-                  className="text-sm"
-                  onKeyDown={(e) => e.key === 'Enter' && sendForgotPairingReminder()}
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="mt-3 w-full"
-                  disabled={forgotBusy}
-                  onClick={sendForgotPairingReminder}
-                >
-                  {forgotBusy ? <LoadingSpinner className="h-5 w-5 border-2 border-slate-600 border-t-transparent" /> : null}
-                  {forgotBusy ? 'שולח…' : 'שלחו לי את הקודים במייל'}
-                </Button>
-              </div>
-            ) : null}
-            {forgotInfo ? (
-              <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400" role="status">
-                {forgotInfo}
-              </p>
-            ) : null}
-            {error ? <p className="mt-2 text-sm text-danger-600">{error}</p> : null}
-            <Button className="mt-4 w-full" disabled={submitting} onClick={() => void handlePair()}>
-              {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-              {submitting ? 'מתחבר...' : 'חבר פרופיל'}
-            </Button>
+        <section className="rounded-2xl border-2 border-brand-400/40 bg-white p-5 shadow-sm ring-1 ring-brand-500/20 dark:border-brand-700/50 dark:bg-zinc-900">
+          <p className="mb-1 text-center text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+            הצעד הראשון
+          </p>
+          <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-zinc-300">קוד צימוד (6 ספרות)</label>
+          <Input
+            inputMode="numeric"
+            value={pairingCode}
+            onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="לדוגמה: 123456"
+            className="text-center text-lg tracking-[0.2em]"
+            onKeyDown={(e) => e.key === 'Enter' && void handlePair()}
+            autoFocus
+          />
+          <Button type="button" className="mt-3 w-full text-base font-bold" onClick={() => void handlePair()} disabled={submitting}>
+            {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
+            {submitting ? 'מחבר…' : 'התחברות'}
+          </Button>
+          <div className="mt-2 flex justify-center">
             <button
               type="button"
-              className="mt-3 w-full text-center text-xs text-slate-500 underline-offset-2 hover:underline dark:text-zinc-500"
+              className="text-xs font-normal text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline dark:text-zinc-500 dark:hover:text-zinc-400"
               onClick={() => {
-                setShowManualPairing(false)
-                setPairingCode('')
-                setForgotPairingOpen(false)
-                setForgotParentEmail('')
+                setForgotPairingOpen((o) => !o)
                 setForgotInfo(null)
                 setError(null)
               }}
             >
-              חזרה להסבר על הסריקה
+              שכחתי קוד?
             </button>
-          </section>
-        )}
+          </div>
+          {forgotPairingOpen ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
+              <p className="mb-2 text-xs text-slate-600 dark:text-zinc-400">
+                הזינו את אימייל ההורה הרשום — נשלח מייל עם קודי צימוד פעילים (אם קיימים).
+              </p>
+              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-zinc-400">אימייל ההורה</label>
+              <Input
+                dir="ltr"
+                type="email"
+                autoComplete="email"
+                value={forgotParentEmail}
+                onChange={(e) => setForgotParentEmail(e.target.value)}
+                placeholder="parent@example.com"
+                className="text-sm"
+                onKeyDown={(e) => e.key === 'Enter' && sendForgotPairingReminder()}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-3 w-full"
+                disabled={forgotBusy}
+                onClick={sendForgotPairingReminder}
+              >
+                {forgotBusy ? <LoadingSpinner className="h-5 w-5 border-2 border-slate-600 border-t-transparent" /> : null}
+                {forgotBusy ? 'שולח…' : 'שלחו לי את הקודים במייל'}
+              </Button>
+            </div>
+          ) : null}
+          {forgotInfo ? (
+            <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400" role="status">
+              {forgotInfo}
+            </p>
+          ) : null}
+          {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
+        </section>
+
+        <div className="flex flex-col gap-2">
+          <Button type="button" variant="secondary" className="w-full" onClick={() => setQrScanOpen(true)}>
+            <Camera className="h-4 w-4" aria-hidden />
+            סריקת QR (אופציונלי)
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            onClick={() => void requestParentAction('home')}
+          >
+            {isAuthenticated ? 'מעבר ללוח ההורה' : 'התחברות הורה — הגדרה על המכשיר הזה'}
+          </Button>
+        </div>
+
+        <p className="text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
+          אין לכם קוד? בהורה: בקרת הורים → הוספת פרופיל → יופיע קוד ו־QR.
+        </p>
         <KidQrScanModal
           open={qrScanOpen}
           onClose={() => setQrScanOpen(false)}

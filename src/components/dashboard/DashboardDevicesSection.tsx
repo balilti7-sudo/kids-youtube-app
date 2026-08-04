@@ -14,6 +14,7 @@ import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
 import { DailyTimeLimitDeviceSettings } from './DailyTimeLimitDeviceSettings'
 import { DeviceOsControlsSettings } from './DeviceOsControlsSettings'
+import { QRCodeDisplay } from '../devices/QRCodeDisplay'
 import { toast } from 'sonner'
 import type { Device } from '../../types'
 
@@ -38,15 +39,22 @@ function ProfileDeviceCard({
   onToggleExpanded,
   activeManagementDeviceId,
   onManageChannels,
+  onShowPairing,
+  regenerating,
+  onRegeneratePairing,
 }: {
   device: Device
   expanded: boolean
   onToggleExpanded: () => void
   activeManagementDeviceId?: string | null
   onManageChannels: (deviceId: string) => void
+  onShowPairing: (device: Device) => void
+  regenerating: boolean
+  onRegeneratePairing: (deviceId: string) => void
 }) {
   const limitLabel = formatLimitBrief(device.daily_time_limit_minutes)
   const shortsLabel = device.allow_shorts ? 'Shorts מותר' : 'Shorts חסום'
+  const hasPairingCode = Boolean(device.pairing_code?.trim())
 
   return (
     <li className="flex flex-col gap-2 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60">
@@ -70,6 +78,9 @@ function ProfileDeviceCard({
             </span>
             {!expanded ? (
               <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
+                {hasPairingCode ? (
+                  <span className="text-amber-300/90">ממתין לצימוד · </span>
+                ) : null}
                 {limitLabel} · {shortsLabel}
               </span>
             ) : null}
@@ -101,6 +112,43 @@ function ProfileDeviceCard({
 
       {expanded ? (
         <div id={`profile-settings-${device.id}`} className="flex flex-col gap-2">
+          <div className="rounded-xl border border-sky-500/25 bg-sky-950/20 px-3 py-2.5 ring-1 ring-sky-500/10">
+            <p className="text-sm font-semibold text-zinc-100">חיבור מכשיר הילד</p>
+            {hasPairingCode ? (
+              <>
+                <p className="mt-1 text-xs text-zinc-400">
+                  הזינו את הקוד במסך הילד, או הציגו QR מלא:
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    className="!h-9 !px-3 !text-xs font-bold"
+                    onClick={() => onShowPairing(device)}
+                  >
+                    הצגת קוד ו־QR
+                  </Button>
+                  <p className="self-center font-mono text-lg font-bold tracking-[0.2em] text-sky-200" dir="ltr">
+                    {device.pairing_code}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-xs text-zinc-400">
+                  הפרופיל כבר חובר, או שהקוד פג. אפשר ליצור קוד חדש לחיבור מחדש.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-2 !h-9 !px-3 !text-xs"
+                  disabled={regenerating}
+                  onClick={() => onRegeneratePairing(device.id)}
+                >
+                  {regenerating ? 'יוצר…' : 'יצירת קוד צימוד חדש'}
+                </Button>
+              </>
+            )}
+          </div>
           <DailyTimeLimitDeviceSettings device={device} />
           <AllowShortsDeviceSettings device={device} />
           <DeviceOsControlsSettings device={device} />
@@ -113,25 +161,33 @@ function ProfileDeviceCard({
 export function DashboardDevicesSection({
   activeManagementDeviceId,
   onManageChannels,
+  openAddProfileSignal = 0,
+  showPairingSignal = 0,
 }: {
   activeManagementDeviceId?: string | null
   onManageChannels: (deviceId: string) => void
+  /** Increment to open the add-profile modal (from setup guide). */
+  openAddProfileSignal?: number
+  /** Increment to open pairing for the first profile that still has a code. */
+  showPairingSignal?: number
 }) {
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
   const addDevice = useDeviceStore((s) => s.addDevice)
+  const regeneratePairingCode = useDeviceStore((s) => s.regeneratePairingCode)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [deviceName, setDeviceName] = useState('')
   const [saving, setSaving] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [collapseSeeded, setCollapseSeeded] = useState(false)
+  const [pairingModalDevice, setPairingModalDevice] = useState<Device | null>(null)
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
 
   const max = subscription?.max_devices ?? 3
   const atLimit = devices.length >= max
 
-  // With 2+ profiles, start collapsed; with a single profile, start expanded.
   useEffect(() => {
     if (loading || collapseSeeded || devices.length === 0) return
     if (devices.length === 1) {
@@ -141,6 +197,25 @@ export function DashboardDevicesSection({
     }
     setCollapseSeeded(true)
   }, [loading, devices, collapseSeeded])
+
+  useEffect(() => {
+    if (openAddProfileSignal > 0) {
+      setDeviceName('פרופיל הילד')
+      setModalOpen(true)
+    }
+  }, [openAddProfileSignal])
+
+  useEffect(() => {
+    if (showPairingSignal <= 0) return
+    const pending = devices.find((d) => d.pairing_code?.trim())
+    if (pending) {
+      setPairingModalDevice(pending)
+      setExpandedIds((prev) => new Set(prev).add(pending.id))
+    } else if (devices[0]) {
+      setExpandedIds((prev) => new Set(prev).add(devices[0].id))
+      toast.info('אין קוד פעיל', { description: 'פתחו את הפרופיל ולחצו «יצירת קוד צימוד חדש».' })
+    }
+  }, [showPairingSignal, devices])
 
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
@@ -158,6 +233,22 @@ export function DashboardDevicesSection({
 
   const closeModal = () => {
     if (!saving) setModalOpen(false)
+  }
+
+  const handleRegenerate = async (deviceId: string) => {
+    setRegeneratingId(deviceId)
+    const { data, error: err } = await regeneratePairingCode(deviceId)
+    setRegeneratingId(null)
+    if (err) {
+      toast.error('יצירת קוד נכשלה', { description: err.message })
+      return
+    }
+    await refetch()
+    const device = useDeviceStore.getState().devices.find((d) => d.id === deviceId)
+    if (device && data) {
+      setPairingModalDevice({ ...device, pairing_code: data })
+      toast.success('קוד צימוד חדש מוכן')
+    }
   }
 
   const handleAdd = async () => {
@@ -190,11 +281,12 @@ export function DashboardDevicesSection({
         return
       }
       if (data) {
-        toast.success('הפרופיל נוסף', { description: 'הפרופיל זמין בהגדרות ובמסך הילד.' })
+        toast.success('הפרופיל נוסף', { description: `קוד הצימוד: ${pairing}` })
         setExpandedIds((prev) => new Set(prev).add(data.id))
         await refetch()
         setModalOpen(false)
         setDeviceName('')
+        setPairingModalDevice({ ...data, pairing_code: pairing })
       }
     } catch (e) {
       console.error('Connection Error:', e)
@@ -206,6 +298,7 @@ export function DashboardDevicesSection({
 
   return (
     <section
+      id="dashboard-profiles"
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
       aria-labelledby="profiles-section-title"
     >
@@ -217,10 +310,21 @@ export function DashboardDevicesSection({
           <p className="text-xs text-zinc-500">פרופילים מקושרים: {devices.length} / {max}</p>
         </div>
 
-        <div className="rounded-xl border border-zinc-700/50 bg-zinc-950/40 px-3 py-3">
-          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">פרופילי ילדים</p>
+        <div
+          className={cn(
+            'rounded-xl border px-3 py-3',
+            devices.length === 0
+              ? 'border-sky-400/40 bg-sky-950/30 ring-1 ring-sky-400/25'
+              : 'border-zinc-700/50 bg-zinc-950/40'
+          )}
+        >
+          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            {devices.length === 0 ? 'צעד 1 — התחלה' : 'פרופילי ילדים'}
+          </p>
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
-            מוסיפים פרופיל כאן; הוא משמש לצימוד מסך הילד ולהגדרת ההרשאות.
+            {devices.length === 0
+              ? 'צרו פרופיל — מיד יופיע קוד צימוד לחיבור מכשיר הילד.'
+              : 'מוסיפים פרופיל כאן; הוא משמש לצימוד מסך הילד ולהגדרת ההרשאות.'}
           </p>
           <button
             type="button"
@@ -253,10 +357,13 @@ export function DashboardDevicesSection({
       ) : error ? (
         <ErrorState message={error} onRetry={() => void refetch()} />
       ) : devices.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-5 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-5 text-center">
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
           <p className="text-sm font-medium text-zinc-300">אין פרופילים עדיין</p>
-          <p className="max-w-xs text-xs text-zinc-500">צרו פרופיל חדש והמשיכו בהגדרת מסך הילד.</p>
+          <p className="max-w-xs text-xs text-zinc-500">לחצו «הוספת פרופיל» למעלה — זה הצעד הראשון לצפייה.</p>
+          <Button type="button" onClick={openModal} disabled={!ownerUserId || atLimit}>
+            הוספת פרופיל עכשיו
+          </Button>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -268,6 +375,9 @@ export function DashboardDevicesSection({
               onToggleExpanded={() => toggleExpanded(d.id)}
               activeManagementDeviceId={activeManagementDeviceId}
               onManageChannels={onManageChannels}
+              onShowPairing={setPairingModalDevice}
+              regenerating={regeneratingId === d.id}
+              onRegeneratePairing={(id) => void handleRegenerate(id)}
             />
           ))}
         </ul>
@@ -289,7 +399,9 @@ export function DashboardDevicesSection({
           </>
         }
       >
-        <p className="mb-3 text-sm text-zinc-400">שם ידידותי לפרופיל (למשל: פרופיל הילד).</p>
+        <p className="mb-3 text-sm text-zinc-400">
+          אחרי השמירה יוצג קוד צימוד — הזינו אותו במכשיר הילד כדי להתחיל.
+        </p>
         <label className="mb-1 block text-sm font-medium text-zinc-300">שם הפרופיל</label>
         <Input
           value={deviceName}
@@ -298,6 +410,44 @@ export function DashboardDevicesSection({
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && void handleAdd()}
         />
+      </Modal>
+
+      <Modal
+        open={Boolean(pairingModalDevice?.pairing_code)}
+        onClose={() => setPairingModalDevice(null)}
+        title="חברו את מכשיר הילד"
+        bodyClassName="max-h-[75vh] overflow-y-auto"
+        footer={
+          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            <Button type="button" variant="secondary" onClick={() => setPairingModalDevice(null)}>
+              סגור
+            </Button>
+            {pairingModalDevice ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  const id = pairingModalDevice.id
+                  setPairingModalDevice(null)
+                  onManageChannels(id)
+                }}
+              >
+                המשך — הוספת ערוצים
+              </Button>
+            ) : null}
+          </div>
+        }
+      >
+        {pairingModalDevice?.pairing_code ? (
+          <>
+            <p className="mb-3 text-sm leading-relaxed text-zinc-400">
+              זה הצעד החשוב ביותר: במכשיר הילד פתחו את האפליקציה והזינו את הקוד, או סרקו את ה־QR.
+            </p>
+            <QRCodeDisplay
+              code={pairingModalDevice.pairing_code}
+              deviceName={pairingModalDevice.name}
+            />
+          </>
+        ) : null}
       </Modal>
     </section>
   )

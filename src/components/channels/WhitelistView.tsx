@@ -10,6 +10,7 @@ export function WhitelistView({
   channels,
   onRemoveRequest,
   onPreviewRequest,
+  onOpenSearch,
   canMultiSelect = false,
   selectionMode = false,
   selectedIds,
@@ -24,6 +25,7 @@ export function WhitelistView({
   channels: WhitelistedChannel[]
   onRemoveRequest: (c: WhitelistedChannel) => void
   onPreviewRequest: (c: WhitelistedChannel) => void
+  onOpenSearch?: () => void
   canMultiSelect?: boolean
   selectionMode?: boolean
   selectedIds?: Set<string>
@@ -39,8 +41,19 @@ export function WhitelistView({
     return (
       <EmptyState
         icon={<Tv className="mx-auto h-10 w-10" />}
-        title="אין ערוצים מאושרים"
-        description="השתמשו בחיפוש כדי להוסיף ערוץ ראשון."
+        title="אין ערוצים מאושרים עדיין"
+        description="חפשו ערוץ למעלה והוסיפו אותו — רק אז הילד יוכל לצפות."
+        action={
+          onOpenSearch ? (
+            <button
+              type="button"
+              onClick={onOpenSearch}
+              className="mt-1 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white dark:bg-white dark:text-zinc-900"
+            >
+              חיפוש ערוץ עכשיו
+            </button>
+          ) : undefined
+        }
       />
     )
   }
