@@ -840,6 +840,8 @@ export async function resolveYouTubeChannelFromInput(input: string): Promise<{
 
 /** מגן מפני לולאת דפדוף חריגה ב־API (לא מגבלת ערוץ רגילה). */
 const PLAYLIST_ITEMS_PAGE_GUARD = 50_000
+/** Default cap for channel cache fills (~50 videos/page). Enough for browse; avoids multi-minute crawls. */
+export const CHANNEL_CACHE_PLAYLIST_MAX_PAGES = 10
 
 type ChannelsContentDetailsResponse = {
   items?: Array<{
@@ -951,16 +953,21 @@ async function fetchChannelVideosViaSearchQuery(
   return out
 }
 
-/** כל פריטי פלייליסט ההעלאות (דפדוף עד אין `nextPageToken`). */
-async function fetchUploadsPlaylistVideos(uploadsPlaylistId: string, key: string): Promise<ChannelVideoItem[]> {
+/** Uploads playlist items (paged). Optional `maxPages` caps crawl size for cache fills. */
+async function fetchUploadsPlaylistVideos(
+  uploadsPlaylistId: string,
+  key: string,
+  maxPages = PLAYLIST_ITEMS_PAGE_GUARD
+): Promise<ChannelVideoItem[]> {
   const out: ChannelVideoItem[] = []
   let pageToken: string | undefined
   let pages = 0
+  const pageLimit = Math.max(1, Math.min(maxPages, PLAYLIST_ITEMS_PAGE_GUARD))
 
   for (;;) {
     pages += 1
-    if (pages > PLAYLIST_ITEMS_PAGE_GUARD) {
-      throw new Error('דפדוף הרשימה נעצר אחרי יותר מדי עמודים; נסו שוב מאוחר יותר.')
+    if (pages > pageLimit) {
+      break
     }
 
     const url = new URL(`${YT_API}/playlistItems`)
@@ -998,7 +1005,12 @@ async function fetchUploadsPlaylistVideos(uploadsPlaylistId: string, key: string
 
 export async function getLatestVideosForChannel(
   channelId: string,
-  options?: { /** חיפוש מוגבל לערוץ זה בלבד (`search.list` עם channelId + q) */ searchQuery?: string }
+  options?: {
+    /** חיפוש מוגבל לערוץ זה בלבד (`search.list` עם channelId + q) */
+    searchQuery?: string
+    /** Max playlist pages to fetch (50 videos each). Defaults to cache-friendly cap. */
+    maxPages?: number
+  }
 ): Promise<{
   data: ChannelVideoItem[] | null
   error: Error | null
@@ -1016,6 +1028,7 @@ export async function getLatestVideosForChannel(
   }
 
   const searchQuery = options?.searchQuery?.trim() ?? ''
+  const maxPages = options?.maxPages ?? CHANNEL_CACHE_PLAYLIST_MAX_PAGES
 
   try {
     if (searchQuery) {
@@ -1027,7 +1040,7 @@ export async function getLatestVideosForChannel(
     if (!uploadsPlaylistId) {
       return { data: [], error: new Error('לא נמצאה רשימת העלאות לערוץ (ייתכן שהערוץ לא זמין ב־API).') }
     }
-    const results = await fetchUploadsPlaylistVideos(uploadsPlaylistId, key)
+    const results = await fetchUploadsPlaylistVideos(uploadsPlaylistId, key, maxPages)
     return { data: results, error: null }
   } catch (e) {
     console.error('[youtube] getLatestVideosForChannel', e)

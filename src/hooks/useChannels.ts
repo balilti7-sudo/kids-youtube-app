@@ -218,14 +218,18 @@ export function useChannels(
     [deviceId, userId, addVideoToDevice]
   )
 
-  /** Fill cache after add — awaited so preview/bulk-add see videos immediately when possible. */
-  const fillChannelVideosCacheAfterAdd = useCallback(
-    async (channelDbId: string, youtubeChannelId: string) => {
-      const result = await refreshChannelVideosCache(channelDbId, youtubeChannelId, true)
-      if (result.error) {
-        console.warn('[useChannels] cache refresh after add failed', result.error.message, youtubeChannelId)
-      }
-      return result
+  /** Background cache fill — must not block whitelist add UI. */
+  const scheduleChannelVideosCacheRefresh = useCallback(
+    (channelDbId: string, youtubeChannelId: string) => {
+      void refreshChannelVideosCache(channelDbId, youtubeChannelId, true).then((result) => {
+        if (result.error) {
+          console.warn(
+            '[useChannels] background cache refresh failed',
+            result.error.message,
+            youtubeChannelId
+          )
+        }
+      })
     },
     [refreshChannelVideosCache]
   )
@@ -237,20 +241,14 @@ export function useChannels(
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
         if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-        if (ch?.id) {
-          const cache = await fillChannelVideosCacheAfterAdd(ch.id, yt.channelId)
-          return { error: null, cacheError: cache.error }
-        }
+        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
         return { error: null, cacheError: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
       const res = await addChannelToDevice({ deviceId, userId, yt, category })
       if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-      if (ch?.id) {
-        const cache = await fillChannelVideosCacheAfterAdd(ch.id, yt.channelId)
-        return { error: null, cacheError: cache.error }
-      }
+      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
       return { error: null, cacheError: null }
     },
     [
@@ -260,7 +258,7 @@ export function useChannels(
       getLocalParentPin,
       addChannelLocalParent,
       addChannelToDevice,
-      fillChannelVideosCacheAfterAdd,
+      scheduleChannelVideosCacheRefresh,
     ]
   )
 
@@ -273,20 +271,14 @@ export function useChannels(
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt: data, category })
         if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-        if (ch?.id) {
-          const cache = await fillChannelVideosCacheAfterAdd(ch.id, data.channelId)
-          return { error: null, cacheError: cache.error }
-        }
+        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
         return { error: null, cacheError: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
       const res = await addChannelToDevice({ deviceId, userId, yt: data, category })
       if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-      if (ch?.id) {
-        const cache = await fillChannelVideosCacheAfterAdd(ch.id, data.channelId)
-        return { error: null, cacheError: cache.error }
-      }
+      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
       return { error: null, cacheError: null }
     },
     [
@@ -296,7 +288,7 @@ export function useChannels(
       getLocalParentPin,
       addChannelLocalParent,
       addChannelToDevice,
-      fillChannelVideosCacheAfterAdd,
+      scheduleChannelVideosCacheRefresh,
     ]
   )
 

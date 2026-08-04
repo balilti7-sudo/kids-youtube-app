@@ -130,6 +130,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   })
 
   // Backfill cache for channels that never refreshed (or are older than 24h), throttled.
+  // Fire-and-forget per channel so whitelist UI stays responsive.
   useEffect(() => {
     if (listLoading || whitelist.length === 0 || staleRefreshStartedRef.current) return
     const stale = whitelist
@@ -140,11 +141,9 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       .slice(0, 4)
     if (stale.length === 0) return
     staleRefreshStartedRef.current = true
-    void (async () => {
-      for (const ch of stale) {
-        await refreshChannelVideosCache(ch.id, ch.youtube_channel_id, false)
-      }
-    })()
+    for (const ch of stale) {
+      void refreshChannelVideosCache(ch.id, ch.youtube_channel_id, false)
+    }
   }, [listLoading, whitelist, refreshChannelVideosCache])
 
   useEffect(() => {
@@ -267,7 +266,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     }
     setAddingId(c.channelId)
     try {
-      const { error, cacheError } = await addToWhitelist(c, null)
+      const { error, cacheError: _cacheError } = await addToWhitelist(c, null)
       if (error) {
         console.error('[ChannelManager] addToWhitelist failed', error.message, c.channelId)
         toast.error(error.message)
@@ -275,9 +274,6 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       }
       setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
       setAddSuccessModalOpen(true)
-      if (cacheError) {
-        toast.message(t('channels.addedCachePending'), { description: cacheError.message })
-      }
     } catch (e) {
       console.error('[ChannelManager] handleAdd unexpected error', e)
       toast.error(e instanceof Error ? e.message : t('errors.generic'))
