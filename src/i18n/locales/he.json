@@ -182,7 +182,16 @@
     "parentVerifyTitle": "אימות הורה",
     "parentVerifyDescription": "הזינו את קוד ההורה בן 6 הספרות. לאחר מילוי כל הספרות האימות והפעולה יתבצעו אוטומטית.",
     "addAnother": "הוספת ערוץ נוסף",
-    "addMoreOrReturn": "האם תרצה להוסיף ערוצים נוספים או לחזור לבקרת ההורים?"
+    "addMoreOrReturn": "האם תרצה להוסיף ערוצים נוספים או לחזור לבקרת ההורים?",
+    "refreshingCache": "מרענן סרטוני ערוץ מ-YouTube…",
+    "refreshingFromChannel": "מעדכן מהערוץ…",
+    "refreshFromChannel": "עדכן רשימה מהערוץ",
+    "emptyCache": "אין סרטונים במטמון לערוץ זה עדיין.",
+    "cacheRefreshed": "סרטוני הערוץ עודכנו",
+    "addedCachePending": "הערוץ נוסף, אבל מטמון הסרטונים דורש רענון",
+    "videosFound": "נמצאו {{count}} סרטונים",
+    "skippedEmpty": "דולגו {{count}} ערוצים ללא סרטונים במטמון",
+    "noLocalPermission": "אין הרשאה מקומית לטעון סרטוני ערוץ."
   },
   "playlists": {
     "addToPlaylist": "הוסף לפלייליסט",

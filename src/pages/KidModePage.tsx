@@ -421,6 +421,7 @@ function KidModePageInner() {
         return !isVideoShortOrSuspected({
           title: v.title,
           durationSeconds: null,
+          thumbnail_url: v.thumbnail_url,
           watchUrl: buildYoutubeWatchUrl(v.youtube_video_id),
           youtubeVideoId: v.youtube_video_id,
         })

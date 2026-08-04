@@ -182,7 +182,16 @@
     "parentVerifyTitle": "Parent verification",
     "parentVerifyDescription": "Enter the 6-digit parent code. After all digits are filled, verification and the action run automatically.",
     "addAnother": "Add another channel",
-    "addMoreOrReturn": "Would you like to add more channels or return to parent controls?"
+    "addMoreOrReturn": "Would you like to add more channels or return to parent controls?",
+    "refreshingCache": "Refreshing channel videos from YouTube…",
+    "refreshingFromChannel": "Updating from channel…",
+    "refreshFromChannel": "Update list from channel",
+    "emptyCache": "No cached videos for this channel yet.",
+    "cacheRefreshed": "Channel videos updated",
+    "addedCachePending": "Channel added, but video cache needs a refresh",
+    "videosFound": "{{count}} videos found",
+    "skippedEmpty": "{{count}} channels with no cached videos were skipped",
+    "noLocalPermission": "No local permission to load channel videos."
   },
   "playlists": {
     "addToPlaylist": "Add to playlist",

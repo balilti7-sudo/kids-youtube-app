@@ -86,6 +86,9 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [channelBulkVideos, setChannelBulkVideos] = useState<PlaylistVideoPayload[]>([])
   const [channelBulkOpen, setChannelBulkOpen] = useState(false)
   const [channelBulkLoading, setChannelBulkLoading] = useState(false)
+  const [previewRefreshing, setPreviewRefreshing] = useState(false)
+  const [previewReloadToken, setPreviewReloadToken] = useState(0)
+  const previewAutoRefreshTriedRef = useRef<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
 
@@ -106,6 +109,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   )
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
+  const staleRefreshStartedRef = useRef(false)
 
   const {
     whitelist,
@@ -117,36 +121,80 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     loadWhitelist,
     addToWhitelist,
     removeFromWhitelist,
+    refreshChannelVideosCache,
   } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId, {
     localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
     getLocalParentPin: localParent.isActive ? getLocalParentPin : undefined,
   })
 
+  // Backfill cache for channels that never refreshed (or are older than 24h), throttled.
+  useEffect(() => {
+    if (listLoading || whitelist.length === 0 || staleRefreshStartedRef.current) return
+    const stale = whitelist
+      .filter((c) => {
+        const last = c.last_videos_refresh_at ? new Date(c.last_videos_refresh_at).getTime() : 0
+        return last === 0 || Date.now() - last > 24 * 60 * 60 * 1000
+      })
+      .slice(0, 4)
+    if (stale.length === 0) return
+    staleRefreshStartedRef.current = true
+    void (async () => {
+      for (const ch of stale) {
+        await refreshChannelVideosCache(ch.id, ch.youtube_channel_id, false)
+      }
+    })()
+  }, [listLoading, whitelist, refreshChannelVideosCache])
+
+  useEffect(() => {
+    staleRefreshStartedRef.current = false
+  }, [deviceId])
+
   const handleBulkAddChannelsToPlaylist = useCallback(async () => {
     const selected = whitelist.filter((c) => channelMultiSelect.selectedIds.has(c.id))
     if (selected.length === 0) {
-      toast.info('בחרו לפחות ערוץ אחד')
+      toast.info(t('channels.selectAtLeastOne'))
       return
     }
     setChannelBulkLoading(true)
     try {
-      const { videos, error, skippedEmptyChannels } = await collectCachedVideosForParentChannels({
-        channels: selected,
-        deviceId,
-        localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
-        localPin: localParent.isActive ? (getLocalParentPin?.() ?? localParent.pin ?? '') : null,
-      })
+      const collect = () =>
+        collectCachedVideosForParentChannels({
+          channels: selected,
+          deviceId,
+          localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
+          localPin: localParent.isActive ? (getLocalParentPin?.() ?? localParent.pin ?? '') : null,
+        })
+
+      let { videos, error, skippedEmptyChannels } = await collect()
       if (error) {
-        toast.error('טעינת סרטונים נכשלה', { description: error.message })
+        toast.error(t('channels.loadVideosFailed'), { description: error.message })
         return
       }
+
+      // Cache may still be empty if a prior refresh failed — force YouTube refresh once, then retry.
       if (videos.length === 0) {
-        toast.info('לא נמצאו סרטונים במטמון לערוצים שנבחרו')
+        toast.message(t('channels.refreshingCache'))
+        for (const ch of selected) {
+          const refreshed = await refreshChannelVideosCache(ch.id, ch.youtube_channel_id, true)
+          if (refreshed.error) {
+            toast.error(t('channels.loadVideosFailed'), { description: refreshed.error.message })
+            return
+          }
+        }
+        ;({ videos, error, skippedEmptyChannels } = await collect())
+        if (error) {
+          toast.error(t('channels.loadVideosFailed'), { description: error.message })
+          return
+        }
+      }
+
+      if (videos.length === 0) {
+        toast.info(t('channels.noCachedVideos'))
         return
       }
       if (skippedEmptyChannels > 0) {
-        toast.message(`${videos.length} סרטונים נמצאו`, {
-          description: `${skippedEmptyChannels} ערוצים ללא סרטונים במטמון דולגו`,
+        toast.message(t('channels.videosFound', { count: videos.length }), {
+          description: t('channels.skippedEmpty', { count: skippedEmptyChannels }),
         })
       }
       setChannelBulkVideos(videos)
@@ -155,6 +203,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       setChannelBulkLoading(false)
     }
   }, [
+    t,
     whitelist,
     channelMultiSelect.selectedIds,
     deviceId,
@@ -162,6 +211,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     localParent.localAccessToken,
     localParent.pin,
     getLocalParentPin,
+    refreshChannelVideosCache,
   ])
 
   useEffect(() => {
@@ -210,12 +260,12 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
 
   const handleAdd = async (c: YouTubeChannelResult) => {
     if (!localParent.isActive && !selectedDevice) {
-      toast.error('לא נבחר מכשיר להוספה')
+      toast.error(t('channels.noDeviceSelected'))
       return
     }
     setAddingId(c.channelId)
     try {
-      const { error } = await addToWhitelist(c, null)
+      const { error, cacheError } = await addToWhitelist(c, null)
       if (error) {
         console.error('[ChannelManager] addToWhitelist failed', error.message, c.channelId)
         toast.error(error.message)
@@ -223,9 +273,12 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       }
       setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
       setAddSuccessModalOpen(true)
+      if (cacheError) {
+        toast.message(t('channels.addedCachePending'), { description: cacheError.message })
+      }
     } catch (e) {
       console.error('[ChannelManager] handleAdd unexpected error', e)
-      toast.error(e instanceof Error ? e.message : 'שגיאה בהוספת ערוץ')
+      toast.error(e instanceof Error ? e.message : t('errors.generic'))
     } finally {
       setAddingId(null)
     }
@@ -310,6 +363,8 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       setActivePreviewVideoId(null)
       setPreviewVideoSearch('')
       setHiddenVideoIds(new Set())
+      setPreviewRefreshing(false)
+      previewAutoRefreshTriedRef.current = null
       videoMultiSelect.exitSelectionMode()
       setBulkPlaylistOpen(false)
       return
@@ -327,45 +382,66 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         let rows: PreviewRow[] = []
         let hidden = new Set<string>()
 
-        if (localParent.isActive && localParent.localAccessToken) {
-          const pin = getLocalParentPin?.() ?? ''
-          const { data, error } = await supabase.rpc('local_parent_list_channel_videos', {
-            p_access_token: localParent.localAccessToken,
-            p_pin: pin,
-            p_youtube_channel_id: channel.youtube_channel_id,
-          })
-          if (error) throw new Error(error.message)
-          rows = ((data ?? []) as Record<string, unknown>[]).map((v) => {
-            const row = v as { youtube_video_id: string; title: string; thumbnail_url: string | null }
-            return {
-              videoId: row.youtube_video_id,
-              title: row.title,
-              thumbnail: row.thumbnail_url,
-            }
-          })
-          const hidRes = await listHiddenVideoIdsLocalParent(localParent.localAccessToken, pin)
-          hidden = hidRes.data
-        } else if (user) {
-          const { data, error } = await supabase
-            .from('channel_videos_cache')
-            .select('youtube_video_id, title, thumbnail_url, position')
-            .eq('channel_id', channel.id)
-            .order('position', { ascending: true })
-          if (error) throw new Error(error.message)
-          rows = (data ?? []).map((r) => {
-            const row = r as { youtube_video_id: string; title: string; thumbnail_url: string | null }
-            return {
-              videoId: row.youtube_video_id,
-              title: row.title,
-              thumbnail: row.thumbnail_url,
-            }
-          })
-          if (deviceId) {
-            const hidRes = await listHiddenVideoIdsForDevice(deviceId)
+        const loadRows = async () => {
+          if (localParent.isActive && localParent.localAccessToken) {
+            const pin = getLocalParentPin?.() ?? ''
+            const { data, error } = await supabase.rpc('local_parent_list_channel_videos', {
+              p_access_token: localParent.localAccessToken,
+              p_pin: pin,
+              p_youtube_channel_id: channel.youtube_channel_id,
+            })
+            if (error) throw new Error(error.message)
+            rows = ((data ?? []) as Record<string, unknown>[]).map((v) => {
+              const row = v as { youtube_video_id: string; title: string; thumbnail_url: string | null }
+              return {
+                videoId: row.youtube_video_id,
+                title: row.title,
+                thumbnail: row.thumbnail_url,
+              }
+            })
+            const hidRes = await listHiddenVideoIdsLocalParent(localParent.localAccessToken, pin)
             hidden = hidRes.data
+          } else if (user) {
+            const { data, error } = await supabase
+              .from('channel_videos_cache')
+              .select('youtube_video_id, title, thumbnail_url, position')
+              .eq('channel_id', channel.id)
+              .order('position', { ascending: true })
+            if (error) throw new Error(error.message)
+            rows = (data ?? []).map((r) => {
+              const row = r as { youtube_video_id: string; title: string; thumbnail_url: string | null }
+              return {
+                videoId: row.youtube_video_id,
+                title: row.title,
+                thumbnail: row.thumbnail_url,
+              }
+            })
+            if (deviceId) {
+              const hidRes = await listHiddenVideoIdsForDevice(deviceId)
+              hidden = hidRes.data
+            }
+          } else {
+            throw new Error(t('channels.noLocalPermission'))
           }
-        } else {
-          throw new Error('אין הרשאה מקומית לטעון סרטוני ערוץ.')
+        }
+
+        await loadRows()
+
+        // Auto-refresh once from YouTube when cache is empty for this channel.
+        if (
+          rows.length === 0 &&
+          previewAutoRefreshTriedRef.current !== channel.id &&
+          !cancelled
+        ) {
+          previewAutoRefreshTriedRef.current = channel.id
+          setPreviewRefreshing(true)
+          const refreshed = await refreshChannelVideosCache(channel.id, channel.youtube_channel_id, true)
+          if (refreshed.error) {
+            if (!cancelled) setPreviewError(refreshed.error.message)
+          } else if (!cancelled) {
+            await loadRows()
+          }
+          if (!cancelled) setPreviewRefreshing(false)
         }
 
         if (cancelled) return
@@ -375,16 +451,48 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         setActivePreviewVideoId(visible[0]?.videoId ?? null)
       } catch (e) {
         if (cancelled) return
-        setPreviewError(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
+        setPreviewError(e instanceof Error ? e.message : t('channels.loadVideosFailed'))
       } finally {
-        if (!cancelled) setPreviewLoading(false)
+        if (!cancelled) {
+          setPreviewLoading(false)
+          setPreviewRefreshing(false)
+        }
       }
     })()
 
     return () => {
       cancelled = true
     }
-  }, [previewChannel, localParent.isActive, localParent.localAccessToken, user, deviceId, getLocalParentPin])
+  }, [
+    previewChannel,
+    previewReloadToken,
+    localParent.isActive,
+    localParent.localAccessToken,
+    user,
+    deviceId,
+    getLocalParentPin,
+    refreshChannelVideosCache,
+    t,
+  ])
+
+  const handleRefreshPreviewFromYouTube = useCallback(async () => {
+    if (!previewChannel || previewRefreshing) return
+    setPreviewRefreshing(true)
+    setPreviewError(null)
+    const refreshed = await refreshChannelVideosCache(
+      previewChannel.id,
+      previewChannel.youtube_channel_id,
+      true
+    )
+    setPreviewRefreshing(false)
+    if (refreshed.error) {
+      toast.error(t('channels.loadVideosFailed'), { description: refreshed.error.message })
+      return
+    }
+    previewAutoRefreshTriedRef.current = null
+    setPreviewReloadToken((n) => n + 1)
+    toast.success(t('channels.cacheRefreshed'))
+  }, [previewChannel, previewRefreshing, refreshChannelVideosCache, t])
 
   const filteredPreviewVideos = useMemo(
     () => filterVideosByTitle(previewVideos, previewVideoSearch),
@@ -718,7 +826,19 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                 />
                 </>
               ) : (
-                <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים במטמון לערוץ זה.</p>
+                <div className="flex flex-col items-center gap-3 py-8 text-center">
+                  <p className="text-sm text-slate-600 dark:text-zinc-400">
+                    {previewRefreshing ? t('channels.refreshingCache') : t('channels.emptyCache')}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={previewRefreshing}
+                    onClick={() => void handleRefreshPreviewFromYouTube()}
+                  >
+                    {previewRefreshing ? t('channels.refreshingFromChannel') : t('channels.refreshFromChannel')}
+                  </Button>
+                </div>
               )}
             </section>
           ) : null}

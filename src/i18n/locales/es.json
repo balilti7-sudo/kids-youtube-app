@@ -182,7 +182,16 @@
     "parentVerifyTitle": "Verificación parental",
     "parentVerifyDescription": "Introduzcan el código parental de 6 dígitos. Tras completar todos los dígitos, la verificación y la acción se ejecutan automáticamente.",
     "addAnother": "Añadir otro canal",
-    "addMoreOrReturn": "¿Desean añadir más canales o volver al control parental?"
+    "addMoreOrReturn": "¿Desean añadir más canales o volver al control parental?",
+    "refreshingCache": "Actualizando vídeos del canal desde YouTube…",
+    "refreshingFromChannel": "Actualizando desde el canal…",
+    "refreshFromChannel": "Actualizar lista desde el canal",
+    "emptyCache": "Aún no hay vídeos en caché para este canal.",
+    "cacheRefreshed": "Vídeos del canal actualizados",
+    "addedCachePending": "Canal añadido, pero la caché de vídeos necesita actualizarse",
+    "videosFound": "{{count}} vídeos encontrados",
+    "skippedEmpty": "Se omitieron {{count}} canales sin vídeos en caché",
+    "noLocalPermission": "Sin permiso local para cargar vídeos del canal."
   },
   "playlists": {
     "addToPlaylist": "Añadir a la lista",

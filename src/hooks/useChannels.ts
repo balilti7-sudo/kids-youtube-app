@@ -59,7 +59,11 @@ export function useChannels(
         const { data: videos, error: ytError } = await getLatestVideosForChannel(youtubeChannelId)
         if (ytError) return { error: ytError }
 
-        const rows = (videos ?? []).map((v, idx) => ({
+        const fetched = videos ?? []
+        // Never wipe an existing cache when YouTube returns an empty list.
+        if (fetched.length === 0) return { error: null }
+
+        const rows = fetched.map((v, idx) => ({
           youtube_video_id: v.videoId,
           title: v.title,
           thumbnail_url: v.thumbnail || null,
@@ -95,23 +99,27 @@ export function useChannels(
       const { data: videos, error: ytError } = await getLatestVideosForChannel(youtubeChannelId)
       if (ytError) return { error: ytError }
 
+      const fetched = videos ?? []
+      // Only replace cache when we successfully fetched at least one video.
+      // Empty YouTube results must not delete existing rows or mark the channel "fresh".
+      if (fetched.length === 0) return { error: null }
+
       const { error: deleteError } = await supabase.from('channel_videos_cache').delete().eq('channel_id', channelDbId)
       if (deleteError) return { error: new Error(deleteError.message) }
 
-      if ((videos ?? []).length > 0) {
-        const rows = (videos ?? []).map((v, idx) => ({
-          channel_id: channelDbId,
-          youtube_video_id: v.videoId,
-          title: v.title,
-          thumbnail_url: v.thumbnail || null,
-          published_at: null,
-          position: idx,
-        }))
-        for (let offset = 0; offset < rows.length; offset += CHANNEL_CACHE_INSERT_CHUNK) {
-          const slice = rows.slice(offset, offset + CHANNEL_CACHE_INSERT_CHUNK)
-          const { error: insertError } = await supabase.from('channel_videos_cache').insert(slice)
-          if (insertError) return { error: new Error(insertError.message) }
-        }
+      const rows = fetched.map((v, idx) => ({
+        channel_id: channelDbId,
+        youtube_video_id: v.videoId,
+        title: v.title,
+        thumbnail_url: v.thumbnail || null,
+        published_at: null as string | null,
+        position: idx,
+        duration_seconds: v.durationSeconds ?? null,
+      }))
+      for (let offset = 0; offset < rows.length; offset += CHANNEL_CACHE_INSERT_CHUNK) {
+        const slice = rows.slice(offset, offset + CHANNEL_CACHE_INSERT_CHUNK)
+        const { error: insertError } = await supabase.from('channel_videos_cache').insert(slice)
+        if (insertError) return { error: new Error(insertError.message) }
       }
 
       const { error: updateError } = await supabase
@@ -210,13 +218,14 @@ export function useChannels(
     [deviceId, userId, addVideoToDevice]
   )
 
-  const scheduleChannelVideosCacheRefresh = useCallback(
-    (channelDbId: string, youtubeChannelId: string) => {
-      void refreshChannelVideosCache(channelDbId, youtubeChannelId, true).then((result) => {
-        if (result.error) {
-          console.warn('[useChannels] background cache refresh failed', result.error.message, youtubeChannelId)
-        }
-      })
+  /** Fill cache after add — awaited so preview/bulk-add see videos immediately when possible. */
+  const fillChannelVideosCacheAfterAdd = useCallback(
+    async (channelDbId: string, youtubeChannelId: string) => {
+      const result = await refreshChannelVideosCache(channelDbId, youtubeChannelId, true)
+      if (result.error) {
+        console.warn('[useChannels] cache refresh after add failed', result.error.message, youtubeChannelId)
+      }
+      return result
     },
     [refreshChannelVideosCache]
   )
@@ -226,17 +235,23 @@ export function useChannels(
       if (localAccessToken) {
         const pin = getLocalParentPin?.() ?? ''
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
-        if (res.error) return res
+        if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
-        return { error: null }
+        if (ch?.id) {
+          const cache = await fillChannelVideosCacheAfterAdd(ch.id, yt.channelId)
+          return { error: null, cacheError: cache.error }
+        }
+        return { error: null, cacheError: null }
       }
-      if (!deviceId || !userId) return { error: new Error('לא מחובר') }
+      if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
       const res = await addChannelToDevice({ deviceId, userId, yt, category })
-      if (res.error) return res
+      if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
-      return { error: null }
+      if (ch?.id) {
+        const cache = await fillChannelVideosCacheAfterAdd(ch.id, yt.channelId)
+        return { error: null, cacheError: cache.error }
+      }
+      return { error: null, cacheError: null }
     },
     [
       deviceId,
@@ -245,28 +260,34 @@ export function useChannels(
       getLocalParentPin,
       addChannelLocalParent,
       addChannelToDevice,
-      scheduleChannelVideosCacheRefresh,
+      fillChannelVideosCacheAfterAdd,
     ]
   )
 
   const addChannelByUrlOrId = useCallback(
     async (input: string, category?: string | null) => {
       const { data, error } = await resolveYouTubeChannelFromInput(input)
-      if (error || !data) return { error: error ?? new Error('לא נמצא ערוץ מהקישור') }
+      if (error || !data) return { error: error ?? new Error('לא נמצא ערוץ מהקישור'), cacheError: null }
       if (localAccessToken) {
         const pin = getLocalParentPin?.() ?? ''
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt: data, category })
-        if (res.error) return res
+        if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
-        return { error: null }
+        if (ch?.id) {
+          const cache = await fillChannelVideosCacheAfterAdd(ch.id, data.channelId)
+          return { error: null, cacheError: cache.error }
+        }
+        return { error: null, cacheError: null }
       }
-      if (!deviceId || !userId) return { error: new Error('לא מחובר') }
+      if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
       const res = await addChannelToDevice({ deviceId, userId, yt: data, category })
-      if (res.error) return res
+      if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
-      return { error: null }
+      if (ch?.id) {
+        const cache = await fillChannelVideosCacheAfterAdd(ch.id, data.channelId)
+        return { error: null, cacheError: cache.error }
+      }
+      return { error: null, cacheError: null }
     },
     [
       deviceId,
@@ -275,7 +296,7 @@ export function useChannels(
       getLocalParentPin,
       addChannelLocalParent,
       addChannelToDevice,
-      scheduleChannelVideosCacheRefresh,
+      fillChannelVideosCacheAfterAdd,
     ]
   )
 
