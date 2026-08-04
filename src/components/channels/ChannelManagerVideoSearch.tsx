@@ -8,6 +8,12 @@ import { cn } from '../../lib/utils'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
+import { AddToPlaylistModal } from '../playlists/AddToPlaylistModal'
+import {
+  PlaylistMultiSelectToolbar,
+  PlaylistSelectCheckbox,
+} from '../playlists/PlaylistMultiSelectToolbar'
+import { useVideoMultiSelect } from '../../hooks/useVideoMultiSelect'
 import {
   CHANNEL_MANAGER_SEARCH_INPUT_CLASS,
   CHANNEL_MANAGER_SEARCH_SHELL_CLASS,
@@ -44,6 +50,10 @@ export function ChannelManagerVideoSearch({
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const videoMultiSelect = useVideoMultiSelect()
+  const [bulkPlaylistOpen, setBulkPlaylistOpen] = useState(false)
+  const { exitSelectionMode, selectMany, clear, enterSelectionMode, selectionMode, selectedCount, selectedVideos, isSelected, toggle } =
+    videoMultiSelect
 
   const canAddToPlaylist = Boolean(userId || childAccessToken)
 
@@ -57,6 +67,8 @@ export function ChannelManagerVideoSearch({
     setResults([])
     setContinuation(null)
     setHasMore(false)
+    exitSelectionMode()
+    setBulkPlaylistOpen(false)
 
     try {
       const { data, error: searchError, continuation: nextContinuation, hasMore: more } =
@@ -79,7 +91,7 @@ export function ChannelManagerVideoSearch({
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [exitSelectionMode])
 
   const loadMore = useCallback(async () => {
     const q = query?.trim()
@@ -119,11 +131,20 @@ export function ChannelManagerVideoSearch({
     setError(null)
     setLoading(false)
     setLoadingMore(false)
-  }, [])
+    exitSelectionMode()
+    setBulkPlaylistOpen(false)
+  }, [exitSelectionMode])
 
   const submitSearch = useCallback(() => {
     void runSearch(input)
   }, [input, runSearch])
+
+  const selectAllVisiblePayloads = useCallback(() => {
+    const payloads = results
+      .map((video) => playlistVideoPayloadFromSearchResult(video))
+      .filter((p): p is NonNullable<typeof p> => p != null)
+    selectMany(payloads)
+  }, [results, selectMany])
 
   return (
     <>
@@ -151,7 +172,7 @@ export function ChannelManagerVideoSearch({
         }
       >
         <p className="mb-3 text-sm text-zinc-400">
-          חפשו ב-YouTube והוסיפו סרטונים לפלייליסט (Enter או כפתור החיפוש).
+          חפשו ב-YouTube והוסיפו סרטונים לפלייליסט (Enter או כפתור החיפוש). אפשר גם לבחור כמה סרטונים יחד.
         </p>
 
         <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
@@ -212,16 +233,42 @@ export function ChannelManagerVideoSearch({
               <p className="py-2 text-sm text-zinc-500">לא נמצאו סרטונים.</p>
             ) : (
               <>
+                {canAddToPlaylist ? (
+                  <PlaylistMultiSelectToolbar
+                    className="mb-3"
+                    compact
+                    selectionMode={selectionMode}
+                    selectedCount={selectedCount}
+                    totalVisible={results.length}
+                    onEnterSelectionMode={enterSelectionMode}
+                    onExitSelectionMode={exitSelectionMode}
+                    onClearSelection={clear}
+                    onSelectAllVisible={selectAllVisiblePayloads}
+                    onAddToPlaylist={() => setBulkPlaylistOpen(true)}
+                  />
+                ) : null}
                 <ul className="premium-scrollbar max-h-80 space-y-2 overflow-y-auto">
                   {results.map((video) => {
                     const payload = playlistVideoPayloadFromSearchResult(video)
                     if (!payload) return null
+                    const selected = isSelected(payload.youtube_video_id)
                     return (
                       <li
                         key={payload.youtube_video_id}
-                        className="flex flex-col gap-2 rounded-xl border border-zinc-800/90 bg-zinc-900/80 p-2.5 sm:flex-row sm:items-center"
+                        className={cn(
+                          'flex flex-col gap-2 rounded-xl border bg-zinc-900/80 p-2.5 sm:flex-row sm:items-center',
+                          selected ? 'border-brand-500/50' : 'border-zinc-800/90'
+                        )}
                       >
-                        <div className="flex min-w-0 flex-1 gap-2.5">
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 gap-2.5 text-right"
+                          onClick={() => {
+                            if (selectionMode) {
+                              toggle(payload)
+                            }
+                          }}
+                        >
                           {video.thumbnail ? (
                             <img
                               src={video.thumbnail}
@@ -241,16 +288,24 @@ export function ChannelManagerVideoSearch({
                               <p className="mt-0.5 truncate text-xs text-zinc-500">{video.channelTitle}</p>
                             ) : null}
                           </div>
-                        </div>
+                        </button>
                         {canAddToPlaylist ? (
-                          <AddToPlaylistButton
-                            mode={mode}
-                            userId={userId}
-                            childAccessToken={childAccessToken}
-                            compact
-                            video={payload}
-                            className="w-full sm:w-auto"
-                          />
+                          selectionMode ? (
+                            <PlaylistSelectCheckbox
+                              checked={selected}
+                              onChange={() => toggle(payload)}
+                              className="self-end sm:self-center"
+                            />
+                          ) : (
+                            <AddToPlaylistButton
+                              mode={mode}
+                              userId={userId}
+                              childAccessToken={childAccessToken}
+                              compact
+                              video={payload}
+                              className="w-full sm:w-auto"
+                            />
+                          )
                         ) : null}
                       </li>
                     )
@@ -282,6 +337,21 @@ export function ChannelManagerVideoSearch({
           </div>
         ) : null}
       </Modal>
+
+      {canAddToPlaylist ? (
+        <AddToPlaylistModal
+          open={bulkPlaylistOpen}
+          onClose={() => setBulkPlaylistOpen(false)}
+          mode={mode}
+          userId={userId}
+          childAccessToken={childAccessToken}
+          videos={selectedVideos}
+          onSuccess={() => {
+            exitSelectionMode()
+            setBulkPlaylistOpen(false)
+          }}
+        />
+      ) : null}
     </>
   )
 }

@@ -18,6 +18,13 @@ import { Skeleton } from '../ui/Skeleton'
 import { Modal } from '../ui/Modal'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
+import { AddToPlaylistModal } from '../playlists/AddToPlaylistModal'
+import {
+  PlaylistMultiSelectToolbar,
+  PlaylistSelectCheckbox,
+} from '../playlists/PlaylistMultiSelectToolbar'
+import { useVideoMultiSelect } from '../../hooks/useVideoMultiSelect'
+import type { PlaylistVideoPayload } from '../../lib/playlists'
 import { QuickBlockButton } from './QuickBlockButton'
 import { useHideVideoContext } from '../../hooks/useHideVideoContext'
 import { ChannelManagerVideoSearch } from './ChannelManagerVideoSearch'
@@ -71,8 +78,26 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [activePreviewVideoId, setActivePreviewVideoId] = useState<string | null>(null)
   const [previewVideoSearch, setPreviewVideoSearch] = useState('')
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(new Set())
+  const videoMultiSelect = useVideoMultiSelect()
+  const [bulkPlaylistOpen, setBulkPlaylistOpen] = useState(false)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
+
+  const playlistMode = user?.id ? 'parent' : 'kid'
+  const playlistUserId = user?.id ? (ownerUserId ?? user.id) : null
+  const playlistChildToken = user?.id ? null : localParent.localAccessToken
+  const canUsePlaylists = Boolean(user?.id || localParent.localAccessToken)
+
+  const toPreviewPlaylistPayload = useCallback(
+    (v: PreviewRow): PlaylistVideoPayload => ({
+      youtube_video_id: v.videoId,
+      title: v.title,
+      thumbnail_url: v.thumbnail,
+      youtube_channel_id: previewChannel?.youtube_channel_id ?? null,
+      channel_name: previewChannel?.channel_name ?? null,
+    }),
+    [previewChannel]
+  )
 
   const pendingPinActionRef = useRef<PendingPinAction | null>(null)
 
@@ -231,6 +256,8 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       setActivePreviewVideoId(null)
       setPreviewVideoSearch('')
       setHiddenVideoIds(new Set())
+      videoMultiSelect.exitSelectionMode()
+      setBulkPlaylistOpen(false)
       return
     }
 
@@ -522,9 +549,26 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                         channelLabel={previewChannel.channel_name}
                         className="mb-3"
                       />
+                      {canUsePlaylists ? (
+                        <PlaylistMultiSelectToolbar
+                          className="mb-3"
+                          compact
+                          selectionMode={videoMultiSelect.selectionMode}
+                          selectedCount={videoMultiSelect.selectedCount}
+                          totalVisible={visiblePreviewVideos.length}
+                          onEnterSelectionMode={videoMultiSelect.enterSelectionMode}
+                          onExitSelectionMode={videoMultiSelect.exitSelectionMode}
+                          onClearSelection={videoMultiSelect.clear}
+                          onSelectAllVisible={() =>
+                            videoMultiSelect.selectMany(visiblePreviewVideos.map(toPreviewPlaylistPayload))
+                          }
+                          onAddToPlaylist={() => setBulkPlaylistOpen(true)}
+                        />
+                      ) : null}
                       <YoutubeSuggestedList title="סרטונים מומלצים">
                         {visiblePreviewVideos.map((v) => {
                           const isCurrent = v.videoId === activePreviewVideoId
+                          const payload = toPreviewPlaylistPayload(v)
                           return (
                             <li key={v.videoId} className="w-full">
                               <YoutubeVideoCard
@@ -533,7 +577,13 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                                 thumbnail={v.thumbnail}
                                 active={isCurrent}
                                 playingLabel="מנגן"
-                                onClick={() => handlePickPreviewVideo(v.videoId)}
+                                onClick={() => {
+                                  if (videoMultiSelect.selectionMode) {
+                                    videoMultiSelect.toggle(payload)
+                                    return
+                                  }
+                                  handlePickPreviewVideo(v.videoId)
+                                }}
                                 thumbnailAction={
                                   hideVideoCtx.canQuickBlock ? (
                                     <QuickBlockButton
@@ -553,20 +603,21 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                                   ) : null
                                 }
                                 actionSlot={
-                                  user?.id || localParent.localAccessToken ? (
-                                    <AddToPlaylistButton
-                                      mode={user?.id ? 'parent' : 'kid'}
-                                      userId={user?.id ? (ownerUserId ?? user.id) : null}
-                                      childAccessToken={user?.id ? null : localParent.localAccessToken}
-                                      compact
-                                      video={{
-                                        youtube_video_id: v.videoId,
-                                        title: v.title,
-                                        thumbnail_url: v.thumbnail,
-                                        youtube_channel_id: previewChannel.youtube_channel_id,
-                                        channel_name: previewChannel.channel_name,
-                                      }}
-                                    />
+                                  canUsePlaylists ? (
+                                    videoMultiSelect.selectionMode ? (
+                                      <PlaylistSelectCheckbox
+                                        checked={videoMultiSelect.isSelected(v.videoId)}
+                                        onChange={() => videoMultiSelect.toggle(payload)}
+                                      />
+                                    ) : (
+                                      <AddToPlaylistButton
+                                        mode={playlistMode}
+                                        userId={playlistUserId}
+                                        childAccessToken={playlistChildToken}
+                                        compact
+                                        video={payload}
+                                      />
+                                    )
                                   ) : null
                                 }
                               />
@@ -666,6 +717,21 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
           האם תרצה להוסיף ערוצים נוספים או לחזור לבקרת ההורים?
         </p>
       </Modal>
+
+      {canUsePlaylists ? (
+        <AddToPlaylistModal
+          open={bulkPlaylistOpen}
+          onClose={() => setBulkPlaylistOpen(false)}
+          mode={playlistMode}
+          userId={playlistUserId}
+          childAccessToken={playlistChildToken}
+          videos={videoMultiSelect.selectedVideos}
+          onSuccess={() => {
+            videoMultiSelect.exitSelectionMode()
+            setBulkPlaylistOpen(false)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

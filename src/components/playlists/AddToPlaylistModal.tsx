@@ -27,8 +27,20 @@ type Props = {
   mode: PlaylistMode
   userId: string | null
   childAccessToken: string | null
-  video: PlaylistVideoPayload
+  /** Single video (legacy) or many videos for bulk add. Prefer `videos` when both set. */
+  video?: PlaylistVideoPayload
+  videos?: PlaylistVideoPayload[]
   onSuccess?: () => void
+}
+
+function dedupeVideos(list: PlaylistVideoPayload[]): PlaylistVideoPayload[] {
+  const map = new Map<string, PlaylistVideoPayload>()
+  for (const v of list) {
+    const id = v.youtube_video_id?.trim()
+    if (!id) continue
+    map.set(id, { ...v, youtube_video_id: id })
+  }
+  return [...map.values()]
 }
 
 export function AddToPlaylistModal({
@@ -38,8 +50,18 @@ export function AddToPlaylistModal({
   userId,
   childAccessToken,
   video,
+  videos,
   onSuccess,
 }: Props) {
+  const resolvedVideos = useMemo(() => {
+    if (videos && videos.length > 0) return dedupeVideos(videos)
+    if (video) return dedupeVideos([video])
+    return []
+  }, [video, videos])
+
+  const isBulk = resolvedVideos.length > 1
+  const primaryVideo = resolvedVideos[0] ?? null
+
   const [playlists, setPlaylists] = useState<UserPlaylist[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -51,10 +73,11 @@ export function AddToPlaylistModal({
   const [error, setError] = useState<string | null>(null)
 
   const canLoad = mode === 'parent' ? Boolean(userId) : Boolean(childAccessToken)
+  const membershipVideoId = !isBulk && primaryVideo ? primaryVideo.youtube_video_id : null
 
-  /** Load playlists + membership exactly once per modal open */
+  /** Load playlists (+ single-video membership) once per modal open */
   useEffect(() => {
-    if (!open || !canLoad) return
+    if (!open || !canLoad || !primaryVideo) return
 
     let cancelled = false
     setError(null)
@@ -67,18 +90,21 @@ export function AddToPlaylistModal({
 
     void (async () => {
       try {
-        const [listResult, memberResult] = await Promise.all([
+        const listPromise =
           mode === 'parent' && userId
             ? listPlaylistsForUser(userId)
             : childAccessToken
               ? listPlaylistsForChild(childAccessToken)
-              : Promise.resolve({ data: [], error: null }),
-          mode === 'parent' && userId
-            ? playlistIdsContainingVideo(userId, video.youtube_video_id)
-            : childAccessToken
-              ? playlistIdsContainingVideoForChild(childAccessToken, video.youtube_video_id)
-              : Promise.resolve({ data: [], error: null }),
-        ])
+              : Promise.resolve({ data: [] as UserPlaylist[], error: null })
+
+        const memberPromise =
+          membershipVideoId && mode === 'parent' && userId
+            ? playlistIdsContainingVideo(userId, membershipVideoId)
+            : membershipVideoId && childAccessToken
+              ? playlistIdsContainingVideoForChild(childAccessToken, membershipVideoId)
+              : Promise.resolve({ data: [] as string[], error: null })
+
+        const [listResult, memberResult] = await Promise.all([listPromise, memberPromise])
 
         if (cancelled) return
 
@@ -87,7 +113,7 @@ export function AddToPlaylistModal({
           return
         }
 
-        const ids = new Set(memberResult.data ?? [])
+        const ids = isBulk ? new Set<string>() : new Set(memberResult.data ?? [])
         setPlaylists(listResult.data)
         setSelectedIds(ids)
         initialIdsRef.current = ids
@@ -101,7 +127,16 @@ export function AddToPlaylistModal({
     return () => {
       cancelled = true
     }
-  }, [open, canLoad, mode, userId, childAccessToken, video.youtube_video_id])
+  }, [
+    open,
+    canLoad,
+    mode,
+    userId,
+    childAccessToken,
+    primaryVideo?.youtube_video_id,
+    membershipVideoId,
+    isBulk,
+  ])
 
   const filteredPlaylists = useMemo(() => {
     const q = filterQuery.trim().toLowerCase()
@@ -156,6 +191,52 @@ export function AddToPlaylistModal({
   }
 
   const handleSave = async () => {
+    if (resolvedVideos.length === 0) {
+      setError('לא נבחרו סרטונים')
+      return
+    }
+
+    if (isBulk) {
+      const playlistIds = [...selectedIds]
+      if (playlistIds.length === 0) {
+        toast.info('בחרו לפחות פלייליסט אחד')
+        return
+      }
+
+      setSaving(true)
+      setError(null)
+      let added = 0
+      let failed = 0
+
+      for (const pid of playlistIds) {
+        for (const v of resolvedVideos) {
+          const res =
+            mode === 'parent'
+              ? await addVideoToPlaylistViaRpc(pid, v)
+              : childAccessToken
+                ? await addVideoToPlaylistForChild(childAccessToken, pid, v)
+                : { error: new Error('לא מחובר') }
+          if (res.error) failed += 1
+          else added += 1
+        }
+      }
+
+      setSaving(false)
+      if (failed > 0 && added === 0) {
+        setError('הוספה לפלייליסט נכשלה')
+        return
+      }
+      toast.success(
+        failed > 0
+          ? `נוספו ${added} סרטונים (${failed} נכשלו)`
+          : `נוספו ${resolvedVideos.length} סרטונים לפלייליסט`
+      )
+      onSuccess?.()
+      onClose()
+      return
+    }
+
+    const single = primaryVideo!
     const initialSet = initialIdsRef.current
     const toAdd = [...selectedIds].filter((id) => !initialSet.has(id))
     const toRemove = [...initialSet].filter((id) => !selectedIds.has(id))
@@ -172,9 +253,9 @@ export function AddToPlaylistModal({
     for (const pid of toAdd) {
       const res =
         mode === 'parent'
-          ? await addVideoToPlaylistViaRpc(pid, video)
+          ? await addVideoToPlaylistViaRpc(pid, single)
           : childAccessToken
-            ? await addVideoToPlaylistForChild(childAccessToken, pid, video)
+            ? await addVideoToPlaylistForChild(childAccessToken, pid, single)
             : { error: new Error('לא מחובר') }
       if (res.error) {
         setSaving(false)
@@ -186,9 +267,9 @@ export function AddToPlaylistModal({
     for (const pid of toRemove) {
       const res =
         mode === 'parent'
-          ? await removeVideoFromPlaylist(pid, video.youtube_video_id)
+          ? await removeVideoFromPlaylist(pid, single.youtube_video_id)
           : childAccessToken
-            ? await removeVideoFromPlaylistForChild(childAccessToken, pid, video.youtube_video_id)
+            ? await removeVideoFromPlaylistForChild(childAccessToken, pid, single.youtube_video_id)
             : { error: new Error('לא מחובר') }
       if (res.error) {
         setSaving(false)
@@ -203,25 +284,47 @@ export function AddToPlaylistModal({
     onClose()
   }
 
+  const titleText = isBulk ? 'הוספה מרובה לפלייליסט' : 'הוסף לפלייליסט'
+  const summaryText = isBulk
+    ? `${resolvedVideos.length} סרטונים נבחרו — בחרו לאלו פלייליסטים להוסיף אותם.`
+    : primaryVideo?.title ?? ''
+
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="הוסף לפלייליסט"
+      title={titleText}
       bodyClassName="max-h-[70vh] overflow-y-auto"
       footer={
         <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             ביטול
           </Button>
-          <Button type="button" onClick={() => void handleSave()} disabled={saving || loading}>
+          <Button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving || loading || resolvedVideos.length === 0}
+          >
             {saving ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-            {saving ? 'שומר…' : 'שמור'}
+            {saving ? 'שומר…' : isBulk ? `הוסף ${resolvedVideos.length} סרטונים` : 'שמור'}
           </Button>
         </div>
       }
     >
-      <p className="mb-3 line-clamp-2 text-sm text-yt-textMuted">{video.title}</p>
+      <p className={cn('mb-3 text-sm text-yt-textMuted', !isBulk && 'line-clamp-2')}>{summaryText}</p>
+
+      {isBulk && resolvedVideos.length > 0 ? (
+        <ul className="mb-3 max-h-28 space-y-1 overflow-y-auto rounded-xl border border-yt-border bg-yt-surface/60 px-2 py-2 text-xs text-yt-textMuted">
+          {resolvedVideos.slice(0, 8).map((v) => (
+            <li key={v.youtube_video_id} className="line-clamp-1">
+              • {v.title}
+            </li>
+          ))}
+          {resolvedVideos.length > 8 ? (
+            <li className="font-medium text-yt-text">…ועוד {resolvedVideos.length - 8}</li>
+          ) : null}
+        </ul>
+      ) : null}
 
       <div className="mb-3 flex gap-2">
         <Input

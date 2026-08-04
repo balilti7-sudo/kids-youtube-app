@@ -10,6 +10,13 @@ import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVide
 import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList'
 import { KidPlaylistView } from '../components/kid/KidPlaylistView'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
+import { AddToPlaylistModal } from '../components/playlists/AddToPlaylistModal'
+import {
+  PlaylistMultiSelectToolbar,
+  PlaylistSelectCheckbox,
+} from '../components/playlists/PlaylistMultiSelectToolbar'
+import { useVideoMultiSelect } from '../hooks/useVideoMultiSelect'
+import type { PlaylistVideoPayload } from '../lib/playlists'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
@@ -133,6 +140,8 @@ function KidModePageInner() {
   const [globalSearchLoadingMore, setGlobalSearchLoadingMore] = useState(false)
   const [globalSearchError, setGlobalSearchError] = useState<string | null>(null)
   const pendingGlobalSearchQueryRef = useRef<string | null>(null)
+  const videoMultiSelect = useVideoMultiSelect()
+  const [bulkPlaylistOpen, setBulkPlaylistOpen] = useState(false)
   const parentTabLongPressRef = useRef<number | null>(null)
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
@@ -546,6 +555,11 @@ function KidModePageInner() {
     if (!yt || !yt.trim()) return
     void loadChannelVideos(yt)
   }, [activeChannelId, channelPickNonce, loadChannelVideos])
+
+  useEffect(() => {
+    videoMultiSelect.exitSelectionMode()
+    setBulkPlaylistOpen(false)
+  }, [activeChannelId, channelPickNonce, videoMultiSelect.exitSelectionMode])
 
   useEffect(() => {
     if (channelVideos.length === 0) {
@@ -1474,11 +1488,45 @@ function KidModePageInner() {
                         onSelectResult={handleSelectVideo}
                         dropdownLoading={channelLoading}
                       />
+
+                      {accessToken ? (
+                        <PlaylistMultiSelectToolbar
+                          className="mb-3"
+                          compact
+                          selectionMode={videoMultiSelect.selectionMode}
+                          selectedCount={videoMultiSelect.selectedCount}
+                          totalVisible={filteredVideos.length}
+                          onEnterSelectionMode={videoMultiSelect.enterSelectionMode}
+                          onExitSelectionMode={videoMultiSelect.exitSelectionMode}
+                          onClearSelection={videoMultiSelect.clear}
+                          onSelectAllVisible={() =>
+                            videoMultiSelect.selectMany(
+                              filteredVideos.map(
+                                (video): PlaylistVideoPayload => ({
+                                  youtube_video_id: video.videoId,
+                                  title: video.title,
+                                  thumbnail_url: video.thumbnail || null,
+                                  youtube_channel_id: activeChannelId,
+                                  channel_name: activeChannel?.channel_name ?? null,
+                                })
+                              )
+                            )
+                          }
+                          onAddToPlaylist={() => setBulkPlaylistOpen(true)}
+                        />
+                      ) : null}
                       
                       <YoutubeSuggestedList title="סרטונים מומלצים">
                         {filteredVideos.length > 0
                           ? filteredVideos.map((video) => {
                               const isCurrent = video.videoId === activeVideoId
+                              const payload: PlaylistVideoPayload = {
+                                youtube_video_id: video.videoId,
+                                title: video.title,
+                                thumbnail_url: video.thumbnail || null,
+                                youtube_channel_id: activeChannelId,
+                                channel_name: activeChannel?.channel_name ?? null,
+                              }
                               return (
                                 <li key={video.videoId} className="w-full">
                                   <YoutubeVideoCard
@@ -1487,22 +1535,29 @@ function KidModePageInner() {
                                     thumbnail={video.thumbnail}
                                     active={isCurrent}
                                     playingLabel="מנגן"
-                                    onClick={() => handleSelectVideo(video.videoId)}
+                                    onClick={() => {
+                                      if (videoMultiSelect.selectionMode) {
+                                        videoMultiSelect.toggle(payload)
+                                        return
+                                      }
+                                      handleSelectVideo(video.videoId)
+                                    }}
                                     actionSlot={
                                       accessToken ? (
-                                        <AddToPlaylistButton
-                                          mode="kid"
-                                          userId={null}
-                                          childAccessToken={accessToken}
-                                          compact
-                                          video={{
-                                            youtube_video_id: video.videoId,
-                                            title: video.title,
-                                            thumbnail_url: video.thumbnail || null,
-                                            youtube_channel_id: activeChannelId,
-                                            channel_name: activeChannel?.channel_name ?? null,
-                                          }}
-                                        />
+                                        videoMultiSelect.selectionMode ? (
+                                          <PlaylistSelectCheckbox
+                                            checked={videoMultiSelect.isSelected(video.videoId)}
+                                            onChange={() => videoMultiSelect.toggle(payload)}
+                                          />
+                                        ) : (
+                                          <AddToPlaylistButton
+                                            mode="kid"
+                                            userId={null}
+                                            childAccessToken={accessToken}
+                                            compact
+                                            video={payload}
+                                          />
+                                        )
                                       ) : null
                                     }
                                   />
@@ -1634,6 +1689,21 @@ function KidModePageInner() {
         title="אימות הורה — חיפוש YouTube"
         description="חיפוש בכל YouTube דורש קוד הורה. הזינו PIN כדי להמשיך — אחרת החיפוש יבוטל."
       />
+
+      {accessToken ? (
+        <AddToPlaylistModal
+          open={bulkPlaylistOpen}
+          onClose={() => setBulkPlaylistOpen(false)}
+          mode="kid"
+          userId={null}
+          childAccessToken={accessToken}
+          videos={videoMultiSelect.selectedVideos}
+          onSuccess={() => {
+            videoMultiSelect.exitSelectionMode()
+            setBulkPlaylistOpen(false)
+          }}
+        />
+      ) : null}
     </div>
     </LionProgressionProvider>
     </ScreenTimeChildGate>
