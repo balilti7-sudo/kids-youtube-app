@@ -1,9 +1,9 @@
-<?xml version='1.0' encoding='utf-8'?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">SafeTube</string>
-    <string name="title_activity_main">SafeTube</string>
-    <string name="package_name">app.safetube.kids</string>
-    <string name="custom_url_scheme">app.safetube.kids</string>
-    <string name="parental_control_service_description">SafeTube Parental Control blocks the YouTube app and non-whitelisted websites in browsers when enabled by a parent.</string>
-    <string name="blocked_by_safetube">חסום על ידי SafeTube</string>
+  <string name="app_name">SafeTube 1.1.0</string>
+  <string name="title_activity_main">SafeTube 1.1.0</string>
+  <string name="package_name">app.safetube.kids</string>
+  <string name="custom_url_scheme">app.safetube.kids</string>
+  <string name="parental_control_service_description">SafeTube Parental Control blocks the YouTube app and non-whitelisted websites in browsers when enabled by a parent.</string>
+  <string name="blocked_by_safetube">׳—׳¡׳•׳ ׳¢׳ ׳™׳“׳™ SafeTube</string>
 </resources>
