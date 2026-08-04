@@ -99,9 +99,9 @@ function ProfileDeviceCard({
 
       {expanded ? (
         <div id={`profile-settings-${device.id}`} className="flex flex-col gap-2">
-          <DailyTimeLimitDeviceSettings device={device} />
           <AllowShortsDeviceSettings device={device} />
           <DeviceOsControlsSettings device={device} />
+          <DailyTimeLimitDeviceSettings device={device} />
         </div>
       ) : null}
     </li>
