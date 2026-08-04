@@ -4,6 +4,9 @@
  */
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
+/** Fetch forbids a body for these statuses (throws if body is non-null). */
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304])
+
 function headersToObject(h: HeadersInit | undefined): Record<string, string> {
   const out: Record<string, string> = {}
   if (!h) return out
@@ -28,6 +31,16 @@ async function bodyToData(body: BodyInit | null | undefined): Promise<unknown> {
     return await new Response(body).text()
   } catch {
     return undefined
+  }
+}
+
+function normalizeResponseBody(data: unknown): string {
+  if (data == null) return ''
+  if (typeof data === 'string') return data
+  try {
+    return JSON.stringify(data)
+  } catch {
+    return String(data)
   }
 }
 
@@ -65,11 +78,23 @@ export async function capacitorAwareFetch(
     data,
     responseType: 'text',
   })
-  const bodyText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '')
+
   // Preserve real HTTP status (including < 200). Only fall back when status is missing.
   const status = typeof res.status === 'number' && res.status > 0 ? res.status : 200
+  const responseHeaders = (res.headers as Record<string, string>) || {}
+
+  // Supabase PATCH/UPDATE often returns 204 No Content. The Fetch Response constructor
+  // throws: "Response with null body status cannot have body" if we pass any body (even "").
+  if (NULL_BODY_STATUSES.has(status)) {
+    return new Response(null, {
+      status,
+      headers: responseHeaders,
+    })
+  }
+
+  const bodyText = normalizeResponseBody(res.data)
   return new Response(bodyText, {
     status,
-    headers: (res.headers as Record<string, string>) || {},
+    headers: responseHeaders,
   })
 }

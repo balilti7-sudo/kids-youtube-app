@@ -60,32 +60,43 @@ export function SetParentPinPage() {
     }
 
     setSaving(true)
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ parent_pin: parsed.data })
-      .eq('id', user.id)
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ parent_pin: parsed.data })
+        .eq('id', user.id)
 
-    if (updateError) {
+      if (updateError) {
+        setError(updateError.message || 'שמירת קוד הורה נכשלה')
+        return
+      }
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const emailResult = await requestPinEmail({
+          email: profile?.email || user.email || '',
+          pin: parsed.data,
+          accessToken: sessionData.session?.access_token ?? null,
+        })
+        if (!emailResult.ok && !emailResult.skipped) {
+          console.warn('[SetParentPinPage] PIN email failed:', emailResult.error)
+        }
+      } catch (emailErr) {
+        // PIN is already saved — never block dashboard entry on email/native-HTTP issues.
+        console.warn('[SetParentPinPage] PIN email unexpected error:', emailErr)
+      }
+
+      clearPendingParentPin()
+      await refreshProfile()
+      setSkipParentalManagementGateOnce()
+      navigate('/dashboard', { replace: true })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[SetParentPinPage] save failed:', message)
+      setError(message || 'שמירת קוד הורה נכשלה')
+    } finally {
       setSaving(false)
-      setError(updateError.message || 'שמירת קוד הורה נכשלה')
-      return
     }
-
-    const { data: sessionData } = await supabase.auth.getSession()
-    const emailResult = await requestPinEmail({
-      email: profile?.email || user.email || '',
-      pin: parsed.data,
-      accessToken: sessionData.session?.access_token ?? null,
-    })
-    if (!emailResult.ok && !emailResult.skipped) {
-      console.warn('[SetParentPinPage] PIN email failed:', emailResult.error)
-    }
-    clearPendingParentPin()
-
-    await refreshProfile()
-    setSaving(false)
-    setSkipParentalManagementGateOnce()
-    navigate('/dashboard', { replace: true })
   }
 
   return (
