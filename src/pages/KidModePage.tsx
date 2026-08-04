@@ -434,7 +434,7 @@ function KidModePageInner() {
   const loadChildData = useCallback(async (token: string) => {
     const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
     if (stateRes.error) throw stateRes.error
-    if (!stateRes.data) throw new Error('המכשיר לא נמצא. התחברו מחדש עם קוד צימוד.')
+    if (!stateRes.data) throw new Error('המכשיר לא נמצא. הפעילו מחדש מצב ילד מהחשבון של ההורה.')
 
     setDevice(stateRes.data)
     void syncParentalControlPolicy(policyFromDeviceFields(stateRes.data))
@@ -947,7 +947,7 @@ function KidModePageInner() {
           <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
             <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">ניהול הורה במכשיר הזה</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-              אם כבר התחברתם כהורה באותו דפדפן — עוברים ללוח בלי להקליד שוב אימייל. מכשיר הילד נשאר מצומד ב־localStorage עד
+              אם כבר התחברתם כהורה באותו דפדפן — עוברים ללוח בלי להקליד שוב אימייל. מצב הילד נשמר במכשיר עד
               ניתוק מפורש.
             </p>
             <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">

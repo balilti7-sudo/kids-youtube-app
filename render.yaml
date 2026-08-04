@@ -45,7 +45,7 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
-      # Required for forgot parent PIN + pairing reminder emails (/api/email/*)
+      # Required for forgot parent PIN + welcome emails (/api/email/*)
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: RESEND_API_KEY

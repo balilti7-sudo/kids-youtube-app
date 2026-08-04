@@ -3,7 +3,7 @@ import { saveChildAccessToken } from './childDevice'
 
 /**
  * Parent-owned device → enable kid mode on this tablet by storing the device's
- * child_access_token locally (replaces 6-digit pairing codes).
+ * child_access_token locally.
  */
 export async function activateKidModeForOwnedDevice(
   deviceId: string

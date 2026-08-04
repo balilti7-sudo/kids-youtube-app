@@ -33,7 +33,7 @@ interface ImportMetaEnv {
   /** When `"true"`, CleanPlayer uses youtube-nocookie iframe with modestbranding=1&rel=0 instead of Media Bridge */
   readonly VITE_YOUTUBE_IFRAME_PLAYER?: string
   /**
-   * Shared secret for forgot-PIN / pairing emails.
+   * Shared secret for forgot-PIN / welcome emails.
    * Set the same value in Supabase Edge Function secrets as `PIN_RESET_REQUEST_SECRET` or `MEDIA_BRIDGE_WELCOME_KEY`.
    */
   readonly VITE_MEDIA_BRIDGE_WELCOME_KEY?: string

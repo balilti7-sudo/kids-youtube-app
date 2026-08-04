@@ -83,6 +83,6 @@ In Google Cloud Console, restrict `VITE_YOUTUBE_API_KEY` by:
 - App loads from custom domain.
 - Signup sends email from your domain via Resend.
 - Email verification flow succeeds.
-- Parent login, device pairing, and `/kid` flow work in production.
+- Parent login, kid-mode activation on device, and `/kid` flow work in production.
 - `is_blocked` changes reflect correctly in child mode.
 - No secrets are committed (`.env` stays local only).

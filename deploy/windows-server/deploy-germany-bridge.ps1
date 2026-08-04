@@ -2,7 +2,7 @@
 .SYNOPSIS
   Deploy latest Media Bridge to Germany (nssm SafeTubeBridge, port 3001).
 
-  Includes email routes: /api/email/welcome, /pairing-reminder, /pin, /pin-changed
+  Includes email routes: /api/email/welcome, /pin, /pin-changed
   (PIN-changed confirmation - no PIN in email body).
 
 .EXAMPLE
