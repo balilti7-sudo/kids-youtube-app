@@ -1,9 +1,9 @@
-import { CheckCircle2, Circle, Link2, Smartphone, Tv } from 'lucide-react'
+import { CheckCircle2, Circle, Smartphone, Tv } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/Button'
 
-export type SetupGuideStepId = 'profile' | 'pair' | 'channels'
+export type SetupGuideStepId = 'profile' | 'channels'
 
 type Step = {
   id: SetupGuideStepId
@@ -17,10 +17,8 @@ type Step = {
 
 type Props = {
   hasProfiles: boolean
-  hasPairingCodeReady: boolean
   hasChannelsManaged: boolean
   onAddProfile: () => void
-  onShowPairing: () => void
   onManageChannels: () => void
   className?: string
   dismissed?: boolean
@@ -29,10 +27,8 @@ type Props = {
 
 export function ParentSetupGuide({
   hasProfiles,
-  hasPairingCodeReady,
   hasChannelsManaged,
   onAddProfile,
-  onShowPairing,
   onManageChannels,
   className,
   dismissed,
@@ -52,22 +48,13 @@ export function ParentSetupGuide({
       highlight: !hasProfiles,
     },
     {
-      id: 'pair',
-      title: t('setupGuide.stepPairTitle'),
-      detail: t('setupGuide.stepPairDetail'),
-      done: hasProfiles && !hasPairingCodeReady,
-      ctaLabel: hasProfiles && hasPairingCodeReady ? t('setupGuide.stepPairCta') : undefined,
-      onCta: hasProfiles && hasPairingCodeReady ? onShowPairing : undefined,
-      highlight: hasProfiles && hasPairingCodeReady,
-    },
-    {
       id: 'channels',
       title: t('setupGuide.stepChannelsTitle'),
       detail: t('setupGuide.stepChannelsDetail'),
       done: hasChannelsManaged,
       ctaLabel: hasProfiles && !hasChannelsManaged ? t('setupGuide.stepChannelsCta') : undefined,
       onCta: hasProfiles && !hasChannelsManaged ? onManageChannels : undefined,
-      highlight: hasProfiles && !hasPairingCodeReady && !hasChannelsManaged,
+      highlight: hasProfiles && !hasChannelsManaged,
     },
   ]
 
@@ -93,7 +80,6 @@ export function ParentSetupGuide({
 
   const icons = {
     profile: Smartphone,
-    pair: Link2,
     channels: Tv,
   }
 

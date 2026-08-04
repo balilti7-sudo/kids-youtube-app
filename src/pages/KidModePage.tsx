@@ -32,18 +32,16 @@ import {
   getChildCachedChannelVideos,
   getChildDeviceState,
   getSavedChildAccessToken,
-  pairChildDevice,
-  saveChildAccessToken,
   type ChildAllowedChannel,
   type ChildDeviceState,
 } from '../lib/childDevice'
+import { activateKidModeForOwnedDevice } from '../lib/activateKidMode'
 import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { ParentalPinModal } from '../components/parental/ParentalPinModal'
-import { parsePairingCodeFromLocationSearch } from '../lib/pairingCodeFromQr'
-import { requestPairingReminderEmail } from '../lib/requestPairingReminderEmail'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
+import { useDeviceStore } from '../stores/deviceStore'
 import { lockManagementAppShell } from '../lib/lockParentApp'
 import { setParentEntryIntent } from '../lib/parentEntryIntent'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
@@ -74,9 +72,8 @@ const PARENT_TAB_LONG_PRESS_MS = 650
 function KidModePageInner() {
   const { t } = useTranslation()
   const childRuntime = useChildRuntimeOptional()
-  const [pairingCode, setPairingCode] = useState('')
-  const [submitting, setSubmitting] = useState(false)
   const [bootLoading, setBootLoading] = useState(true)
+  const [activatingDeviceId, setActivatingDeviceId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [device, setDevice] = useState<ChildDeviceState | null>(null)
   const [channels, setChannels] = useState<ChildAllowedChannel[]>([])
@@ -101,10 +98,6 @@ function KidModePageInner() {
   const [parentModePinError, setParentModePinError] = useState<string | null>(null)
   const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
   const [parentBootstrapBusy, setParentBootstrapBusy] = useState(false)
-  const [forgotPairingOpen, setForgotPairingOpen] = useState(false)
-  const [forgotParentEmail, setForgotParentEmail] = useState('')
-  const [forgotBusy, setForgotBusy] = useState(false)
-  const [forgotInfo, setForgotInfo] = useState<string | null>(null)
   const channelVideosRequestRef = useRef(0)
   const [videoSearchFocused, setVideoSearchFocused] = useState(false)
   const [globalSearchPinOpen, setGlobalSearchPinOpen] = useState(false)
@@ -125,7 +118,11 @@ function KidModePageInner() {
   const parentTabLongPressRef = useRef<number | null>(null)
   const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
+  const parentDevices = useDeviceStore((s) => s.devices)
+  const fetchDevices = useDeviceStore((s) => s.fetchDevices)
+  const parentDevicesLoading = useDeviceStore((s) => s.loading)
+
   useEffect(() => {
     lockManagementAppShell()
     setKidSurface('watch')
@@ -145,15 +142,6 @@ function KidModePageInner() {
       parentSurfaceHintLongPressRef.current = null
     }
   }, [])
-
-  /** נקרא פעם אחת — לזיהוי סריקת QR לפני הסרת הפרמטר מהכתובת */
-  const [pendingUrlPairCode] = useState(() => {
-    try {
-      return parsePairingCodeFromLocationSearch(window.location.search, window.location.hash)
-    } catch {
-      return null
-    }
-  })
 
   const filteredVideos = useMemo(() => {
     const allowShorts = device?.allow_shorts ?? false
@@ -485,66 +473,8 @@ function KidModePageInner() {
     if (bootOnceRef.current) return
     bootOnceRef.current = true
 
-    const stripPairCodeFromUrl = () => {
-      const path = window.location.pathname || '/kid'
-      window.history.replaceState({}, document.title, path)
-    }
-
     const boot = async () => {
-      let urlCode: string | null = null
-      try {
-        urlCode = parsePairingCodeFromLocationSearch(window.location.search, window.location.hash)
-      } catch {
-        urlCode = null
-      }
-
       const token = getSavedChildAccessToken()
-      if (urlCode && token) {
-        // מכשיר ילד יכול להיות מצומד להורה אחד בכל רגע נתון.
-        // לא מחליפים צימוד קיים ע"י סריקה חדשה — רק אחרי ניתוק מפורש.
-        try {
-          setAccessToken(token)
-          await loadChildDataRef.current(token)
-          setError('המכשיר כבר מחובר להורה. כדי לחבר להורה אחר, נתקו קודם את המכשיר במסך זה ואז סרקו שוב.')
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e)
-          if (message.includes('המכשיר לא נמצא')) {
-            clearChildAccessToken()
-            setAccessToken(null)
-            setError('נמצא קוד חדש, אבל החיבור הישן לא תקין. בצעו צימוד מחדש.')
-          } else {
-            setError(e instanceof Error ? e.message : 'טעינת מצב ילד נכשלה')
-          }
-        } finally {
-          stripPairCodeFromUrl()
-          setBootLoading(false)
-        }
-        return
-      }
-
-      if (urlCode) {
-        setAccessToken(null)
-        setDevice(null)
-        setChannels([])
-        setError(null)
-        try {
-          const { accessToken: newToken, error: pairError } = await pairChildDevice(urlCode)
-          if (pairError || !newToken) throw pairError ?? new Error('צימוד נכשל')
-          saveChildAccessToken(newToken)
-          setAppModeKid()
-          setAccessToken(newToken)
-          await loadChildDataRef.current(newToken)
-          stripPairCodeFromUrl()
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : 'צימוד נכשל'
-          setError(msg)
-          stripPairCodeFromUrl()
-        } finally {
-          setBootLoading(false)
-        }
-        return
-      }
-
       if (!token) {
         setBootLoading(false)
         return
@@ -565,6 +495,11 @@ function KidModePageInner() {
     }
     void boot()
   }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated || accessToken || !user?.id) return
+    void fetchDevices(user.id)
+  }, [isAuthenticated, accessToken, user?.id, fetchDevices])
 
 
   useEffect(() => {
@@ -622,73 +557,24 @@ function KidModePageInner() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [accessToken])
 
-  const pairByCodeInitial = useCallback(
-    async (codeRaw: string) => {
-      const code = codeRaw.trim()
-      if (!code) {
-        setError('יש להזין קוד צימוד')
-        return
-      }
-      setSubmitting(true)
+  const activateOwnedDevice = useCallback(
+    async (deviceId: string) => {
+      setActivatingDeviceId(deviceId)
       setError(null)
       try {
-        const { accessToken: token, error: pairError } = await pairChildDevice(code)
-        if (pairError || !token) throw pairError ?? new Error('צימוד נכשל')
-        saveChildAccessToken(token)
+        const { accessToken: token, error: activateError } = await activateKidModeForOwnedDevice(deviceId)
+        if (activateError || !token) throw activateError ?? new Error('הפעלת מצב ילד נכשלה')
         setAppModeKid()
         setAccessToken(token)
         await loadChildData(token)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'צימוד נכשל')
+        setError(e instanceof Error ? e.message : 'הפעלת מצב ילד נכשלה')
       } finally {
-        setSubmitting(false)
+        setActivatingDeviceId(null)
       }
     },
     [loadChildData]
   )
-
-  const handlePair = () => void pairByCodeInitial(pairingCode)
-
-  const sendForgotPairingReminder = () => {
-    void (async () => {
-      const trimmed = forgotParentEmail.trim()
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-        setForgotInfo(null)
-        setError('נא להזין אימייל הורה תקין')
-        return
-      }
-      setForgotBusy(true)
-      setForgotInfo(null)
-      setError(null)
-      try {
-        const result = await requestPairingReminderEmail(trimmed)
-        if (!result.ok) {
-          setError(result.error)
-          return
-        }
-        if (result.ok && 'skipped' in result && result.skipped) {
-          setForgotInfo('כבר נשלח לאחרונה — המתינו כמה דקות לפני בקשה נוספת.')
-          return
-        }
-        if (result.ok && 'sent' in result && result.sent) {
-          if (result.deviceCount === 0) {
-            setForgotInfo('נשלח מייל. אם אין כרגע קוד צימוד פעיל, צרו פרופיל חדש בלוח ההורה.')
-          } else {
-            setForgotInfo(`נשלח מייל עם ${result.deviceCount} קוד/י צימוד פעיל/ים. בדקו את תיבת הדואר.`)
-          }
-          return
-        }
-        if (result.ok && 'sent' in result && !result.sent) {
-          setForgotInfo('אם האימייל רשום אצלנו, בדקו את המייל. אחרת ודאו שהכתובת נכונה.')
-        }
-      } finally {
-        setForgotBusy(false)
-      }
-    })()
-  }
-
-  const pairByCodeInitialRef = useRef(pairByCodeInitial)
-  pairByCodeInitialRef.current = pairByCodeInitial
 
   const handleDisconnect = async () => {
     if (!accessToken) return
@@ -703,7 +589,6 @@ function KidModePageInner() {
       setChannelVideos([])
       setActiveChannelId(null)
       setActiveVideoId(null)
-      setPairingCode('')
       setPinInput('')
       setPinError(null)
       setPinModalOpen(false)
@@ -868,9 +753,7 @@ function KidModePageInner() {
     return (
       <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
         <LoadingSpinner className="h-10 w-10 border-brand-500 border-t-transparent" />
-        <p className="text-sm text-slate-600 dark:text-zinc-400">
-          {pendingUrlPairCode ? t('kid.connectingAfterScan') : t('kid.loading')}
-        </p>
+        <p className="text-sm text-slate-600 dark:text-zinc-400">{t('kid.loading')}</p>
       </div>
     )
   }
@@ -880,88 +763,75 @@ function KidModePageInner() {
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 px-4 pb-10 pt-8">
         <div className="text-center">
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">{KID_APP_DISPLAY_NAME}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">{t('kid.connectLead')}</p>
+          <p className="mt-1 text-base font-semibold text-slate-800 dark:text-zinc-200">
+            {t('kid.notLinkedTitle')}
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+            {t('kid.notLinkedLead')}
+          </p>
         </div>
 
-        <section className="rounded-2xl border-2 border-brand-400/40 bg-white p-5 shadow-sm ring-1 ring-brand-500/20 dark:border-brand-700/50 dark:bg-zinc-900">
-          <p className="mb-1 text-center text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-            {t('kid.firstStep')}
-          </p>
-          <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-zinc-300">
-            {t('kid.codeLabel')}
-          </label>
-          <Input
-            inputMode="numeric"
-            value={pairingCode}
-            onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder={t('kid.codePlaceholder')}
-            className="text-center text-lg tracking-[0.2em]"
-            onKeyDown={(e) => e.key === 'Enter' && void handlePair()}
-            autoFocus
-          />
-          <Button
-            type="button"
-            className="mt-3 w-full text-base font-bold"
-            onClick={() => void handlePair()}
-            disabled={submitting}
-          >
-            {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-            {submitting ? t('kid.connecting') : t('kid.connect')}
-          </Button>
-          <div className="mt-2 flex justify-center">
-            <button
-              type="button"
-              className="text-xs font-normal text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline dark:text-zinc-500 dark:hover:text-zinc-400"
-              onClick={() => {
-                setForgotPairingOpen((o) => !o)
-                setForgotInfo(null)
-                setError(null)
-              }}
-            >
-              {t('kid.forgotCode')}
-            </button>
-          </div>
-          {forgotPairingOpen ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
-              <p className="mb-2 text-xs text-slate-600 dark:text-zinc-400">{t('kid.forgotHint')}</p>
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-zinc-400">
-                {t('kid.parentEmail')}
-              </label>
-              <Input
-                dir="ltr"
-                type="email"
-                autoComplete="email"
-                value={forgotParentEmail}
-                onChange={(e) => setForgotParentEmail(e.target.value)}
-                placeholder="parent@example.com"
-                className="text-sm"
-                onKeyDown={(e) => e.key === 'Enter' && sendForgotPairingReminder()}
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                className="mt-3 w-full"
-                disabled={forgotBusy}
-                onClick={sendForgotPairingReminder}
-              >
-                {forgotBusy ? <LoadingSpinner className="h-5 w-5 border-2 border-slate-600 border-t-transparent" /> : null}
-                {forgotBusy ? t('kid.sending') : t('kid.sendCodesEmail')}
-              </Button>
-            </div>
-          ) : null}
-          {forgotInfo ? (
-            <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400" role="status">
-              {forgotInfo}
+        {isAuthenticated ? (
+          <section className="rounded-2xl border-2 border-brand-400/40 bg-white p-5 shadow-sm ring-1 ring-brand-500/20 dark:border-brand-700/50 dark:bg-zinc-900">
+            <p className="mb-3 text-center text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+              {t('kid.activateOnThisDevice')}
             </p>
-          ) : null}
-          {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
-        </section>
+            {parentDevicesLoading && parentDevices.length === 0 ? (
+              <div className="flex justify-center py-4">
+                <LoadingSpinner className="h-8 w-8 border-brand-500 border-t-transparent" />
+              </div>
+            ) : parentDevices.length === 0 ? (
+              <p className="text-center text-sm text-slate-600 dark:text-zinc-400">
+                {t('kid.noProfilesToActivate')}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {parentDevices.map((d) => (
+                  <li
+                    key={d.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-800/50"
+                  >
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-800 dark:text-zinc-100">
+                      {d.name}
+                    </span>
+                    <Button
+                      type="button"
+                      className="!h-9 shrink-0 !px-3 !text-xs font-bold"
+                      disabled={activatingDeviceId !== null}
+                      onClick={() => void activateOwnedDevice(d.id)}
+                    >
+                      {activatingDeviceId === d.id ? (
+                        <LoadingSpinner className="h-4 w-4 border-2 border-white border-t-transparent" />
+                      ) : null}
+                      {activatingDeviceId === d.id ? t('kid.activating') : t('kid.activateKidMode')}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
+          </section>
+        ) : (
+          <section className="rounded-2xl border-2 border-brand-400/40 bg-white p-5 shadow-sm ring-1 ring-brand-500/20 dark:border-brand-700/50 dark:bg-zinc-900">
+            <p className="mb-3 text-center text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+              {t('kid.signInToActivate')}
+            </p>
+            <Button
+              type="button"
+              className="w-full text-base font-bold"
+              onClick={() => void requestParentAction('home')}
+            >
+              {t('kid.parentLogin')}
+            </Button>
+            {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
+          </section>
+        )}
 
-        <Button type="button" variant="secondary" className="w-full" onClick={() => void requestParentAction('home')}>
-          {isAuthenticated ? t('kid.parentDashboard') : t('kid.parentLogin')}
-        </Button>
-
-        <p className="text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">{t('kid.noCodeHelp')}</p>
+        {isAuthenticated ? (
+          <Button type="button" variant="secondary" className="w-full" onClick={() => void requestParentAction('home')}>
+            {t('kid.parentDashboard')}
+          </Button>
+        ) : null}
       </main>
     )
   }

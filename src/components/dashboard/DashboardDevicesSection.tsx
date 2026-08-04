@@ -14,14 +14,9 @@ import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
 import { DailyTimeLimitDeviceSettings } from './DailyTimeLimitDeviceSettings'
 import { DeviceOsControlsSettings } from './DeviceOsControlsSettings'
-import { PairingCodeDisplay } from '../devices/QRCodeDisplay'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../../types'
-
-function randomSixDigits() {
-  return String(Math.floor(100000 + Math.random() * 900000))
-}
 
 function formatLimitBrief(minutes: number | undefined, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const n = Number(minutes ?? 60)
@@ -40,23 +35,16 @@ function ProfileDeviceCard({
   onToggleExpanded,
   activeManagementDeviceId,
   onManageChannels,
-  onShowPairing,
-  regenerating,
-  onRegeneratePairing,
 }: {
   device: Device
   expanded: boolean
   onToggleExpanded: () => void
   activeManagementDeviceId?: string | null
   onManageChannels: (deviceId: string) => void
-  onShowPairing: (device: Device) => void
-  regenerating: boolean
-  onRegeneratePairing: (deviceId: string) => void
 }) {
   const { t } = useTranslation()
   const limitLabel = formatLimitBrief(device.daily_time_limit_minutes, t)
   const shortsLabel = device.allow_shorts ? t('shorts.allowOn') : t('shorts.allowOff')
-  const hasPairingCode = Boolean(device.pairing_code?.trim())
 
   return (
     <li className="flex flex-col gap-2 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60">
@@ -80,9 +68,6 @@ function ProfileDeviceCard({
             </span>
             {!expanded ? (
               <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
-                {hasPairingCode ? (
-                  <span className="text-amber-300/90">{t('dashboard.waitingPairing')} · </span>
-                ) : null}
                 {limitLabel} · {shortsLabel}
               </span>
             ) : null}
@@ -114,39 +99,6 @@ function ProfileDeviceCard({
 
       {expanded ? (
         <div id={`profile-settings-${device.id}`} className="flex flex-col gap-2">
-          <div className="rounded-xl border border-sky-500/25 bg-sky-950/20 px-3 py-2.5 ring-1 ring-sky-500/10">
-            <p className="text-sm font-semibold text-zinc-100">{t('dashboard.pairingSectionTitle')}</p>
-            {hasPairingCode ? (
-              <>
-                <p className="mt-1 text-xs text-zinc-400">{t('dashboard.pairingPendingHint')}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    className="!h-9 !px-3 !text-xs font-bold"
-                    onClick={() => onShowPairing(device)}
-                  >
-                    {t('dashboard.showPairingCode')}
-                  </Button>
-                  <p className="self-center font-mono text-lg font-bold tracking-[0.2em] text-sky-200" dir="ltr">
-                    {device.pairing_code}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="mt-1 text-xs text-zinc-400">{t('dashboard.pairingAlreadyConnected')}</p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="mt-2 !h-9 !px-3 !text-xs"
-                  disabled={regenerating}
-                  onClick={() => onRegeneratePairing(device.id)}
-                >
-                  {regenerating ? t('dashboard.creating') : t('dashboard.createNewPairingCode')}
-                </Button>
-              </>
-            )}
-          </div>
           <DailyTimeLimitDeviceSettings device={device} />
           <AllowShortsDeviceSettings device={device} />
           <DeviceOsControlsSettings device={device} />
@@ -160,20 +112,16 @@ export function DashboardDevicesSection({
   activeManagementDeviceId,
   onManageChannels,
   openAddProfileSignal = 0,
-  showPairingSignal = 0,
 }: {
   activeManagementDeviceId?: string | null
   onManageChannels: (deviceId: string) => void
   /** Increment to open the add-profile modal (from setup guide). */
   openAddProfileSignal?: number
-  /** Increment to open pairing for the first profile that still has a code. */
-  showPairingSignal?: number
 }) {
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
   const addDevice = useDeviceStore((s) => s.addDevice)
-  const regeneratePairingCode = useDeviceStore((s) => s.regeneratePairingCode)
   const { t } = useTranslation()
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -181,8 +129,6 @@ export function DashboardDevicesSection({
   const [saving, setSaving] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [collapseSeeded, setCollapseSeeded] = useState(false)
-  const [pairingModalDevice, setPairingModalDevice] = useState<Device | null>(null)
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
 
   const max = subscription?.max_devices ?? 3
   const atLimit = devices.length >= max
@@ -204,18 +150,6 @@ export function DashboardDevicesSection({
     }
   }, [openAddProfileSignal, t])
 
-  useEffect(() => {
-    if (showPairingSignal <= 0) return
-    const pending = devices.find((d) => d.pairing_code?.trim())
-    if (pending) {
-      setPairingModalDevice(pending)
-      setExpandedIds((prev) => new Set(prev).add(pending.id))
-    } else if (devices[0]) {
-      setExpandedIds((prev) => new Set(prev).add(devices[0].id))
-      toast.info(t('dashboard.noActiveCode'), { description: t('dashboard.noActiveCodeHint') })
-    }
-  }, [showPairingSignal, devices, t])
-
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev)
@@ -234,22 +168,6 @@ export function DashboardDevicesSection({
     if (!saving) setModalOpen(false)
   }
 
-  const handleRegenerate = async (deviceId: string) => {
-    setRegeneratingId(deviceId)
-    const { data, error: err } = await regeneratePairingCode(deviceId)
-    setRegeneratingId(null)
-    if (err) {
-      toast.error(t('dashboard.createCodeFailed'), { description: err.message })
-      return
-    }
-    await refetch()
-    const device = useDeviceStore.getState().devices.find((d) => d.id === deviceId)
-    if (device && data) {
-      setPairingModalDevice({ ...device, pairing_code: data })
-      toast.success(t('dashboard.newPairingReady'))
-    }
-  }
-
   const handleAdd = async () => {
     const name = deviceName.trim()
     if (!name) {
@@ -266,13 +184,11 @@ export function DashboardDevicesSection({
     }
 
     setSaving(true)
-    const pairing = randomSixDigits()
     try {
       const { data, error: err } = await addDevice({
         userId: ownerUserId,
         name,
         device_type: 'tablet',
-        pairing_code: pairing,
       })
       if (err) {
         console.error('Connection Error:', err)
@@ -280,12 +196,11 @@ export function DashboardDevicesSection({
         return
       }
       if (data) {
-        toast.success(t('dashboard.profileAdded'), { description: t('dashboard.pairingCodeToast', { code: pairing }) })
+        toast.success(t('dashboard.profileAdded'))
         setExpandedIds((prev) => new Set(prev).add(data.id))
         await refetch()
         setModalOpen(false)
         setDeviceName('')
-        setPairingModalDevice({ ...data, pairing_code: pairing })
       }
     } catch (e) {
       console.error('Connection Error:', e)
@@ -370,9 +285,6 @@ export function DashboardDevicesSection({
               onToggleExpanded={() => toggleExpanded(d.id)}
               activeManagementDeviceId={activeManagementDeviceId}
               onManageChannels={onManageChannels}
-              onShowPairing={setPairingModalDevice}
-              regenerating={regeneratingId === d.id}
-              onRegeneratePairing={(id) => void handleRegenerate(id)}
             />
           ))}
         </ul>
@@ -403,42 +315,6 @@ export function DashboardDevicesSection({
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && void handleAdd()}
         />
-      </Modal>
-
-      <Modal
-        open={Boolean(pairingModalDevice?.pairing_code)}
-        onClose={() => setPairingModalDevice(null)}
-        title={t('dashboard.pairingModalTitle')}
-        bodyClassName="max-h-[75vh] overflow-y-auto"
-        footer={
-          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            <Button type="button" variant="secondary" onClick={() => setPairingModalDevice(null)}>
-              {t('common.close')}
-            </Button>
-            {pairingModalDevice ? (
-              <Button
-                type="button"
-                onClick={() => {
-                  const id = pairingModalDevice.id
-                  setPairingModalDevice(null)
-                  onManageChannels(id)
-                }}
-              >
-                {t('dashboard.continueAddChannels')}
-              </Button>
-            ) : null}
-          </div>
-        }
-      >
-        {pairingModalDevice?.pairing_code ? (
-          <>
-            <p className="mb-3 text-sm leading-relaxed text-zinc-400">{t('dashboard.pairingModalLead')}</p>
-            <PairingCodeDisplay
-              code={pairingModalDevice.pairing_code}
-              deviceName={pairingModalDevice.name}
-            />
-          </>
-        ) : null}
       </Modal>
     </section>
   )

@@ -19,7 +19,6 @@ function ParentDashboardInner() {
   const [managedDeviceId, setManagedDeviceId] = useState<string | null>(null)
   const [deletingProfile, setDeletingProfile] = useState(false)
   const [openAddProfileSignal, setOpenAddProfileSignal] = useState(0)
-  const [showPairingSignal, setShowPairingSignal] = useState(0)
   const [guideDismissed, setGuideDismissed] = useState(() => {
     try {
       return localStorage.getItem(SETUP_GUIDE_DISMISS_KEY) === '1'
@@ -30,7 +29,6 @@ function ParentDashboardInner() {
   const managedDevice = devices.find((d) => d.id === managedDeviceId) ?? null
 
   const hasProfiles = devices.length > 0
-  const hasPairingCodeReady = devices.some((d) => Boolean(d.pairing_code?.trim()))
   const hasChannelsManaged =
     Boolean(managedDeviceId) || devices.some((d) => (d.channel_count ?? 0) > 0)
 
@@ -77,7 +75,6 @@ function ParentDashboardInner() {
 
       <ParentSetupGuide
         hasProfiles={hasProfiles}
-        hasPairingCodeReady={hasPairingCodeReady}
         hasChannelsManaged={hasChannelsManaged}
         dismissed={guideDismissed}
         onDismiss={dismissGuide}
@@ -85,7 +82,6 @@ function ParentDashboardInner() {
           setOpenAddProfileSignal((n) => n + 1)
           document.getElementById('dashboard-profiles')?.scrollIntoView({ behavior: 'smooth' })
         }}
-        onShowPairing={() => setShowPairingSignal((n) => n + 1)}
         onManageChannels={() => {
           const first = devices[0]
           if (first) setManagedDeviceId(first.id)
@@ -102,7 +98,6 @@ function ParentDashboardInner() {
         activeManagementDeviceId={managedDeviceId}
         onManageChannels={setManagedDeviceId}
         openAddProfileSignal={openAddProfileSignal}
-        showPairingSignal={showPairingSignal}
       />
       {managedDeviceId ? (
         <section

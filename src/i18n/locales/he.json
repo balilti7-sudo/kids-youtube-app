@@ -140,6 +140,13 @@
   "kid": {
     "appConnectTitle": "חיבור ל־SafeTube",
     "connectLead": "הזינו את קוד הצימוד בן 6 הספרות שמופיע אצל ההורה אחרי יצירת פרופיל — והצפייה מתחילה.",
+    "notLinkedTitle": "המכשיר עדיין לא מקושר",
+    "notLinkedLead": "התחברו כהורה במכשיר הזה, ואז הפעילו מצב ילד לפרופיל ילד.",
+    "activateOnThisDevice": "הפעלה במכשיר הזה",
+    "activateKidMode": "הפעלת מצב ילד",
+    "activating": "מפעיל…",
+    "noProfilesToActivate": "אין עדיין פרופילי ילד. צרו פרופיל בלוח ההורה קודם.",
+    "signInToActivate": "התחברו כהורה כדי להפעיל מצב ילד במכשיר הזה.",
     "firstStep": "הצעד הראשון",
     "codeLabel": "קוד צימוד (6 ספרות)",
     "codePlaceholder": "לדוגמה: 123456",

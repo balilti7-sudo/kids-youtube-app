@@ -4,17 +4,11 @@ import { BYPASS_AUTH } from '../config/dev'
 import { useAuth } from '../hooks/useAuth'
 import { isProfileParentPinMissing } from '../lib/parentPin'
 import { SplashScreen } from '../components/branding/SplashScreen'
-import { parsePairingCodeFromLocationSearch } from '../lib/pairingCodeFromQr'
 import { setSkipParentalManagementGateOnce } from '../lib/parentalGateSkipOnce'
 
 export function AuthPage() {
   const { isAuthenticated, loading, profileLoading, profile } = useAuth()
   const location = useLocation()
-  const pairFromUrl = parsePairingCodeFromLocationSearch(location.search, location.hash)
-
-  if (pairFromUrl) {
-    return <Navigate to={`/kid?code=${encodeURIComponent(pairFromUrl)}`} replace />
-  }
   const nextParam = new URLSearchParams(location.search).get('next')
   const safeNext =
     nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/dashboard'

@@ -9,7 +9,7 @@ import {
 } from './email/env.js'
 
 /**
- * Mount Resend email routes on the Media Bridge (welcome, pairing reminder, pin-changed, etc.).
+ * Mount Resend email routes on the Media Bridge (welcome, pin-changed, etc.).
  */
 export function registerBridgeEmailRoutes(app) {
   const url = getSupabaseUrl()
@@ -42,7 +42,7 @@ export function registerBridgeEmailRoutes(app) {
   const authOk = Boolean(supabaseAuthClient)
   if (!resendOk || !serviceOk) {
     console.error(
-      '[bridge] email routes PARTIAL — pin-reset/pairing will return 503 until configured: ' +
+      '[bridge] email routes PARTIAL — pin-reset will return 503 until configured: ' +
         `RESEND_API_KEY=${resendOk ? 'ok' : 'MISSING'} ` +
         `SUPABASE_SERVICE_ROLE_KEY=${serviceOk ? 'ok' : 'MISSING'} ` +
         `SUPABASE_URL+ANON=${authOk ? 'ok' : 'MISSING'}`
@@ -51,5 +51,5 @@ export function registerBridgeEmailRoutes(app) {
     console.log('[bridge] email routes ready (Resend + Supabase service role)')
   }
 
-  console.log('[bridge] email routes: /api/email/welcome, /pairing-reminder, /pin, /pin-reset-request, /pin-changed')
+  console.log('[bridge] email routes: /api/email/welcome, /pin, /pin-reset-request, /pin-changed')
 }

@@ -140,6 +140,13 @@
   "kid": {
     "appConnectTitle": "Connect to SafeTube",
     "connectLead": "Enter the 6-digit pairing code shown to the parent after creating a profile — then watching begins.",
+    "notLinkedTitle": "This device is not linked yet",
+    "notLinkedLead": "Sign in as a parent on this device, then activate kid mode for a child profile.",
+    "activateOnThisDevice": "Activate on this device",
+    "activateKidMode": "Activate kid mode",
+    "activating": "Activating…",
+    "noProfilesToActivate": "No child profiles yet. Create one in the parent dashboard first.",
+    "signInToActivate": "Sign in as a parent to activate kid mode on this device.",
     "firstStep": "First step",
     "codeLabel": "Pairing code (6 digits)",
     "codePlaceholder": "e.g. 123456",

@@ -140,6 +140,13 @@
   "kid": {
     "appConnectTitle": "Conectar a SafeTube",
     "connectLead": "Introduzcan el código de emparejamiento de 6 dígitos que aparece al padre tras crear un perfil — y empieza la reproducción.",
+    "notLinkedTitle": "Este dispositivo aún no está vinculado",
+    "notLinkedLead": "Inicien sesión como padres en este dispositivo y activen el modo niño para un perfil.",
+    "activateOnThisDevice": "Activar en este dispositivo",
+    "activateKidMode": "Activar modo niño",
+    "activating": "Activando…",
+    "noProfilesToActivate": "Aún no hay perfiles infantiles. Creen uno en el panel de padres primero.",
+    "signInToActivate": "Inicien sesión como padres para activar el modo niño en este dispositivo.",
     "firstStep": "Primer paso",
     "codeLabel": "Código de emparejamiento (6 dígitos)",
     "codePlaceholder": "p. ej. 123456",

@@ -67,42 +67,6 @@ export function clearChildAccessToken() {
   }
 }
 
-export async function pairChildDevice(pairingCode: string): Promise<{
-  accessToken: string | null
-  deviceName: string | null
-  error: Error | null
-}> {
-  const { data, error } = await supabase.rpc('child_pair_device', {
-    p_pairing_code: pairingCode.trim(),
-  })
-
-  if (error) {
-    const e = error as { message?: string; details?: string; hint?: string }
-    const raw = [e.message, e.details, e.hint].filter(Boolean).join(' ')
-    if (raw.includes('PAIRING_CODE_ALREADY_USED')) {
-      return {
-        accessToken: null,
-        deviceName: null,
-        error: new Error(
-          'הפרופיל כבר מחובר אצל ההורה עם הקוד הזה — החיבור כבר בוצע והקוד אינו פעיל יותר. אין צורך לחבר שוב. אם מדובר בתיקון, בקשו מההורה קוד חדש ממסך הפרופילים.'
-        ),
-      }
-    }
-    return { accessToken: null, deviceName: null, error: new Error(error.message) }
-  }
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row?.access_token) {
-    return {
-      accessToken: null,
-      deviceName: null,
-      error: new Error(
-        'לא מצאנו את הקוד. בדקו שההקלדה נכונה, או בקשו מההורה קוד עדכני ממסך הפרופילים.'
-      ),
-    }
-  }
-  return { accessToken: String(row.access_token), deviceName: String(row.device_name ?? ''), error: null }
-}
-
 export async function getChildDeviceState(accessToken: string): Promise<{ data: ChildDeviceState | null; error: Error | null }> {
   const { data, error } = await supabase.rpc('child_get_device_state', {
     p_access_token: accessToken,

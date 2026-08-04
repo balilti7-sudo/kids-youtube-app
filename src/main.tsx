@@ -2,14 +2,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import './i18n'
-import { normalizePairingUrlInAddressBar } from './lib/pairingCodeFromQr'
 import { installAuthDiagnostics } from './lib/authDiagnostics'
 import { initTheme } from './lib/theme'
 import { initCapacitorDeviceResolve } from './lib/deviceResolve/capacitorBridge'
 import { initCapacitorAuthDeepLinks } from './lib/capacitorAuth'
 import App from './App.tsx'
 
-normalizePairingUrlInAddressBar()
 installAuthDiagnostics()
 initTheme()
 initCapacitorDeviceResolve()

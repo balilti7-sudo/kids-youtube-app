@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
@@ -20,28 +20,20 @@ import { SetParentPinPage } from './pages/SetParentPinPage'
 import { useAuth } from './hooks/useAuth'
 import { BYPASS_AUTH } from './config/dev'
 import { isProfileParentPinMissing } from './lib/parentPin'
-import { parsePairingCodeFromLocationSearch } from './lib/pairingCodeFromQr'
 import { WhatsAppFloatingButton } from './components/support/WhatsAppFloatingButton'
 import { preWarmMediaBridge } from './lib/streamApi'
 import { JuicyUiProvider } from './contexts/JuicyUiContext'
 
-/** Remount כשמשנים query (למשל אחרי סריקת QR) כדי ש־boot עם קוד ירוץ שוב */
 function KidModeRoute() {
-  const [searchParams] = useSearchParams()
   return (
     <JuicyUiProvider enabled>
-      <KidModePage key={searchParams.toString()} />
+      <KidModePage />
     </JuicyUiProvider>
   )
 }
 
 function SmartEntryRoute() {
-  const location = useLocation()
   const { isAuthenticated, loading, profileLoading, profile } = useAuth()
-  const pairFromUrl = parsePairingCodeFromLocationSearch(location.search, location.hash)
-  if (pairFromUrl) {
-    return <Navigate to={`/kid?code=${encodeURIComponent(pairFromUrl)}`} replace />
-  }
 
   const hasKidToken =
     typeof window !== 'undefined' && Boolean(window.localStorage.getItem('safetube_kid_access_token'))
@@ -64,13 +56,7 @@ function SmartEntryRoute() {
   return <Navigate to="/dashboard" replace />
 }
 
-/** מסלול לא ידוע: לא לאבד ?code= — מפנה ל־/kid או ל־/ */
 function CatchAllRedirect() {
-  const location = useLocation()
-  const pair = parsePairingCodeFromLocationSearch(location.search, location.hash)
-  if (pair) {
-    return <Navigate to={`/kid?code=${encodeURIComponent(pair)}`} replace />
-  }
   return <Navigate to="/" replace />
 }
 
