@@ -840,8 +840,17 @@ export async function resolveYouTubeChannelFromInput(input: string): Promise<{
 
 /** מגן מפני לולאת דפדוף חריגה ב־API (לא מגבלת ערוץ רגילה). */
 const PLAYLIST_ITEMS_PAGE_GUARD = 50_000
-/** Default cap for channel cache fills (~50 videos/page). Enough for browse; avoids multi-minute crawls. */
-export const CHANNEL_CACHE_PLAYLIST_MAX_PAGES = 10
+/** Pages fetched on first cache fill after add (~50 videos/page). */
+export const CHANNEL_CACHE_INITIAL_PAGES = 1
+/** Pages fetched per lazy/background append step. */
+export const CHANNEL_CACHE_APPEND_PAGES = 1
+
+export type ChannelUploadsPageResult = {
+  videos: ChannelVideoItem[]
+  nextPageToken: string | null
+  hasMore: boolean
+  uploadsPlaylistId: string
+}
 
 type ChannelsContentDetailsResponse = {
   items?: Array<{
@@ -953,21 +962,25 @@ async function fetchChannelVideosViaSearchQuery(
   return out
 }
 
-/** Uploads playlist items (paged). Optional `maxPages` caps crawl size for cache fills. */
+/** Uploads playlist items (paged). Returns leftover token for lazy continuation. */
 async function fetchUploadsPlaylistVideos(
   uploadsPlaylistId: string,
   key: string,
-  maxPages = PLAYLIST_ITEMS_PAGE_GUARD
-): Promise<ChannelVideoItem[]> {
+  options?: { maxPages?: number; pageToken?: string | null }
+): Promise<{ videos: ChannelVideoItem[]; nextPageToken: string | null; hasMore: boolean }> {
   const out: ChannelVideoItem[] = []
-  let pageToken: string | undefined
+  let pageToken: string | undefined = options?.pageToken?.trim() || undefined
   let pages = 0
-  const pageLimit = Math.max(1, Math.min(maxPages, PLAYLIST_ITEMS_PAGE_GUARD))
+  const pageLimit = Math.max(1, Math.min(options?.maxPages ?? 1, PLAYLIST_ITEMS_PAGE_GUARD))
 
   for (;;) {
     pages += 1
     if (pages > pageLimit) {
-      break
+      return {
+        videos: out,
+        nextPageToken: pageToken ?? null,
+        hasMore: Boolean(pageToken),
+      }
     }
 
     const url = new URL(`${YT_API}/playlistItems`)
@@ -995,12 +1008,83 @@ async function fetchUploadsPlaylistVideos(
       })
     }
 
-    const next = json.nextPageToken
-    if (!next || (json.items?.length ?? 0) === 0) break
+    const next = json.nextPageToken?.trim() || null
+    if (!next || (json.items?.length ?? 0) === 0) {
+      return { videos: out, nextPageToken: null, hasMore: false }
+    }
     pageToken = next
   }
+}
 
-  return out
+/**
+ * Fetch one (or a few) pages of a channel's uploads playlist.
+ * Use for initial cache fill and lazy "load older" continuation.
+ */
+export async function fetchChannelUploadsPage(
+  channelId: string,
+  options?: {
+    maxPages?: number
+    pageToken?: string | null
+    uploadsPlaylistId?: string | null
+  }
+): Promise<{ data: ChannelUploadsPageResult | null; error: Error | null }> {
+  const id = channelId.trim()
+  if (!id) return { data: null, error: new Error('Missing channel id') }
+  const key = getApiKey()
+  if (!key) {
+    return {
+      data: null,
+      error: new Error(
+        'חסר מפתח YouTube: הוסיפו VITE_YOUTUBE_API_KEY לקובץ .env.local והפעילו מחדש את שרת הפיתוח (npm run dev).'
+      ),
+    }
+  }
+
+  try {
+    let uploadsPlaylistId = options?.uploadsPlaylistId?.trim() || null
+    if (!uploadsPlaylistId) {
+      uploadsPlaylistId = await fetchChannelUploadsPlaylistId(id, key)
+    }
+    if (!uploadsPlaylistId) {
+      return { data: null, error: new Error('לא נמצאה רשימת העלאות לערוץ (ייתכן שהערוץ לא זמין ב־API).') }
+    }
+
+    const page = await fetchUploadsPlaylistVideos(uploadsPlaylistId, key, {
+      maxPages: options?.maxPages ?? CHANNEL_CACHE_INITIAL_PAGES,
+      pageToken: options?.pageToken,
+    })
+
+    return {
+      data: {
+        videos: page.videos,
+        nextPageToken: page.nextPageToken,
+        hasMore: page.hasMore,
+        uploadsPlaylistId,
+      },
+      error: null,
+    }
+  } catch (e) {
+    console.error('[youtube] fetchChannelUploadsPage', e)
+    const normalized =
+      e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה')
+
+    if (!options?.pageToken && isQuotaErrorMessage(normalized.message)) {
+      const fallback = await fetchChannelVideosFromRss(id)
+      if (!fallback.error && fallback.data) {
+        return {
+          data: {
+            videos: fallback.data,
+            nextPageToken: null,
+            hasMore: false,
+            uploadsPlaylistId: options?.uploadsPlaylistId?.trim() || '',
+          },
+          error: null,
+        }
+      }
+    }
+
+    return { data: null, error: normalized }
+  }
 }
 
 export async function getLatestVideosForChannel(
@@ -1008,12 +1092,17 @@ export async function getLatestVideosForChannel(
   options?: {
     /** חיפוש מוגבל לערוץ זה בלבד (`search.list` עם channelId + q) */
     searchQuery?: string
-    /** Max playlist pages to fetch (50 videos each). Defaults to cache-friendly cap. */
+    /** Max playlist pages to fetch (50 videos each). Defaults to initial cache size. */
     maxPages?: number
+    pageToken?: string | null
+    uploadsPlaylistId?: string | null
   }
 ): Promise<{
   data: ChannelVideoItem[] | null
   error: Error | null
+  nextPageToken?: string | null
+  hasMore?: boolean
+  uploadsPlaylistId?: string | null
 }> {
   const id = channelId.trim()
   if (!id) return { data: [], error: null }
@@ -1028,30 +1117,42 @@ export async function getLatestVideosForChannel(
   }
 
   const searchQuery = options?.searchQuery?.trim() ?? ''
-  const maxPages = options?.maxPages ?? CHANNEL_CACHE_PLAYLIST_MAX_PAGES
 
   try {
     if (searchQuery) {
       const results = await fetchChannelVideosViaSearchQuery(id, searchQuery, key)
-      return { data: results, error: null }
+      return { data: results, error: null, nextPageToken: null, hasMore: false, uploadsPlaylistId: null }
     }
 
-    const uploadsPlaylistId = await fetchChannelUploadsPlaylistId(id, key)
-    if (!uploadsPlaylistId) {
-      return { data: [], error: new Error('לא נמצאה רשימת העלאות לערוץ (ייתכן שהערוץ לא זמין ב־API).') }
+    const page = await fetchChannelUploadsPage(id, {
+      maxPages: options?.maxPages ?? CHANNEL_CACHE_INITIAL_PAGES,
+      pageToken: options?.pageToken,
+      uploadsPlaylistId: options?.uploadsPlaylistId,
+    })
+    if (page.error || !page.data) return { data: null, error: page.error ?? new Error('טעינת סרטוני ערוץ נכשלה') }
+    return {
+      data: page.data.videos,
+      error: null,
+      nextPageToken: page.data.nextPageToken,
+      hasMore: page.data.hasMore,
+      uploadsPlaylistId: page.data.uploadsPlaylistId,
     }
-    const results = await fetchUploadsPlaylistVideos(uploadsPlaylistId, key, maxPages)
-    return { data: results, error: null }
   } catch (e) {
     console.error('[youtube] getLatestVideosForChannel', e)
     const normalized =
       e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה')
 
-    // Fallback: when API quota is exhausted, read the public channel RSS feed (~15 אחרונים).
-    // לא מנסים RSS כשביקשנו חיפוש ספציפי — ה־feed אינו תומך ב־q.
     if (!searchQuery && isQuotaErrorMessage(normalized.message)) {
       const fallback = await fetchChannelVideosFromRss(id)
-      if (!fallback.error) return { data: fallback.data, error: null }
+      if (!fallback.error) {
+        return {
+          data: fallback.data,
+          error: null,
+          nextPageToken: null,
+          hasMore: false,
+          uploadsPlaylistId: null,
+        }
+      }
     }
 
     return { data: null, error: normalized }

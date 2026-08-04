@@ -42,6 +42,10 @@ export interface WhitelistedChannel {
   subscriber_count: string | null
   description: string | null
   last_videos_refresh_at?: string | null
+  /** YouTube playlist next page token for older uploads. */
+  videos_cache_next_page_token?: string | null
+  videos_cache_uploads_playlist_id?: string | null
+  videos_cache_has_more?: boolean
   created_at: string
 }
 

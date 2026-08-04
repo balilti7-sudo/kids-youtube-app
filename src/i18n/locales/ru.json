@@ -158,7 +158,9 @@
     "addedCachePending": "Канал добавлен, но кэш видео нужно обновить",
     "videosFound": "Найдено видео: {{count}}",
     "skippedEmpty": "Пропущено каналов без кэша: {{count}}",
-    "noLocalPermission": "Нет локального доступа для загрузки видео канала."
+    "noLocalPermission": "Нет локального доступа для загрузки видео канала.",
+    "loadOlderVideos": "Загрузить более старые видео",
+    "loadingOlderVideos": "Загрузка старых видео…"
   },
   "playlists": {
     "addToPlaylist": "Добавить в плейлист",

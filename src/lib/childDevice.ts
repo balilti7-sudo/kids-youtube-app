@@ -33,6 +33,9 @@ export interface ChildAllowedChannel {
   category: string | null
   channel_thumbnail: string | null
   subscriber_count: string | null
+  videos_cache_has_more?: boolean
+  videos_cache_next_page_token?: string | null
+  videos_cache_uploads_playlist_id?: string | null
 }
 
 export interface ChildCachedChannelVideo {
@@ -139,6 +142,11 @@ function mapChildAllowedChannelRow(row: Record<string, unknown>): ChildAllowedCh
     category: row.category != null && row.category !== '' ? String(row.category) : null,
     channel_thumbnail: row.channel_thumbnail != null ? String(row.channel_thumbnail) : null,
     subscriber_count: row.subscriber_count != null ? String(row.subscriber_count) : null,
+    videos_cache_has_more: Boolean(row.videos_cache_has_more),
+    videos_cache_next_page_token:
+      row.videos_cache_next_page_token != null ? String(row.videos_cache_next_page_token) : null,
+    videos_cache_uploads_playlist_id:
+      row.videos_cache_uploads_playlist_id != null ? String(row.videos_cache_uploads_playlist_id) : null,
   }
 }
 
@@ -152,6 +160,9 @@ export function childAllowedChannelToWhitelist(channel: ChildAllowedChannel): Wh
     channel_thumbnail: channel.channel_thumbnail,
     subscriber_count: channel.subscriber_count,
     description: null,
+    videos_cache_has_more: channel.videos_cache_has_more ?? false,
+    videos_cache_next_page_token: channel.videos_cache_next_page_token ?? null,
+    videos_cache_uploads_playlist_id: channel.videos_cache_uploads_playlist_id ?? null,
     created_at: new Date(0).toISOString(),
   }
 }

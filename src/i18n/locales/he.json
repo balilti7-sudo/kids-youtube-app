@@ -158,7 +158,9 @@
     "addedCachePending": "הערוץ נוסף, אבל מטמון הסרטונים דורש רענון",
     "videosFound": "נמצאו {{count}} סרטונים",
     "skippedEmpty": "דולגו {{count}} ערוצים ללא סרטונים במטמון",
-    "noLocalPermission": "אין הרשאה מקומית לטעון סרטוני ערוץ."
+    "noLocalPermission": "אין הרשאה מקומית לטעון סרטוני ערוץ.",
+    "loadOlderVideos": "טען סרטונים ישנים יותר",
+    "loadingOlderVideos": "טוען סרטונים ישנים יותר…"
   },
   "playlists": {
     "addToPlaylist": "הוסף לפלייליסט",

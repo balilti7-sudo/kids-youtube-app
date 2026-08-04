@@ -1,13 +1,47 @@
 import { useCallback, useEffect } from 'react'
 import { getSavedChildAccessToken } from '../lib/childDevice'
-import { extractYouTubeVideoId, resolveYouTubeChannelFromInput, searchYouTubeChannels, searchYouTubeVideos } from '../lib/youtube'
+import {
+  CHANNEL_CACHE_APPEND_PAGES,
+  CHANNEL_CACHE_INITIAL_PAGES,
+  extractYouTubeVideoId,
+  getLatestVideosForChannel,
+  resolveYouTubeChannelFromInput,
+  searchYouTubeChannels,
+  searchYouTubeVideos,
+} from '../lib/youtube'
 import { useChannelStore } from '../stores/channelStore'
 import { supabase } from '../lib/supabase'
-import { getLatestVideosForChannel } from '../lib/youtube'
+import type { WhitelistedChannel } from '../types'
 
 const CHANNEL_CACHE_INSERT_CHUNK = 500
 /** אצוות קטנות יותר ל־RPC (גודל גוף JSON) */
 const LOCAL_PARENT_CACHE_RPC_CHUNK = 350
+/** Delay between background append pages (quota-friendly). */
+const BACKGROUND_APPEND_DELAY_MS = 2500
+/** Soft ceiling for unattended background pages per channel (further pages via scroll). */
+const BACKGROUND_APPEND_MAX_PAGES = 40
+
+type CacheFillMode = 'initial' | 'append' | 'replace'
+
+function patchWhitelistCursor(
+  channelDbId: string,
+  patch: Partial<
+    Pick<
+      WhitelistedChannel,
+      | 'videos_cache_has_more'
+      | 'videos_cache_next_page_token'
+      | 'videos_cache_uploads_playlist_id'
+      | 'last_videos_refresh_at'
+    >
+  >
+) {
+  const list = useChannelStore.getState().whitelist
+  const idx = list.findIndex((c) => c.id === channelDbId)
+  if (idx < 0) return
+  const next = [...list]
+  next[idx] = { ...next[idx], ...patch }
+  useChannelStore.getState().setWhitelist(next)
+}
 
 export function useChannels(
   deviceId: string | undefined,
@@ -47,89 +81,192 @@ export function useChannels(
   const replaceChannelCacheLocalParent = useChannelStore((s) => s.replaceChannelCacheLocalParent)
 
   const refreshChannelVideosCache = useCallback(
-    async (channelDbId: string, youtubeChannelId: string, force = false) => {
-      if (localAccessToken) {
-        const pin = getLocalParentPin?.() ?? ''
+    async (
+      channelDbId: string,
+      youtubeChannelId: string,
+      forceOrMode: boolean | CacheFillMode = false
+    ) => {
+      const chMeta = useChannelStore.getState().whitelist.find((c) => c.id === channelDbId)
+      let mode: CacheFillMode =
+        typeof forceOrMode === 'string' ? forceOrMode : forceOrMode ? 'replace' : 'replace'
+      // Legacy `force=false` means "skip if fresh" for stale backfill.
+      const skipIfFresh = forceOrMode === false
 
-        const chMeta = useChannelStore.getState().whitelist.find((c) => c.id === channelDbId)
+      if (skipIfFresh) {
         const last = chMeta?.last_videos_refresh_at ? new Date(chMeta.last_videos_refresh_at).getTime() : 0
         const isFresh = last > 0 && Date.now() - last < 24 * 60 * 60 * 1000
-        if (!force && isFresh) return { error: null }
+        if (isFresh && !chMeta?.videos_cache_has_more) {
+          return { error: null, appended: 0, hasMore: false }
+        }
+        if (isFresh && chMeta?.videos_cache_has_more) {
+          mode = 'append'
+        }
+      }
 
-        const { data: videos, error: ytError } = await getLatestVideosForChannel(youtubeChannelId)
-        if (ytError) return { error: ytError }
+      const isAppend = mode === 'append'
+      const clearExisting = mode === 'initial' || mode === 'replace'
 
-        const fetched = videos ?? []
-        // Never wipe an existing cache when YouTube returns an empty list.
-        if (fetched.length === 0) return { error: null }
+      let pageToken: string | null | undefined = isAppend
+        ? chMeta?.videos_cache_next_page_token ?? null
+        : null
+      let uploadsPlaylistId: string | null | undefined = isAppend
+        ? chMeta?.videos_cache_uploads_playlist_id ?? null
+        : null
 
+      if (isAppend && !localAccessToken) {
+        const { data: meta } = await supabase
+          .from('whitelisted_channels')
+          .select(
+            'videos_cache_next_page_token, videos_cache_uploads_playlist_id, videos_cache_has_more, last_videos_refresh_at'
+          )
+          .eq('id', channelDbId)
+          .maybeSingle()
+        pageToken = (meta as { videos_cache_next_page_token?: string | null } | null)
+          ?.videos_cache_next_page_token
+        uploadsPlaylistId = (meta as { videos_cache_uploads_playlist_id?: string | null } | null)
+          ?.videos_cache_uploads_playlist_id
+        const hasMoreDb = Boolean(
+          (meta as { videos_cache_has_more?: boolean } | null)?.videos_cache_has_more
+        )
+        if (!pageToken || !hasMoreDb) {
+          return { error: null, appended: 0, hasMore: false }
+        }
+      }
+
+      if (isAppend && !pageToken) {
+        return { error: null, appended: 0, hasMore: false }
+      }
+
+      const maxPages = isAppend ? CHANNEL_CACHE_APPEND_PAGES : CHANNEL_CACHE_INITIAL_PAGES
+      const { data: videos, error: ytError, nextPageToken, hasMore, uploadsPlaylistId: playlistId } =
+        await getLatestVideosForChannel(youtubeChannelId, {
+          maxPages,
+          pageToken: isAppend ? pageToken : null,
+          uploadsPlaylistId: uploadsPlaylistId || null,
+        })
+      if (ytError) return { error: ytError, appended: 0, hasMore: false }
+
+      const fetched = videos ?? []
+      if (fetched.length === 0 && !isAppend) {
+        return { error: null, appended: 0, hasMore: false }
+      }
+
+      let positionOffset = 0
+      if (isAppend) {
+        if (localAccessToken) {
+          const pin = getLocalParentPin?.() ?? ''
+          const { data: listed } = await supabase.rpc('local_parent_list_channel_videos', {
+            p_access_token: localAccessToken,
+            p_pin: pin,
+            p_youtube_channel_id: youtubeChannelId,
+          })
+          const rows = Array.isArray(listed) ? listed : []
+          positionOffset = rows.length
+        } else {
+          const { count } = await supabase
+            .from('channel_videos_cache')
+            .select('*', { count: 'exact', head: true })
+            .eq('channel_id', channelDbId)
+          positionOffset = count ?? 0
+        }
+      }
+
+      const cursor = {
+        nextPageToken: nextPageToken ?? null,
+        uploadsPlaylistId: playlistId || uploadsPlaylistId || null,
+        hasMore: Boolean(hasMore),
+      }
+
+      if (localAccessToken) {
+        const pin = getLocalParentPin?.() ?? ''
         const rows = fetched.map((v, idx) => ({
           youtube_video_id: v.videoId,
           title: v.title,
           thumbnail_url: v.thumbnail || null,
           published_at: null as string | null,
-          position: idx,
+          position: positionOffset + idx,
+          duration_seconds: v.durationSeconds ?? null,
         }))
-        for (let offset = 0; offset < rows.length; offset += LOCAL_PARENT_CACHE_RPC_CHUNK) {
-          const slice = rows.slice(offset, offset + LOCAL_PARENT_CACHE_RPC_CHUNK)
+        if (rows.length === 0) {
           const rep = await replaceChannelCacheLocalParent({
             accessToken: localAccessToken,
             pin,
             channelDbId,
-            videos: slice,
-            clearExisting: offset === 0,
+            videos: [],
+            clearExisting: false,
+            nextPageToken: cursor.nextPageToken,
+            uploadsPlaylistId: cursor.uploadsPlaylistId,
+            hasMore: cursor.hasMore,
           })
-          if (rep.error) return rep
+          if (rep.error) return { error: rep.error, appended: 0, hasMore: cursor.hasMore }
+        } else {
+          for (let offset = 0; offset < rows.length; offset += LOCAL_PARENT_CACHE_RPC_CHUNK) {
+            const slice = rows.slice(offset, offset + LOCAL_PARENT_CACHE_RPC_CHUNK)
+            const isFirst = offset === 0
+            const rep = await replaceChannelCacheLocalParent({
+              accessToken: localAccessToken,
+              pin,
+              channelDbId,
+              videos: slice,
+              clearExisting: clearExisting && isFirst,
+              nextPageToken: cursor.nextPageToken,
+              uploadsPlaylistId: cursor.uploadsPlaylistId,
+              hasMore: cursor.hasMore,
+            })
+            if (rep.error) return { error: rep.error, appended: 0, hasMore: cursor.hasMore }
+          }
         }
         await fetchWhitelistForLocalParent(localAccessToken)
-        return { error: null }
+        return { error: null, appended: fetched.length, hasMore: cursor.hasMore }
       }
 
-      const { data: meta, error: metaError } = await supabase
-        .from('whitelisted_channels')
-        .select('last_videos_refresh_at')
-        .eq('id', channelDbId)
-        .maybeSingle()
-      if (metaError) return { error: new Error(metaError.message) }
+      if (clearExisting) {
+        const { error: deleteError } = await supabase
+          .from('channel_videos_cache')
+          .delete()
+          .eq('channel_id', channelDbId)
+        if (deleteError) return { error: new Error(deleteError.message), appended: 0, hasMore: false }
+      }
 
-      const last = meta?.last_videos_refresh_at ? new Date(meta.last_videos_refresh_at).getTime() : 0
-      const isFresh = last > 0 && Date.now() - last < 24 * 60 * 60 * 1000
-      if (!force && isFresh) return { error: null }
-
-      const { data: videos, error: ytError } = await getLatestVideosForChannel(youtubeChannelId)
-      if (ytError) return { error: ytError }
-
-      const fetched = videos ?? []
-      // Only replace cache when we successfully fetched at least one video.
-      // Empty YouTube results must not delete existing rows or mark the channel "fresh".
-      if (fetched.length === 0) return { error: null }
-
-      const { error: deleteError } = await supabase.from('channel_videos_cache').delete().eq('channel_id', channelDbId)
-      if (deleteError) return { error: new Error(deleteError.message) }
-
-      const rows = fetched.map((v, idx) => ({
-        channel_id: channelDbId,
-        youtube_video_id: v.videoId,
-        title: v.title,
-        thumbnail_url: v.thumbnail || null,
-        published_at: null as string | null,
-        position: idx,
-        duration_seconds: v.durationSeconds ?? null,
-      }))
-      for (let offset = 0; offset < rows.length; offset += CHANNEL_CACHE_INSERT_CHUNK) {
-        const slice = rows.slice(offset, offset + CHANNEL_CACHE_INSERT_CHUNK)
-        const { error: insertError } = await supabase.from('channel_videos_cache').insert(slice)
-        if (insertError) return { error: new Error(insertError.message) }
+      if (fetched.length > 0) {
+        const rows = fetched.map((v, idx) => ({
+          channel_id: channelDbId,
+          youtube_video_id: v.videoId,
+          title: v.title,
+          thumbnail_url: v.thumbnail || null,
+          published_at: null as string | null,
+          position: positionOffset + idx,
+          duration_seconds: v.durationSeconds ?? null,
+        }))
+        for (let offset = 0; offset < rows.length; offset += CHANNEL_CACHE_INSERT_CHUNK) {
+          const slice = rows.slice(offset, offset + CHANNEL_CACHE_INSERT_CHUNK)
+          const { error: insertError } = await supabase.from('channel_videos_cache').upsert(slice, {
+            onConflict: 'channel_id,youtube_video_id',
+          })
+          if (insertError) return { error: new Error(insertError.message), appended: 0, hasMore: false }
+        }
       }
 
       const { error: updateError } = await supabase
         .from('whitelisted_channels')
-        .update({ last_videos_refresh_at: new Date().toISOString() })
+        .update({
+          last_videos_refresh_at: new Date().toISOString(),
+          videos_cache_next_page_token: cursor.nextPageToken,
+          videos_cache_uploads_playlist_id: cursor.uploadsPlaylistId,
+          videos_cache_has_more: cursor.hasMore,
+        })
         .eq('id', channelDbId)
-      if (updateError) return { error: new Error(updateError.message) }
+      if (updateError) return { error: new Error(updateError.message), appended: 0, hasMore: false }
+
+      patchWhitelistCursor(channelDbId, {
+        last_videos_refresh_at: new Date().toISOString(),
+        videos_cache_next_page_token: cursor.nextPageToken,
+        videos_cache_uploads_playlist_id: cursor.uploadsPlaylistId,
+        videos_cache_has_more: cursor.hasMore,
+      })
 
       if (deviceId) await fetchWhitelistForDevice(deviceId)
-      return { error: null }
+      return { error: null, appended: fetched.length, hasMore: cursor.hasMore }
     },
     [
       deviceId,
@@ -139,6 +276,48 @@ export function useChannels(
       replaceChannelCacheLocalParent,
       fetchWhitelistForLocalParent,
     ]
+  )
+
+  const appendChannelVideosCache = useCallback(
+    async (channelDbId: string, youtubeChannelId: string) => {
+      return refreshChannelVideosCache(channelDbId, youtubeChannelId, 'append')
+    },
+    [refreshChannelVideosCache]
+  )
+
+  /** Background: initial small batch, then paced appends until caught up or soft ceiling. */
+  const scheduleChannelVideosCacheRefresh = useCallback(
+    (channelDbId: string, youtubeChannelId: string) => {
+      void (async () => {
+        const initial = await refreshChannelVideosCache(channelDbId, youtubeChannelId, 'initial')
+        if (initial.error) {
+          console.warn(
+            '[useChannels] initial cache fill failed',
+            initial.error.message,
+            youtubeChannelId
+          )
+          return
+        }
+        let pages = 0
+        let hasMore = Boolean(initial.hasMore)
+        while (hasMore && pages < BACKGROUND_APPEND_MAX_PAGES) {
+          await new Promise((r) => setTimeout(r, BACKGROUND_APPEND_DELAY_MS))
+          const next = await refreshChannelVideosCache(channelDbId, youtubeChannelId, 'append')
+          if (next.error) {
+            console.warn(
+              '[useChannels] background cache append failed',
+              next.error.message,
+              youtubeChannelId
+            )
+            break
+          }
+          hasMore = Boolean(next.hasMore)
+          pages += 1
+          if ((next.appended ?? 0) === 0 && !hasMore) break
+        }
+      })()
+    },
+    [refreshChannelVideosCache]
   )
 
   const search = useCallback(
@@ -216,22 +395,6 @@ export function useChannels(
       return addVideoToDevice({ deviceId, userId, yt: candidate })
     },
     [deviceId, userId, addVideoToDevice]
-  )
-
-  /** Background cache fill — must not block whitelist add UI. */
-  const scheduleChannelVideosCacheRefresh = useCallback(
-    (channelDbId: string, youtubeChannelId: string) => {
-      void refreshChannelVideosCache(channelDbId, youtubeChannelId, true).then((result) => {
-        if (result.error) {
-          console.warn(
-            '[useChannels] background cache refresh failed',
-            result.error.message,
-            youtubeChannelId
-          )
-        }
-      })
-    },
-    [refreshChannelVideosCache]
   )
 
   const addToWhitelist = useCallback(
@@ -337,6 +500,7 @@ export function useChannels(
     addVideoByUrlOrId,
     addChannelByUrlOrId,
     refreshChannelVideosCache,
+    appendChannelVideosCache,
     addToWhitelist,
     addToApprovedVideos,
     removeFromWhitelist,

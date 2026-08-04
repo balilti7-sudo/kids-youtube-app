@@ -52,7 +52,7 @@ import {
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import type { ChannelVideoItem } from '../lib/youtube'
-import { searchYouTubeVideos } from '../lib/youtube'
+import { searchYouTubeVideos, fetchChannelUploadsPage } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
@@ -79,6 +79,7 @@ function KidModePageInner() {
   const [channels, setChannels] = useState<ChildAllowedChannel[]>([])
   const [channelVideos, setChannelVideos] = useState<ChannelVideoItem[]>([])
   const [channelLoading, setChannelLoading] = useState(false)
+  const [channelLoadingMore, setChannelLoadingMore] = useState(false)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [videoSearch, setVideoSearch] = useState('')
@@ -381,6 +382,62 @@ function KidModePageInner() {
     if (rid !== channelVideosRequestRef.current) return
     setChannelVideos(next)
   }, [accessToken])
+
+  const activeAllowedChannel = useMemo(
+    () => channels.find((c) => c.youtube_channel_id === activeChannelId) ?? null,
+    [channels, activeChannelId]
+  )
+
+  const handleLoadOlderChannelVideos = useCallback(async () => {
+    if (!accessToken || !activeChannelId || !activeAllowedChannel || channelLoadingMore) return
+    setChannelLoadingMore(true)
+    setError(null)
+    try {
+      // Pick up any videos already appended to cache by background fill.
+      await loadChannelVideos(activeChannelId)
+
+      if (!activeAllowedChannel.videos_cache_has_more || !activeAllowedChannel.videos_cache_next_page_token) {
+        return
+      }
+
+      const page = await fetchChannelUploadsPage(activeChannelId, {
+        maxPages: 1,
+        pageToken: activeAllowedChannel.videos_cache_next_page_token,
+        uploadsPlaylistId: activeAllowedChannel.videos_cache_uploads_playlist_id,
+      })
+      if (page.error || !page.data) {
+        setError(page.error?.message ?? 'טעינת סרטונים נוספים נכשלה')
+        return
+      }
+
+      setChannelVideos((prev) => {
+        const seen = new Set(prev.map((v) => v.videoId))
+        const extra = page.data!.videos.filter((v) => !seen.has(v.videoId))
+        return [...prev, ...extra]
+      })
+      setChannels((prev) =>
+        prev.map((c) =>
+          c.youtube_channel_id === activeChannelId
+            ? {
+                ...c,
+                videos_cache_has_more: page.data!.hasMore,
+                videos_cache_next_page_token: page.data!.nextPageToken,
+                videos_cache_uploads_playlist_id:
+                  page.data!.uploadsPlaylistId || c.videos_cache_uploads_playlist_id,
+              }
+            : c
+        )
+      )
+    } finally {
+      setChannelLoadingMore(false)
+    }
+  }, [
+    accessToken,
+    activeChannelId,
+    activeAllowedChannel,
+    channelLoadingMore,
+    loadChannelVideos,
+  ])
 
   const handleBulkAddChannelsToPlaylist = useCallback(async () => {
     if (!accessToken) return
@@ -1433,6 +1490,18 @@ function KidModePageInner() {
                             })
                           : null}
                       </YoutubeSuggestedList>
+                      {!videoSearch.trim() && activeAllowedChannel?.videos_cache_has_more ? (
+                        <div className="mt-3 flex justify-center">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={channelLoadingMore || channelLoading}
+                            onClick={() => void handleLoadOlderChannelVideos()}
+                          >
+                            {channelLoadingMore ? t('channels.loadingOlderVideos') : t('channels.loadOlderVideos')}
+                          </Button>
+                        </div>
+                      ) : null}
                       {!channelLoading && filteredVideos.length === 0 ? (
                         <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300/90 bg-white/40 px-3 py-6 text-center dark:border-zinc-600 dark:bg-zinc-900/40">
                           <p className="text-sm font-semibold leading-snug text-slate-700 dark:text-zinc-300">

@@ -18,6 +18,9 @@ function channelFromSearchResult(
     subscriber_count: yt.subscriberCount || null,
     description: yt.description || null,
     last_videos_refresh_at: null,
+    videos_cache_next_page_token: null,
+    videos_cache_uploads_playlist_id: null,
+    videos_cache_has_more: false,
     created_at: new Date().toISOString(),
   }
 }
@@ -87,9 +90,19 @@ interface ChannelState {
     accessToken: string
     pin: string
     channelDbId: string
-    videos: { youtube_video_id: string; title: string; thumbnail_url: string | null; published_at: string | null; position: number }[]
+    videos: {
+      youtube_video_id: string
+      title: string
+      thumbnail_url: string | null
+      published_at: string | null
+      position: number
+      duration_seconds?: number | null
+    }[]
     /** ברירת מחדל true: מוחק את כל המטמון לערוץ לפני ההכנסה. false: מוסיף אצווה (אחרי אצווה עם clear). */
     clearExisting?: boolean
+    nextPageToken?: string | null
+    uploadsPlaylistId?: string | null
+    hasMore?: boolean | null
   }) => Promise<{ error: Error | null }>
 }
 
@@ -324,19 +337,50 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return { error: null }
   },
 
-  replaceChannelCacheLocalParent: async ({ accessToken, pin, channelDbId, videos, clearExisting = true }) => {
+  replaceChannelCacheLocalParent: async ({
+    accessToken,
+    pin,
+    channelDbId,
+    videos,
+    clearExisting = true,
+    nextPageToken = null,
+    uploadsPlaylistId = null,
+    hasMore = null,
+  }) => {
     const { data, error } = await supabase.rpc('local_parent_replace_channel_videos_cache', {
       p_access_token: accessToken,
       p_pin: pin,
       p_channel_id: channelDbId,
       p_videos: videos,
       p_clear_existing: clearExisting,
+      p_next_page_token: nextPageToken,
+      p_uploads_playlist_id: uploadsPlaylistId,
+      p_has_more: hasMore,
     })
     if (error) return { error: new Error(error.message) }
     const row = data as { ok?: boolean; error?: string } | null
     if (!row?.ok) {
       const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה ברענון מטמון'
       return { error: new Error(msg) }
+    }
+    if (hasMore != null || nextPageToken !== undefined || uploadsPlaylistId !== undefined) {
+      const list = get().whitelist
+      const idx = list.findIndex((c) => c.id === channelDbId)
+      if (idx >= 0) {
+        const next = [...list]
+        next[idx] = {
+          ...next[idx],
+          videos_cache_has_more: hasMore ?? next[idx].videos_cache_has_more,
+          videos_cache_next_page_token:
+            nextPageToken === undefined ? next[idx].videos_cache_next_page_token : nextPageToken,
+          videos_cache_uploads_playlist_id:
+            uploadsPlaylistId === undefined
+              ? next[idx].videos_cache_uploads_playlist_id
+              : uploadsPlaylistId,
+          last_videos_refresh_at: new Date().toISOString(),
+        }
+        set({ whitelist: next })
+      }
     }
     return { error: null }
   },

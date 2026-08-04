@@ -158,7 +158,9 @@
     "addedCachePending": "Canal añadido, pero la caché de vídeos necesita actualizarse",
     "videosFound": "{{count}} vídeos encontrados",
     "skippedEmpty": "Se omitieron {{count}} canales sin vídeos en caché",
-    "noLocalPermission": "Sin permiso local para cargar vídeos del canal."
+    "noLocalPermission": "Sin permiso local para cargar vídeos del canal.",
+    "loadOlderVideos": "Cargar vídeos anteriores",
+    "loadingOlderVideos": "Cargando vídeos anteriores…"
   },
   "playlists": {
     "addToPlaylist": "Añadir a la lista",

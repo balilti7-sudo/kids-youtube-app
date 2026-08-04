@@ -88,6 +88,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [channelBulkOpen, setChannelBulkOpen] = useState(false)
   const [channelBulkLoading, setChannelBulkLoading] = useState(false)
   const [previewRefreshing, setPreviewRefreshing] = useState(false)
+  const [previewLoadingMore, setPreviewLoadingMore] = useState(false)
   const [previewReloadToken, setPreviewReloadToken] = useState(0)
   const [videoSearchOpenSignal, setVideoSearchOpenSignal] = useState(0)
   const previewAutoRefreshTriedRef = useRef<string | null>(null)
@@ -124,6 +125,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     addToWhitelist,
     removeFromWhitelist,
     refreshChannelVideosCache,
+    appendChannelVideosCache,
   } = useChannels(deviceId ?? undefined, user?.id ?? ownerUserId, {
     localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
     getLocalParentPin: localParent.isActive ? getLocalParentPin : undefined,
@@ -504,6 +506,32 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     toast.success(t('channels.cacheRefreshed'))
   }, [previewChannel, previewRefreshing, refreshChannelVideosCache, t])
 
+  const handleLoadMorePreviewVideos = useCallback(async () => {
+    if (!previewChannel || previewLoadingMore || previewRefreshing) return
+    const meta =
+      whitelist.find((c) => c.id === previewChannel.id) ?? previewChannel
+    if (!meta.videos_cache_has_more) return
+    setPreviewLoadingMore(true)
+    setPreviewError(null)
+    const appended = await appendChannelVideosCache(
+      previewChannel.id,
+      previewChannel.youtube_channel_id
+    )
+    setPreviewLoadingMore(false)
+    if (appended.error) {
+      toast.error(t('channels.loadVideosFailed'), { description: appended.error.message })
+      return
+    }
+    setPreviewReloadToken((n) => n + 1)
+  }, [
+    previewChannel,
+    previewLoadingMore,
+    previewRefreshing,
+    whitelist,
+    appendChannelVideosCache,
+    t,
+  ])
+
   const filteredPreviewVideos = useMemo(
     () => filterVideosByTitle(previewVideos, previewVideoSearch),
     [previewVideos, previewVideoSearch]
@@ -854,6 +882,22 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                             ? 'אין סרטונים שמתאימים לחיפוש.'
                             : 'אין סרטונים.'}
                         </p>
+                      ) : null}
+                      {!previewVideoSearch.trim() &&
+                      (whitelist.find((c) => c.id === previewChannel.id)?.videos_cache_has_more ??
+                        previewChannel.videos_cache_has_more) ? (
+                        <div className="mt-3 flex justify-center pb-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={previewLoadingMore || previewRefreshing}
+                            onClick={() => void handleLoadMorePreviewVideos()}
+                          >
+                            {previewLoadingMore
+                              ? t('channels.loadingOlderVideos')
+                              : t('channels.loadOlderVideos')}
+                          </Button>
+                        </div>
                       ) : null}
                     </>
                   }
