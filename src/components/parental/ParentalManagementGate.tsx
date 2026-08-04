@@ -158,7 +158,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-[200] flex min-h-dvh flex-col items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-xl dark:bg-black/70"
+        className="safe-area-pad fixed inset-0 z-[200] flex min-h-dvh flex-col items-center justify-center overflow-y-auto bg-slate-950/60 backdrop-blur-xl dark:bg-black/70"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}

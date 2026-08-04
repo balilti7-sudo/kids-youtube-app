@@ -25,7 +25,7 @@ export function LionClosetModal({ open, onClose }: Props) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[215] flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center sm:p-4"
+      className="safe-area-pad fixed inset-0 z-[215] flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center"
       role="dialog"
       aria-modal="true"
       aria-labelledby="lion-closet-title"

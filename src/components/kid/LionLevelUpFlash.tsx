@@ -25,7 +25,7 @@ export function LionLevelUpFlash({ level, onDone }: Props) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[225] flex flex-col items-center justify-center bg-gradient-to-br from-amber-400/95 via-orange-500/95 to-rose-500/95 p-6 backdrop-blur-sm"
+      className="safe-area-pad fixed inset-0 z-[225] flex flex-col items-center justify-center bg-gradient-to-br from-amber-400/95 via-orange-500/95 to-rose-500/95 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="level-up-title"

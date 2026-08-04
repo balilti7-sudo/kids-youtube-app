@@ -6,10 +6,12 @@ import { installAuthDiagnostics } from './lib/authDiagnostics'
 import { initTheme } from './lib/theme'
 import { initCapacitorDeviceResolve } from './lib/deviceResolve/capacitorBridge'
 import { initCapacitorAuthDeepLinks } from './lib/capacitorAuth'
+import { initSafeAreaInsets } from './lib/safeArea'
 import App from './App.tsx'
 
 installAuthDiagnostics()
 initTheme()
+initSafeAreaInsets()
 initCapacitorDeviceResolve()
 initCapacitorAuthDeepLinks()
 

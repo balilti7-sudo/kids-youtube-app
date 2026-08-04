@@ -146,7 +146,7 @@ export function ParentalPinModal({
     <AnimatePresence>
       {open ? (
         <motion.div
-          className="fixed inset-0 z-[100010] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[100010]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -159,20 +159,21 @@ export function ParentalPinModal({
             onClick={onClose}
           />
 
-          <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="parental-pin-title"
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.92, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-            className={cn(
-              'relative w-full max-w-md overflow-hidden rounded-3xl border border-yt-border',
-              'bg-yt-surface shadow-2xl ring-1 ring-yt-border/80'
-            )}
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="safe-area-pad pointer-events-none relative z-10 flex h-full w-full items-center justify-center">
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="parental-pin-title"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+              className={cn(
+                'pointer-events-auto relative w-full max-w-md overflow-hidden rounded-3xl border border-yt-border',
+                'bg-yt-surface shadow-2xl ring-1 ring-yt-border/80'
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="flex items-start justify-between gap-3 border-b border-yt-border px-5 py-4">
               <h2 id="parental-pin-title" className="text-lg font-bold text-yt-text">
                 {title}
@@ -235,7 +236,8 @@ export function ParentalPinModal({
                 </motion.p>
               ) : null}
             </div>
-          </motion.div>
+            </motion.div>
+          </div>
         </motion.div>
       ) : null}
     </AnimatePresence>

@@ -62,7 +62,7 @@ export function ParentalForgotPinModal({ open, onClose, defaultEmail = '', lockE
       {open ? (
         <motion.div
           key="forgot-pin-backdrop"
-          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          className="safe-area-pad fixed inset-0 z-[210] flex items-center justify-center bg-black/50 backdrop-blur-sm"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

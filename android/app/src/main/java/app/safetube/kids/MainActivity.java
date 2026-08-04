@@ -2,8 +2,13 @@ package app.safetube.kids;
 
 import android.os.Bundle;
 import android.webkit.WebView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapacitorWebView;
+import java.util.Locale;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -15,6 +20,56 @@ public class MainActivity extends BridgeActivity {
             if (bridge != null && bridge.getWebView() != null) {
                 bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
             }
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+        installSafeAreaInsets();
+    }
+
+    /**
+     * targetSdk 35+ draws edge-to-edge; push real system-bar insets into CSS vars
+     * so fixed dialogs / bottom sheets clear the gesture nav pill.
+     */
+    private void installSafeAreaInsets() {
+        try {
+            WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+            final WebView webView = bridge != null ? bridge.getWebView() : null;
+            if (webView == null) return;
+
+            ViewCompat.setOnApplyWindowInsetsListener(webView, (v, windowInsets) -> {
+                Insets bars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+                );
+                int top = Math.max(0, bars.top);
+                int bottom = Math.max(0, bars.bottom);
+                int left = Math.max(0, bars.left);
+                int right = Math.max(0, bars.right);
+                // Keep a usable minimum when OEMs report 0 for gesture nav.
+                if (bottom < 24) bottom = 24;
+
+                String js = String.format(
+                    Locale.US,
+                    "(function(){try{"
+                        + "var r=document.documentElement;"
+                        + "r.style.setProperty('--sat','%dpx');"
+                        + "r.style.setProperty('--sab','%dpx');"
+                        + "r.style.setProperty('--sal','%dpx');"
+                        + "r.style.setProperty('--sar','%dpx');"
+                        + "if(window.__safetubeApplySafeArea)window.__safetubeApplySafeArea(%d,%d,%d,%d);"
+                        + "}catch(e){}})();",
+                    top, bottom, left, right,
+                    top, bottom, left, right
+                );
+                webView.post(() -> {
+                    try {
+                        webView.evaluateJavascript(js, null);
+                    } catch (Exception ignored) {
+                        /* ignore */
+                    }
+                });
+                return windowInsets;
+            });
+            ViewCompat.requestApplyInsets(webView);
         } catch (Exception ignored) {
             /* ignore */
         }

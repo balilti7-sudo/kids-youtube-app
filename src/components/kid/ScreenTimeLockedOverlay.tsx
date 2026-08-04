@@ -4,7 +4,7 @@ import { Moon, Shield } from 'lucide-react'
 export function ScreenTimeLockedOverlay() {
   return createPortal(
     <div
-      className="fixed inset-0 z-[190] flex flex-col items-center justify-center bg-zinc-950 px-6 text-center"
+      className="safe-area-pad fixed inset-0 z-[190] flex flex-col items-center justify-center bg-zinc-950 px-6 text-center"
       role="alert"
       aria-live="polite"
     >
