@@ -14,6 +14,7 @@ import { Button } from '../ui/Button'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { Skeleton } from '../ui/Skeleton'
 import { Modal } from '../ui/Modal'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
@@ -54,6 +55,7 @@ type ChannelManagerProps = {
 }
 
 export function ChannelManager({ managedDeviceId = null, embedded = false }: ChannelManagerProps) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, profile } = useAuth()
@@ -484,7 +486,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             )}
             onClick={requestOpenChannelSearch}
           >
-            {whitelist.length === 0 ? 'התחילו כאן — חיפוש ערוץ' : 'חיפוש ערוץ'}
+            {whitelist.length === 0 ? t('channels.startHereSearchChannel') : t('channels.searchChannel')}
           </Button>
         </div>
         {user?.id || ownerUserId || localParent.localAccessToken ? (
@@ -755,24 +757,24 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         }}
         verifyPin={verifyChannelParentPin}
         onVerified={(pin) => runAfterVerifiedPin(pin.replace(/\D/g, '').trim())}
-        title="אימות הורה"
-        description="הזינו את קוד ההורה בן 6 הספרות. לאחר מילוי כל הספרות האימות והפעולה יתבצעו אוטומטית."
+        title={t('channels.parentVerifyTitle')}
+        description={t('channels.parentVerifyDescription')}
       />
 
       <Modal
         open={addSuccessModalOpen}
         onClose={() => setAddSuccessModalOpen(false)}
-        title="הערוץ נוסף בהצלחה! 🎉"
-        bodyClassName="max-h-[70vh] overflow-y-auto text-right"
+        title={t('channels.channelAddedTitle')}
+        bodyClassName="max-h-[70vh] overflow-y-auto"
         footer={
-          <div dir="rtl" className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-start">
+          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-start">
             <Button
               type="button"
               variant="secondary"
               className="w-full sm:w-auto"
               onClick={() => setAddSuccessModalOpen(false)}
             >
-              הוספת ערוץ נוסף
+              {t('channels.addAnother')}
             </Button>
             <Button
               type="button"
@@ -788,13 +790,13 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                 navigate('/dashboard')
               }}
             >
-              {embedded ? 'סיום' : 'חזרה לבקרת הורים'}
+              {embedded ? t('channels.finish') : t('channels.backToParent')}
             </Button>
           </div>
         }
       >
         <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-300">
-          האם תרצה להוסיף ערוצים נוספים או לחזור לבקרת ההורים?
+          {t('channels.addMoreOrReturn')}
         </p>
       </Modal>
 

@@ -14,23 +14,24 @@ import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
 import { DailyTimeLimitDeviceSettings } from './DailyTimeLimitDeviceSettings'
 import { DeviceOsControlsSettings } from './DeviceOsControlsSettings'
-import { QRCodeDisplay } from '../devices/QRCodeDisplay'
+import { PairingCodeDisplay } from '../devices/QRCodeDisplay'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import type { Device } from '../../types'
 
 function randomSixDigits() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
-function formatLimitBrief(minutes: number | undefined): string {
+function formatLimitBrief(minutes: number | undefined, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const n = Number(minutes ?? 60)
-  if (!Number.isFinite(n) || n < 0) return '60 דק׳'
-  if (n === 0) return 'ללא הגבלה'
-  if (n < 60) return `${Math.round(n)} דק׳`
+  if (!Number.isFinite(n) || n < 0) return t('timeLimit.minutesAbbr', { count: 60 })
+  if (n === 0) return t('timeLimit.unlimited')
+  if (n < 60) return t('timeLimit.minutesAbbr', { count: Math.round(n) })
   const h = Math.floor(n / 60)
   const m = Math.round(n % 60)
-  if (m === 0) return h === 1 ? 'שעה' : `${h} שעות`
-  return `${h}ש׳ ${m}ד׳`
+  if (m === 0) return t('timeLimit.hoursAbbr', { count: h })
+  return t('timeLimit.hoursMinutesAbbr', { hours: h, minutes: m })
 }
 
 function ProfileDeviceCard({
@@ -52,8 +53,9 @@ function ProfileDeviceCard({
   regenerating: boolean
   onRegeneratePairing: (deviceId: string) => void
 }) {
-  const limitLabel = formatLimitBrief(device.daily_time_limit_minutes)
-  const shortsLabel = device.allow_shorts ? 'Shorts מותר' : 'Shorts חסום'
+  const { t } = useTranslation()
+  const limitLabel = formatLimitBrief(device.daily_time_limit_minutes, t)
+  const shortsLabel = device.allow_shorts ? t('shorts.allowOn') : t('shorts.allowOff')
   const hasPairingCode = Boolean(device.pairing_code?.trim())
 
   return (
@@ -79,7 +81,7 @@ function ProfileDeviceCard({
             {!expanded ? (
               <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
                 {hasPairingCode ? (
-                  <span className="text-amber-300/90">ממתין לצימוד · </span>
+                  <span className="text-amber-300/90">{t('dashboard.waitingPairing')} · </span>
                 ) : null}
                 {limitLabel} · {shortsLabel}
               </span>
@@ -102,30 +104,28 @@ function ProfileDeviceCard({
               'ring-2 ring-brand-300/80 ring-offset-1 ring-offset-zinc-950'
           )}
           onClick={() => onManageChannels(device.id)}
-          aria-label={`ניהול ערוצים עבור ${device.name}`}
+          aria-label={t('dashboard.manageChannelsFor', { name: device.name })}
           aria-current={activeManagementDeviceId === device.id ? 'true' : undefined}
         >
           <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
-          <span className="whitespace-nowrap">ניהול ערוצים</span>
+          <span className="whitespace-nowrap">{t('dashboard.manageChannels')}</span>
         </Button>
       </div>
 
       {expanded ? (
         <div id={`profile-settings-${device.id}`} className="flex flex-col gap-2">
           <div className="rounded-xl border border-sky-500/25 bg-sky-950/20 px-3 py-2.5 ring-1 ring-sky-500/10">
-            <p className="text-sm font-semibold text-zinc-100">חיבור מכשיר הילד</p>
+            <p className="text-sm font-semibold text-zinc-100">{t('dashboard.pairingSectionTitle')}</p>
             {hasPairingCode ? (
               <>
-                <p className="mt-1 text-xs text-zinc-400">
-                  הזינו את הקוד במסך הילד, או הציגו QR מלא:
-                </p>
+                <p className="mt-1 text-xs text-zinc-400">{t('dashboard.pairingPendingHint')}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button
                     type="button"
                     className="!h-9 !px-3 !text-xs font-bold"
                     onClick={() => onShowPairing(device)}
                   >
-                    הצגת קוד ו־QR
+                    {t('dashboard.showPairingCode')}
                   </Button>
                   <p className="self-center font-mono text-lg font-bold tracking-[0.2em] text-sky-200" dir="ltr">
                     {device.pairing_code}
@@ -134,9 +134,7 @@ function ProfileDeviceCard({
               </>
             ) : (
               <>
-                <p className="mt-1 text-xs text-zinc-400">
-                  הפרופיל כבר חובר, או שהקוד פג. אפשר ליצור קוד חדש לחיבור מחדש.
-                </p>
+                <p className="mt-1 text-xs text-zinc-400">{t('dashboard.pairingAlreadyConnected')}</p>
                 <Button
                   type="button"
                   variant="secondary"
@@ -144,7 +142,7 @@ function ProfileDeviceCard({
                   disabled={regenerating}
                   onClick={() => onRegeneratePairing(device.id)}
                 >
-                  {regenerating ? 'יוצר…' : 'יצירת קוד צימוד חדש'}
+                  {regenerating ? t('dashboard.creating') : t('dashboard.createNewPairingCode')}
                 </Button>
               </>
             )}
@@ -176,6 +174,7 @@ export function DashboardDevicesSection({
   const { subscription } = useSubscription(ownerUserId)
   const addDevice = useDeviceStore((s) => s.addDevice)
   const regeneratePairingCode = useDeviceStore((s) => s.regeneratePairingCode)
+  const { t } = useTranslation()
 
   const [modalOpen, setModalOpen] = useState(false)
   const [deviceName, setDeviceName] = useState('')
@@ -200,10 +199,10 @@ export function DashboardDevicesSection({
 
   useEffect(() => {
     if (openAddProfileSignal > 0) {
-      setDeviceName('פרופיל הילד')
+      setDeviceName(t('dashboard.defaultProfileName'))
       setModalOpen(true)
     }
-  }, [openAddProfileSignal])
+  }, [openAddProfileSignal, t])
 
   useEffect(() => {
     if (showPairingSignal <= 0) return
@@ -213,9 +212,9 @@ export function DashboardDevicesSection({
       setExpandedIds((prev) => new Set(prev).add(pending.id))
     } else if (devices[0]) {
       setExpandedIds((prev) => new Set(prev).add(devices[0].id))
-      toast.info('אין קוד פעיל', { description: 'פתחו את הפרופיל ולחצו «יצירת קוד צימוד חדש».' })
+      toast.info(t('dashboard.noActiveCode'), { description: t('dashboard.noActiveCodeHint') })
     }
-  }, [showPairingSignal, devices])
+  }, [showPairingSignal, devices, t])
 
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
@@ -227,7 +226,7 @@ export function DashboardDevicesSection({
   }
 
   const openModal = () => {
-    setDeviceName('פרופיל הילד')
+    setDeviceName(t('dashboard.defaultProfileName'))
     setModalOpen(true)
   }
 
@@ -240,29 +239,29 @@ export function DashboardDevicesSection({
     const { data, error: err } = await regeneratePairingCode(deviceId)
     setRegeneratingId(null)
     if (err) {
-      toast.error('יצירת קוד נכשלה', { description: err.message })
+      toast.error(t('dashboard.createCodeFailed'), { description: err.message })
       return
     }
     await refetch()
     const device = useDeviceStore.getState().devices.find((d) => d.id === deviceId)
     if (device && data) {
       setPairingModalDevice({ ...device, pairing_code: data })
-      toast.success('קוד צימוד חדש מוכן')
+      toast.success(t('dashboard.newPairingReady'))
     }
   }
 
   const handleAdd = async () => {
     const name = deviceName.trim()
     if (!name) {
-      toast.error('נא להזין שם לפרופיל')
+      toast.error(t('dashboard.enterProfileName'))
       return
     }
     if (!ownerUserId) {
-      toast.error('חסר מזהה משתמש לשמירת פרופיל')
+      toast.error(t('dashboard.missingUserId'))
       return
     }
     if (atLimit) {
-      toast.error(`הגעת למגבלה (${max} פרופילים)`)
+      toast.error(t('dashboard.limitReached', { count: max }))
       return
     }
 
@@ -277,11 +276,11 @@ export function DashboardDevicesSection({
       })
       if (err) {
         console.error('Connection Error:', err)
-        toast.error('שמירה נכשלה', { description: err.message })
+        toast.error(t('dashboard.saveFailed'), { description: err.message })
         return
       }
       if (data) {
-        toast.success('הפרופיל נוסף', { description: `קוד הצימוד: ${pairing}` })
+        toast.success(t('dashboard.profileAdded'), { description: t('dashboard.pairingCodeToast', { code: pairing }) })
         setExpandedIds((prev) => new Set(prev).add(data.id))
         await refetch()
         setModalOpen(false)
@@ -290,7 +289,7 @@ export function DashboardDevicesSection({
       }
     } catch (e) {
       console.error('Connection Error:', e)
-      toast.error('שגיאה', { description: e instanceof Error ? e.message : String(e) })
+      toast.error(t('common.error'), { description: e instanceof Error ? e.message : String(e) })
     } finally {
       setSaving(false)
     }
@@ -305,9 +304,9 @@ export function DashboardDevicesSection({
       <div className="mb-2 flex flex-col gap-1.5">
         <div>
           <h2 id="profiles-section-title" className="text-lg font-bold text-zinc-50">
-            פרופילים
+            {t('dashboard.profiles')}
           </h2>
-          <p className="text-xs text-zinc-500">פרופילים מקושרים: {devices.length} / {max}</p>
+          <p className="text-xs text-zinc-500">{t('dashboard.profilesLinked', { count: `${devices.length} / ${max}` })}</p>
         </div>
 
         <div
@@ -319,12 +318,10 @@ export function DashboardDevicesSection({
           )}
         >
           <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            {devices.length === 0 ? 'צעד 1 — התחלה' : 'פרופילי ילדים'}
+            {devices.length === 0 ? t('dashboard.step1Start') : t('dashboard.childProfiles')}
           </p>
           <p className="mb-3 text-[13px] leading-snug text-zinc-400">
-            {devices.length === 0
-              ? 'צרו פרופיל — מיד יופיע קוד צימוד לחיבור מכשיר הילד.'
-              : 'מוסיפים פרופיל כאן; הוא משמש לצימוד מסך הילד ולהגדרת ההרשאות.'}
+            {devices.length === 0 ? t('dashboard.createProfileLeadEmpty') : t('dashboard.createProfileLead')}
           </p>
           <button
             type="button"
@@ -333,20 +330,18 @@ export function DashboardDevicesSection({
             disabled={atLimit || !ownerUserId}
           >
             <Plus className="h-5 w-5 shrink-0" aria-hidden />
-            הוספת פרופיל
+            {t('dashboard.addProfile')}
           </button>
         </div>
       </div>
 
       {isDevFallback ? (
         <p className="mb-3 rounded-xl border border-amber-800/60 bg-amber-950/40 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
-          <span className="font-semibold text-amber-50">מצב פיתוח:</span> משתמשים ב־user_id דמה (נשמר ב־localStorage).
-          אם יש FK ל־<code className="rounded bg-black/30 px-1">profiles</code>, הגדירו ב־.env את{' '}
-          <code className="rounded bg-black/30 px-1">VITE_DEV_DEVICE_OWNER_ID</code> עם UUID קיים מ־profiles.
+          <span className="font-semibold text-amber-50">{t('dashboard.devModeLabel')}</span> {t('dashboard.devModeBody')}
         </p>
       ) : null}
       {atLimit ? (
-        <p className="mb-3 text-xs text-amber-400/90">הגעתם למגבלת הפרופילים בתוכנית הנוכחית.</p>
+        <p className="mb-3 text-xs text-amber-400/90">{t('dashboard.planLimitReached')}</p>
       ) : null}
 
       {loading ? (
@@ -359,10 +354,10 @@ export function DashboardDevicesSection({
       ) : devices.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40 py-5 text-center">
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
-          <p className="text-sm font-medium text-zinc-300">אין פרופילים עדיין</p>
-          <p className="max-w-xs text-xs text-zinc-500">לחצו «הוספת פרופיל» למעלה — זה הצעד הראשון לצפייה.</p>
+          <p className="text-sm font-medium text-zinc-300">{t('dashboard.noProfilesYet')}</p>
+          <p className="max-w-xs text-xs text-zinc-500">{t('dashboard.noProfilesHint')}</p>
           <Button type="button" onClick={openModal} disabled={!ownerUserId || atLimit}>
-            הוספת פרופיל עכשיו
+            {t('dashboard.addProfileNow')}
           </Button>
         </div>
       ) : (
@@ -386,27 +381,25 @@ export function DashboardDevicesSection({
       <Modal
         open={modalOpen}
         onClose={closeModal}
-        title="פרופיל חדש"
+        title={t('dashboard.newProfileTitle')}
         footer={
           <>
             <Button type="button" variant="secondary" onClick={closeModal} disabled={saving}>
-              ביטול
+              {t('common.cancel')}
             </Button>
             <Button type="button" onClick={() => void handleAdd()} disabled={saving}>
               {saving ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-              {saving ? 'שומר…' : 'שמור'}
+              {saving ? t('common.saving') : t('common.save')}
             </Button>
           </>
         }
       >
-        <p className="mb-3 text-sm text-zinc-400">
-          אחרי השמירה יוצג קוד צימוד — הזינו אותו במכשיר הילד כדי להתחיל.
-        </p>
-        <label className="mb-1 block text-sm font-medium text-zinc-300">שם הפרופיל</label>
+        <p className="mb-3 text-sm text-zinc-400">{t('dashboard.newProfileHint')}</p>
+        <label className="mb-1 block text-sm font-medium text-zinc-300">{t('dashboard.profileName')}</label>
         <Input
           value={deviceName}
           onChange={(e) => setDeviceName(e.target.value)}
-          placeholder="למשל: פרופיל הילד"
+          placeholder={t('dashboard.profileNamePlaceholder')}
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && void handleAdd()}
         />
@@ -415,12 +408,12 @@ export function DashboardDevicesSection({
       <Modal
         open={Boolean(pairingModalDevice?.pairing_code)}
         onClose={() => setPairingModalDevice(null)}
-        title="חברו את מכשיר הילד"
+        title={t('dashboard.pairingModalTitle')}
         bodyClassName="max-h-[75vh] overflow-y-auto"
         footer={
           <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-between">
             <Button type="button" variant="secondary" onClick={() => setPairingModalDevice(null)}>
-              סגור
+              {t('common.close')}
             </Button>
             {pairingModalDevice ? (
               <Button
@@ -431,7 +424,7 @@ export function DashboardDevicesSection({
                   onManageChannels(id)
                 }}
               >
-                המשך — הוספת ערוצים
+                {t('dashboard.continueAddChannels')}
               </Button>
             ) : null}
           </div>
@@ -439,10 +432,8 @@ export function DashboardDevicesSection({
       >
         {pairingModalDevice?.pairing_code ? (
           <>
-            <p className="mb-3 text-sm leading-relaxed text-zinc-400">
-              זה הצעד החשוב ביותר: במכשיר הילד פתחו את האפליקציה והזינו את הקוד, או סרקו את ה־QR.
-            </p>
-            <QRCodeDisplay
+            <p className="mb-3 text-sm leading-relaxed text-zinc-400">{t('dashboard.pairingModalLead')}</p>
+            <PairingCodeDisplay
               code={pairingModalDevice.pairing_code}
               deviceName={pairingModalDevice.name}
             />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Smartphone } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { useDeviceStore } from '../../stores/deviceStore'
 import type { Device } from '../../types'
 import { cn } from '../../lib/utils'
@@ -11,6 +12,7 @@ type Props = {
 }
 
 export function AllowShortsDeviceSettings({ device, className }: Props) {
+  const { t } = useTranslation()
   const updateAllowShorts = useDeviceStore((s) => s.updateAllowShorts)
   const [enabled, setEnabled] = useState(Boolean(device.allow_shorts))
   const [saving, setSaving] = useState(false)
@@ -24,11 +26,11 @@ export function AllowShortsDeviceSettings({ device, className }: Props) {
     const { error } = await updateAllowShorts(device.id, next)
     setSaving(false)
     if (error) {
-      toast.error('שמירה נכשלה', { description: error.message })
+      toast.error(t('dashboard.saveFailed'), { description: error.message })
       setEnabled(Boolean(device.allow_shorts))
       return
     }
-    toast.success(next ? 'Shorts מותרים בפרופיל הזה' : 'Shorts חסומים בפרופיל הזה')
+    toast.success(next ? t('shorts.allowOn') : t('shorts.allowOff'))
   }
 
   return (
@@ -42,7 +44,7 @@ export function AllowShortsDeviceSettings({ device, className }: Props) {
         <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" aria-hidden />
         <div className="min-w-0 flex-1">
           <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-zinc-100">אפשר צפייה בסרטוני Shorts 📱</span>
+            <span className="text-sm font-semibold text-zinc-100">{t('shorts.allowTitle')}</span>
             <input
               type="checkbox"
               role="switch"
@@ -63,9 +65,7 @@ export function AllowShortsDeviceSettings({ device, className }: Props) {
             />
           </label>
           <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
-            {enabled
-              ? 'הילד יכול לראות גם סרטונים קצרים (עד 60 שניות ו-/shorts/).'
-              : 'סרטונים קצרים מ-60 שניות וקישורי /shorts/ יוסתרו מהילד.'}
+            {enabled ? t('shorts.hintOn') : t('shorts.hintOff')}
           </p>
         </div>
       </div>

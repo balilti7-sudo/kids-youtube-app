@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ShieldCheck, Tv, ListMusic, Settings, Tablet } from 'lucide-react'
 import { juicyPressableClass, useJuicyPointerBurst, useJuicyUiEnabled } from '../../contexts/JuicyUiContext'
 import { cn } from '../../lib/utils'
@@ -6,6 +7,7 @@ import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
 import { LongPressNavButton } from './LongPressNavButton'
 
 export function BottomNav() {
+  const { t } = useTranslation()
   const { pathname } = useLocation()
   const hasKidToken = useKidDeviceTokenPresent()
   const juicy = useJuicyUiEnabled()
@@ -16,11 +18,16 @@ export function BottomNav() {
   return (
     <nav
       className="bottom-nav fixed bottom-0 inset-x-0 z-40 border-t border-yt-border bg-yt-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md"
-      aria-label="ניווט ראשי"
+      aria-label={t('nav.mainNavAria')}
     >
       <div className="mx-auto flex max-w-lg items-stretch justify-around">
         {parentNavDiscreet ? (
-          <LongPressNavButton to="/dashboard" label="בקרת הורים" icon={ShieldCheck} isActive={pathname === '/dashboard'} />
+          <LongPressNavButton
+            to="/dashboard"
+            label={t('nav.parentControl')}
+            icon={ShieldCheck}
+            isActive={pathname === '/dashboard'}
+          />
         ) : (
           <NavLink
             to="/dashboard"
@@ -37,7 +44,7 @@ export function BottomNav() {
             }
           >
             <ShieldCheck className="h-6 w-6" aria-hidden />
-            בקרת הורים
+            {t('nav.parentControl')}
           </NavLink>
         )}
 
@@ -57,13 +64,13 @@ export function BottomNav() {
           }
         >
           <Tv className="h-6 w-6" aria-hidden />
-          ערוצים
+          {t('nav.channels')}
         </NavLink>
 
         {parentNavDiscreet ? (
           <LongPressNavButton
             to="/playlists"
-            label="פלייליסטים"
+            label={t('nav.playlists')}
             icon={ListMusic}
             isActive={pathname === '/playlists'}
           />
@@ -83,7 +90,7 @@ export function BottomNav() {
             }
           >
             <ListMusic className="h-6 w-6" aria-hidden />
-            פלייליסטים
+            {t('nav.playlists')}
           </NavLink>
         )}
 
@@ -104,12 +111,17 @@ export function BottomNav() {
             }
           >
             <Tablet className="h-6 w-6" aria-hidden />
-            ילד
+            {t('nav.kid')}
           </NavLink>
         ) : null}
 
         {parentNavDiscreet ? (
-          <LongPressNavButton to="/settings" label="הגדרות" icon={Settings} isActive={pathname === '/settings'} />
+          <LongPressNavButton
+            to="/settings"
+            label={t('nav.settings')}
+            icon={Settings}
+            isActive={pathname === '/settings'}
+          />
         ) : (
           <NavLink
             to="/settings"
@@ -126,7 +138,7 @@ export function BottomNav() {
             }
           >
             <Settings className="h-6 w-6" aria-hidden />
-            הגדרות
+            {t('nav.settings')}
           </NavLink>
         )}
       </div>

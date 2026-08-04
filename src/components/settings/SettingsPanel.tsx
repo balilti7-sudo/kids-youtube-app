@@ -7,20 +7,23 @@ import { supabase } from '../../lib/supabase'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
 import { ParentPinSettingsCard } from './ParentPinSettingsCard'
+import { LanguageSwitcher } from './LanguageSwitcher'
 import { toast } from 'sonner'
-
-const linkItems = [
-  { to: '/profile', label: 'חשבון והתחברות', icon: UserCircle },
-  { to: '/hidden-videos', label: 'סרטונים חסומים', icon: EyeOff },
-  { to: '/subscription', label: 'ניהול מנוי', icon: CreditCard },
-] as const
+import { useTranslation } from 'react-i18next'
 
 export function SettingsPanel() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [aboutOpen, setAboutOpen] = useState(false)
   const { user, profile, signOutClearEverything, refreshProfile } = useAuth()
   const { subscription } = useSubscription(user?.id)
   const showDevTools = import.meta.env.DEV
+
+  const linkItems = [
+    { to: '/profile', label: t('settings.accountLogin'), icon: UserCircle },
+    { to: '/hidden-videos', label: t('settings.blockedVideos'), icon: EyeOff },
+    { to: '/subscription', label: t('settings.subscription'), icon: CreditCard },
+  ] as const
 
   const handleLogout = async () => {
     await signOutClearEverything()
@@ -31,19 +34,21 @@ export function SettingsPanel() {
     if (!user?.id) return
     const { error } = await supabase.from('profiles').update({ parent_pin: null }).eq('id', user.id)
     if (error) {
-      toast.error(error.message || 'איפוס parent_pin נכשל')
+      toast.error(error.message || t('errors.generic'))
       return
     }
     await refreshProfile()
-    toast.success('parent_pin אופס ל-NULL. מעביר למסך הגדרת PIN.')
+    toast.success('parent_pin reset')
     navigate('/set-parent-pin', { replace: true })
   }
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 pb-4">
       <header>
-        <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">הגדרות</h1>
+        <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">{t('settings.title')}</h1>
       </header>
+
+      <LanguageSwitcher />
 
       <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <img
@@ -52,13 +57,15 @@ export function SettingsPanel() {
           className="h-14 w-14 rounded-full bg-slate-100 object-cover dark:bg-zinc-800"
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-slate-900 dark:text-zinc-100">{profile?.full_name || 'משתמש'}</p>
+          <p className="truncate font-semibold text-slate-900 dark:text-zinc-100">
+            {profile?.full_name || t('common.user')}
+          </p>
           <p className="truncate text-xs text-slate-500 dark:text-zinc-500" dir="ltr">
             {profile?.email}
           </p>
           {subscription ? (
             <p className="mt-1 text-xs font-medium text-brand-700 dark:text-brand-500">
-              מנוי: {subscription.plan} · {subscription.status}
+              {t('settings.subscriptionLine', { plan: subscription.plan, status: subscription.status })}
             </p>
           ) : null}
         </div>
@@ -69,7 +76,7 @@ export function SettingsPanel() {
       <nav className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         {linkItems.map(({ to, label, icon: Icon }) => (
           <Link
-            key={label}
+            key={to}
             to={to}
             className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 text-slate-800 last:border-0 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
@@ -80,10 +87,10 @@ export function SettingsPanel() {
         <button
           type="button"
           onClick={() => setAboutOpen(true)}
-          className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-right text-slate-800 last:border-0 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-start text-slate-800 last:border-0 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
           <Info className="h-5 w-5 shrink-0 text-slate-500 dark:text-zinc-500" />
-          <span className="font-medium">אודות</span>
+          <span className="font-medium">{t('settings.about')}</span>
         </button>
       </nav>
 
@@ -99,7 +106,7 @@ export function SettingsPanel() {
           </Button>
         }
       >
-        <div dir="rtl" className="space-y-5 text-[15px] leading-relaxed text-slate-700 dark:text-zinc-300">
+        <div className="space-y-5 text-[15px] leading-relaxed text-slate-700 dark:text-zinc-300">
           <p className="text-base font-semibold text-slate-900 dark:text-zinc-100">החזון שלנו: סביבה דיגיטלית בטוחה באמת.</p>
           <p>
             SafeTube נולדה מתוך צורך אמיתי של הורים להחזיר את השליטה לידיים שלהם. בעידן שבו הילדים שלנו מופצצים בתוכן לא
@@ -160,7 +167,7 @@ export function SettingsPanel() {
 
       <Button variant="danger" className="w-full gap-2" onClick={() => void handleLogout()}>
         <LogOut className="h-5 w-5" />
-        התנתקות (כולל טוקן ילד מקומי)
+        {t('auth.logout')}
       </Button>
     </div>
   )

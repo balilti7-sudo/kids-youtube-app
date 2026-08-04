@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Clock } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { useDeviceStore } from '../../stores/deviceStore'
 import type { Device } from '../../types'
 import { cn } from '../../lib/utils'
@@ -23,16 +24,17 @@ function normalizeLimit(raw: unknown): number {
   return Math.min(1440, rounded)
 }
 
-function formatLimitLabel(minutes: number): string {
-  if (minutes === 0) return 'ללא הגבלה'
-  if (minutes < 60) return `${minutes} דק׳`
+function formatLimitLabel(minutes: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (minutes === 0) return t('timeLimit.unlimited')
+  if (minutes < 60) return t('timeLimit.minutesAbbr', { count: minutes })
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
-  if (m === 0) return h === 1 ? 'שעה' : `${h} שעות`
-  return `${h}:${String(m).padStart(2, '0')} ש׳`
+  if (m === 0) return t('timeLimit.hoursAbbr', { count: h })
+  return t('timeLimit.hoursMinutesAbbr', { hours: h, minutes: m })
 }
 
 export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
+  const { t } = useTranslation()
   const updateDeviceSettings = useDeviceStore((s) => s.updateDeviceSettings)
   const [limit, setLimit] = useState(() => normalizeLimit(device.daily_time_limit_minutes))
   const [customDraft, setCustomDraft] = useState('')
@@ -57,21 +59,21 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
     })
     setSaving(false)
     if (error) {
-      toast.error('שמירה נכשלה', { description: error.message })
+      toast.error(t('dashboard.saveFailed'), { description: error.message })
       setLimit(normalizeLimit(device.daily_time_limit_minutes))
       return
     }
     toast.success(
       normalized === 0
-        ? 'מגבלת הזמן בוטלה — צפייה ללא הגבלה יומית'
-        : `מגבלת הצפייה היומית: ${formatLimitLabel(normalized)}`
+        ? t('timeLimit.savedUnlimited')
+        : t('timeLimit.savedLimited', { label: formatLimitLabel(normalized, t) })
     )
   }
 
   const applyCustom = () => {
     const parsed = Number(customDraft.trim())
     if (!Number.isFinite(parsed) || parsed < 1 || parsed > 1440) {
-      toast.error('הזינו מספר בין 1 ל־1440 דקות')
+      toast.error(t('timeLimit.invalidMinutes'))
       return
     }
     void persist(Math.round(parsed))
@@ -87,10 +89,10 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
       <div className="flex items-start gap-2">
         <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-zinc-100">מגבלת זמן יומית</p>
+          <p className="text-sm font-semibold text-zinc-100">{t('timeLimit.title')}</p>
           <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-            כמה דקות צפייה מותרות לפרופיל הזה בכל יום (מתאפס בחצות שעון ישראל).
-            כרגע: <span className="font-medium text-zinc-200">{formatLimitLabel(limit)}</span>
+            {t('timeLimit.presetsHint')}{' '}
+            {t('timeLimit.current', { status: formatLimitLabel(limit, t) })}
           </p>
 
           <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -107,7 +109,7 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
                     : 'bg-zinc-800/90 text-zinc-200 ring-1 ring-zinc-700/80 hover:bg-zinc-700'
                 )}
               >
-                {formatLimitLabel(m)}
+                {formatLimitLabel(m, t)}
               </button>
             ))}
             <button
@@ -121,14 +123,14 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
                   : 'bg-zinc-800/90 text-zinc-200 ring-1 ring-zinc-700/80 hover:bg-zinc-700'
               )}
             >
-              ללא הגבלה
+              {t('timeLimit.unlimited')}
             </button>
           </div>
 
           <div className="mt-2.5 flex items-end gap-2">
             <div className="min-w-0 flex-1">
               <label className="mb-1 block text-[11px] font-medium text-zinc-500" htmlFor={`custom-limit-${device.id}`}>
-                מותאם אישית (דקות)
+                {t('timeLimit.customMinutes')}
               </label>
               <Input
                 id={`custom-limit-${device.id}`}
@@ -136,7 +138,7 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
                 type="number"
                 min={1}
                 max={1440}
-                placeholder="למשל 75"
+                placeholder={t('timeLimit.customPlaceholder')}
                 value={customDraft}
                 disabled={saving}
                 onChange={(e) => setCustomDraft(e.target.value)}
@@ -153,7 +155,7 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
               disabled={saving || !customDraft.trim()}
               onClick={applyCustom}
             >
-              שמור
+              {t('timeLimit.save')}
             </Button>
           </div>
         </div>

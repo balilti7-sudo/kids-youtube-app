@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
 import { KidGlobalSearchSection } from '../components/kid/KidGlobalSearchSection'
@@ -38,7 +39,7 @@ import {
 } from '../lib/childDevice'
 import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { ParentalPinModal } from '../components/parental/ParentalPinModal'
-import { parsePairingCodeFromLocationSearch, parsePairingCodeFromScan } from '../lib/pairingCodeFromQr'
+import { parsePairingCodeFromLocationSearch } from '../lib/pairingCodeFromQr'
 import { requestPairingReminderEmail } from '../lib/requestPairingReminderEmail'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import { supabase } from '../lib/supabase'
@@ -64,37 +65,13 @@ import { CleanPlayer } from '../components/player/CleanPlayer'
 import { logPlaybackStreamRequest } from '../lib/streamApi'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
-import type { Html5Qrcode } from 'html5-qrcode'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
 const PARENT_MODE_UNLOCK_MS = 10 * 60 * 1000
 const PARENT_TAB_LONG_PRESS_MS = 650
 
-function KidQrScanModal({
-  open,
-  onClose,
-  scanCameraError,
-}: {
-  open: boolean
-  onClose: () => void
-  scanCameraError: string | null
-}) {
-  return (
-    <Modal open={open} onClose={onClose} title="סריקת QR לחיבור">
-      <p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-        כוונו את המצלמה לקוד ה־QR (לרוב מהטלפון של ההורה). הקישור מכיל את קוד הצימוד — אחרי זיהוי החיבור נשמר במכשיר.
-      </p>
-      <div id="kid-mode-html5-qrcode-reader" className="min-h-[260px] w-full overflow-hidden rounded-xl bg-black" />
-      {scanCameraError ? (
-        <p className="mt-3 text-sm text-danger-600" role="alert">
-          {scanCameraError}
-        </p>
-      ) : null}
-    </Modal>
-  )
-}
-
 function KidModePageInner() {
+  const { t } = useTranslation()
   const childRuntime = useChildRuntimeOptional()
   const [pairingCode, setPairingCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -127,10 +104,6 @@ function KidModePageInner() {
   const [forgotParentEmail, setForgotParentEmail] = useState('')
   const [forgotBusy, setForgotBusy] = useState(false)
   const [forgotInfo, setForgotInfo] = useState<string | null>(null)
-  const [qrScanOpen, setQrScanOpen] = useState(false)
-  const [scanCameraError, setScanCameraError] = useState<string | null>(null)
-  const qrScannerRef = useRef<Html5Qrcode | null>(null)
-  const qrDecodeLockRef = useRef(false)
   const channelVideosRequestRef = useRef(0)
   const [videoSearchFocused, setVideoSearchFocused] = useState(false)
   const [globalSearchPinOpen, setGlobalSearchPinOpen] = useState(false)
@@ -715,79 +688,6 @@ function KidModePageInner() {
   const pairByCodeInitialRef = useRef(pairByCodeInitial)
   pairByCodeInitialRef.current = pairByCodeInitial
 
-  useEffect(() => {
-    if (!qrScanOpen) {
-      qrDecodeLockRef.current = false
-      return
-    }
-    qrDecodeLockRef.current = false
-    setScanCameraError(null)
-
-    let cancelled = false
-
-    const stopScanner = async (scanner: Html5Qrcode) => {
-      try {
-        await scanner.stop()
-        await scanner.clear()
-      } catch {
-        /* כבר נעצר או נוקה */
-      }
-      if (qrScannerRef.current === scanner) qrScannerRef.current = null
-    }
-
-    void (async () => {
-      const { Html5Qrcode } = await import('html5-qrcode')
-      await new Promise<void>((r) => queueMicrotask(r))
-      if (cancelled) return
-
-      if (!document.getElementById('kid-mode-html5-qrcode-reader')) {
-        setScanCameraError('לא ניתן להפעיל את תצוגת הסריקה. נסו שוב.')
-        return
-      }
-
-      const scanner = new Html5Qrcode('kid-mode-html5-qrcode-reader', false)
-      qrScannerRef.current = scanner
-
-      try {
-        await scanner.start(
-          { facingMode: 'environment' },
-          {
-            fps: 10,
-            qrbox: (w, h) => {
-              const edge = Math.min(250, Math.floor(Math.min(w, h) * 0.72))
-              return { width: edge, height: edge }
-            },
-          },
-          async (decodedText) => {
-            if (qrDecodeLockRef.current || cancelled) return
-            const pairing = parsePairingCodeFromScan(decodedText)
-            if (!pairing) return
-            qrDecodeLockRef.current = true
-            await stopScanner(scanner)
-            setQrScanOpen(false)
-            await pairByCodeInitialRef.current(pairing)
-          },
-          () => {}
-        )
-      } catch (e) {
-        if (!cancelled) {
-          setScanCameraError(
-            e instanceof Error
-              ? e.message
-              : 'המצלמה לא נפתחה. בדקו הרשאות בדפדפן או השתמשו בהזנת קוד ידנית.'
-          )
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-      const s = qrScannerRef.current
-      qrScannerRef.current = null
-      if (s) void stopScanner(s)
-    }
-  }, [qrScanOpen])
-
   const handleDisconnect = async () => {
     if (!accessToken) return
     setDisconnecting(true)
@@ -967,7 +867,7 @@ function KidModePageInner() {
       <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
         <LoadingSpinner className="h-10 w-10 border-brand-500 border-t-transparent" />
         <p className="text-sm text-slate-600 dark:text-zinc-400">
-          {pendingUrlPairCode ? 'מחברים לפרופיל אחרי הסריקה…' : 'טוען…'}
+          {pendingUrlPairCode ? t('kid.connectingAfterScan') : t('kid.loading')}
         </p>
       </div>
     )
@@ -978,29 +878,33 @@ function KidModePageInner() {
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 px-4 pb-10 pt-8">
         <div className="text-center">
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">{KID_APP_DISPLAY_NAME}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-            הזינו את <strong className="text-slate-800 dark:text-zinc-200">קוד הצימוד בן 6 הספרות</strong> שמופיע אצל ההורה
-            אחרי יצירת פרופיל — והצפייה מתחילה.
-          </p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">{t('kid.connectLead')}</p>
         </div>
 
         <section className="rounded-2xl border-2 border-brand-400/40 bg-white p-5 shadow-sm ring-1 ring-brand-500/20 dark:border-brand-700/50 dark:bg-zinc-900">
           <p className="mb-1 text-center text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-            הצעד הראשון
+            {t('kid.firstStep')}
           </p>
-          <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-zinc-300">קוד צימוד (6 ספרות)</label>
+          <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-zinc-300">
+            {t('kid.codeLabel')}
+          </label>
           <Input
             inputMode="numeric"
             value={pairingCode}
             onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="לדוגמה: 123456"
+            placeholder={t('kid.codePlaceholder')}
             className="text-center text-lg tracking-[0.2em]"
             onKeyDown={(e) => e.key === 'Enter' && void handlePair()}
             autoFocus
           />
-          <Button type="button" className="mt-3 w-full text-base font-bold" onClick={() => void handlePair()} disabled={submitting}>
+          <Button
+            type="button"
+            className="mt-3 w-full text-base font-bold"
+            onClick={() => void handlePair()}
+            disabled={submitting}
+          >
             {submitting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-            {submitting ? 'מחבר…' : 'התחברות'}
+            {submitting ? t('kid.connecting') : t('kid.connect')}
           </Button>
           <div className="mt-2 flex justify-center">
             <button
@@ -1012,15 +916,15 @@ function KidModePageInner() {
                 setError(null)
               }}
             >
-              שכחתי קוד?
+              {t('kid.forgotCode')}
             </button>
           </div>
           {forgotPairingOpen ? (
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
-              <p className="mb-2 text-xs text-slate-600 dark:text-zinc-400">
-                הזינו את אימייל ההורה הרשום — נשלח מייל עם קודי צימוד פעילים (אם קיימים).
-              </p>
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-zinc-400">אימייל ההורה</label>
+              <p className="mb-2 text-xs text-slate-600 dark:text-zinc-400">{t('kid.forgotHint')}</p>
+              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-zinc-400">
+                {t('kid.parentEmail')}
+              </label>
               <Input
                 dir="ltr"
                 type="email"
@@ -1039,7 +943,7 @@ function KidModePageInner() {
                 onClick={sendForgotPairingReminder}
               >
                 {forgotBusy ? <LoadingSpinner className="h-5 w-5 border-2 border-slate-600 border-t-transparent" /> : null}
-                {forgotBusy ? 'שולח…' : 'שלחו לי את הקודים במייל'}
+                {forgotBusy ? t('kid.sending') : t('kid.sendCodesEmail')}
               </Button>
             </div>
           ) : null}
@@ -1051,29 +955,11 @@ function KidModePageInner() {
           {error ? <p className="mt-3 text-sm text-danger-600">{error}</p> : null}
         </section>
 
-        <div className="flex flex-col gap-2">
-          <Button type="button" variant="secondary" className="w-full" onClick={() => setQrScanOpen(true)}>
-            <Camera className="h-4 w-4" aria-hidden />
-            סריקת QR (אופציונלי)
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full"
-            onClick={() => void requestParentAction('home')}
-          >
-            {isAuthenticated ? 'מעבר ללוח ההורה' : 'התחברות הורה — הגדרה על המכשיר הזה'}
-          </Button>
-        </div>
+        <Button type="button" variant="secondary" className="w-full" onClick={() => void requestParentAction('home')}>
+          {isAuthenticated ? t('kid.parentDashboard') : t('kid.parentLogin')}
+        </Button>
 
-        <p className="text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
-          אין לכם קוד? בהורה: בקרת הורים → הוספת פרופיל → יופיע קוד ו־QR.
-        </p>
-        <KidQrScanModal
-          open={qrScanOpen}
-          onClose={() => setQrScanOpen(false)}
-          scanCameraError={scanCameraError}
-        />
+        <p className="text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">{t('kid.noCodeHelp')}</p>
       </main>
     )
   }
