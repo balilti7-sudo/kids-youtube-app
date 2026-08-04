@@ -7,7 +7,7 @@ import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncPa
 import { supabase } from '../lib/supabase'
 
 const DEVICE_SELECT =
-  'id, user_id, name, device_type, pairing_code, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts, block_youtube_app, browser_filter_enabled, browser_whitelist, daily_time_limit_minutes'
+  'id, user_id, name, device_type, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts, block_youtube_app, browser_filter_enabled, browser_whitelist, daily_time_limit_minutes'
 
 function formatSupabaseError(error: PostgrestError): string {
   const parts = [error.message, error.details, error.hint].filter((p) => p && String(p).trim())
@@ -61,7 +61,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         user_id: '',
         name: data.device_name || 'ילד',
         device_type: 'tablet',
-        pairing_code: null,
         is_online: data.is_online,
         is_blocked: data.is_blocked,
         last_seen_at: data.last_seen_at,
@@ -199,7 +198,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   addDevice: async ({ userId, name, device_type }) => {
-    const row = { user_id: userId, name, device_type, pairing_code: null }
+    const row = { user_id: userId, name, device_type }
     const { data, error } = await supabase
       .from('devices')
       .insert(row)

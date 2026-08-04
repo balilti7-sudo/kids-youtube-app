@@ -17,7 +17,6 @@ export interface Device {
   user_id: string
   name: string
   device_type: 'phone' | 'tablet'
-  pairing_code: string | null
   is_online: boolean
   is_blocked: boolean
   last_seen_at: string | null

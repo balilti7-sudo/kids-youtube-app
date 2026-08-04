@@ -4,7 +4,7 @@ import {
   readLocalParentSession,
 } from '../lib/localParentAdmin'
 
-/** מצב ניהול מקומי (מצומד + סשן PIN) — מתעדכן כשפג תוקף או כשמנקים טוקן */
+/** Local parent management (kid profile active + PIN session) — updates when session expires or token is cleared */
 export function useLocalParentManagement() {
   const [tick, setTick] = useState(0)
 

@@ -5,7 +5,7 @@ import { resolveDeviceOwnerUserId } from '../lib/devDeviceOwner'
 import { useLocalParentManagement } from './useLocalParentManagement'
 
 /**
- * מזהה לשיוך מכשירים: auth/profile אמיתי, סשן הורה מקומי (מצומד), או מזהה דמה בפיתוח.
+ * Owner id for child profiles: real auth/profile, local parent PIN session, or a dev dummy id.
  */
 export function useDeviceOwnerId() {
   const { user, profile } = useAuth()

@@ -35,7 +35,7 @@ import {
   type ChildAllowedChannel,
   type ChildDeviceState,
 } from '../lib/childDevice'
-import { activateKidModeForOwnedDevice } from '../lib/activateKidMode'
+import { startKidModeForProfile } from '../lib/startKidMode'
 import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { ParentalPinModal } from '../components/parental/ParentalPinModal'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
@@ -434,7 +434,7 @@ function KidModePageInner() {
   const loadChildData = useCallback(async (token: string) => {
     const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
     if (stateRes.error) throw stateRes.error
-    if (!stateRes.data) throw new Error('המכשיר לא נמצא. הפעילו מחדש מצב ילד מהחשבון של ההורה.')
+    if (!stateRes.data) throw new Error('הפרופיל לא נמצא. בחרו פרופיל מחדש או פתחו את בקרת ההורים.')
 
     setDevice(stateRes.data)
     void syncParentalControlPolicy(policyFromDeviceFields(stateRes.data))
@@ -484,7 +484,7 @@ function KidModePageInner() {
         await loadChildDataRef.current(token)
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        if (message.includes('המכשיר לא נמצא')) {
+        if (message.includes('הפרופיל לא נמצא') || message.includes('המכשיר לא נמצא')) {
           clearChildAccessToken()
           setAccessToken(null)
         }
@@ -557,13 +557,13 @@ function KidModePageInner() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [accessToken])
 
-  const activateOwnedDevice = useCallback(
+  const startWatchingProfile = useCallback(
     async (deviceId: string) => {
       setActivatingDeviceId(deviceId)
       setError(null)
       try {
-        const { accessToken: token, error: activateError } = await activateKidModeForOwnedDevice(deviceId)
-        if (activateError || !token) throw activateError ?? new Error('הפעלת מצב ילד נכשלה')
+        const { accessToken: token, error: startError } = await startKidModeForProfile(deviceId)
+        if (startError || !token) throw startError ?? new Error('הפעלת מצב ילד נכשלה')
         setAppModeKid()
         setAccessToken(token)
         await loadChildData(token)
@@ -575,6 +575,21 @@ function KidModePageInner() {
     },
     [loadChildData]
   )
+
+  // Single-device install: if parent is signed in and there is exactly one profile, start watching automatically.
+  useEffect(() => {
+    if (bootLoading || accessToken || !isAuthenticated || parentDevicesLoading) return
+    if (activatingDeviceId || parentDevices.length !== 1) return
+    void startWatchingProfile(parentDevices[0].id)
+  }, [
+    bootLoading,
+    accessToken,
+    isAuthenticated,
+    parentDevicesLoading,
+    parentDevices,
+    activatingDeviceId,
+    startWatchingProfile,
+  ])
 
   const handleDisconnect = async () => {
     if (!accessToken) return
@@ -605,7 +620,7 @@ function KidModePageInner() {
   const confirmPinAndDisconnect = async () => {
     const pinForServer = pinInput.replace(/\s+/g, '').trim()
     if (!accessToken) {
-      setPinError('המכשיר לא מחובר. נסו שוב.')
+      setPinError('אין פרופיל פעיל. בחרו פרופיל מחדש.')
       return
     }
     if (pinForServer.length < 4) {
@@ -683,7 +698,7 @@ function KidModePageInner() {
       return
     }
     if (!savedToken) {
-      setParentModePinError('המכשיר לא מחובר. נסו שוב.')
+      setParentModePinError('אין פרופיל פעיל. בחרו פרופיל מחדש.')
       return
     }
 
@@ -764,17 +779,17 @@ function KidModePageInner() {
         <div className="text-center">
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-50">{KID_APP_DISPLAY_NAME}</h1>
           <p className="mt-1 text-base font-semibold text-slate-800 dark:text-zinc-200">
-            {t('kid.notLinkedTitle')}
+            {t('kid.chooseWhoTitle')}
           </p>
           <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-            {t('kid.notLinkedLead')}
+            {t('kid.chooseWhoLead')}
           </p>
         </div>
 
         {isAuthenticated ? (
           <section className="rounded-2xl border-2 border-brand-400/40 bg-white p-5 shadow-sm ring-1 ring-brand-500/20 dark:border-brand-700/50 dark:bg-zinc-900">
             <p className="mb-3 text-center text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-              {t('kid.activateOnThisDevice')}
+              {t('kid.whoIsWatching')}
             </p>
             {parentDevicesLoading && parentDevices.length === 0 ? (
               <div className="flex justify-center py-4">
@@ -782,7 +797,7 @@ function KidModePageInner() {
               </div>
             ) : parentDevices.length === 0 ? (
               <p className="text-center text-sm text-slate-600 dark:text-zinc-400">
-                {t('kid.noProfilesToActivate')}
+                {t('kid.noProfilesYet')}
               </p>
             ) : (
               <ul className="flex flex-col gap-2">
@@ -798,12 +813,12 @@ function KidModePageInner() {
                       type="button"
                       className="!h-9 shrink-0 !px-3 !text-xs font-bold"
                       disabled={activatingDeviceId !== null}
-                      onClick={() => void activateOwnedDevice(d.id)}
+                      onClick={() => void startWatchingProfile(d.id)}
                     >
                       {activatingDeviceId === d.id ? (
                         <LoadingSpinner className="h-4 w-4 border-2 border-white border-t-transparent" />
                       ) : null}
-                      {activatingDeviceId === d.id ? t('kid.activating') : t('kid.activateKidMode')}
+                      {activatingDeviceId === d.id ? t('kid.starting') : t('kid.startWatching')}
                     </Button>
                   </li>
                 ))}
@@ -814,7 +829,7 @@ function KidModePageInner() {
         ) : (
           <section className="rounded-2xl border-2 border-brand-400/40 bg-white p-5 shadow-sm ring-1 ring-brand-500/20 dark:border-brand-700/50 dark:bg-zinc-900">
             <p className="mb-3 text-center text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
-              {t('kid.signInToActivate')}
+              {t('kid.signInToSetup')}
             </p>
             <Button
               type="button"
@@ -948,7 +963,7 @@ function KidModePageInner() {
             <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">ניהול הורה במכשיר הזה</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
               אם כבר התחברתם כהורה באותו דפדפן — עוברים ללוח בלי להקליד שוב אימייל. מצב הילד נשמר במכשיר עד
-              ניתוק מפורש.
+              יציאה מפורשת עם PIN.
             </p>
             <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">
               {parentModeUnlocked ? 'מצב הורה (PIN) נפתח ל־10 דקות.' : 'מעבר ללוח/ערוצים דורש PIN הורה או סשן שכבר אומת.'}
@@ -985,14 +1000,14 @@ function KidModePageInner() {
               ) : null}
             </div>
             <div className="mt-5 border-t border-slate-200 pt-4 dark:border-zinc-800">
-              <p className="text-xs text-slate-600 dark:text-zinc-400">נתק את מכשיר הילד מההורה (נדרש PIN)</p>
+              <p className="text-xs text-slate-600 dark:text-zinc-400">יציאה ממצב ילד — בחירת פרופיל מחדש (נדרש PIN)</p>
               <Button
                 type="button"
                 variant="secondary"
                 className="mt-2 w-full border-danger-200 text-danger-700 hover:bg-danger-50 dark:border-danger-800 dark:text-danger-300 dark:hover:bg-danger-950/40 sm:w-auto"
                 onClick={() => setPinModalOpen(true)}
               >
-                נתק מכשיר
+                יציאה ממצב ילד
               </Button>
             </div>
             <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
@@ -1006,7 +1021,7 @@ function KidModePageInner() {
             <ShieldAlert className="mx-auto mb-3 h-12 w-12 opacity-90" aria-hidden />
             <h2 className="text-xl font-black tracking-tight">{KID_APP_DISPLAY_NAME}</h2>
             <p className="mt-3 text-sm leading-relaxed opacity-95">
-              הצפייה חסומה כרגע מההורה. בקשו לפתוח — או עברו ללשונית <strong>הורים</strong> לנתק או לנהל.
+              הצפייה חסומה כרגע מההורה. בקשו לפתוח — או עברו ללשונית <strong>הורים</strong> לנהל או לצאת ממצב ילד.
             </p>
           </div>
         </section>
@@ -1021,7 +1036,7 @@ function KidModePageInner() {
           ) : channels.length === 0 ? (
             <div className="px-3 py-4 sm:px-4 lg:col-span-2">
               <div className="rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-5 text-sm leading-relaxed text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/35 dark:text-amber-100">
-                <p className="font-semibold">אין ערוצים שמקושרים לפרופיל הזה</p>
+                <p className="font-semibold">אין ערוצים מאושרים לפרופיל הזה</p>
                 <p className="mt-2 text-amber-900/95 dark:text-amber-200/90">
                   בלשונית <strong className="font-bold">הורים</strong> — ניהול ערוצים, ובחרו את הפרופיל &quot;{device.device_name}
                   &quot;.
@@ -1509,7 +1524,7 @@ function KidModePageInner() {
             </Button>
             <Button onClick={() => void confirmPinAndDisconnect()} disabled={disconnecting}>
               {disconnecting ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-              {disconnecting ? 'מנתק...' : 'אשר ונתק'}
+              {disconnecting ? 'יוצא...' : 'אשר ויציאה'}
             </Button>
           </>
         }

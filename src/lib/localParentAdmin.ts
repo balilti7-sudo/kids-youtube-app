@@ -1,6 +1,6 @@
 import { getSavedChildAccessToken } from './childDevice'
 
-/** sessionStorage — סשן הורה מקומי (מכשיר מצומד + PIN) ללא התחברות Supabase */
+/** sessionStorage — local parent session (kid profile token + PIN) without a full Supabase login */
 export const SAFETUBE_LOCAL_PARENT_ADMIN_KEY = 'safetube_local_parent_admin'
 
 export const LOCAL_PARENT_SESSION_MS = 30 * 60 * 1000

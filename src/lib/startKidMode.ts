@@ -2,10 +2,10 @@ import { supabase } from './supabase'
 import { saveChildAccessToken } from './childDevice'
 
 /**
- * Parent-owned device → enable kid mode on this tablet by storing the device's
- * child_access_token locally.
+ * Start kid watching on this device for a parent-owned child profile
+ * by storing that profile's child_access_token in localStorage.
  */
-export async function activateKidModeForOwnedDevice(
+export async function startKidModeForProfile(
   deviceId: string
 ): Promise<{ accessToken: string | null; error: Error | null }> {
   const id = deviceId.trim()

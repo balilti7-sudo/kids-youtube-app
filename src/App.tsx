@@ -48,7 +48,8 @@ function SmartEntryRoute() {
     return <SplashScreen />
   }
 
-  // מצב ילד בראש רק כשאין סשן הורה: על מכשיר הילד ההורה מתחבר כאן ומגדיר — לא ננעל מחוץ ללוח בגלל טוקן הילד ב־localStorage.
+  // Kid mode is the default only when there is no parent session (this tablet is the viewing device).
+  // A signed-in parent can still open the dashboard; the kid token alone does not lock them out.
   if (!isAuthenticated && hasKidToken) return <Navigate to="/kid" replace />
   if (!isAuthenticated) return <Navigate to="/auth" replace />
   if (profile && !profile.onboarding_done) return <Navigate to="/onboarding" replace />
