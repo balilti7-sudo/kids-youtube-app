@@ -5,5 +5,5 @@
   <string name="package_name">app.safetube.kids</string>
   <string name="custom_url_scheme">app.safetube.kids</string>
   <string name="parental_control_service_description">SafeTube Parental Control blocks the YouTube app and non-whitelisted websites in browsers when enabled by a parent.</string>
-  <string name="blocked_by_safetube">׳—׳¡׳•׳ ׳¢׳ ׳™׳“׳™ SafeTube</string>
+  <string name="blocked_by_safetube">חסום על ידי SafeTube</string>
 </resources>

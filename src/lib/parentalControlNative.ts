@@ -18,6 +18,8 @@ interface ParentalControlPlugin {
   getStatus(): Promise<ParentalControlStatus>
   openAccessibilitySettings(): Promise<void>
   applyPolicy(policy: ParentalControlPolicy): Promise<{ ok: boolean; accessibilityEnabled: boolean }>
+  allowBrowserBypass(opts?: { durationMs?: number }): Promise<{ ok: boolean; until?: number }>
+  clearBrowserBypass(): Promise<{ ok: boolean }>
 }
 
 const ParentalControl = registerPlugin<ParentalControlPlugin>('ParentalControl', {
@@ -35,6 +37,12 @@ const ParentalControl = registerPlugin<ParentalControlPlugin>('ParentalControl',
     },
     async applyPolicy() {
       return { ok: true, accessibilityEnabled: false }
+    },
+    async allowBrowserBypass() {
+      return { ok: true }
+    },
+    async clearBrowserBypass() {
+      return { ok: true }
     },
   }),
 })
@@ -89,6 +97,25 @@ export async function applyParentalControlPolicy(policy: ParentalControlPolicy):
   } catch (err) {
     console.warn('[parentalControl] applyPolicy failed', err)
     return { accessibilityEnabled: false }
+  }
+}
+
+/** Skip site-filter while SafeTube opens a system browser (OAuth Custom Tab). */
+export async function allowParentalControlBrowserBypass(durationMs = 180_000): Promise<void> {
+  if (!isParentalControlNativeAvailable()) return
+  try {
+    await ParentalControl.allowBrowserBypass({ durationMs })
+  } catch (err) {
+    console.warn('[parentalControl] allowBrowserBypass failed', err)
+  }
+}
+
+export async function clearParentalControlBrowserBypass(): Promise<void> {
+  if (!isParentalControlNativeAvailable()) return
+  try {
+    await ParentalControl.clearBrowserBypass()
+  } catch (err) {
+    console.warn('[parentalControl] clearBrowserBypass failed', err)
   }
 }
 

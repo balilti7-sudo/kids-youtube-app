@@ -17,7 +17,8 @@ import java.util.regex.Pattern;
 /**
  * Watches foreground apps. When parental policies are enabled:
  * - Blocks YouTube app packages (Home + white screen)
- * - Blocks browser navigation outside the hostname whitelist
+ * - Blocks browser navigation outside the hostname whitelist (only when the
+ *   address-bar host is confidently known — fail open otherwise)
  * - Also blocks youtube.com inside browsers when YouTube app block is on
  */
 public class ParentalControlService extends AccessibilityService {
@@ -54,6 +55,29 @@ public class ParentalControlService extends AccessibilityService {
         "com.kiwibrowser.browser"
     ));
 
+    /** Common address-bar / omnibox view IDs across popular browsers. */
+    private static final String[] ADDRESS_BAR_VIEW_IDS = new String[] {
+        "com.android.chrome:id/url_bar",
+        "com.android.chrome:id/search_box_text",
+        "com.chrome.beta:id/url_bar",
+        "com.chrome.dev:id/url_bar",
+        "com.chrome.canary:id/url_bar",
+        "org.mozilla.firefox:id/url_bar_title",
+        "org.mozilla.firefox:id/mozac_browser_toolbar_url_view",
+        "org.mozilla.firefox_beta:id/url_bar_title",
+        "org.mozilla.focus:id/display_url",
+        "com.sec.android.app.sbrowser:id/location_bar_edit_text",
+        "com.microsoft.emmx:id/url_bar",
+        "com.opera.browser:id/url_field",
+        "com.brave.browser:id/url_bar",
+        "com.brave.browser:id/search_box_text",
+        "com.duckduckgo.mobile.android:id/omnibarTextInput",
+        "com.vivaldi.browser:id/url_bar",
+        "com.kiwibrowser.browser:id/url_bar",
+        "com.mi.globalbrowser:id/url",
+        "com.huawei.browser:id/url_bar"
+    };
+
     private static final Pattern URL_PATTERN = Pattern.compile(
         "(?i)\\b(?:https?://)?((?:[a-z0-9-]+\\.)+[a-z]{2,})(?:[:/\\s]|$)"
     );
@@ -61,6 +85,7 @@ public class ParentalControlService extends AccessibilityService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private long lastBlockAt = 0L;
     private String lastBlockedPkg = "";
+    private Runnable pendingHostEval;
 
     public static ParentalControlService getInstance() {
         return instance;
@@ -98,30 +123,45 @@ public class ParentalControlService extends AccessibilityService {
 
         if (!BROWSER_PACKAGES.contains(pkg)) return;
 
-        // Always inspect browser URL when either policy needs it.
-        String host = extractHostFromEvent(event);
-        if (host == null || host.isEmpty()) {
-            // Content may not be ready yet — retry shortly once.
-            handler.postDelayed(() -> {
-                String retryHost = extractHostFromRoot();
-                evaluateBrowserHost(pkg, retryHost, blockYoutube, browserFilter);
-            }, 250);
+        // App-initiated browser sessions (e.g. Google sign-in Custom Tab) temporarily skip site filter.
+        if (ParentalControlPrefs.isBrowserBypassActive(this)) return;
+
+        // Only act on window changes / content updates — ignore noisy minor events.
+        int type = event.getEventType();
+        if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            && type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             return;
         }
-        evaluateBrowserHost(pkg, host, blockYoutube, browserFilter);
+
+        scheduleBrowserEval(pkg, blockYoutube, browserFilter);
+    }
+
+    private void scheduleBrowserEval(String pkg, boolean blockYoutube, boolean browserFilter) {
+        if (pendingHostEval != null) {
+            handler.removeCallbacks(pendingHostEval);
+        }
+        // Debounce rapid content-changed storms; address bar often fills a moment later.
+        pendingHostEval = () -> {
+            pendingHostEval = null;
+            String host = extractAddressBarHost();
+            evaluateBrowserHost(pkg, host, blockYoutube, browserFilter);
+        };
+        handler.postDelayed(pendingHostEval, 350);
     }
 
     private void evaluateBrowserHost(String pkg, String host, boolean blockYoutube, boolean browserFilter) {
         if (host == null || host.isEmpty()) {
-            // Unknown page while filter is on → block (deny-by-default).
-            if (browserFilter) triggerBlock(pkg);
+            // Fail open: unknown / loading / NTP / inaccessible URL bar must NOT lock the device.
             return;
         }
+        if (isInternalBrowserHost(host)) return;
+
         if (blockYoutube && ParentalControlPrefs.isYoutubeHost(host)) {
             triggerBlock(pkg);
             return;
         }
         if (browserFilter) {
+            if (ParentalControlPrefs.isBrowserBypassActive(this)) return;
             List<String> whitelist = ParentalControlPrefs.getWhitelist(this);
             if (!ParentalControlPrefs.hostAllowed(host, whitelist)) {
                 triggerBlock(pkg);
@@ -153,35 +193,39 @@ public class ParentalControlService extends AccessibilityService {
         }
     }
 
-    private String extractHostFromEvent(AccessibilityEvent event) {
-        AccessibilityNodeInfo root = null;
-        try {
-            root = getRootInActiveWindow();
-            if (root != null) {
-                String fromRoot = findHostInNode(root, 0);
-                if (fromRoot != null) return fromRoot;
-            }
-        } catch (Exception ignored) {
-            /* ignore */
-        } finally {
-            if (root != null) root.recycle();
-        }
-
-        if (event.getText() != null) {
-            for (CharSequence cs : event.getText()) {
-                String host = hostFromText(cs != null ? cs.toString() : null);
-                if (host != null) return host;
-            }
-        }
-        return null;
-    }
-
-    private String extractHostFromRoot() {
+    /**
+     * Resolve the current page host from the browser address bar only.
+     * Never scans page body text (that caused false blocks from links/ads in the tree).
+     */
+    private String extractAddressBarHost() {
         AccessibilityNodeInfo root = null;
         try {
             root = getRootInActiveWindow();
             if (root == null) return null;
-            return findHostInNode(root, 0);
+
+            for (String viewId : ADDRESS_BAR_VIEW_IDS) {
+                List<AccessibilityNodeInfo> nodes = null;
+                try {
+                    nodes = root.findAccessibilityNodeInfosByViewId(viewId);
+                    if (nodes == null) continue;
+                    for (AccessibilityNodeInfo node : nodes) {
+                        if (node == null) continue;
+                        String host = hostFromAddressBarText(textOf(node));
+                        if (host != null) return host;
+                    }
+                } catch (Exception ignored) {
+                    /* ignore */
+                } finally {
+                    if (nodes != null) {
+                        for (AccessibilityNodeInfo n : nodes) {
+                            if (n != null) n.recycle();
+                        }
+                    }
+                }
+            }
+
+            // Fallback: first editable field that looks like an omnibox URL (not page inputs).
+            return findHostInEditableOmnibox(root, 0);
         } catch (Exception e) {
             return null;
         } finally {
@@ -189,28 +233,17 @@ public class ParentalControlService extends AccessibilityService {
         }
     }
 
-    private String findHostInNode(AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 18) return null;
-
-        CharSequence text = node.getText();
-        String host = hostFromText(text != null ? text.toString() : null);
-        if (host != null) return host;
-
-        CharSequence desc = node.getContentDescription();
-        host = hostFromText(desc != null ? desc.toString() : null);
-        if (host != null) return host;
-
-        // Prefer editable URL bars (Chrome address field).
+    private String findHostInEditableOmnibox(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 12) return null;
         if (node.isEditable()) {
-            host = hostFromText(text != null ? text.toString() : null);
+            String host = hostFromAddressBarText(textOf(node));
             if (host != null) return host;
         }
-
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = null;
             try {
                 child = node.getChild(i);
-                host = findHostInNode(child, depth + 1);
+                String host = findHostInEditableOmnibox(child, depth + 1);
                 if (host != null) return host;
             } finally {
                 if (child != null) child.recycle();
@@ -219,12 +252,36 @@ public class ParentalControlService extends AccessibilityService {
         return null;
     }
 
-    private String hostFromText(String raw) {
+    private static String textOf(AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        CharSequence text = node.getText();
+        if (text != null && text.length() > 0) return text.toString();
+        CharSequence desc = node.getContentDescription();
+        if (desc != null && desc.length() > 0) return desc.toString();
+        return null;
+    }
+
+    private String hostFromAddressBarText(String raw) {
         if (raw == null) return null;
         String s = raw.trim();
         if (s.length() < 3) return null;
-        // Skip obvious non-URLs
-        if (s.contains(" ") && !s.contains("://") && !s.contains(".")) return null;
+
+        // Omnibox placeholders / search mode — not a navigated host.
+        String lower = s.toLowerCase(Locale.US);
+        if (lower.startsWith("search")
+            || lower.contains("search or type")
+            || lower.contains("type a url")
+            || lower.contains("enter url")
+            || lower.contains("address bar")
+            || lower.contains("חיפוש")
+            || lower.contains("חפש או הקלד")
+            || lower.contains("הקלד כתובת")) {
+            return null;
+        }
+        // Multi-word search queries are not hosts (allow "https://ex.com/a b" rarity via ://).
+        if (s.contains(" ") && !s.contains("://")) return null;
+
+        if (isInternalBrowserUrl(lower)) return null;
 
         Matcher m = URL_PATTERN.matcher(s);
         if (m.find()) {
@@ -232,11 +289,35 @@ public class ParentalControlService extends AccessibilityService {
         }
 
         // Bare hostname typed in the omnibox (e.g. "wikipedia.org")
-        String lower = s.toLowerCase(Locale.US);
         if (lower.matches("^(?:www\\.)?(?:[a-z0-9-]+\\.)+[a-z]{2,}$")) {
             return ParentalControlPrefs.normalizeHost(lower);
         }
         return null;
+    }
+
+    private static boolean isInternalBrowserUrl(String lower) {
+        return lower.startsWith("chrome://")
+            || lower.startsWith("chrome-native://")
+            || lower.startsWith("chrome-extension://")
+            || lower.startsWith("about:")
+            || lower.startsWith("edge://")
+            || lower.startsWith("brave://")
+            || lower.startsWith("opera://")
+            || lower.startsWith("samsunginternet://")
+            || lower.startsWith("content://")
+            || lower.startsWith("file://")
+            || lower.equals("newtab")
+            || lower.equals("ntp");
+    }
+
+    private static boolean isInternalBrowserHost(String host) {
+        String h = ParentalControlPrefs.normalizeHost(host);
+        return h.isEmpty()
+            || h.equals("newtab")
+            || h.equals("ntp")
+            // Chrome sometimes exposes these as the "host" of internal pages.
+            || h.endsWith(".googlechrome")
+            || h.equals("googlechrome");
     }
 
     @Override

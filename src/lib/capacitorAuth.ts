@@ -20,6 +20,10 @@ import { Browser } from '@capacitor/browser'
 import { toast } from 'sonner'
 import { supabase } from './supabase'
 import { setSkipParentalManagementGateOnce } from './parentalGateSkipOnce'
+import {
+  allowParentalControlBrowserBypass,
+  clearParentalControlBrowserBypass,
+} from './parentalControlNative'
 
 export const NATIVE_OAUTH_REDIRECT = 'app.safetube.kids://auth-callback'
 
@@ -33,6 +37,8 @@ export function isNativeApp(): boolean {
  * ACTION_VIEW launch of the default browser.
  */
 async function openInSystemBrowser(url: string): Promise<void> {
+  // Site-filter must not kill Google OAuth Custom Tabs / the system browser mid-login.
+  await allowParentalControlBrowserBypass(3 * 60 * 1000)
   try {
     await Browser.open({ url })
     return
@@ -41,6 +47,7 @@ async function openInSystemBrowser(url: string): Promise<void> {
   }
   const { completed } = await AppLauncher.openUrl({ url })
   if (!completed) {
+    void clearParentalControlBrowserBypass()
     throw new Error('לא נמצא דפדפן פעיל במכשיר. הפעילו דפדפן (למשל Chrome) ונסו שוב.')
   }
 }
@@ -96,6 +103,7 @@ function humanizeOAuthError(raw: string | null | undefined): string {
 }
 
 async function completeOAuthCallback(url: string): Promise<void> {
+  void clearParentalControlBrowserBypass()
   // Best effort — Browser.close() is a no-op/unsupported on some Android versions.
   try {
     await Browser.close()

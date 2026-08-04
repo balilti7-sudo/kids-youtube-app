@@ -66,6 +66,29 @@ public class ParentalControlPlugin extends Plugin {
         call.resolve(out);
     }
 
+    /**
+     * Skip browser site-filter for a short window so SafeTube can open Chrome Custom Tabs
+     * (Google sign-in) without the accessibility service falsely blocking them.
+     */
+    @PluginMethod
+    public void allowBrowserBypass(PluginCall call) {
+        Integer duration = call.getInt("durationMs", 180_000);
+        long ms = duration != null ? duration.longValue() : 180_000L;
+        ParentalControlPrefs.allowBrowserBypass(getContext(), ms);
+        JSObject out = new JSObject();
+        out.put("ok", true);
+        out.put("until", System.currentTimeMillis() + Math.max(0L, Math.min(ms, 10L * 60L * 1000L)));
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void clearBrowserBypass(PluginCall call) {
+        ParentalControlPrefs.clearBrowserBypass(getContext());
+        JSObject out = new JSObject();
+        out.put("ok", true);
+        call.resolve(out);
+    }
+
     private boolean isAccessibilityEnabled() {
         Context ctx = getContext();
         AccessibilityManager am = (AccessibilityManager) ctx.getSystemService(Context.ACCESSIBILITY_SERVICE);

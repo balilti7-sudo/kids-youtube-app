@@ -12,6 +12,8 @@ public final class ParentalControlPrefs {
     private static final String KEY_BLOCK_YOUTUBE = "block_youtube";
     private static final String KEY_BROWSER_FILTER = "browser_filter";
     private static final String KEY_WHITELIST = "whitelist_json";
+    /** Epoch ms until which browser site-filter enforcement is skipped (app-opened Custom Tabs). */
+    private static final String KEY_BROWSER_BYPASS_UNTIL = "browser_bypass_until";
 
     private ParentalControlPrefs() {}
 
@@ -33,6 +35,22 @@ public final class ParentalControlPrefs {
             .putBoolean(KEY_BROWSER_FILTER, browserFilter)
             .putString(KEY_WHITELIST, arr.toString())
             .apply();
+    }
+
+    /** Temporarily skip browser whitelist enforcement (SafeTube-opened login / Custom Tabs). */
+    public static void allowBrowserBypass(Context ctx, long durationMs) {
+        long ms = Math.max(0L, Math.min(durationMs, 10L * 60L * 1000L));
+        long until = System.currentTimeMillis() + ms;
+        prefs(ctx).edit().putLong(KEY_BROWSER_BYPASS_UNTIL, until).apply();
+    }
+
+    public static void clearBrowserBypass(Context ctx) {
+        prefs(ctx).edit().putLong(KEY_BROWSER_BYPASS_UNTIL, 0L).apply();
+    }
+
+    public static boolean isBrowserBypassActive(Context ctx) {
+        long until = prefs(ctx).getLong(KEY_BROWSER_BYPASS_UNTIL, 0L);
+        return until > 0L && System.currentTimeMillis() < until;
     }
 
     public static boolean isBlockYoutube(Context ctx) {

@@ -165,7 +165,7 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
           label="סינון אתרים בדפדפן (רשימה לבנה)"
           description={
             browserFilter
-              ? 'כל האתרים חסומים חוץ מאלה שברשימה למטה. ברירת מחדל: חסימה מלאה.'
+              ? 'אתרים שאינם ברשימה ייחסמו רק כשכתובת הדפדפן ידועה בוודאות. דפים בטעינה / לשונית חדשה לא נחסמים בטעות.'
               : 'כבוי: אין סינון אתרים ברמת הדפדפן.'
           }
           checked={browserFilter}
@@ -240,9 +240,11 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
             <div className="flex items-start gap-2">
               <Accessibility className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-amber-50">נדרשת הרשאת נגישות</p>
+                <p className="text-sm font-semibold text-amber-50">הרשאת נגישות (אופציונלי לחסימה)</p>
                 <p className="mt-1 text-xs leading-relaxed text-amber-100/85">
-                  כדי לחסום את YouTube והדפדפן במכשיר, הפעילו את שירות SafeTube תחת הגדרות → נגישות.
+                  ההגדרות נשמרו. SafeTube ממשיך לעבוד כרגיל. כדי שהחסימות יפעלו מחוץ לאפליקציה
+                  (YouTube / דפדפן), הפעילו את שירות SafeTube תחת הגדרות → נגישות. בלי ההרשאה אין
+                  חסימה במכשיר — וגם אין חסימה שגויה.
                 </p>
                 <Button
                   type="button"
