@@ -353,8 +353,6 @@ function KidModePageInner() {
 
   const loadChannelVideos = useCallback(async (youtubeChannelId: string) => {
     const rid = ++channelVideosRequestRef.current
-    // לא לעשות trim ל-youtube_channel_id לפני RPC:
-    // אם הערך ב-DB נשמר עם רווחים/תווים נסתרים, ה-RPC מסנן לפי התאמה מדויקת.
     const yt = youtubeChannelId
     if (!yt || !yt.trim()) {
       return
@@ -365,22 +363,58 @@ function KidModePageInner() {
       if (rid === channelVideosRequestRef.current) setChannelLoading(false)
       return
     }
-    const { data, error: cacheError } = await getChildCachedChannelVideos(accessToken, yt)
-    if (rid !== channelVideosRequestRef.current) return
-    setChannelLoading(false)
-    if (cacheError) {
-      setError(cacheError.message)
-      return
+
+    const fetchCached = async () => {
+      const { data, error: cacheError } = await getChildCachedChannelVideos(accessToken, yt)
+      if (cacheError) throw cacheError
+      return (data ?? []).map(
+        (v): ChannelVideoItem => ({
+          videoId: v.youtube_video_id,
+          title: v.title,
+          thumbnail: v.thumbnail_url ?? '',
+          channelTitle: '',
+          durationSeconds: v.duration_seconds ?? null,
+        })
+      )
     }
-    const next: ChannelVideoItem[] = (data ?? []).map((v) => ({
-      videoId: v.youtube_video_id,
-      title: v.title,
-      thumbnail: v.thumbnail_url ?? '',
-      channelTitle: '',
-      durationSeconds: v.duration_seconds ?? null,
-    }))
-    if (rid !== channelVideosRequestRef.current) return
-    setChannelVideos(next)
+
+    try {
+      let next = await fetchCached()
+      if (rid !== channelVideosRequestRef.current) return
+
+      if (next.length === 0) {
+        await new Promise((r) => setTimeout(r, 1200))
+        if (rid !== channelVideosRequestRef.current) return
+        next = await fetchCached()
+      }
+
+      if (rid !== channelVideosRequestRef.current) return
+
+      if (next.length === 0) {
+        const page = await fetchChannelUploadsPage(yt, { maxPages: 1 })
+        if (rid !== channelVideosRequestRef.current) return
+        if (page.error) {
+          setError(page.error.message)
+          setChannelLoading(false)
+          return
+        }
+        next = (page.data?.videos ?? []).map((v) => ({
+          videoId: v.videoId,
+          title: v.title,
+          thumbnail: v.thumbnail || '',
+          channelTitle: v.channelTitle || '',
+          durationSeconds: v.durationSeconds ?? null,
+        }))
+      }
+
+      if (rid !== channelVideosRequestRef.current) return
+      setChannelVideos(next)
+      setChannelLoading(false)
+    } catch (e) {
+      if (rid !== channelVideosRequestRef.current) return
+      setChannelLoading(false)
+      setError(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
+    }
   }, [accessToken])
 
   const activeAllowedChannel = useMemo(
@@ -573,7 +607,12 @@ function KidModePageInner() {
 
   useEffect(() => {
     const yt = activeChannelId
-    if (!yt || !yt.trim()) return
+    if (!yt || !yt.trim()) {
+      setChannelVideos([])
+      return
+    }
+    // Clear previous channel's videos immediately so the UI doesn't show stale rows.
+    setChannelVideos([])
     void loadChannelVideos(yt)
   }, [activeChannelId, channelPickNonce, loadChannelVideos])
 

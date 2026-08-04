@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Check, ListMusic, Plus, ShieldAlert, Tv } from 'lucide-react'
 import { ChildChannelsNavCarousel } from '../components/kid/ChildChannelsNavCarousel'
@@ -22,6 +22,7 @@ import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/ch
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
 import { logPlaybackStreamRequest } from '../lib/streamApi'
+import { fetchChannelUploadsPage } from '../lib/youtube'
 import {
   enrichVideosWithFormat,
   filterVideosRespectingAllowShorts,
@@ -118,7 +119,7 @@ function ChannelsPageInner() {
     setAllowShorts(Boolean(selectedDevice.allow_shorts))
   }, [selectedDevice])
 
-  const { whitelist, loading } = useChannels(deviceId ?? undefined, ownerUserId)
+  const { whitelist, loading, refreshChannelVideosCache } = useChannels(deviceId ?? undefined, ownerUserId)
 
   useEffect(() => {
     setSavedPlaylistIds(getSavedPlaylistIds(deviceId))
@@ -133,9 +134,16 @@ function ChannelsPageInner() {
       ) ?? null,
     [visibleChannels, requestedChannelId]
   )
+  const selectedChannelDbId = selectedChannel?.id ?? null
+  const selectedYoutubeChannelId = selectedChannel?.youtube_channel_id ?? null
+  const videosLoadGenRef = useRef(0)
+  const loadedChannelKeyRef = useRef<string | null>(null)
+  const [videosReloadNonce, setVideosReloadNonce] = useState(0)
 
   useEffect(() => {
-    if (!selectedChannel) {
+    if (!selectedChannelDbId || !selectedYoutubeChannelId) {
+      videosLoadGenRef.current += 1
+      loadedChannelKeyRef.current = null
       setVideos([])
       setChannelRecommendations([])
       setRecommendationsLoading(false)
@@ -149,78 +157,61 @@ function ChannelsPageInner() {
       return
     }
 
-    let cancelled = false
+    const channelKey = selectedChannelDbId
+    const youtubeChannelId = selectedYoutubeChannelId
+    const channelChanged = loadedChannelKeyRef.current !== channelKey
+    const requestId = ++videosLoadGenRef.current
+
+    if (channelChanged) {
+      loadedChannelKeyRef.current = channelKey
+      setVideos([])
+      setActiveVideoId(null)
+      setPlayingVideo(null)
+      setVideoSearch('')
+      setShowMyPlaylist(false)
+      setWatchStarted(false)
+    }
+
     setVideosLoading(true)
     setVideosError(null)
-    setVideos([])
-    setActiveVideoId(null)
-    setPlayingVideo(null)
-    setVideoSearch('')
-    setShowMyPlaylist(false)
-    setWatchStarted(false)
 
-    void (async () => {
-      const mapRows = (
-        rows: Array<{
-          youtube_video_id: string
-          title: string
-          thumbnail_url: string | null
-          duration_seconds?: number | null
-        }>
-      ) =>
-        rows.map((row) =>
-          toWatchableVideo({
-            youtube_video_id: row.youtube_video_id,
-            title: row.title,
-            thumbnail_url: row.thumbnail_url,
-            duration_seconds: row.duration_seconds ?? null,
-          })
-        )
+    const mapRows = (
+      rows: Array<{
+        youtube_video_id: string
+        title: string
+        thumbnail_url: string | null
+        duration_seconds?: number | null
+      }>
+    ) =>
+      rows.map((row) =>
+        toWatchableVideo({
+          youtube_video_id: row.youtube_video_id,
+          title: row.title,
+          thumbnail_url: row.thumbnail_url,
+          duration_seconds: row.duration_seconds ?? null,
+        })
+      )
 
+    const fetchCachedRows = async () => {
       const kidToken = getSavedChildAccessToken()
       if (kidToken) {
-        const { data, error } = await getChildCachedChannelVideos(kidToken, selectedChannel.youtube_channel_id)
-        if (cancelled) return
-        if (error) {
-          setVideosLoading(false)
-          setVideosError(error.message)
-          return
-        }
-        const rows = (data ?? []).map((row) => ({
+        const { data, error } = await getChildCachedChannelVideos(kidToken, youtubeChannelId)
+        if (error) throw error
+        return (data ?? []).map((row) => ({
           youtube_video_id: row.youtube_video_id,
           title: row.title,
           thumbnail_url: row.thumbnail_url,
           duration_seconds: row.duration_seconds ?? null,
         }))
-        const fast = mapRows(rows)
-        setVideos(fast)
-        setVideosLoading(false)
-        void enrichVideosWithFormat(
-          rows.map((row) => ({
-            youtube_video_id: row.youtube_video_id,
-            title: row.title,
-            thumbnail_url: row.thumbnail_url,
-            durationSeconds: row.duration_seconds ?? null,
-          }))
-        ).then((enriched) => {
-          if (!cancelled) setVideos(enriched)
-        })
-        return
       }
 
       const { data, error } = await supabase
         .from('channel_videos_cache')
         .select('youtube_video_id, title, thumbnail_url, duration_seconds, position')
-        .eq('channel_id', selectedChannel.id)
+        .eq('channel_id', channelKey)
         .order('position', { ascending: true })
-
-      if (cancelled) return
-      if (error) {
-        setVideosLoading(false)
-        setVideosError(error.message)
-        return
-      }
-      const rows = (data ?? []).map((row) => {
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((row) => {
         const r = row as {
           youtube_video_id: string
           title: string
@@ -234,25 +225,72 @@ function ChannelsPageInner() {
           duration_seconds: r.duration_seconds ?? null,
         }
       })
-      const fast = mapRows(rows)
-      setVideos(fast)
-      setVideosLoading(false)
-      void enrichVideosWithFormat(
-        rows.map((row) => ({
-          youtube_video_id: row.youtube_video_id,
-          title: row.title,
-          thumbnail_url: row.thumbnail_url,
-          durationSeconds: row.duration_seconds ?? null,
-        }))
-      ).then((enriched) => {
-        if (!cancelled) setVideos(enriched)
-      })
-    })()
-
-    return () => {
-      cancelled = true
     }
-  }, [selectedChannel])
+
+    void (async () => {
+      try {
+        let rows = await fetchCachedRows()
+        if (requestId !== videosLoadGenRef.current) return
+
+        // Cache may still be filling after add — brief retry before falling back to YouTube.
+        if (rows.length === 0) {
+          await new Promise((r) => setTimeout(r, 1200))
+          if (requestId !== videosLoadGenRef.current) return
+          rows = await fetchCachedRows()
+        }
+
+        if (requestId !== videosLoadGenRef.current) return
+
+        if (rows.length === 0) {
+          // Seed from YouTube (same source as cache fill) so channel switch is never stuck empty.
+          const kidToken = getSavedChildAccessToken()
+          if (!kidToken) {
+            await refreshChannelVideosCache(channelKey, youtubeChannelId, 'initial')
+            if (requestId !== videosLoadGenRef.current) return
+            rows = await fetchCachedRows()
+          }
+          if (rows.length === 0) {
+            const page = await fetchChannelUploadsPage(youtubeChannelId, { maxPages: 1 })
+            if (requestId !== videosLoadGenRef.current) return
+            if (page.error) {
+              setVideosError(page.error.message)
+              setVideosLoading(false)
+              return
+            }
+            rows = (page.data?.videos ?? []).map((v) => ({
+              youtube_video_id: v.videoId,
+              title: v.title,
+              thumbnail_url: v.thumbnail || null,
+              duration_seconds: v.durationSeconds ?? null,
+            }))
+            if (!kidToken && rows.length > 0) {
+              void refreshChannelVideosCache(channelKey, youtubeChannelId, 'initial')
+            }
+          }
+        }
+
+        if (requestId !== videosLoadGenRef.current) return
+
+        const fast = mapRows(rows)
+        setVideos(fast)
+        setVideosLoading(false)
+        void enrichVideosWithFormat(
+          rows.map((row) => ({
+            youtube_video_id: row.youtube_video_id,
+            title: row.title,
+            thumbnail_url: row.thumbnail_url,
+            durationSeconds: row.duration_seconds ?? null,
+          }))
+        ).then((enriched) => {
+          if (requestId === videosLoadGenRef.current) setVideos(enriched)
+        })
+      } catch (e) {
+        if (requestId !== videosLoadGenRef.current) return
+        setVideosLoading(false)
+        setVideosError(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
+      }
+    })()
+  }, [selectedChannelDbId, selectedYoutubeChannelId, refreshChannelVideosCache, videosReloadNonce])
 
   const channelScopedVideos = useMemo((): ChannelWatchVideo[] => {
     if (!selectedChannel) return []
@@ -654,7 +692,18 @@ function ChannelsPageInner() {
             </div>
           ) : videos.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-zinc-700 px-4 py-10 text-center text-sm text-zinc-500">
-              אין סרטונים זמינים בערוץ הזה כרגע.
+              <p>{videosError ? videosError : 'אין סרטונים זמינים בערוץ הזה כרגע.'}</p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-4"
+                onClick={() => {
+                  loadedChannelKeyRef.current = null
+                  setVideosReloadNonce((n) => n + 1)
+                }}
+              >
+                רענון רשימת סרטונים
+              </Button>
             </div>
           ) : (
             <>
