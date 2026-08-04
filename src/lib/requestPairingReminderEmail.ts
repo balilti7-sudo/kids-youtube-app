@@ -48,6 +48,20 @@ export async function requestPairingReminderEmail(emailRaw: string): Promise<Pai
 
   if (!res.ok) {
     const err = typeof body.error === 'string' ? body.error : `שגיאה ${res.status}`
+    if (res.status === 401 || /unauthorized|invalid.?key/i.test(err)) {
+      return {
+        ok: false,
+        error: 'שליחת המייל נחסמה — מפתח ה-Media Bridge במכשיר אינו תואם לשרת.',
+        status: res.status,
+      }
+    }
+    if (res.status === 503 || /resend|not configured/i.test(err)) {
+      return {
+        ok: false,
+        error: 'שירות המייל אינו זמין כרגע. נסו שוב מאוחר יותר.',
+        status: res.status,
+      }
+    }
     return { ok: false, error: err, status: res.status }
   }
 

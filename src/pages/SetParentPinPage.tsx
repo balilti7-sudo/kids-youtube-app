@@ -71,11 +71,15 @@ export function SetParentPinPage() {
       return
     }
 
-    requestPinEmail({
+    const { data: sessionData } = await supabase.auth.getSession()
+    const emailResult = await requestPinEmail({
       email: profile?.email || user.email || '',
       pin: parsed.data,
-      accessToken: null,
+      accessToken: sessionData.session?.access_token ?? null,
     })
+    if (!emailResult.ok && !emailResult.skipped) {
+      console.warn('[SetParentPinPage] PIN email failed:', emailResult.error)
+    }
     clearPendingParentPin()
 
     await refreshProfile()

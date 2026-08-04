@@ -62,7 +62,12 @@ export function ParentPinSettingsCard() {
         return
       }
       toast.success('קוד PIN לנעילת הורים עודכן')
-      requestPinChangedEmail(session?.access_token)
+      const emailResult = await requestPinChangedEmail(session?.access_token)
+      if (!emailResult.ok && !emailResult.skipped) {
+        toast.message('הקוד נשמר, אך שליחת מייל האישור נכשלה', {
+          description: emailResult.error,
+        })
+      }
       setCurrentParentPin('')
       setNewParentPin('')
       setNewParentPinConfirm('')

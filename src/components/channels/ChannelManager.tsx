@@ -46,6 +46,7 @@ type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
 
 type PendingPinAction =
   | { kind: 'openSearch' }
+  | { kind: 'openVideoSearch' }
   | { kind: 'add'; channel: YouTubeChannelResult }
   | { kind: 'remove'; channel: WhitelistedChannel }
 
@@ -88,6 +89,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [channelBulkLoading, setChannelBulkLoading] = useState(false)
   const [previewRefreshing, setPreviewRefreshing] = useState(false)
   const [previewReloadToken, setPreviewReloadToken] = useState(0)
+  const [videoSearchOpenSignal, setVideoSearchOpenSignal] = useState(0)
   const previewAutoRefreshTriedRef = useRef<string | null>(null)
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null
   const requestedDeviceId = managedDeviceId ?? searchParams.get('device')
@@ -323,6 +325,10 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       setSearchOpen(true)
       return
     }
+    if (pending.kind === 'openVideoSearch') {
+      setVideoSearchOpenSignal((n) => n + 1)
+      return
+    }
     if (pending.kind === 'add') {
       void handleAdd(pending.channel)
       return
@@ -336,6 +342,14 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       return
     }
     beginPinGate({ kind: 'openSearch' })
+  }
+
+  const requestOpenVideoSearch = () => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      setVideoSearchOpenSignal((n) => n + 1)
+      return
+    }
+    beginPinGate({ kind: 'openVideoSearch' })
   }
 
   const requestAddChannel = (c: YouTubeChannelResult) => {
@@ -602,6 +616,8 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             userId={user?.id ? (ownerUserId ?? user.id) : null}
             childAccessToken={user?.id ? null : localParent.localAccessToken}
             mode={user?.id ? 'parent' : 'kid'}
+            onOpenRequest={requestOpenVideoSearch}
+            openSignal={videoSearchOpenSignal}
           />
         ) : null}
       </header>
@@ -649,8 +665,30 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                 <p className="text-sm text-slate-600 dark:text-zinc-400">טוען סרטונים מהמטמון…</p>
               ) : previewError ? (
                 <p className="text-sm text-danger-600">{previewError}</p>
-              ) : previewVideos.length > 0 && visiblePreviewVideos.length === 0 ? (
+              ) : previewVideos.length > 0 && visiblePreviewVideos.length === 0 && !previewVideoSearch.trim() ? (
                 <p className="text-sm text-slate-600 dark:text-zinc-400">אין סרטונים זמינים להצגה בערוץ הזה.</p>
+              ) : previewVideos.length > 0 && !activePreviewVideo && previewVideoSearch.trim() ? (
+                <div className="flex flex-col gap-3">
+                  <ChannelVideoSearchBar
+                    id="parent-channel-video-search-filter-miss"
+                    value={previewVideoSearch}
+                    onChange={setPreviewVideoSearch}
+                    totalCount={baseVisiblePreviewCount}
+                    filteredCount={0}
+                    channelLabel={previewChannel.channel_name}
+                  />
+                  <p className="text-center text-sm text-slate-600 dark:text-zinc-400">
+                    אין סרטונים שמתאימים לחיפוש.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="mx-auto !px-4 !py-2 text-xs"
+                    onClick={() => setPreviewVideoSearch('')}
+                  >
+                    נקה חיפוש
+                  </Button>
+                </div>
               ) : activePreviewVideo ? (
                 <>
                   {/* Mobile: search above the player so new users find it immediately */}

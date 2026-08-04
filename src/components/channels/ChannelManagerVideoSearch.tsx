@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Search } from 'lucide-react'
 import { searchYouTubeVideos } from '../../lib/youtube'
 import { playlistVideoPayloadFromSearchResult } from '../../lib/playlistVideoPayload'
@@ -26,6 +26,10 @@ type Props = {
   childAccessToken?: string | null
   mode?: PlaylistMode
   className?: string
+  /** When provided, the open button asks the parent (PIN gate) instead of opening immediately. */
+  onOpenRequest?: () => void
+  /** Increment after PIN verification to open the modal. */
+  openSignal?: number
 }
 
 function filterValidSearchResults(data: YouTubeVideoResult[] | null | undefined): YouTubeVideoResult[] {
@@ -40,6 +44,8 @@ export function ChannelManagerVideoSearch({
   childAccessToken = null,
   mode = 'parent',
   className,
+  onOpenRequest,
+  openSignal = 0,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -56,6 +62,10 @@ export function ChannelManagerVideoSearch({
     videoMultiSelect
 
   const canAddToPlaylist = Boolean(userId || childAccessToken)
+
+  useEffect(() => {
+    if (openSignal > 0) setOpen(true)
+  }, [openSignal])
 
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim()
@@ -153,7 +163,10 @@ export function ChannelManagerVideoSearch({
           <Button
             type="button"
             className={CHANNEL_MANAGER_SEARCH_CONTROL_CLASS}
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              if (onOpenRequest) onOpenRequest()
+              else setOpen(true)
+            }}
           >
             חיפוש סרטונים
           </Button>

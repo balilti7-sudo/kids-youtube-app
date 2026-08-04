@@ -35,6 +35,8 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   id: idProp,
   value,
   onChange,
+  totalCount,
+  filteredCount,
   channelLabel,
   className,
   onFocusChange,
@@ -53,6 +55,7 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   const totalResults = dropdownResults?.length ?? 0
   const visibleResults = dropdownResults?.slice(0, visibleCount) ?? []
   const hasMoreResults = totalResults > visibleCount
+  const showMatchCount = !dropdownResults && Number.isFinite(totalCount) && Number.isFinite(filteredCount)
 
   useEffect(() => {
     setVisibleCount(DROPDOWN_PAGE_SIZE)
@@ -116,6 +119,14 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
           aria-controls={showDropdown ? listboxId : undefined}
           aria-autocomplete="list"
         />
+
+        {showMatchCount && hasQuery ? (
+          <p className="mt-1.5 text-xs text-yt-textMuted">
+            {filteredCount === 0
+              ? 'אין התאמות לחיפוש'
+              : `מציג ${filteredCount} מתוך ${totalCount} סרטונים`}
+          </p>
+        ) : null}
 
         {showDropdown ? (
           <div

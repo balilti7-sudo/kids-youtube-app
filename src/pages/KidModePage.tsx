@@ -65,6 +65,7 @@ import { CleanPlayer } from '../components/player/CleanPlayer'
 import { logPlaybackStreamRequest } from '../lib/streamApi'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
+import { PARENT_PIN_DIGIT_MAX } from '../lib/parentPin'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
 const PARENT_MODE_UNLOCK_MS = 10 * 60 * 1000
@@ -1644,7 +1645,7 @@ function KidModePageInner() {
         }
       >
         <p className="mb-2 text-sm text-slate-600 dark:text-zinc-400">
-          הזינו את קוד הניהול שמופעל אצל ההורה (במסך ניהול הערוצים). אם לא הוגדר מיוחד — נסו <strong>1234</strong>.
+          הזינו את קוד ההורה ({PARENT_PIN_DIGIT_MAX} ספרות) שמוגדר אצל ההורה באפליקציה.
         </p>
         <Input
           type="password"
@@ -1655,7 +1656,7 @@ function KidModePageInner() {
             setPinInput(e.target.value)
             if (pinError) setPinError(null)
           }}
-          placeholder="למשל: 1234"
+          placeholder={`למשל: ${'1'.repeat(PARENT_PIN_DIGIT_MAX)}`}
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && void confirmPinAndDisconnect()}
         />

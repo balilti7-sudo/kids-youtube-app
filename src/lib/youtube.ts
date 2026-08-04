@@ -564,6 +564,9 @@ export async function searchYouTubeVideos(
           status: res.status,
           bodyPreview: previewResponseBody(text),
         })
+        throw new Error(
+          'חיפוש סרטונים נכשל: שרת ה-Media Bridge לא זמין או מוגדר לא נכון (התקבלה תשובת HTML במקום JSON). בדקו את VITE_STREAM_API_BASE.'
+        )
       }
       const msg = json.detail || json.error || `שגיאת חיפוש (${res.status})`
       throw new Error(msg)

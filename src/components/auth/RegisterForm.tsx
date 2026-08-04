@@ -55,7 +55,13 @@ export function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void 
       setSubmitError(error.message)
       return
     }
-    requestWelcomeEmail({ email: values.email, accessToken: session?.access_token ?? null })
+    void requestWelcomeEmail({ email: values.email, accessToken: session?.access_token ?? null }).then(
+      (result) => {
+        if (!result.ok && !result.skipped) {
+          console.warn('[RegisterForm] welcome email failed:', result.error)
+        }
+      }
+    )
     setSentToEmail(values.email)
     setSuccess(true)
   })

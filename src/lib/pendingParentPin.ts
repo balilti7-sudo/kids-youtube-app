@@ -66,7 +66,15 @@ export async function applyPendingParentPinForProfile(
     return profile
   }
 
-  requestPinEmail({ email, pin: pending, accessToken: null })
+  const { data: sessionData } = await supabase.auth.getSession()
+  const emailResult = await requestPinEmail({
+    email,
+    pin: pending,
+    accessToken: sessionData.session?.access_token ?? null,
+  })
+  if (!emailResult.ok && !emailResult.skipped) {
+    console.warn('[pendingParentPin] PIN email failed:', emailResult.error)
+  }
   clearPendingParentPin()
 
   const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()

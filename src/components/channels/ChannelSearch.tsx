@@ -31,11 +31,21 @@ export function ChannelSearch({
   deviceLabel?: string
 }) {
   const [q, setQ] = useState('')
+  const [hasSearched, setHasSearched] = useState(false)
+
+  const runSearch = (query: string) => {
+    setHasSearched(true)
+    onSearch(query)
+  }
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        setHasSearched(false)
+        setQ('')
+        onClose()
+      }}
       title={deviceLabel ? `חיפוש ערוץ עבור ${deviceLabel}` : 'חיפוש ערוץ'}
       size="lg"
       panelClassName="max-h-[92dvh] border border-zinc-700/70 bg-gradient-to-b from-zinc-900 via-zinc-950 to-black p-0 text-zinc-100 ring-zinc-700/80 sm:rounded-[2rem]"
@@ -46,7 +56,11 @@ export function ChannelSearch({
         <Button
           variant="secondary"
           className="min-w-28 border-zinc-700 bg-zinc-900/80 text-zinc-100 hover:bg-zinc-800"
-          onClick={onClose}
+          onClick={() => {
+            setHasSearched(false)
+            setQ('')
+            onClose()
+          }}
         >
           סגור
         </Button>
@@ -61,14 +75,14 @@ export function ChannelSearch({
               placeholder="Channel name, @handle, or YouTube URL"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && onSearch(q)}
+              onKeyDown={(e) => e.key === 'Enter' && runSearch(q)}
               className="h-12 w-full rounded-2xl border border-zinc-700 bg-zinc-900/90 pe-4 ps-12 text-sm font-medium text-zinc-50 outline-none transition placeholder:text-zinc-500 focus:border-sky-400/70 focus:ring-4 focus:ring-sky-500/15"
             />
           </div>
           <Button
             type="button"
             className="h-12 min-w-28 rounded-2xl bg-zinc-100 px-5 font-bold text-zinc-950 shadow-lg shadow-black/20 hover:bg-white disabled:opacity-60"
-            onClick={() => onSearch(q)}
+            onClick={() => runSearch(q)}
             disabled={loading}
           >
             {loading ? <LoadingSpinner className="h-5 w-5 border-2" /> : <Search className="h-5 w-5" />}
@@ -78,9 +92,9 @@ export function ChannelSearch({
         <p className="mt-2 text-xs text-zinc-500">חפשו ערוץ ואז הוסיפו אותו לפרופיל הנבחר.</p>
       </div>
 
-      {error ? <ErrorState message={error} onRetry={() => onSearch(q)} /> : null}
+      {error ? <ErrorState message={error} onRetry={() => runSearch(q)} /> : null}
 
-      {!loading && !error && results.length === 0 && q.length > 0 ? (
+      {!loading && !error && hasSearched && results.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/60 py-8 text-center text-sm text-zinc-500">
           לא נמצאו תוצאות
         </p>
