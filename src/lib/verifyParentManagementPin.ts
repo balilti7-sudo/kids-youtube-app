@@ -26,7 +26,7 @@ export async function verifyParentManagementPin(
     return { ok: true }
   }
   const expected = getExpectedChannelActionPin(ctx.profile, ctx.localParent)
-  if (!pinsMatch(trimmed, expected)) {
+  if (!expected || !pinsMatch(trimmed, expected)) {
     return { ok: false, errorMessage: 'קוד שגוי' }
   }
   return { ok: true }

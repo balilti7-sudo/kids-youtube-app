@@ -1,4 +1,4 @@
-import { isValidParentPinDigits, pinsMatch, resolvedManagementPinFromProfileRow } from './parentPin'
+import { isValidParentPinDigits } from './parentPin'
 import { supabase } from './supabase'
 
 export type ChangeParentPinResult = { ok: true } | { ok: false; message: string }
@@ -28,62 +28,9 @@ function parseRpcResult(data: unknown): ChangeParentPinResult {
   }
 }
 
-/** Fallback when RPC is missing (migration 027 not applied yet). */
-async function changeViaDirectUpdate(
-  userId: string,
-  currentDigits: string,
-  newDigits: string,
-): Promise<ChangeParentPinResult> {
-  const { data, error: selectError } = await supabase
-    .from('profiles')
-    .select('parent_pin')
-    .eq('id', userId)
-    .maybeSingle()
-
-  if (selectError) {
-    if (/access_code does not exist/i.test(selectError.message)) {
-      return {
-        ok: false,
-        message: 'הריצו ב-Supabase את המיגרציה 027_parent_pin_fix.sql',
-      }
-    }
-    return { ok: false, message: selectError.message || 'לא ניתן לטעון את הקוד הנוכחי' }
-  }
-
-  if (!data) return { ok: false, message: 'פרופיל לא נמצא' }
-
-  const stored = resolvedManagementPinFromProfileRow({ parent_pin: data.parent_pin })
-  const pinConfigured = stored.length >= 4 && stored !== '0000'
-
-  if (pinConfigured) {
-    if (!isValidParentPinDigits(currentDigits)) {
-      return { ok: false, message: 'נא להזין את קוד PIN הנוכחי' }
-    }
-    if (!pinsMatch(currentDigits, stored)) {
-      return { ok: false, message: WRONG_CURRENT_PIN_HE }
-    }
-  }
-
-  const { error: updateError } = await supabase
-    .from('profiles')
-    .update({ parent_pin: newDigits })
-    .eq('id', userId)
-
-  if (updateError) {
-    if (updateError.message?.includes('parent_pin_update_not_allowed')) {
-      return {
-        ok: false,
-        message: 'הריצו ב-Supabase את המיגרציה 027_parent_pin_fix.sql (מסיר חסימת עדכון PIN).',
-      }
-    }
-    return { ok: false, message: updateError.message || 'עדכון הקוד נכשל' }
-  }
-
-  return { ok: true }
-}
-
 /**
- * Change parent PIN via Supabase RPC `change_parent_pin` (uses profiles.parent_pin only).
+ * Change parent PIN via Supabase RPC `change_parent_pin` only.
+ * Direct table UPDATE is no longer used (plaintext PIN writes are blocked by migration 068).
  */
 export async function changeParentPin(
   userId: string,
@@ -109,26 +56,19 @@ export async function changeParentPin(
   if (error) {
     const msg = error.message || ''
     if (/change_parent_pin/i.test(msg) && /not find|does not exist|42883/i.test(msg)) {
-      return changeViaDirectUpdate(userId, currentDigits, newDigits)
-    }
-    if (/access_code does not exist/i.test(msg)) {
       return {
         ok: false,
-        message: 'הריצו ב-Supabase את המיגרציה 027_parent_pin_fix.sql',
+        message: 'הריצו ב-Supabase את המיגרציה 068_parent_pin_hash_and_verify.sql',
       }
     }
     if (msg.includes('parent_pin_update_not_allowed')) {
       return {
         ok: false,
-        message: 'הריצו ב-Supabase את המיגרציה 027_parent_pin_fix.sql',
+        message: 'הריצו ב-Supabase את המיגרציה 068_parent_pin_hash_and_verify.sql',
       }
     }
     return { ok: false, message: msg || 'עדכון הקוד נכשל' }
   }
 
-  const result = parseRpcResult(data)
-  if (!result.ok && result.message === 'עדכון הקוד נכשל') {
-    return changeViaDirectUpdate(userId, currentDigits, newDigits)
-  }
-  return result
+  return parseRpcResult(data)
 }

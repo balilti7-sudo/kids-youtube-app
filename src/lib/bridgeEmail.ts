@@ -13,7 +13,6 @@ async function postBridgeEmail(
   opts: { accessToken?: string | null; requireAuth?: boolean; logTag: string }
 ): Promise<BridgeEmailResult> {
   const base = getStreamApiBaseUrl()
-  const welcomeKey = (import.meta.env.VITE_MEDIA_BRIDGE_WELCOME_KEY as string | undefined)?.trim()
   const accessToken = (opts.accessToken || '').trim() || null
 
   const headers: Record<string, string> = {
@@ -21,18 +20,16 @@ async function postBridgeEmail(
     'Content-Type': 'application/json',
   }
   if (accessToken) headers.authorization = `Bearer ${accessToken}`
-  if (welcomeKey) headers['X-Media-Bridge-Welcome-Key'] = welcomeKey
 
-  if (!accessToken && !welcomeKey) {
+  // Never ship MEDIA_BRIDGE_WELCOME_KEY in the client bundle — Bearer session only.
+  if (!accessToken) {
     if (import.meta.env.DEV) {
-      console.info(
-        `[${opts.logTag}] skipped: no access token and no VITE_MEDIA_BRIDGE_WELCOME_KEY`
-      )
+      console.info(`[${opts.logTag}] skipped: no access token`)
     }
     return {
       ok: false,
       skipped: true,
-      error: 'חסר מפתח שליחת מייל (VITE_MEDIA_BRIDGE_WELCOME_KEY) או סשן מחובר',
+      error: 'יש להתחבר מחדש כדי לשלוח מייל',
     }
   }
 
@@ -56,13 +53,13 @@ async function postBridgeEmail(
       } catch {
         /* ignore */
       }
-      console.warn(`[${opts.logTag}] bridge returned`, res.status, detail)
+      console.warn(`[${opts.logTag}] bridge returned`, res.status)
       return { ok: false, error: detail }
     }
     return { ok: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.warn(`[${opts.logTag}] request failed:`, message)
+    console.warn(`[${opts.logTag}] request failed`)
     return { ok: false, error: message }
   }
 }

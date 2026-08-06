@@ -2,8 +2,13 @@ import type { WhitelistedChannel } from '../types'
 import { supabase } from './supabase'
 import { clearLocalParentSession } from './localParentAdmin'
 import { clearAppMode } from './appMode'
+import { secureGet, secureRemove, secureSet } from './secureStorage'
 
 const CHILD_ACCESS_TOKEN_KEY = 'safetube_kid_access_token'
+const SECURE_TOKEN_KEY = 'kid_access_token'
+
+/** In-memory cache so sync callers keep working after async hydrate. */
+let memoryToken: string | null = null
 
 export interface ChildDeviceState {
   device_id: string
@@ -46,12 +51,59 @@ export interface ChildCachedChannelVideo {
   duration_seconds?: number | null
 }
 
+function readLegacyPlaintextToken(): string | null {
+  try {
+    return localStorage.getItem(CHILD_ACCESS_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+function clearLegacyPlaintextToken() {
+  try {
+    localStorage.removeItem(CHILD_ACCESS_TOKEN_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 export function getSavedChildAccessToken() {
-  return localStorage.getItem(CHILD_ACCESS_TOKEN_KEY)
+  if (memoryToken) return memoryToken
+  // Sync fallback before hydrate finishes (web legacy / first paint).
+  const legacy = readLegacyPlaintextToken()
+  if (legacy) memoryToken = legacy
+  return memoryToken
+}
+
+/**
+ * Load token from EncryptedSharedPreferences (Android) or encrypted web storage.
+ * Migrates legacy plaintext localStorage once, then deletes it.
+ */
+export async function hydrateChildAccessToken(): Promise<string | null> {
+  try {
+    const fromSecure = await secureGet(SECURE_TOKEN_KEY)
+    if (fromSecure) {
+      memoryToken = fromSecure
+      clearLegacyPlaintextToken()
+      return memoryToken
+    }
+    const legacy = readLegacyPlaintextToken()
+    if (legacy) {
+      memoryToken = legacy
+      await secureSet(SECURE_TOKEN_KEY, legacy)
+      clearLegacyPlaintextToken()
+      return memoryToken
+    }
+  } catch {
+    /* ignore */
+  }
+  return memoryToken
 }
 
 export function saveChildAccessToken(token: string) {
-  localStorage.setItem(CHILD_ACCESS_TOKEN_KEY, token)
+  memoryToken = token
+  clearLegacyPlaintextToken()
+  void secureSet(SECURE_TOKEN_KEY, token)
   try {
     window.dispatchEvent(new CustomEvent('safetube-kid-token-changed'))
   } catch {
@@ -60,7 +112,9 @@ export function saveChildAccessToken(token: string) {
 }
 
 export function clearChildAccessToken() {
-  localStorage.removeItem(CHILD_ACCESS_TOKEN_KEY)
+  memoryToken = null
+  clearLegacyPlaintextToken()
+  void secureRemove(SECURE_TOKEN_KEY)
   clearLocalParentSession()
   clearAppMode()
   try {

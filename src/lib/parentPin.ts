@@ -1,8 +1,12 @@
+/**
+ * Parent management PIN helpers.
+ * Never ship default/fallback PINs (1234 / 9999) — fail closed when unset.
+ */
 import type { Profile } from '../types'
 
 /**
- * אותה לוגיקה בכל האפליקציה — PIN להגדרות הורה (ערוצים) ולניתוק במסך הילד.
- * מחרוזות ריקות (כולל אחרי trim) לא נחשבות — אז חוזרים ל־1234.
+ * Dev-only optional override from env. Empty in production builds unless explicitly set.
+ * Returns '' when unset (callers must treat as "no env PIN").
  */
 export function getResolvedParentPin(): string {
   const m = import.meta.env.VITE_PARENT_MANAGEMENT_PIN
@@ -11,7 +15,7 @@ export function getResolvedParentPin(): string {
   const ut = typeof u === 'string' ? u.trim() : ''
   if (mt.length > 0) return mt
   if (ut.length > 0) return ut
-  return '1234'
+  return ''
 }
 
 /** קוד הורה במסד ובטפסים: בדיוק 6 ספרות. */
@@ -37,6 +41,7 @@ export function contiguousDigitsFromPinSlots(slots: readonly ('' | string)[]): s
 export function pinsMatch(input: string, expected: string): boolean {
   const a = input.replace(/\s+/g, '').trim()
   const b = expected.replace(/\s+/g, '').trim()
+  if (!a || !b) return false
   return a === b
 }
 
@@ -51,7 +56,12 @@ function stringifyPinRaw(raw: unknown): string {
 export function resolvedManagementPinFromProfileRow(row: {
   parent_pin?: unknown
   access_code?: unknown
+  parent_pin_hash?: unknown
 }): string {
+  // Hashed PIN cannot be compared client-side — callers must use verify_parent_pin RPC.
+  if (row.parent_pin_hash != null && String(row.parent_pin_hash).length > 0) {
+    return ''
+  }
   const pp = stringifyPinRaw(row.parent_pin)
   const ac = stringifyPinRaw(row.access_code)
   if (pp.length >= 4 && pp !== '0000') return pp
@@ -63,6 +73,7 @@ export function resolvedManagementPinFromProfileRow(row: {
 
 /**
  * קוד לאימות הוספת/מחיקת ערוץ: קודם `profiles.parent_pin`, אחרת PIN של ניהול מקומי במכשיר הילד, ואז משתני סביבה (פיתוח / תאימות).
+ * Fail-closed: empty string when nothing is configured (never default to 1234).
  */
 export function getExpectedChannelActionPin(
   profile: Profile | null | undefined,
@@ -71,6 +82,7 @@ export function getExpectedChannelActionPin(
   const fromProfile = resolvedManagementPinFromProfileRow({
     parent_pin: profile?.parent_pin,
     access_code: profile?.access_code,
+    parent_pin_hash: profile?.parent_pin_hash,
   })
   if (fromProfile.length >= 4) return fromProfile
 
@@ -89,8 +101,9 @@ function hasUsableMgmtCode(s: string): boolean {
   return s.length >= 4 && s !== '0000'
 }
 
-/** true כשאין במסך הפרופיל קוד הורה שמיש (מ-`parent_pin` או `access_code`). */
+/** true כשאין במסך הפרופיל קוד הורה שמיש (מ-`parent_pin` / hash / `access_code`). */
 export function isProfileParentPinMissing(profile: Profile | null | undefined): boolean {
+  if (profile?.parent_pin_hash && String(profile.parent_pin_hash).length > 0) return false
   const pin = normPin(profile?.parent_pin)
   const ac = normAccess(profile?.access_code)
   return !hasUsableMgmtCode(pin) && !hasUsableMgmtCode(ac)

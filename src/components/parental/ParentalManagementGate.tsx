@@ -7,6 +7,7 @@ import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/
 import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
+import { setParentPinSession } from '../../lib/parentPinSession'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../ui/Button'
 import { ParentalForgotPinModal } from './ParentalForgotPinModal'
@@ -75,6 +76,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
       inFlightRef.current = false
       setVerifying(false)
       if (result.ok) {
+        setParentPinSession(trimmed)
         onUnlocked()
         return
       }

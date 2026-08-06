@@ -1,4 +1,5 @@
 import { touchParentalGateActivity } from './parentalGateActivity'
+import { clearParentPinSession } from './parentPinSession'
 import { SAFETUBE_PARENTAL_MANAGEMENT_GATE_KEY } from './safetubeSessionKeys'
 
 export function isParentalManagementGateUnlocked(): boolean {
@@ -19,6 +20,7 @@ export function setParentalManagementGateUnlocked(): void {
 }
 
 export function clearParentalManagementGate(): void {
+  clearParentPinSession()
   try {
     sessionStorage.removeItem(SAFETUBE_PARENTAL_MANAGEMENT_GATE_KEY)
   } catch {

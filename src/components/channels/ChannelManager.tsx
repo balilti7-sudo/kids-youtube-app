@@ -13,6 +13,7 @@ import { CleanPlayer } from '../player/CleanPlayer'
 import { Button } from '../ui/Button'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
+import { setParentPinSession } from '../../lib/parentPinSession'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { Skeleton } from '../ui/Skeleton'
@@ -312,9 +313,8 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   )
 
   const runAfterVerifiedPin = (trimmedPin: string) => {
-    if (localParent.isActive) {
-      localParentPinForRpcRef.current = trimmedPin
-    }
+    localParentPinForRpcRef.current = trimmedPin
+    setParentPinSession(trimmedPin)
     const pending = pendingPinActionRef.current
     pendingPinActionRef.current = null
     setPinModalOpen(false)

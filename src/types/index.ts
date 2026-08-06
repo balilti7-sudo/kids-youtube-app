@@ -3,8 +3,10 @@ export interface Profile {
   email: string
   full_name: string | null
   avatar_url: string | null
-  /** Parent PIN for sensitive actions (e.g. channel list); DB default often 0000 */
+  /** Parent PIN for sensitive actions — prefer parent_pin_hash; plaintext cleared after migration 068. */
   parent_pin?: string | null
+  /** bcrypt hash of parent PIN (server-side only; presence means PIN is configured). */
+  parent_pin_hash?: string | null
   /** Optional parity field; gate may fall back here if `parent_pin` is unset (see migration 020). */
   access_code?: string | null
   onboarding_done: boolean

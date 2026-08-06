@@ -15,6 +15,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MediaPlaybackPlugin.class);
         registerPlugin(ParentalControlPlugin.class);
+        registerPlugin(SecureStoragePlugin.class);
         super.onCreate(savedInstanceState);
         try {
             if (bridge != null && bridge.getWebView() != null) {

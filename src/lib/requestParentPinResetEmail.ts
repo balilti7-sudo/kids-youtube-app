@@ -157,12 +157,10 @@ function isBridgeEmailConfigError(result: ParentPinResetResult): boolean {
 
 /**
  * Request a new parent management PIN by email (server generates PIN; never shown in gate UI).
- * Primary: Supabase Edge Function (Resend secrets on Supabase — worked before Render email vars).
- * Fallback: Media Bridge on Render.
+ * Requires an authenticated parent session (Bearer). Never embeds server welcome keys in the client.
  */
 export async function requestParentPinResetEmail(emailRaw: string): Promise<ParentPinResetResult> {
   const email = emailRaw.trim().toLowerCase()
-  const welcomeKey = (import.meta.env.VITE_MEDIA_BRIDGE_WELCOME_KEY as string | undefined)?.trim()
 
   let accessToken: string | null = null
   if (isSupabaseConfigured) {
@@ -170,14 +168,14 @@ export async function requestParentPinResetEmail(emailRaw: string): Promise<Pare
     accessToken = data.session?.access_token ?? null
   }
 
-  if (!accessToken && !welcomeKey) {
+  if (!accessToken) {
     return {
       ok: false,
-      error: 'יש להתחבר לחשבון ההורה כדי לשחזר את הקוד, או לפנות לתמיכה.',
+      error: 'יש להתחבר לחשבון ההורה כדי לשחזר את הקוד.',
     }
   }
 
-  const opts = { welcomeKey, accessToken }
+  const opts = { accessToken }
 
   const viaSupabase = await requestViaSupabaseFunction(email, opts)
   if (viaSupabase?.ok) return viaSupabase

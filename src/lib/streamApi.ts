@@ -3,6 +3,7 @@ import { assertChildPlaybackAllowedForStream, ChildPlaybackBlockedError } from '
 import { isClientStreamResolveEnabled } from './clientStreamConfig'
 import { resolveClientYoutubeStream, type ClientResolvedStream } from './clientYoutubeResolve'
 import { isDeviceResolveAvailable, resolveOnDevice } from './deviceResolve'
+import { enforceHttpsUrl } from './networkSecurity'
 import {
   LIVE_UPCOMING_PLAYBACK_MESSAGE,
   normalizeBridgeErrorDetail,
@@ -239,7 +240,7 @@ export function getMediaBridgeRequestOrigin(): string {
  * Configured Media Bridge origin (no trailing slash). Prefer `getMediaBridgeRequestOrigin()` for fetches.
  */
 export function getStreamApiBaseUrl(): string {
-  return getMediaBridgeRequestOrigin()
+  return enforceHttpsUrl(getMediaBridgeRequestOrigin())
 }
 
 let mediaBridgeConfigLogged = false

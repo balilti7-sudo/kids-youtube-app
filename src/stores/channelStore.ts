@@ -1,7 +1,23 @@
 import { create } from 'zustand'
 import type { WhitelistedChannel, WhitelistedVideo, YouTubeChannelResult, YouTubeVideoResult } from '../types'
 import { childAllowedChannelToWhitelist, getChildAllowedChannels } from '../lib/childDevice'
+import { verifyLoggedInUserParentPin } from '../lib/verifyParentProfilePin'
 import { supabase } from '../lib/supabase'
+
+async function requireAuthenticatedParentPin(
+  userId: string,
+  parentPin: string | undefined
+): Promise<Error | null> {
+  const pin = (parentPin || '').replace(/\D/g, '').trim()
+  if (!pin) {
+    return new Error('נדרש קוד הורה לביצוע הפעולה')
+  }
+  const result = await verifyLoggedInUserParentPin(userId, pin)
+  if (!result.ok) {
+    return new Error(result.errorMessage || 'קוד שגוי')
+  }
+  return null
+}
 
 function channelFromSearchResult(
   channelId: string,
@@ -68,14 +84,25 @@ interface ChannelState {
     userId: string
     yt: YouTubeChannelResult
     category?: string | null
+    /** Required — re-verified server-side via verify_parent_pin before mutation. */
+    parentPin: string
   }) => Promise<{ error: Error | null }>
   addVideoToDevice: (params: {
     deviceId: string
     userId: string
     yt: YouTubeVideoResult
+    parentPin: string
   }) => Promise<{ error: Error | null }>
-  removeChannelFromDevice: (deviceId: string, channelId: string) => Promise<{ error: Error | null }>
-  removeVideoFromDevice: (deviceId: string, videoId: string) => Promise<{ error: Error | null }>
+  removeChannelFromDevice: (
+    deviceId: string,
+    channelId: string,
+    opts: { userId: string; parentPin: string }
+  ) => Promise<{ error: Error | null }>
+  removeVideoFromDevice: (
+    deviceId: string,
+    videoId: string,
+    opts: { userId: string; parentPin: string }
+  ) => Promise<{ error: Error | null }>
   fetchWhitelistForLocalParent: (accessToken: string) => Promise<void>
   /** Public child RPC — no parent Supabase session required */
   fetchWhitelistFromChildToken: (accessToken: string) => Promise<void>
@@ -162,7 +189,9 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     set({ approvedVideos: videos, loading: false })
   },
 
-  addChannelToDevice: async ({ deviceId, userId, yt, category }) => {
+  addChannelToDevice: async ({ deviceId, userId, yt, category, parentPin }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+    if (pinErr) return { error: pinErr }
     let channelId: string
     const normalizedCategory = category?.trim() ? category.trim() : null
     const existing = await supabase
@@ -216,7 +245,9 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return { error: null }
   },
 
-  removeChannelFromDevice: async (deviceId, channelId) => {
+  removeChannelFromDevice: async (deviceId, channelId, { userId, parentPin }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+    if (pinErr) return { error: pinErr }
     const { error } = await supabase
       .from('device_whitelist')
       .delete()
@@ -227,7 +258,9 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return { error: null }
   },
 
-  addVideoToDevice: async ({ deviceId, yt }) => {
+  addVideoToDevice: async ({ deviceId, userId, yt, parentPin }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+    if (pinErr) return { error: pinErr }
     const videoIdPattern = /^[a-zA-Z0-9_-]{11}$/
     if (!videoIdPattern.test(yt.videoId)) {
       return { error: new Error('INVALID_VIDEO_ID') }
@@ -249,7 +282,9 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return { error: null }
   },
 
-  removeVideoFromDevice: async (deviceId, videoId) => {
+  removeVideoFromDevice: async (deviceId, videoId, { userId, parentPin }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+    if (pinErr) return { error: pinErr }
     const { error } = await supabase
       .from('device_video_whitelist')
       .delete()

@@ -33,10 +33,16 @@ interface ImportMetaEnv {
   /** When `"true"`, CleanPlayer uses youtube-nocookie iframe with modestbranding=1&rel=0 instead of Media Bridge */
   readonly VITE_YOUTUBE_IFRAME_PLAYER?: string
   /**
-   * Shared secret for forgot-PIN / welcome emails.
-   * Set the same value in Supabase Edge Function secrets as `PIN_RESET_REQUEST_SECRET` or `MEDIA_BRIDGE_WELCOME_KEY`.
+   * @deprecated Do not set in client builds — welcome/PIN emails require a logged-in Bearer token.
+   * Server-only: MEDIA_BRIDGE_WELCOME_KEY on the Media Bridge / Edge Functions.
    */
   readonly VITE_MEDIA_BRIDGE_WELCOME_KEY?: string
+  /**
+   * Optional emergency parent bypass — must be a custom non-default value if used at all.
+   * Hardcoded 9999/999999 defaults are intentionally removed.
+   */
+  readonly VITE_EMERGENCY_MASTER_PARENT_CODE?: string
+  readonly VITE_EMERGENCY_MASTER_PARENT_PIN?: string
   /** WhatsApp support — E.164 digits only, e.g. 972552577999 */
   readonly VITE_WHATSAPP_PHONE_E164?: string
 }

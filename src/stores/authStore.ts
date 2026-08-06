@@ -124,14 +124,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     console.info('[fetchProfile] success', {
       userId: user.id,
       onboardingDone: withPin?.onboarding_done,
-      hasParentPin: Boolean(withPin?.parent_pin),
+      hasParentPin: Boolean(withPin?.parent_pin) || Boolean(withPin?.parent_pin_hash),
       hasAccessCode: Boolean(withPin?.access_code),
     })
     set({ profile: withPin, profileLoading: false })
   },
 
   signIn: async (email, password) => {
-    console.info('[authStore.signIn] requesting signInWithPassword', { email })
+    if (import.meta.env.DEV) {
+      console.info('[authStore.signIn] requesting signInWithPassword')
+    }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       const err = error as Error & { status?: number; code?: string }
@@ -143,14 +145,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })
       return { error: new Error(error.message) }
     }
-    console.info('[authStore.signIn] supabase success', {
-      hasSession: Boolean(data.session),
-      userId: data.session?.user?.id ?? null,
-      email: data.session?.user?.email ?? null,
-      expiresAt: data.session?.expires_at
-        ? new Date(data.session.expires_at * 1000).toISOString()
-        : null,
-    })
+    if (import.meta.env.DEV) {
+      console.info('[authStore.signIn] supabase success', {
+        hasSession: Boolean(data.session),
+        userId: data.session?.user?.id ?? null,
+        expiresAt: data.session?.expires_at
+          ? new Date(data.session.expires_at * 1000).toISOString()
+          : null,
+      })
+    }
     setAppModeParent()
     // Reset stuck/failure counters BEFORE the React re-render so the brief
     // null-profile window after session-set doesn't trip auto-signOut in useAuth.

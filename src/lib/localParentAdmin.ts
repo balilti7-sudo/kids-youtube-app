@@ -1,6 +1,6 @@
 import { getSavedChildAccessToken } from './childDevice'
 
-/** sessionStorage — local parent session (kid profile token + PIN) without a full Supabase login */
+/** sessionStorage — local parent session metadata WITHOUT the PIN (PIN stays in memory only). */
 export const SAFETUBE_LOCAL_PARENT_ADMIN_KEY = 'safetube_local_parent_admin'
 
 export const LOCAL_PARENT_SESSION_MS = 30 * 60 * 1000
@@ -10,12 +10,17 @@ export interface LocalParentSession {
   deviceId: string
   ownerUserId: string
   accessToken: string
-  /** PIN הורי בגרסת plain רק לצורך קריאות RPC מקומיות מהדפדפן.
-   *  נדרש כדי שלא יפתחו “פעולות ניהול” בלי שהמשתמש הזין PIN במסך ה-Kid. */
+  /**
+   * Parent PIN — never written to disk/sessionStorage.
+   * Held only in process memory for the lifetime of this tab/session.
+   */
   pin: string
 }
 
-function parseSession(raw: string | null): LocalParentSession | null {
+/** In-memory PIN for the active local-parent session (cleared on reload / clear). */
+let memoryPin = ''
+
+function parseSessionMeta(raw: string | null): Omit<LocalParentSession, 'pin'> | null {
   if (!raw) return null
   try {
     const o = JSON.parse(raw) as Partial<LocalParentSession>
@@ -27,22 +32,11 @@ function parseSession(raw: string | null): LocalParentSession | null {
     ) {
       return null
     }
-    // pin יכול להיות חסר רק בנתונים ישנים שיוצרו לפני השדרוג.
-    if (typeof o.pin !== 'string') {
-      return {
-        until: o.until,
-        deviceId: String(o.deviceId),
-        ownerUserId: String(o.ownerUserId),
-        accessToken: String(o.accessToken),
-        pin: '',
-      }
-    }
     return {
       until: o.until,
       deviceId: o.deviceId,
       ownerUserId: o.ownerUserId,
       accessToken: o.accessToken,
-      pin: o.pin,
     }
   } catch {
     return null
@@ -51,7 +45,9 @@ function parseSession(raw: string | null): LocalParentSession | null {
 
 export function readLocalParentSession(): LocalParentSession | null {
   try {
-    return parseSession(window.sessionStorage.getItem(SAFETUBE_LOCAL_PARENT_ADMIN_KEY))
+    const meta = parseSessionMeta(window.sessionStorage.getItem(SAFETUBE_LOCAL_PARENT_ADMIN_KEY))
+    if (!meta) return null
+    return { ...meta, pin: memoryPin }
   } catch {
     return null
   }
@@ -61,21 +57,23 @@ export function writeLocalParentSession(
   payload: Omit<LocalParentSession, 'until'> & { until?: number }
 ) {
   const until = payload.until ?? Date.now() + LOCAL_PARENT_SESSION_MS
-  const s: LocalParentSession = {
+  memoryPin = typeof payload.pin === 'string' ? payload.pin.replace(/\D/g, '').trim() : ''
+  // Persist metadata only — never the PIN.
+  const meta = {
     until,
     deviceId: payload.deviceId,
     ownerUserId: payload.ownerUserId,
     accessToken: payload.accessToken,
-    pin: payload.pin,
   }
   try {
-    window.sessionStorage.setItem(SAFETUBE_LOCAL_PARENT_ADMIN_KEY, JSON.stringify(s))
+    window.sessionStorage.setItem(SAFETUBE_LOCAL_PARENT_ADMIN_KEY, JSON.stringify(meta))
   } catch {
     /* ignore */
   }
 }
 
 export function clearLocalParentSession() {
+  memoryPin = ''
   try {
     window.sessionStorage.removeItem(SAFETUBE_LOCAL_PARENT_ADMIN_KEY)
   } catch {
@@ -96,6 +94,7 @@ export function isLocalParentSessionValid(): boolean {
     clearLocalParentSession()
     return false
   }
+  // After a full page reload memoryPin is empty — force re-auth (intentional).
   if (typeof s.pin !== 'string' || s.pin.trim().length < 4) {
     clearLocalParentSession()
     return false

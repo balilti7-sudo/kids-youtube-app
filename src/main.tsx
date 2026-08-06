@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './i18n'
 import { installAuthDiagnostics } from './lib/authDiagnostics'
+import { hydrateChildAccessToken } from './lib/childDevice'
 import { initTheme } from './lib/theme'
 import { initCapacitorDeviceResolve } from './lib/deviceResolve/capacitorBridge'
 import { initCapacitorAuthDeepLinks } from './lib/capacitorAuth'
@@ -10,6 +11,7 @@ import { initSafeAreaInsets } from './lib/safeArea'
 import App from './App.tsx'
 
 installAuthDiagnostics()
+void hydrateChildAccessToken()
 initTheme()
 initSafeAreaInsets()
 initCapacitorDeviceResolve()

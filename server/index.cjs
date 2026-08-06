@@ -17,6 +17,7 @@ const streamStatusStore = require('./stream-status-store.cjs');
 const { searchYouTube } = require('./youtube-search.cjs');
 const youtubeInnertube = require('./youtube-innertube.cjs');
 const innertubeProxy = require('./innertube-proxy.cjs');
+const { requireBridgeApiSecret, isApiSecretConfigured } = require('./bridge-auth.cjs');
 
 /**
  * bunny-stream.cjs (+ its axios / ingest-ytdlp.cjs / child_process dependents) and
@@ -59,7 +60,14 @@ function buildCorsOptions() {
   const common = {
     credentials: false,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
-    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: [
+      'Content-Type',
+      'Accept',
+      'Authorization',
+      'X-Requested-With',
+      'X-Media-Bridge-Api-Key',
+      'X-Media-Bridge-Welcome-Key',
+    ],
     maxAge: 86400,
   };
   if (!raw || raw === '*') {
@@ -1083,6 +1091,7 @@ app.get('/health', (_req, res) => {
     innertubeCookies: youtubeInnertube.getCookiesStatus(),
     innertubePoToken: youtubeInnertube.getPoTokenStatus(),
     innertubeProxy: youtubeInnertube.getProxyStatus(),
+    apiAuthConfigured: isApiSecretConfigured(),
     // Egress separation invariant, made observable: the residential proxy (when set)
     // carries ONLY InnerTube API + BotGuard/PO-Token calls. Bulk video bytes (/api/media)
     // always go direct from this box, never through the metered proxy.
@@ -1099,7 +1108,7 @@ app.get('/health', (_req, res) => {
  * proxy credentials. Purpose: pinpoint why resolves fail through the proxy on Render
  * when the same proxy + code work from other IPs. Safe to expose (read-only, no secrets).
  */
-app.get('/api/proxy-selftest', async (_req, res) => {
+app.get('/api/proxy-selftest', requireBridgeApiSecret, async (_req, res) => {
   const mediaProxy = require('./media-proxy.cjs');
   const mode = mediaProxy.describeProxyMode();
   const dispatcher = mediaProxy.getProxyDispatcher();
@@ -1132,7 +1141,7 @@ app.get('/api/proxy-selftest', async (_req, res) => {
   });
 });
 
-app.get('/api/diagnostics', async (_req, res) => {
+app.get('/api/diagnostics', requireBridgeApiSecret, async (_req, res) => {
   try {
     let web;
     if (useClientStreamResolve()) {
@@ -1278,7 +1287,7 @@ app.get('/api/youtube/resolve/:videoId', async (req, res) => {
  * Generic CORS-safe proxy for youtubei.js fetch (browser → bridge → YouTube).
  * Prefer GET /api/youtube/resolve/:videoId when possible (single round-trip).
  */
-app.post('/api/youtube/innertube-proxy', async (req, res) => {
+app.post('/api/youtube/innertube-proxy', requireBridgeApiSecret, async (req, res) => {
   if (!useClientStreamResolve()) {
     return res.status(403).json({ error: 'client_resolve_disabled' });
   }
@@ -1634,7 +1643,7 @@ app.get('/api/info/:videoId', async (req, res) => {
   }
 });
 
-app.post('/admin/clear-resolve-cache', (_req, res) => {
+app.post('/admin/clear-resolve-cache', requireBridgeApiSecret, (_req, res) => {
   resolveCache.clear();
   res.json({ ok: true });
 });

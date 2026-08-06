@@ -61,13 +61,29 @@ export function SetParentPinPage() {
 
     setSaving(true)
     try {
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ parent_pin: parsed.data })
-        .eq('id', user.id)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('set_parent_pin', {
+        p_new_pin: parsed.data,
+      })
 
-      if (updateError) {
-        setError(updateError.message || 'שמירת קוד הורה נכשלה')
+      if (
+        rpcError &&
+        /set_parent_pin/i.test(rpcError.message || '') &&
+        /not find|does not exist|42883/i.test(rpcError.message || '')
+      ) {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ parent_pin: parsed.data })
+          .eq('id', user.id)
+        if (updateError) {
+          setError(updateError.message || 'שמירת קוד הורה נכשלה')
+          return
+        }
+      } else if (rpcError) {
+        setError(rpcError.message || 'שמירת קוד הורה נכשלה')
+        return
+      } else if (!rpcData || (rpcData as { ok?: boolean }).ok !== true) {
+        const code = String((rpcData as { error?: string } | null)?.error || '')
+        setError(code === 'pin_already_set' ? 'כבר הוגדר קוד הורה' : 'שמירת קוד הורה נכשלה')
         return
       }
 
@@ -79,11 +95,10 @@ export function SetParentPinPage() {
           accessToken: sessionData.session?.access_token ?? null,
         })
         if (!emailResult.ok && !emailResult.skipped) {
-          console.warn('[SetParentPinPage] PIN email failed:', emailResult.error)
+          console.warn('[SetParentPinPage] PIN email failed')
         }
-      } catch (emailErr) {
+      } catch {
         // PIN is already saved — never block dashboard entry on email/native-HTTP issues.
-        console.warn('[SetParentPinPage] PIN email unexpected error:', emailErr)
       }
 
       clearPendingParentPin()
@@ -92,7 +107,7 @@ export function SetParentPinPage() {
       navigate('/dashboard', { replace: true })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('[SetParentPinPage] save failed:', message)
+      console.error('[SetParentPinPage] save failed')
       setError(message || 'שמירת קוד הורה נכשלה')
     } finally {
       setSaving(false)

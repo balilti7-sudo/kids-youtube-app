@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { getSavedChildAccessToken } from '../lib/childDevice'
+import { getParentPinSession } from '../lib/parentPinSession'
 import {
   CHANNEL_CACHE_APPEND_PAGES,
   CHANNEL_CACHE_INITIAL_PAGES,
@@ -53,6 +54,10 @@ export function useChannels(
 ) {
   const localAccessToken = options?.localAccessToken ?? null
   const getLocalParentPin = options?.getLocalParentPin
+
+  const resolveParentPinForAuthMutation = useCallback(() => {
+    return (getLocalParentPin?.() || getParentPinSession() || '').replace(/\D/g, '').trim()
+  }, [getLocalParentPin])
   const whitelist = useChannelStore((s) => s.whitelist)
   const searchResults = useChannelStore((s) => s.searchResults)
   const approvedVideos = useChannelStore((s) => s.approvedVideos)
@@ -392,9 +397,14 @@ export function useChannels(
         thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
         channelTitle: '',
       }
-      return addVideoToDevice({ deviceId, userId, yt: candidate })
+      return addVideoToDevice({
+        deviceId,
+        userId,
+        yt: candidate,
+        parentPin: resolveParentPinForAuthMutation(),
+      })
     },
-    [deviceId, userId, addVideoToDevice]
+    [deviceId, userId, addVideoToDevice, resolveParentPinForAuthMutation]
   )
 
   const addToWhitelist = useCallback(
@@ -408,7 +418,13 @@ export function useChannels(
         return { error: null, cacheError: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
-      const res = await addChannelToDevice({ deviceId, userId, yt, category })
+      const res = await addChannelToDevice({
+        deviceId,
+        userId,
+        yt,
+        category,
+        parentPin: resolveParentPinForAuthMutation(),
+      })
       if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
       if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
@@ -422,6 +438,7 @@ export function useChannels(
       addChannelLocalParent,
       addChannelToDevice,
       scheduleChannelVideosCacheRefresh,
+      resolveParentPinForAuthMutation,
     ]
   )
 
@@ -438,7 +455,13 @@ export function useChannels(
         return { error: null, cacheError: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
-      const res = await addChannelToDevice({ deviceId, userId, yt: data, category })
+      const res = await addChannelToDevice({
+        deviceId,
+        userId,
+        yt: data,
+        category,
+        parentPin: resolveParentPinForAuthMutation(),
+      })
       if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
       if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
@@ -452,6 +475,7 @@ export function useChannels(
       addChannelLocalParent,
       addChannelToDevice,
       scheduleChannelVideosCacheRefresh,
+      resolveParentPinForAuthMutation,
     ]
   )
 
@@ -462,25 +486,45 @@ export function useChannels(
         const pin = getLocalParentPin?.() ?? ''
         return removeChannelLocalParent(localAccessToken, pin, channelId)
       }
-      return removeChannelFromDevice(deviceId, channelId)
+      if (!userId) return { error: new Error('לא מחובר') }
+      return removeChannelFromDevice(deviceId, channelId, {
+        userId,
+        parentPin: resolveParentPinForAuthMutation(),
+      })
     },
-    [deviceId, localAccessToken, getLocalParentPin, removeChannelLocalParent, removeChannelFromDevice]
+    [
+      deviceId,
+      userId,
+      localAccessToken,
+      getLocalParentPin,
+      removeChannelLocalParent,
+      removeChannelFromDevice,
+      resolveParentPinForAuthMutation,
+    ]
   )
 
   const addToApprovedVideos = useCallback(
     async (yt: import('../types').YouTubeVideoResult) => {
       if (!deviceId || !userId) return { error: new Error('לא מחובר') }
-      return addVideoToDevice({ deviceId, userId, yt })
+      return addVideoToDevice({
+        deviceId,
+        userId,
+        yt,
+        parentPin: resolveParentPinForAuthMutation(),
+      })
     },
-    [deviceId, userId, addVideoToDevice]
+    [deviceId, userId, addVideoToDevice, resolveParentPinForAuthMutation]
   )
 
   const removeFromApprovedVideos = useCallback(
     async (videoId: string) => {
-      if (!deviceId) return { error: new Error('לא נבחר מכשיר') }
-      return removeVideoFromDevice(deviceId, videoId)
+      if (!deviceId || !userId) return { error: new Error('לא מחובר') }
+      return removeVideoFromDevice(deviceId, videoId, {
+        userId,
+        parentPin: resolveParentPinForAuthMutation(),
+      })
     },
-    [deviceId, removeVideoFromDevice]
+    [deviceId, userId, removeVideoFromDevice, resolveParentPinForAuthMutation]
   )
 
   return {
