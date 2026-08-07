@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Globe, ShieldOff, Plus, Trash2, Accessibility } from 'lucide-react'
+import { Globe, ShieldOff, Plus, Trash2, Accessibility, Youtube } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { useDeviceStore } from '../../stores/deviceStore'
 import type { Device } from '../../types'
 import { cn } from '../../lib/utils'
@@ -25,6 +26,7 @@ function SwitchRow({
   disabled,
   onChange,
   icon,
+  accentCheckedClass = 'checked:bg-rose-500',
 }: {
   label: string
   description: string
@@ -32,9 +34,10 @@ function SwitchRow({
   disabled?: boolean
   onChange: (next: boolean) => void
   icon: ReactNode
+  accentCheckedClass?: string
 }) {
   return (
-    <div className="flex items-start gap-2">
+    <div className="flex items-start gap-2.5">
       <span className="mt-0.5 shrink-0 text-rose-300" aria-hidden>
         {icon}
       </span>
@@ -45,7 +48,10 @@ function SwitchRow({
             type="checkbox"
             role="switch"
             aria-checked={checked}
-            className="h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-zinc-700 transition checked:bg-rose-500 disabled:opacity-50"
+            className={cn(
+              'h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-zinc-700 transition disabled:opacity-50',
+              accentCheckedClass
+            )}
             style={{
               backgroundImage: checked
                 ? 'radial-gradient(circle at 1.35rem center, white 0.55rem, transparent 0.56rem)'
@@ -62,7 +68,17 @@ function SwitchRow({
   )
 }
 
+/**
+ * Dual parental controls for a child device:
+ * 1) OS-level YouTube app + youtube.com block (`block_youtube_app`)
+ * 2) Strict browser whitelist (`browser_filter_enabled` / `browser_whitelist`
+ *    — product aliases: block_browser_enabled / allowed_urls)
+ *
+ * Persists via Supabase RPCs; syncs to Android Accessibility prefs via
+ * `syncParentalControlPolicy` inside `deviceStore.updateDeviceSettings`.
+ */
 export function DeviceOsControlsSettings({ device, className }: Props) {
+  const { t } = useTranslation()
   const updateDeviceSettings = useDeviceStore((s) => s.updateDeviceSettings)
   const [blockYoutube, setBlockYoutube] = useState(Boolean(device.block_youtube_app))
   const [browserFilter, setBrowserFilter] = useState(Boolean(device.browser_filter_enabled))
@@ -94,7 +110,7 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
     const { error } = await updateDeviceSettings(device.id, updates)
     setSaving(false)
     if (error) {
-      toast.error('שמירה נכשלה', { description: error.message })
+      toast.error(t('parentalOs.saveFailed'), { description: error.message })
       setBlockYoutube(Boolean(device.block_youtube_app))
       setBrowserFilter(Boolean(device.browser_filter_enabled))
       setWhitelist(Array.isArray(device.browser_whitelist) ? device.browser_whitelist : [])
@@ -106,11 +122,11 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
   const addSite = async () => {
     const host = normalizeWhitelistHost(draftSite)
     if (!host) {
-      toast.error('כתובת לא תקינה', { description: 'הזינו דומיין כמו wikipedia.org' })
+      toast.error(t('parentalOs.invalidHost'), { description: t('parentalOs.invalidHostHint') })
       return
     }
     if (whitelist.includes(host)) {
-      toast.message('האתר כבר ברשימה')
+      toast.message(t('parentalOs.alreadyListed'))
       setDraftSite('')
       return
     }
@@ -118,14 +134,14 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
     setWhitelist(next)
     setDraftSite('')
     const ok = await persist({ browserWhitelist: next })
-    if (ok) toast.success(`נוסף: ${host}`)
+    if (ok) toast.success(t('parentalOs.siteAdded', { host }))
   }
 
   const removeSite = async (host: string) => {
     const next = whitelist.filter((h) => h !== host)
     setWhitelist(next)
     const ok = await persist({ browserWhitelist: next })
-    if (ok) toast.success(`הוסר: ${host}`)
+    if (ok) toast.success(t('parentalOs.siteRemoved', { host }))
   }
 
   const needsAccessibility = (blockYoutube || browserFilter) && native && !accessibilityEnabled
@@ -138,43 +154,44 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
       )}
     >
       <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-rose-200/90">
-        חסימות מערכת (יוטיוב ודפדפן)
+        {t('parentalOs.sectionTitle')}
       </p>
 
       <div className="flex flex-col gap-4">
         <SwitchRow
-          icon={<ShieldOff className="h-4 w-4" />}
-          label="חסימת אפליקציית YouTube"
+          icon={<Youtube className="h-4 w-4" />}
+          label={t('parentalOs.youtubeBlockLabel')}
           description={
-            blockYoutube
-              ? 'פתיחת YouTube תיחסם (מסך לבן + חזרה למסך הבית). לא ניתן להסיר את האייקון בלי הרשאות מערכת — החסימה מונעת שימוש.'
-              : 'כבוי: הילד יכול לפתוח את אפליקציית YouTube במכשיר.'
+            blockYoutube ? t('parentalOs.youtubeBlockHintOn') : t('parentalOs.youtubeBlockHintOff')
           }
           checked={blockYoutube}
           disabled={saving}
           onChange={(next) => {
             setBlockYoutube(next)
             void persist({ blockYoutubeApp: next }).then((ok) => {
-              if (ok) toast.success(next ? 'YouTube ייחסם במכשיר' : 'חסימת YouTube בוטלה')
+              if (ok) {
+                toast.success(next ? t('parentalOs.youtubeBlockedToast') : t('parentalOs.youtubeUnblockedToast'))
+              }
             })
           }}
         />
 
         <SwitchRow
-          icon={<Globe className="h-4 w-4" />}
-          label="סינון אתרים בדפדפן (רשימה לבנה)"
+          icon={<ShieldOff className="h-4 w-4" />}
+          label={t('parentalOs.browserBlockLabel')}
           description={
-            browserFilter
-              ? 'אתרים שאינם ברשימה ייחסמו רק כשכתובת הדפדפן ידועה בוודאות. דפים בטעינה / לשונית חדשה לא נחסמים בטעות.'
-              : 'כבוי: אין סינון אתרים ברמת הדפדפן.'
+            browserFilter ? t('parentalOs.browserBlockHintOn') : t('parentalOs.browserBlockHintOff')
           }
           checked={browserFilter}
           disabled={saving}
+          accentCheckedClass="checked:bg-amber-500"
           onChange={(next) => {
             setBrowserFilter(next)
             void persist({ browserFilterEnabled: next }).then((ok) => {
               if (ok) {
-                toast.success(next ? 'סינון דפדפן הופעל' : 'סינון דפדפן כובה')
+                toast.success(
+                  next ? t('parentalOs.browserBlockedToast') : t('parentalOs.browserUnblockedToast')
+                )
               }
             })
           }}
@@ -182,13 +199,17 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
 
         {browserFilter ? (
           <div className="rounded-lg border border-zinc-700/70 bg-zinc-950/50 p-2.5">
-            <p className="mb-2 text-xs font-semibold text-zinc-200">אתרים מותרים</p>
+            <div className="mb-2 flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
+              <p className="text-xs font-semibold text-zinc-200">{t('parentalOs.allowedSites')}</p>
+            </div>
             <div className="mb-2 flex gap-2">
               <Input
                 value={draftSite}
                 onChange={(e) => setDraftSite(e.target.value)}
-                placeholder="למשל: wikipedia.org"
+                placeholder={t('parentalOs.sitePlaceholder')}
                 className="!bg-zinc-900"
+                aria-label={t('parentalOs.sitePlaceholder')}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -202,31 +223,32 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
                 className="!px-3"
                 disabled={saving}
                 onClick={() => void addSite()}
-                aria-label="הוסף אתר"
+                aria-label={t('parentalOs.addSite')}
               >
                 <Plus className="h-4 w-4" />
+                <span className="ms-1 hidden sm:inline">{t('parentalOs.addSite')}</span>
               </Button>
             </div>
             {whitelist.length === 0 ? (
-              <p className="text-xs text-amber-200/90">הרשימה ריקה — כל האתרים חסומים כרגע.</p>
+              <p className="text-xs text-amber-200/90">{t('parentalOs.emptyWhitelist')}</p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
+              <ul className="flex flex-wrap gap-1.5" aria-label={t('parentalOs.allowedSites')}>
                 {whitelist.map((host) => (
                   <li
                     key={host}
-                    className="flex items-center justify-between gap-2 rounded-md bg-zinc-900/80 px-2 py-1.5 text-sm text-zinc-100"
+                    className="inline-flex max-w-full items-center gap-1 rounded-full bg-zinc-900/90 py-1 pe-1 ps-2.5 text-sm text-zinc-100 ring-1 ring-zinc-700/80"
                   >
                     <span className="truncate" dir="ltr">
                       {host}
                     </span>
                     <button
                       type="button"
-                      className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-rose-300"
-                      aria-label={`הסר ${host}`}
+                      className="rounded-full p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-rose-300"
+                      aria-label={t('parentalOs.removeSite', { host })}
                       disabled={saving}
                       onClick={() => void removeSite(host)}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </li>
                 ))}
@@ -240,29 +262,21 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
             <div className="flex items-start gap-2">
               <Accessibility className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-amber-50">הרשאת נגישות (אופציונלי לחסימה)</p>
-                <p className="mt-1 text-xs leading-relaxed text-amber-100/85">
-                  ההגדרות נשמרו. SafeTube ממשיך לעבוד כרגיל. כדי שהחסימות יפעלו מחוץ לאפליקציה
-                  (YouTube / דפדפן), הפעילו את שירות SafeTube תחת הגדרות → נגישות. בלי ההרשאה אין
-                  חסימה במכשיר — וגם אין חסימה שגויה.
-                </p>
+                <p className="text-sm font-semibold text-amber-50">{t('parentalOs.a11yTitle')}</p>
+                <p className="mt-1 text-xs leading-relaxed text-amber-100/85">{t('parentalOs.a11yBody')}</p>
                 <Button
                   type="button"
                   className="mt-2 !py-2 text-xs"
                   onClick={() => void openParentalControlAccessibilitySettings()}
                 >
-                  פתיחת הגדרות נגישות
+                  {t('parentalOs.openA11ySettings')}
                 </Button>
               </div>
             </div>
           </div>
         ) : null}
 
-        {!native ? (
-          <p className="text-xs text-zinc-500">
-            החסימות ברמת המערכת פועלות באפליקציית Android של SafeTube במכשיר הילד (לא בדפדפן).
-          </p>
-        ) : null}
+        {!native ? <p className="text-xs text-zinc-500">{t('parentalOs.webOnlyNote')}</p> : null}
       </div>
     </div>
   )

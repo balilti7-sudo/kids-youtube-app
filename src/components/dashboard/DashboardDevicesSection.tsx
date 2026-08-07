@@ -45,6 +45,12 @@ function ProfileDeviceCard({
   const { t } = useTranslation()
   const limitLabel = formatLimitBrief(device.daily_time_limit_minutes, t)
   const shortsLabel = device.allow_shorts ? t('shorts.allowOn') : t('shorts.allowOff')
+  const youtubeLabel = device.block_youtube_app
+    ? t('parentalOs.summaryYoutubeOn')
+    : t('parentalOs.summaryYoutubeOff')
+  const browserLabel = device.browser_filter_enabled
+    ? t('parentalOs.summaryBrowserOn')
+    : t('parentalOs.summaryBrowserOff')
 
   return (
     <li className="flex flex-col gap-2 rounded-xl border border-zinc-700/80 bg-zinc-950/60 px-3 py-2.5 ring-1 ring-zinc-800/60">
@@ -68,7 +74,7 @@ function ProfileDeviceCard({
             </span>
             {!expanded ? (
               <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
-                {limitLabel} · {shortsLabel}
+                {limitLabel} · {shortsLabel} · {youtubeLabel} · {browserLabel}
               </span>
             ) : null}
           </span>

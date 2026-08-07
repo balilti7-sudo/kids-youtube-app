@@ -26,10 +26,17 @@ export interface Device {
   updated_at: string
   channel_count?: number
   allow_shorts?: boolean
-  /** Block the system YouTube app on the child device (Accessibility). */
+  /** Block the system YouTube app + youtube.com in browsers (Accessibility). */
   block_youtube_app?: boolean
-  /** Deny-by-default browser filtering; only browser_whitelist hosts allowed. */
+  /**
+   * Strict whitelist-only browser mode.
+   * Product / payload alias: `block_browser_enabled`.
+   */
   browser_filter_enabled?: boolean
+  /**
+   * Allowed hostnames when browser filter is on (e.g. kiddos.co.il).
+   * Product / payload alias: `allowed_urls`.
+   */
   browser_whitelist?: string[]
   /** Per-profile daily watch budget in minutes (0 = unlimited). */
   daily_time_limit_minutes?: number

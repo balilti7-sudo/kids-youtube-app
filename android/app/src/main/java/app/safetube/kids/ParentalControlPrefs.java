@@ -111,6 +111,10 @@ public final class ParentalControlPrefs {
             || h.endsWith(".youtube.com")
             || h.equals("youtube-nocookie.com")
             || h.endsWith(".youtube-nocookie.com")
-            || h.equals("m.youtube.com");
+            || h.equals("m.youtube.com")
+            || h.equals("music.youtube.com")
+            || h.equals("www.youtube.com")
+            || h.equals("youtubekids.com")
+            || h.endsWith(".youtubekids.com");
     }
 }

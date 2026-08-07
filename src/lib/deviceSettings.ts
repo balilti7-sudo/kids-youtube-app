@@ -38,8 +38,15 @@ function mapDeviceSettingsRow(row: Record<string, unknown>): DeviceSettingsRow {
     deviceId: String(row.id ?? row.device_id ?? row.deviceId ?? ''),
     allowShorts: Boolean(row.allow_shorts ?? row.allowShorts),
     blockYoutubeApp: Boolean(row.block_youtube_app ?? row.blockYoutubeApp),
-    browserFilterEnabled: Boolean(row.browser_filter_enabled ?? row.browserFilterEnabled),
-    browserWhitelist: mapWhitelist(row.browser_whitelist ?? row.browserWhitelist),
+    browserFilterEnabled: Boolean(
+      row.browser_filter_enabled ??
+        row.browserFilterEnabled ??
+        row.block_browser_enabled ??
+        row.blockBrowserEnabled
+    ),
+    browserWhitelist: mapWhitelist(
+      row.browser_whitelist ?? row.browserWhitelist ?? row.allowed_urls ?? row.allowedUrls
+    ),
     dailyTimeLimitMinutes: mapDailyLimit(row.daily_time_limit_minutes ?? row.dailyTimeLimitMinutes),
   }
 }
