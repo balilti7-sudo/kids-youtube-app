@@ -13,6 +13,7 @@ import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList
 import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
 import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
+import { YoutubeLikeButton } from '../components/youtube/YoutubeLikeButton'
 import { ChannelVideoBrowseRows } from '../components/kid/ChannelVideoBrowseRows'
 import { YoutubeShortCard } from '../components/youtube/YoutubeShortCard'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
@@ -29,6 +30,7 @@ import {
   toWatchableVideo,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
+import { formatViewCountLabel } from '../lib/formatYoutubeCount'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
@@ -138,12 +140,14 @@ function ChannelsPageInner() {
   const selectedYoutubeChannelId = selectedChannel?.youtube_channel_id ?? null
   const videosLoadGenRef = useRef(0)
   const loadedChannelKeyRef = useRef<string | null>(null)
+  const forceRefreshedChannelRef = useRef<string | null>(null)
   const [videosReloadNonce, setVideosReloadNonce] = useState(0)
 
   useEffect(() => {
     if (!selectedChannelDbId || !selectedYoutubeChannelId) {
       videosLoadGenRef.current += 1
       loadedChannelKeyRef.current = null
+      forceRefreshedChannelRef.current = null
       setVideos([])
       setChannelRecommendations([])
       setRecommendationsLoading(false)
@@ -284,6 +288,16 @@ function ChannelsPageInner() {
         ).then((enriched) => {
           if (requestId === videosLoadGenRef.current) setVideos(enriched)
         })
+
+        // Pull newest uploads once per channel open so Home/Videos stay current.
+        if (forceRefreshedChannelRef.current !== channelKey) {
+          forceRefreshedChannelRef.current = channelKey
+          void refreshChannelVideosCache(channelKey, youtubeChannelId, 'initial').then(() => {
+            if (requestId === videosLoadGenRef.current) {
+              setVideosReloadNonce((n) => n + 1)
+            }
+          })
+        }
       } catch (e) {
         if (requestId !== videosLoadGenRef.current) return
         setVideosLoading(false)
@@ -311,7 +325,9 @@ function ChannelsPageInner() {
   )
   const filteredVideos = useMemo(() => {
     const bySearch = filterVideosByTitle(playlistSourceVideos, videoSearch)
-    const withoutUpcoming = bySearch.filter((video) => !shouldHideFromChildBrowse(video.title))
+    const withoutUpcoming = bySearch.filter(
+      (video) => !shouldHideFromChildBrowse(video.title, video.liveBroadcastContent)
+    )
     return filterVideosRespectingAllowShorts(withoutUpcoming, allowShorts)
   }, [playlistSourceVideos, videoSearch, allowShorts])
   const channelSearchDropdownItems = useMemo(
@@ -598,20 +614,29 @@ function ChannelsPageInner() {
                     channelName={
                       activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name
                     }
+                    subtitle={
+                      formatViewCountLabel(activeVideo?.viewCount ?? playingVideo?.viewCount) || null
+                    }
                     actions={
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="gap-2 rounded-full !px-4 !py-2 text-xs font-black"
-                        onClick={() => togglePlaylistVideo(activeVideoId)}
-                      >
-                        {savedPlaylistIds.has(activeVideoId) ? (
-                          <Check className="h-4 w-4" aria-hidden />
-                        ) : (
-                          <Plus className="h-4 w-4" aria-hidden />
-                        )}
-                        {savedPlaylistIds.has(activeVideoId) ? 'בפלייליסט שלי' : 'הוסף לפלייליסט'}
-                      </Button>
+                      <>
+                        <YoutubeLikeButton
+                          videoId={activeVideoId}
+                          likeCount={activeVideo?.likeCount ?? playingVideo?.likeCount}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="gap-2 rounded-full !px-4 !py-2 text-xs font-black"
+                          onClick={() => togglePlaylistVideo(activeVideoId)}
+                        >
+                          {savedPlaylistIds.has(activeVideoId) ? (
+                            <Check className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <Plus className="h-4 w-4" aria-hidden />
+                          )}
+                          {savedPlaylistIds.has(activeVideoId) ? 'בפלייליסט שלי' : 'הוסף לפלייליסט'}
+                        </Button>
+                      </>
                     }
                   />
                 </div>
@@ -661,6 +686,7 @@ function ChannelsPageInner() {
                             title={video.title}
                             thumbnail={video.thumbnail_url}
                             channelName={video.channelName}
+                            metadata={formatViewCountLabel(video.viewCount) || null}
                             active={false}
                             onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}

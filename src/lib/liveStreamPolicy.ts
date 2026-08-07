@@ -69,7 +69,11 @@ export function titleSuggestsUpcomingLive(title: string | null | undefined): boo
   )
 }
 
-export function shouldHideFromChildBrowse(title: string | null | undefined): boolean {
+export function shouldHideFromChildBrowse(
+  title: string | null | undefined,
+  liveBroadcastContent?: 'none' | 'live' | 'upcoming' | null
+): boolean {
+  if (liveBroadcastContent === 'upcoming') return true
   return titleSuggestsUpcomingLive(title)
 }
 

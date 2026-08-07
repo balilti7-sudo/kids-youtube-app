@@ -8,6 +8,7 @@ import { KidGlobalSearchSection } from '../components/kid/KidGlobalSearchSection
 import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
 import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
+import { YoutubeLikeButton } from '../components/youtube/YoutubeLikeButton'
 import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList'
 import { KidPlaylistView } from '../components/kid/KidPlaylistView'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
@@ -52,8 +53,9 @@ import {
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import type { ChannelVideoItem } from '../lib/youtube'
-import { searchYouTubeVideos, fetchChannelUploadsPage } from '../lib/youtube'
+import { searchYouTubeVideos, fetchChannelUploadsPage, fetchVideoDetailsBatch } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
+import { formatViewCountLabel } from '../lib/formatYoutubeCount'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
@@ -148,7 +150,7 @@ function KidModePageInner() {
     const allowShorts = device?.allow_shorts ?? false
     const bySearch = filterVideosByTitle(channelVideos, videoSearch)
     const childSafe = bySearch.filter((video) => {
-      if (shouldHideFromChildBrowse(video.title)) return false
+      if (shouldHideFromChildBrowse(video.title, video.liveBroadcastContent)) return false
       if (allowShorts) return true
       return !isVideoShortOrSuspected({
         title: video.title,
@@ -410,6 +412,23 @@ function KidModePageInner() {
       if (rid !== channelVideosRequestRef.current) return
       setChannelVideos(next)
       setChannelLoading(false)
+
+      void fetchVideoDetailsBatch(next.map((v) => v.videoId)).then((details) => {
+        if (rid !== channelVideosRequestRef.current) return
+        setChannelVideos((prev) =>
+          prev.map((v) => {
+            const d = details.get(v.videoId)
+            if (!d) return v
+            return {
+              ...v,
+              durationSeconds: v.durationSeconds ?? d.durationSeconds,
+              viewCount: d.viewCount,
+              likeCount: d.likeCount,
+              liveBroadcastContent: d.liveBroadcastContent,
+            }
+          })
+        )
+      })
     } catch (e) {
       if (rid !== channelVideosRequestRef.current) return
       setChannelLoading(false)
@@ -496,7 +515,7 @@ function KidModePageInner() {
       // Apply same kid-safe filters as browse (shorts / live) when possible.
       const allowShorts = device?.allow_shorts ?? false
       const safeVideos = videos.filter((v) => {
-        if (shouldHideFromChildBrowse(v.title)) return false
+        if (shouldHideFromChildBrowse(v.title, v.liveBroadcastContent)) return false
         if (allowShorts) return true
         return !isVideoShortOrSuspected({
           title: v.title,
@@ -1384,22 +1403,28 @@ function KidModePageInner() {
                         <YoutubeWatchVideoDetails
                           title={activeVideo.title}
                           channelName={activeChannel?.channel_name ?? null}
-                          subtitle="מאושר — SafeTube"
+                          subtitle={formatViewCountLabel(activeVideo.viewCount) || 'מאושר — SafeTube'}
                           actions={
-                            accessToken ? (
-                              <AddToPlaylistButton
-                                mode="kid"
-                                userId={null}
-                                childAccessToken={accessToken}
-                                video={{
-                                  youtube_video_id: activeVideo.videoId,
-                                  title: activeVideo.title,
-                                  thumbnail_url: activeVideo.thumbnail || null,
-                                  youtube_channel_id: activeChannelId,
-                                  channel_name: activeChannel?.channel_name ?? null,
-                                }}
+                            <>
+                              <YoutubeLikeButton
+                                videoId={activeVideo.videoId}
+                                likeCount={activeVideo.likeCount}
                               />
-                            ) : null
+                              {accessToken ? (
+                                <AddToPlaylistButton
+                                  mode="kid"
+                                  userId={null}
+                                  childAccessToken={accessToken}
+                                  video={{
+                                    youtube_video_id: activeVideo.videoId,
+                                    title: activeVideo.title,
+                                    thumbnail_url: activeVideo.thumbnail || null,
+                                    youtube_channel_id: activeChannelId,
+                                    channel_name: activeChannel?.channel_name ?? null,
+                                  }}
+                                />
+                              ) : null}
+                            </>
                           }
                         />
                       </>
@@ -1496,6 +1521,7 @@ function KidModePageInner() {
                                     layout="row"
                                     title={video.title}
                                     thumbnail={video.thumbnail}
+                                    metadata={formatViewCountLabel(video.viewCount) || null}
                                     active={isCurrent}
                                     playingLabel="מנגן"
                                     onClick={() => {

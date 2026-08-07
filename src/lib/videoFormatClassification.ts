@@ -1,4 +1,4 @@
-import { fetchVideoDurationsBatch } from './youtube'
+import { fetchVideoDetailsBatch } from './youtube'
 
 export const SHORT_MAX_DURATION_SECONDS = 60
 
@@ -87,6 +87,8 @@ export function buildYoutubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
 }
 
+export type LiveBroadcastContent = 'none' | 'live' | 'upcoming'
+
 export type WatchableVideoBase = {
   youtube_video_id: string
   title: string
@@ -94,6 +96,9 @@ export type WatchableVideoBase = {
   durationSeconds: number | null
   watchUrl: string | null
   format: VideoFormat
+  viewCount?: number | null
+  likeCount?: number | null
+  liveBroadcastContent?: LiveBroadcastContent | null
 }
 
 export function toWatchableVideo(row: {
@@ -104,6 +109,9 @@ export function toWatchableVideo(row: {
   durationSeconds?: number | null
   watch_url?: string | null
   watchUrl?: string | null
+  viewCount?: number | null
+  likeCount?: number | null
+  liveBroadcastContent?: LiveBroadcastContent | null
 }): WatchableVideoBase {
   const durationSeconds = row.durationSeconds ?? row.duration_seconds ?? null
   const watchUrl = row.watchUrl ?? row.watch_url ?? buildYoutubeWatchUrl(row.youtube_video_id)
@@ -118,27 +126,54 @@ export function toWatchableVideo(row: {
       watchUrl,
       youtubeVideoId: row.youtube_video_id,
     }),
+    viewCount: row.viewCount ?? null,
+    likeCount: row.likeCount ?? null,
+    liveBroadcastContent: row.liveBroadcastContent ?? null,
   }
 }
 
-/** Attach duration (YouTube API batch) and format to cached rows when possible. */
+/** Attach duration, public stats, live status, and format via YouTube Data API. */
 export async function enrichVideosWithFormat(
-  videos: Array<{ youtube_video_id: string; title: string; thumbnail_url?: string | null; durationSeconds?: number | null }>
+  videos: Array<{
+    youtube_video_id: string
+    title: string
+    thumbnail_url?: string | null
+    durationSeconds?: number | null
+    viewCount?: number | null
+    likeCount?: number | null
+    liveBroadcastContent?: LiveBroadcastContent | null
+  }>
 ): Promise<WatchableVideoBase[]> {
   if (videos.length === 0) return []
 
   const ids = videos.map((v) => v.youtube_video_id)
-  const durations = await fetchVideoDurationsBatch(ids)
+  const details = await fetchVideoDetailsBatch(ids)
 
   return videos.map((row) => {
-    const fromApi = durations.get(row.youtube_video_id)
+    const fromApi = details.get(row.youtube_video_id)
     return toWatchableVideo({
       youtube_video_id: row.youtube_video_id,
       title: row.title,
       thumbnail_url: row.thumbnail_url ?? null,
-      durationSeconds: row.durationSeconds ?? fromApi ?? null,
+      durationSeconds: row.durationSeconds ?? fromApi?.durationSeconds ?? null,
+      viewCount: row.viewCount ?? fromApi?.viewCount ?? null,
+      likeCount: row.likeCount ?? fromApi?.likeCount ?? null,
+      liveBroadcastContent: row.liveBroadcastContent ?? fromApi?.liveBroadcastContent ?? null,
     })
   })
+}
+
+/** Currently live, or title-marked live streams (for the Live tab). */
+export function isLiveStreamVideo(video: WatchableVideoBase): boolean {
+  if (video.liveBroadcastContent === 'live') return true
+  if (video.liveBroadcastContent === 'upcoming') return false
+  const t = (video.title ?? '').trim()
+  if (!t) return false
+  return (
+    /\b(live|livestream|live stream)\b/i.test(t) ||
+    /שידור\s*חי/.test(t) ||
+    /🔴/.test(t)
+  )
 }
 
 export function partitionVideosForBrowse<T extends WatchableVideoBase>(

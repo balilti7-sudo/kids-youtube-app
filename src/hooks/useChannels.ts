@@ -99,7 +99,8 @@ export function useChannels(
 
       if (skipIfFresh) {
         const last = chMeta?.last_videos_refresh_at ? new Date(chMeta.last_videos_refresh_at).getTime() : 0
-        const isFresh = last > 0 && Date.now() - last < 24 * 60 * 60 * 1000
+        // Keep channel feeds closer to YouTube (was 24h).
+        const isFresh = last > 0 && Date.now() - last < 30 * 60 * 1000
         if (isFresh && !chMeta?.videos_cache_has_more) {
           return { error: null, appended: 0, hasMore: false }
         }

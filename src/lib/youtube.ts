@@ -59,6 +59,10 @@ export interface ChannelVideoItem {
   thumbnail: string
   channelTitle: string
   durationSeconds?: number | null
+  viewCount?: number | null
+  likeCount?: number | null
+  /** YouTube `snippet.liveBroadcastContent`: none | live | upcoming */
+  liveBroadcastContent?: 'none' | 'live' | 'upcoming' | null
 }
 
 /** Parse YouTube `contentDetails.duration` (ISO 8601) e.g. PT1M30S → seconds. */
@@ -73,44 +77,82 @@ export function parseYoutubeDurationIso8601(iso: string | null | undefined): num
   return total > 0 ? total : null
 }
 
-type VideosListContentDetailsResponse = {
+export type YoutubeVideoDetails = {
+  durationSeconds: number | null
+  viewCount: number | null
+  likeCount: number | null
+  liveBroadcastContent: 'none' | 'live' | 'upcoming' | null
+}
+
+type VideosListDetailsResponse = {
   items?: Array<{
     id?: string
     contentDetails?: { duration?: string }
+    statistics?: { viewCount?: string; likeCount?: string }
+    snippet?: { liveBroadcastContent?: string }
   }>
   error?: { message?: string }
 }
 
-/** Batch-fetch durations for up to 50 video IDs per request (Data API). */
-export async function fetchVideoDurationsBatch(videoIds: string[]): Promise<Map<string, number>> {
+function parseLiveBroadcast(raw: string | undefined): 'none' | 'live' | 'upcoming' | null {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+  if (s === 'live') return 'live'
+  if (s === 'upcoming') return 'upcoming'
+  if (s === 'none') return 'none'
+  return null
+}
+
+/**
+ * Batch-fetch duration + public statistics + live status (up to 50 IDs / request).
+ * Used for YouTube-like view counts, like counts, and Live tab filtering.
+ */
+export async function fetchVideoDetailsBatch(videoIds: string[]): Promise<Map<string, YoutubeVideoDetails>> {
   const key = getApiKey()
   const unique = [...new Set(videoIds.map((id) => id.trim()).filter((id) => /^[a-zA-Z0-9_-]{11}$/.test(id)))]
-  const out = new Map<string, number>()
+  const out = new Map<string, YoutubeVideoDetails>()
   if (!key || unique.length === 0) return out
 
   for (let offset = 0; offset < unique.length; offset += 50) {
     const chunk = unique.slice(offset, offset + 50)
     try {
       const url = new URL(`${YT_API}/videos`)
-      url.searchParams.set('part', 'contentDetails')
+      url.searchParams.set('part', 'contentDetails,statistics,snippet')
       url.searchParams.set('id', chunk.join(','))
       url.searchParams.set('key', key)
 
       const res = await fetch(url.toString())
-      const json = (await res.json()) as VideosListContentDetailsResponse
+      const json = (await res.json()) as VideosListDetailsResponse
       if (!res.ok) continue
 
       for (const item of json.items ?? []) {
         const id = item.id?.trim()
         if (!id) continue
-        const seconds = parseYoutubeDurationIso8601(item.contentDetails?.duration)
-        if (seconds != null) out.set(id, seconds)
+        const views = Number(item.statistics?.viewCount)
+        const likes = Number(item.statistics?.likeCount)
+        out.set(id, {
+          durationSeconds: parseYoutubeDurationIso8601(item.contentDetails?.duration),
+          viewCount: Number.isFinite(views) && views >= 0 ? views : null,
+          likeCount: Number.isFinite(likes) && likes >= 0 ? likes : null,
+          liveBroadcastContent: parseLiveBroadcast(item.snippet?.liveBroadcastContent),
+        })
       }
     } catch {
       /* best-effort enrichment */
     }
   }
 
+  return out
+}
+
+/** @deprecated Prefer fetchVideoDetailsBatch — kept for callers that only need durations. */
+export async function fetchVideoDurationsBatch(videoIds: string[]): Promise<Map<string, number>> {
+  const details = await fetchVideoDetailsBatch(videoIds)
+  const out = new Map<string, number>()
+  for (const [id, d] of details) {
+    if (d.durationSeconds != null) out.set(id, d.durationSeconds)
+  }
   return out
 }
 
