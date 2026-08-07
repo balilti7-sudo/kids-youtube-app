@@ -515,7 +515,7 @@ function KidModePageInner() {
       // Apply same kid-safe filters as browse (shorts / live) when possible.
       const allowShorts = device?.allow_shorts ?? false
       const safeVideos = videos.filter((v) => {
-        if (shouldHideFromChildBrowse(v.title, v.liveBroadcastContent)) return false
+        if (shouldHideFromChildBrowse(v.title)) return false
         if (allowShorts) return true
         return !isVideoShortOrSuspected({
           title: v.title,
