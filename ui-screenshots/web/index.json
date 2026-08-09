@@ -1,0 +1,42 @@
+[
+  {
+    "id": "route-root",
+    "file": "web/route-root.png",
+    "ok": true
+  },
+  {
+    "id": "route-auth",
+    "file": "web/route-auth.png",
+    "ok": true
+  },
+  {
+    "id": "route-kid",
+    "file": "web/route-kid.png",
+    "ok": true
+  },
+  {
+    "id": "route-channels",
+    "file": "web/route-channels.png",
+    "ok": true
+  },
+  {
+    "id": "route-playlists",
+    "file": "web/route-playlists.png",
+    "ok": true
+  },
+  {
+    "id": "route-dashboard-gate",
+    "file": "web/route-dashboard-gate.png",
+    "ok": true
+  },
+  {
+    "id": "route-settings-gate",
+    "file": "web/route-settings-gate.png",
+    "ok": true
+  },
+  {
+    "id": "route-auth-register",
+    "file": "web/route-auth-register.png",
+    "ok": true
+  }
+]

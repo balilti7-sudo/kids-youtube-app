@@ -1,0 +1,22 @@
+[
+  {
+    "id": "01-cold-start",
+    "file": "android/01-cold-start.png",
+    "ok": true
+  },
+  {
+    "id": "02-after-splash",
+    "file": "android/02-after-splash.png",
+    "ok": true
+  },
+  {
+    "id": "03-settled",
+    "file": "android/03-settled.png",
+    "ok": true
+  },
+  {
+    "id": "04-after-tap",
+    "file": "android/04-after-tap.png",
+    "ok": true
+  }
+]

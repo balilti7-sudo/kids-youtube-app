@@ -1,0 +1,117 @@
+[
+  {
+    "id": "00-index",
+    "file": "gallery/00-index.png",
+    "ok": true
+  },
+  {
+    "id": "splash",
+    "file": "gallery/splash.png",
+    "ok": true
+  },
+  {
+    "id": "auth",
+    "file": "gallery/auth.png",
+    "ok": true
+  },
+  {
+    "id": "parental-pin-modal",
+    "file": "gallery/parental-pin-modal.png",
+    "ok": true
+  },
+  {
+    "id": "forgot-pin-modal",
+    "file": "gallery/forgot-pin-modal.png",
+    "ok": true
+  },
+  {
+    "id": "remove-channel-modal",
+    "file": "gallery/remove-channel-modal.png",
+    "ok": true
+  },
+  {
+    "id": "add-profile-modal",
+    "file": "gallery/add-profile-modal.png",
+    "ok": true
+  },
+  {
+    "id": "channel-add-success",
+    "file": "gallery/channel-add-success.png",
+    "ok": true
+  },
+  {
+    "id": "settings-about-modal",
+    "file": "gallery/settings-about-modal.png",
+    "ok": true
+  },
+  {
+    "id": "exit-kid-pin-modal",
+    "file": "gallery/exit-kid-pin-modal.png",
+    "ok": true
+  },
+  {
+    "id": "screen-time-locked",
+    "file": "gallery/screen-time-locked.png",
+    "ok": true
+  },
+  {
+    "id": "gift-challenge",
+    "file": "gallery/gift-challenge.png",
+    "ok": true
+  },
+  {
+    "id": "daily-limit",
+    "file": "gallery/daily-limit.png",
+    "ok": true
+  },
+  {
+    "id": "upcoming-live",
+    "file": "gallery/upcoming-live.png",
+    "ok": true
+  },
+  {
+    "id": "player-error",
+    "file": "gallery/player-error.png",
+    "ok": true
+  },
+  {
+    "id": "lion-level-up",
+    "file": "gallery/lion-level-up.png",
+    "ok": true
+  },
+  {
+    "id": "lion-closet",
+    "file": "gallery/lion-closet.png",
+    "ok": true
+  },
+  {
+    "id": "watch-chrome",
+    "file": "gallery/watch-chrome.png",
+    "ok": true
+  },
+  {
+    "id": "channel-tabs-browse",
+    "file": "gallery/channel-tabs-browse.png",
+    "ok": true
+  },
+  {
+    "id": "kid-blocked",
+    "file": "gallery/kid-blocked.png",
+    "ok": true
+  },
+  {
+    "id": "kid-parent-hub",
+    "file": "gallery/kid-parent-hub.png",
+    "ok": true
+  },
+  {
+    "id": "error-boundary",
+    "file": "gallery/error-boundary.png",
+    "ok": true
+  },
+  {
+    "id": "hidden-unblock-all",
+    "file": "gallery/hidden-unblock-all.png",
+    "ok": true
+  }
+]

@@ -17,6 +17,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { KidModePage } from './pages/KidModePage'
 import { SetParentPinPage } from './pages/SetParentPinPage'
+import { DevUiGalleryPage } from './pages/DevUiGalleryPage'
 import { useAuth } from './hooks/useAuth'
 import { BYPASS_AUTH } from './config/dev'
 import { isProfileParentPinMissing } from './lib/parentPin'
@@ -72,6 +73,7 @@ function AppChrome() {
         <Route path="/" element={<SmartEntryRoute />} />
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        {import.meta.env.DEV ? <Route path="/dev/ui-gallery" element={<DevUiGalleryPage />} /> : null}
         {/** /kid = KidModePage — approved videos play via `CleanPlayer` (no alternate embed on this route). */}
         <Route path="/kid" element={<KidModeRoute />} />
         <Route
