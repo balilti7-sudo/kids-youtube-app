@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Maximize, Minimize, PictureInPicture2, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
 import Hls from 'hls.js'
-import { setMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
+import { setMediaPlaybackActive, syncNativeMediaSession } from '../../lib/mediaPlaybackActivity'
+import { subscribeNativeMediaActions } from '../../lib/nativeMediaPlayback'
 import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
 import { toast } from 'sonner'
@@ -374,6 +375,13 @@ function pickArtwork(videoId: string, posterUrl: string | null | undefined): Med
     return [{ src: fromPoster, type: 'image/jpeg' }, ...buildYoutubeArtwork(videoId)]
   }
   return buildYoutubeArtwork(videoId)
+}
+
+function primaryArtworkUrl(videoId: string, posterUrl: string | null | undefined): string | null {
+  const fromPoster = (posterUrl || '').trim()
+  if (fromPoster) return fromPoster
+  const id = sanitizeYoutubeVideoId(videoId)
+  return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null
 }
 
 type PlayerPhase =
@@ -928,6 +936,11 @@ function CleanPlayerMediaBridge({
     const onPlay = () => syncPlayback()
     const onPause = () => syncPlayback()
 
+    const seekBy = (deltaSec: number) => {
+      if (!Number.isFinite(el.duration) || el.duration <= 0) return
+      el.currentTime = Math.min(Math.max(0, el.currentTime + deltaSec), el.duration)
+    }
+
     try {
       ms.setActionHandler('play', () => {
         if (useDailyWatchBudgetStore.getState().isLimitReached) {
@@ -941,6 +954,17 @@ function CleanPlayerMediaBridge({
       })
       ms.setActionHandler('previoustrack', onPreviousTrack ?? null)
       ms.setActionHandler('nexttrack', () => handleNextVideoRef.current())
+      ms.setActionHandler('seekbackward', (details) => {
+        seekBy(-(details.seekOffset || 10))
+      })
+      ms.setActionHandler('seekforward', (details) => {
+        seekBy(details.seekOffset || 10)
+      })
+      ms.setActionHandler('seekto', (details) => {
+        if (details.seekTime == null || !Number.isFinite(details.seekTime)) return
+        if (!Number.isFinite(el.duration) || el.duration <= 0) return
+        el.currentTime = Math.min(Math.max(0, details.seekTime), el.duration)
+      })
     } catch {
       /* older WebKit */
     }
@@ -957,6 +981,9 @@ function CleanPlayerMediaBridge({
         ms.setActionHandler('pause', null)
         ms.setActionHandler('previoustrack', null)
         ms.setActionHandler('nexttrack', null)
+        ms.setActionHandler('seekbackward', null)
+        ms.setActionHandler('seekforward', null)
+        ms.setActionHandler('seekto', null)
       } catch {
         /* ignore */
       }
@@ -966,20 +993,85 @@ function CleanPlayerMediaBridge({
   useEffect(() => {
     if (phase.kind !== 'playing') return
     const el = videoRef.current
+    if (!el) return
+
+    const unsubscribe = subscribeNativeMediaActions((event) => {
+      if (useDailyWatchBudgetStore.getState().isLimitReached && event.action === 'play') {
+        el.pause()
+        return
+      }
+      switch (event.action) {
+        case 'play':
+          void el.play().catch(() => {})
+          break
+        case 'pause':
+          el.pause()
+          break
+        case 'next':
+          handleNextVideoRef.current()
+          break
+        case 'previous':
+          onPreviousTrack?.()
+          break
+        case 'seekto':
+          if (typeof event.seekToMs === 'number' && Number.isFinite(el.duration) && el.duration > 0) {
+            el.currentTime = Math.min(Math.max(0, event.seekToMs / 1000), el.duration)
+          }
+          break
+        case 'seekforward': {
+          const step = (event.seekToMs ?? 10_000) / 1000
+          if (Number.isFinite(el.duration) && el.duration > 0) {
+            el.currentTime = Math.min(el.duration, el.currentTime + step)
+          }
+          break
+        }
+        case 'seekbackward': {
+          const step = (event.seekToMs ?? 10_000) / 1000
+          el.currentTime = Math.max(0, el.currentTime - step)
+          break
+        }
+        default:
+          break
+      }
+    })
+
+    return unsubscribe
+  }, [phase.kind, videoId, onPreviousTrack])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
     if (!el || !('mediaSession' in navigator)) return
 
     let raf = 0
+    let lastNativePush = 0
+    const artworkUrl = primaryArtworkUrl(videoId, posterUrl)
     const push = () => {
       if (!el.duration || !Number.isFinite(el.duration) || el.duration <= 0) return
+      const position = Math.min(Math.max(0, el.currentTime), el.duration)
       try {
         navigator.mediaSession.setPositionState({
           duration: el.duration,
           playbackRate: el.playbackRate || 1,
-          position: Math.min(Math.max(0, el.currentTime), el.duration),
+          position,
         })
       } catch {
         /* e.g. iOS */
       }
+
+      const now = Date.now()
+      if (now - lastNativePush < 900) return
+      lastNativePush = now
+      syncNativeMediaSession({
+        title: title || 'SafeTube',
+        artist: channelTitle || 'מתנגן עכשיו',
+        durationMs: Math.round(el.duration * 1000),
+        positionMs: Math.round(position * 1000),
+        playing: !el.paused && !el.ended,
+        artworkUrl,
+        canSkipNext: hasNextTrack,
+        canSkipPrev: Boolean(onPreviousTrack),
+      })
     }
     const onTime = () => {
       cancelAnimationFrame(raf)
@@ -990,6 +1082,8 @@ function CleanPlayerMediaBridge({
     el.addEventListener('loadedmetadata', onTime)
     el.addEventListener('seeked', onTime)
     el.addEventListener('ratechange', onTime)
+    el.addEventListener('play', onTime)
+    el.addEventListener('pause', onTime)
     onTime()
 
     return () => {
@@ -998,13 +1092,15 @@ function CleanPlayerMediaBridge({
       el.removeEventListener('loadedmetadata', onTime)
       el.removeEventListener('seeked', onTime)
       el.removeEventListener('ratechange', onTime)
+      el.removeEventListener('play', onTime)
+      el.removeEventListener('pause', onTime)
       try {
         navigator.mediaSession.setPositionState(undefined)
       } catch {
         /* ignore */
       }
     }
-  }, [phase.kind, videoId])
+  }, [phase.kind, videoId, title, channelTitle, posterUrl, hasNextTrack, onPreviousTrack])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
@@ -1017,6 +1113,14 @@ function CleanPlayerMediaBridge({
     const meta = {
       title: title || 'SafeTube',
       artist: channelTitle || 'מתנגן עכשיו',
+      artworkUrl: primaryArtworkUrl(videoId, posterUrl),
+      canSkipNext: hasNextTrack,
+      canSkipPrev: Boolean(onPreviousTrack),
+      durationMs:
+        el.duration && Number.isFinite(el.duration) && el.duration > 0
+          ? Math.round(el.duration * 1000)
+          : undefined,
+      positionMs: Math.round(Math.max(0, el.currentTime) * 1000),
     }
 
     const sync = (opts?: { fromPause?: boolean }) => {
@@ -1032,7 +1136,7 @@ function CleanPlayerMediaBridge({
       // Background may briefly pause the element. Keep the native service alive so
       // resume can work, but do NOT mark content as playing (watch budget must stop).
       if (opts?.fromPause && hidden && !el.ended) {
-        setMediaPlaybackActive(false, meta, { maintainNativeService: true })
+        setMediaPlaybackActive(false, { ...meta, playing: false }, { maintainNativeService: true })
         window.setTimeout(() => {
           if (useDailyWatchBudgetStore.getState().isLimitReached) return
           if (document.visibilityState === 'visible') return
@@ -1042,7 +1146,15 @@ function CleanPlayerMediaBridge({
       }
 
       const on = !el.paused && !el.ended
-      setMediaPlaybackActive(on, meta)
+      setMediaPlaybackActive(on, {
+        ...meta,
+        playing: on,
+        durationMs:
+          el.duration && Number.isFinite(el.duration) && el.duration > 0
+            ? Math.round(el.duration * 1000)
+            : meta.durationMs,
+        positionMs: Math.round(Math.max(0, el.currentTime) * 1000),
+      })
       if (on) touchParentalGateActivity()
     }
 
@@ -1075,7 +1187,7 @@ function CleanPlayerMediaBridge({
       el.removeEventListener('ended', onEndedForActivity)
       setMediaPlaybackActive(false)
     }
-  }, [phase.kind, videoId, title, channelTitle])
+  }, [phase.kind, videoId, title, channelTitle, posterUrl, hasNextTrack, onPreviousTrack])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
