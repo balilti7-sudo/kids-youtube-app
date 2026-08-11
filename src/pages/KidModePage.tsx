@@ -1059,7 +1059,7 @@ function KidModePageInner() {
       </header>
 
       {kidSurface === 'watch' && kidWatchTab === 'channels' && channels.length > 0 ? (
-        <div className="border-b border-yt-border bg-yt-bg px-3 py-2 lg:hidden">
+        <div className="border-b border-yt-border bg-yt-bg px-2 py-2 xs:px-3 md:hidden">
           <KidGlobalSearchSection
             id="kid-global-youtube-search-mobile"
             compact
@@ -1141,15 +1141,15 @@ function KidModePageInner() {
           </div>
         </section>
       ) : (
-        <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-0 lg:grid lg:min-h-0 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] lg:items-start">
+        <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-0 md:grid md:min-h-0 md:grid-cols-[minmax(200px,260px)_minmax(0,1fr)] lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] md:items-start">
           {kidWatchTab === 'playlist' ? (
-            <div className="min-w-0 flex-1 lg:col-span-2">
+            <div className="min-w-0 flex-1 md:col-span-2">
               {accessToken ? (
                 <KidPlaylistView childAccessToken={accessToken} />
               ) : null}
             </div>
           ) : channels.length === 0 ? (
-            <div className="px-3 py-4 sm:px-4 lg:col-span-2">
+            <div className="px-2 py-3 xs:px-3 sm:px-4 md:col-span-2">
               <div className="rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-5 text-sm leading-relaxed text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/35 dark:text-amber-100">
                 <p className="font-semibold">אין ערוצים מאושרים לפרופיל הזה</p>
                 <p className="mt-2 text-amber-900/95 dark:text-amber-200/90">
@@ -1183,7 +1183,7 @@ function KidModePageInner() {
             </div>
           ) : (
             <>
-              <aside className="hidden min-h-0 border-s border-black/[0.06] bg-white dark:border-zinc-800 dark:bg-zinc-950/80 lg:sticky lg:top-[52px] lg:block lg:max-h-[calc(100dvh-3rem)] lg:shrink-0 lg:overflow-y-auto lg:pb-6">
+              <aside className="hidden min-h-0 border-s border-black/[0.06] bg-white dark:border-zinc-800 dark:bg-zinc-950/80 md:sticky md:top-[52px] md:block md:max-h-[calc(100dvh-3rem)] md:shrink-0 md:overflow-y-auto md:pb-6">
                 <div className="border-b border-black/[0.06] p-2 dark:border-zinc-800">
                   <KidGlobalSearchSection
                     id="kid-global-youtube-search-desktop"
@@ -1275,8 +1275,8 @@ function KidModePageInner() {
                 </div>
               </aside>
 
-              <div className="min-w-0 flex-1 bg-gradient-to-b from-sky-50/80 via-white to-violet-50/60 dark:from-slate-950 dark:via-[#0f0f0f] dark:to-indigo-950/20 lg:pt-0">
-                <div className="border-b border-black/[0.06] bg-white px-1.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/90 lg:hidden">
+              <div className="min-w-0 flex-1 bg-gradient-to-b from-sky-50/80 via-white to-violet-50/60 dark:from-slate-950 dark:via-[#0f0f0f] dark:to-indigo-950/20 md:pt-0">
+                <div className="border-b border-black/[0.06] bg-white px-1.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/90 md:hidden">
                   <div className="mb-1.5 flex flex-col gap-1.5 px-0.5">
                     <p className="text-[11px] font-bold text-slate-500">ערוץ</p>
                     {accessToken ? (
@@ -1358,7 +1358,7 @@ function KidModePageInner() {
                   </div>
                 </div>
 
-                <div className="border-b border-zinc-800/80 bg-[#0f0f0f] px-3 py-3 lg:hidden">
+                <div className="border-b border-zinc-800/80 bg-[#0f0f0f] px-2 py-2 xs:px-3 xs:py-3 md:hidden">
                   <ChannelVideoSearchBar
                     id="kid-channel-video-search-mobile"
                     value={videoSearch}
@@ -1375,7 +1375,7 @@ function KidModePageInner() {
                 </div>
 
                 <YoutubeWatchLayout
-                  className="mx-auto max-w-[1600px] px-1.5 pb-3 pt-1.5 sm:px-2 sm:pb-4 lg:px-3 lg:pt-2"
+                  className="mx-auto max-w-[1600px] px-1 pb-3 pt-1.5 xs:px-1.5 sm:px-2 sm:pb-4 md:px-3 md:pt-2"
                   main={
                     channelLoading ? (
                       <div className="flex aspect-video max-w-5xl items-center justify-center gap-3 rounded-xl bg-black/90 text-zinc-200">
@@ -1470,7 +1470,7 @@ function KidModePageInner() {
                         totalCount={channelVideos.length}
                         filteredCount={filteredVideos.length}
                         channelLabel={activeChannel?.channel_name ?? null}
-                        className="mb-3 hidden lg:block"
+                        className="mb-3 hidden md:block"
                         dropdownResults={channelSearchDropdownItems}
                         activeResultId={activeVideoId}
                         onSelectResult={handleSelectVideo}

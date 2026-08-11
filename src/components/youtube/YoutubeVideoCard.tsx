@@ -44,7 +44,7 @@ function ThumbnailOverlays({
 }
 
 const ROW_THUMB_CLASS =
-  'relative h-[94px] w-[168px] shrink-0 overflow-hidden rounded-[4px] bg-yt-surfaceHover'
+  'relative h-[84px] w-[150px] shrink-0 overflow-hidden rounded-[4px] bg-yt-surfaceHover xs:h-[94px] xs:w-[168px]'
 
 /**
  * Native YouTube-style video card — grid feed or compact sidebar row.
@@ -71,7 +71,7 @@ export function YoutubeVideoCard({
   })
 
   const titleEl = (
-    <h3 className="line-clamp-2 text-sm font-bold leading-[1.35] text-yt-text">{title}</h3>
+    <h3 className="line-clamp-2 text-[13px] font-bold leading-[1.35] text-yt-text xs:text-sm">{title}</h3>
   )
 
   const metaEl = (

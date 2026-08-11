@@ -41,7 +41,7 @@ export function ChannelContentTabs({ value, onChange, showShortsTab = true, clas
             aria-selected={active}
             onClick={() => onChange(tab.id)}
             className={cn(
-              'relative shrink-0 px-3 pb-3 pt-2 text-sm font-semibold transition sm:px-4',
+              'relative shrink-0 px-2.5 pb-2.5 pt-2 text-xs font-semibold transition xs:px-3 xs:pb-3 xs:text-sm sm:px-4',
               active ? 'text-yt-text' : 'text-yt-textMuted hover:text-yt-text'
             )}
           >

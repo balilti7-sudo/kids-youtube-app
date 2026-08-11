@@ -21,12 +21,14 @@ import {
 } from '../../lib/parentalManagementGateStorage'
 import { ParentalManagementGate } from '../parental/ParentalManagementGate'
 import { BottomNav } from './BottomNav'
+import { ParentSideNav } from './ParentSideNav'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { PageBackBar } from './PageBackBar'
 import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
 import { ParentAppFooter } from './ParentAppFooter'
 import { ParentManagementBanner } from './ParentManagementBanner'
 import { ProfileSwitcher } from './ProfileSwitcher'
+import { cn } from '../../lib/utils'
 
 export function AppLayout() {
   const location = useLocation()
@@ -120,31 +122,39 @@ export function AppLayout() {
       {showGate ? <ParentalManagementGate onUnlocked={handleManagementUnlocked} /> : null}
       {!showGate ? (
         <>
-          <main className="safe-pb-nav flex flex-1 flex-col">
-            <div className="sticky top-0 z-30">
-              {showParentManagementChrome ? <ParentManagementBanner /> : null}
-              <header className="border-b border-yt-border bg-yt-bg/95 px-2 py-2 backdrop-blur-md sm:px-4 sm:py-2.5">
-              <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-2 gap-y-2 overflow-hidden sm:flex-nowrap sm:gap-x-4">
-                <div className="order-1 flex min-w-0 flex-1 items-center sm:order-none">
-                  <PageBackBar flush />
-                </div>
-                <SafeTubeBrandMark
-                  discreetParentNav={hasKidDeviceToken}
-                  size={showParentManagementChrome ? 'prominent' : 'default'}
-                  className="order-3 mx-auto px-0.5 sm:order-none sm:mx-0"
-                />
-                <div className="order-2 flex min-w-0 flex-1 items-center justify-end gap-1.5 pe-0.5 sm:order-none sm:gap-2 sm:pe-1">
-                  <ProfileSwitcher />
-                  <ThemeToggle />
-                </div>
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <ParentSideNav />
+            <main className="safe-pb-nav flex min-w-0 flex-1 flex-col">
+              <div className="sticky top-0 z-30">
+                {showParentManagementChrome ? <ParentManagementBanner /> : null}
+                <header className="border-b border-yt-border bg-yt-bg/95 px-2 py-1.5 backdrop-blur-md xs:py-2 sm:px-4 sm:py-2.5">
+                  <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-x-2 gap-y-2 overflow-hidden sm:flex-nowrap sm:gap-x-4">
+                    <div className="order-1 flex min-w-0 flex-1 items-center sm:order-none">
+                      <PageBackBar flush />
+                    </div>
+                    <SafeTubeBrandMark
+                      discreetParentNav={hasKidDeviceToken}
+                      size={showParentManagementChrome ? 'prominent' : 'default'}
+                      className="order-3 mx-auto px-0.5 sm:order-none sm:mx-0"
+                    />
+                    <div className="order-2 flex min-w-0 flex-1 items-center justify-end gap-1 pe-0.5 xs:gap-1.5 sm:order-none sm:gap-2 sm:pe-1">
+                      <ProfileSwitcher />
+                      <ThemeToggle />
+                    </div>
+                  </div>
+                </header>
               </div>
-              </header>
-            </div>
-            <div className="mx-auto w-full max-w-5xl flex-1 px-3 py-4 sm:px-4">
-              <Outlet />
-              <ParentAppFooter />
-            </div>
-          </main>
+              <div
+                className={cn(
+                  'mx-auto w-full flex-1 page-pad-x py-3 sm:py-4',
+                  juicyChildUi ? 'max-w-[1754px]' : 'max-w-5xl lg:max-w-6xl xl:max-w-7xl'
+                )}
+              >
+                <Outlet />
+                <ParentAppFooter />
+              </div>
+            </main>
+          </div>
           <BottomNav />
         </>
       ) : null}

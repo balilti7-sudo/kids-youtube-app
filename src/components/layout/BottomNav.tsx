@@ -17,7 +17,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="bottom-nav fixed bottom-0 inset-x-0 z-40 border-t border-yt-border bg-yt-bg/95 pb-[max(0.5rem,var(--sab))] backdrop-blur-md"
+      className="bottom-nav fixed bottom-0 inset-x-0 z-40 border-t border-yt-border bg-yt-bg/95 pb-[max(0.5rem,var(--sab))] backdrop-blur-md md:hidden"
       aria-label={t('nav.mainNavAria')}
     >
       <div className="mx-auto flex max-w-lg items-stretch justify-around">

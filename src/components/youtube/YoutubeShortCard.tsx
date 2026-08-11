@@ -33,7 +33,9 @@ export function YoutubeShortCard({
     <div
       className={cn(
         'relative overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-700/80',
-        variant === 'shelf' ? 'aspect-[9/16] w-[132px] sm:w-[148px]' : 'aspect-[9/16] h-[120px] w-[68px] shrink-0',
+        variant === 'shelf'
+          ? 'aspect-[9/16] w-full max-w-[148px] min-w-[108px] xs:min-w-[120px] sm:max-w-none sm:w-[148px]'
+          : 'aspect-[9/16] h-[100px] w-[56px] shrink-0 xs:h-[120px] xs:w-[68px]',
         juicy && 'group/juicy'
       )}
     >
@@ -73,7 +75,13 @@ export function YoutubeShortCard({
   }
 
   return (
-    <article className={cn('flex w-[132px] shrink-0 flex-col sm:w-[148px]', className)}>
+    <article
+      className={cn(
+        'flex shrink-0 flex-col',
+        variant === 'shelf' && 'w-full min-w-0 max-w-[148px] sm:w-[148px]',
+        className
+      )}
+    >
       {thumb}
       <button type="button" {...wrapClick(onClick)} className={juicyPressableClass(juicy, 'mt-2 w-full text-start')}>
         <h3 className="line-clamp-2 text-xs font-bold leading-snug text-zinc-100">{title}</h3>

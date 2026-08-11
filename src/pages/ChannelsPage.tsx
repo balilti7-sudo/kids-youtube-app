@@ -521,20 +521,20 @@ function ChannelsPageInner() {
     <LionProgressionProvider>
     <DailyWatchBudgetTracker deviceId={deviceId} />
     <div
-      className={`mx-auto flex w-full max-w-[100vw] flex-col gap-4 overflow-x-hidden pb-4 ${
-        selectedChannel ? 'xl:max-w-[1754px]' : 'max-w-5xl'
+      className={`mx-auto flex w-full max-w-[100vw] flex-col gap-3 overflow-x-hidden pb-4 xs:gap-4 ${
+        selectedChannel ? 'lg:max-w-[1754px]' : 'max-w-5xl xl:max-w-6xl'
       }`}
     >
-      <header className="sticky top-0 z-20 rounded-3xl border border-zinc-800 bg-gradient-to-b from-zinc-900/98 to-zinc-950 p-4 shadow-2xl shadow-black/15 backdrop-blur-md sm:p-5">
-        <div className="flex items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25">
-            <Tv className="h-7 w-7" aria-hidden />
+      <header className="sticky top-0 z-20 rounded-2xl border border-zinc-800 bg-gradient-to-b from-zinc-900/98 to-zinc-950 p-3 shadow-2xl shadow-black/15 backdrop-blur-md xs:rounded-3xl xs:p-4 sm:p-5">
+        <div className="flex min-w-0 items-center gap-2 xs:gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25 xs:h-12 xs:w-12">
+            <Tv className="h-6 w-6 xs:h-7 xs:w-7" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-black text-zinc-50">
+            <h1 className="truncate text-lg font-black text-zinc-50 xs:text-xl">
               {selectedChannel ? selectedChannel.channel_name : 'ערוצים'}
             </h1>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-0.5 line-clamp-2 text-xs text-zinc-400 xs:mt-1 xs:text-sm">
               {selectedChannel
                 ? 'צפייה בערוץ — החליפו ערוץ או חזרו לבית מהשורה למטה'
                 : selectedDevice
@@ -550,10 +550,11 @@ function ChannelsPageInner() {
             activeYoutubeChannelId={selectedChannel?.youtube_channel_id ?? null}
             onHome={goHome}
             onSelectChannel={openChannel}
+            className="md:hidden"
           />
         ) : null}
         {selectedChannel ? (
-          <div className="mt-4 border-t border-zinc-800/80 pt-4">
+          <div className="mt-3 border-t border-zinc-800/80 pt-3 xs:mt-4 xs:pt-4">
             <ChannelVideoSearchBar
               id="child-channel-video-search"
               value={videoSearch}
@@ -561,7 +562,7 @@ function ChannelsPageInner() {
               totalCount={playlistSourceVideos.length}
               filteredCount={filteredVideos.length}
               channelLabel={selectedChannel.channel_name}
-              className="rounded-2xl border border-zinc-800/90 bg-zinc-950/70 p-3 shadow-inner shadow-black/20"
+              className="rounded-2xl border border-zinc-800/90 bg-zinc-950/70 p-2.5 shadow-inner shadow-black/20 xs:p-3"
               dropdownResults={channelSearchDropdownItems}
               activeResultId={activeVideoId}
               onSelectResult={(videoId) => selectWatchVideo(videoId)}
@@ -588,7 +589,47 @@ function ChannelsPageInner() {
           <p className="mt-1 text-sm text-zinc-500">ההורה יכול להוסיף ערוצים מתוך בקרת הורים.</p>
         </div>
       ) : selectedChannel ? (
-        <section className="max-w-full overflow-x-hidden rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-zinc-800 sm:bg-zinc-950/70 sm:p-4 sm:shadow-xl sm:shadow-black/10">
+        <div className="flex min-w-0 flex-col gap-4 md:grid md:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] md:items-start lg:grid-cols-[minmax(200px,240px)_minmax(0,1fr)]">
+          <aside className="sticky top-[7.5rem] hidden max-h-[calc(100dvh-8rem)] overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2 md:block">
+            <button
+              type="button"
+              onClick={goHome}
+              className="mb-1 flex w-full items-center gap-2 rounded-xl px-2 py-2 text-start text-sm font-semibold text-zinc-300 transition hover:bg-zinc-800"
+            >
+              בית הערוצים
+            </button>
+            <p className="px-2 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500">ערוצים</p>
+            <div className="flex flex-col gap-0.5">
+              {visibleChannels.map((channel) => {
+                const active = channel.youtube_channel_id === selectedChannel.youtube_channel_id
+                return (
+                  <button
+                    key={channel.id}
+                    type="button"
+                    onClick={() => openChannel(channel.youtube_channel_id)}
+                    className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-start transition ${
+                      active ? 'bg-zinc-800 text-zinc-50' : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+                    }`}
+                  >
+                    {channel.channel_thumbnail ? (
+                      <img
+                        src={channel.channel_thumbnail}
+                        alt=""
+                        className="h-8 w-8 shrink-0 rounded-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800">
+                        <Tv className="h-4 w-4" aria-hidden />
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate text-sm font-medium">{channel.channel_name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </aside>
+        <section className="min-w-0 max-w-full overflow-x-hidden rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-zinc-800 sm:bg-zinc-950/70 sm:p-4 sm:shadow-xl sm:shadow-black/10">
           {videosError ? (
             <p className="rounded-2xl border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
               {videosError}
@@ -749,11 +790,12 @@ function ChannelsPageInner() {
             </>
           )}
         </section>
+        </div>
       ) : (
         <>
         <section
           aria-label="ערוצים מאושרים"
-          className="mx-auto grid w-full max-w-[1040px] grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+          className="mx-auto grid w-full max-w-[1200px] grid-cols-2 gap-2 xs:gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
         >
           {visibleChannels.map((channel) => (
             <article
@@ -767,7 +809,7 @@ function ChannelsPageInner() {
                   openChannel(channel.youtube_channel_id)
                 }
               }}
-              className="group w-full max-w-[220px] cursor-pointer justify-self-center overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:border-zinc-700 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              className="group w-full max-w-none cursor-pointer justify-self-stretch overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:border-zinc-700 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 xs:rounded-3xl"
             >
               <div className="h-28 bg-zinc-900 sm:h-32">
                 {channel.channel_thumbnail ? (

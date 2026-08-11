@@ -74,7 +74,16 @@
   }
 
   .yt-video-grid {
-    @apply grid grid-cols-1 gap-x-4 gap-y-10 sm:grid-cols-2 xl:grid-cols-3;
+    /* Phone: 1 · sm+: 2 · md tablet: 3 · lg desktop: 4 · 2xl wide: 5 */
+    @apply grid grid-cols-1 gap-x-3 gap-y-6 xs:gap-x-4 xs:gap-y-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5;
+  }
+
+  .yt-shorts-grid {
+    @apply grid grid-cols-3 gap-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8;
+  }
+
+  .yt-channel-home-grid {
+    @apply grid grid-cols-1 gap-4 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5;
   }
 
   .yt-pill-btn-primary {
@@ -88,7 +97,19 @@
 
 @layer utilities {
   .safe-pb-nav {
+    /* Reserve space for fixed BottomNav on phones only (hidden from md+). */
     padding-bottom: calc(4.5rem + var(--sab));
+  }
+
+  @media (min-width: 768px) {
+    .safe-pb-nav {
+      padding-bottom: max(1rem, var(--sab));
+    }
+  }
+
+  /** Compact horizontal padding for kosher / small phones. */
+  .page-pad-x {
+    @apply px-2 xs:px-3 sm:px-4 lg:px-6;
   }
 
   /** Padding for fixed overlays / dialogs so content clears system bars. */

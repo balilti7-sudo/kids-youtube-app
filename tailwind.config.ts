@@ -6,6 +6,10 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      screens: {
+        /** Compact / kosher phones below typical Tailwind `sm`. */
+        xs: '360px',
+      },
       fontFamily: {
         sans: ['Heebo', 'Roboto', 'Arial', 'system-ui', 'sans-serif'],
       },

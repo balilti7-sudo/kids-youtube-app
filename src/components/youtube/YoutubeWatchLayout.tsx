@@ -10,8 +10,7 @@ export type YoutubeWatchLayoutProps = {
 
 /**
  * YouTube desktop watch page — RTL: main column on the right (~2/3), sidebar on the left (~402px).
- * Mobile/tablet stays stacked: player first, sidebar below, no horizontal scroll.
- * Theater mode stacks sidebar below the player at full container width.
+ * Phone: stacked. Tablet (lg+): side-by-side. Theater mode stacks sidebar below the player.
  */
 export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLayoutProps) {
   const [theaterMode, setTheaterMode] = useState(false)
@@ -30,15 +29,15 @@ export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLay
       <div
         dir="rtl"
         className={cn(
-          'mx-auto flex w-full max-w-full flex-col gap-3 overflow-x-hidden transition-all duration-500 ease-in-out sm:gap-4 xl:max-w-[1754px]',
-          theaterMode ? 'xl:flex-col' : 'xl:flex-row xl:items-start xl:gap-4',
+          'mx-auto flex w-full max-w-full flex-col gap-3 overflow-x-hidden transition-all duration-500 ease-in-out sm:gap-4 lg:max-w-[1754px]',
+          theaterMode ? 'lg:flex-col' : 'lg:flex-row lg:items-start lg:gap-4 xl:gap-6',
           className
         )}
       >
         <div
           className={cn(
             'w-full min-w-0 max-w-full overflow-x-hidden transition-all duration-500 ease-in-out',
-            theaterMode ? 'w-full' : 'xl:min-w-0 xl:flex-1'
+            theaterMode ? 'w-full' : 'lg:min-w-0 lg:flex-1'
           )}
         >
           {main}
@@ -47,8 +46,8 @@ export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLay
           className={cn(
             'w-full min-w-0 max-w-full overflow-x-hidden transition-all duration-500 ease-in-out',
             theaterMode
-              ? 'border-t border-yt-border pt-4 xl:static xl:max-h-none xl:overflow-visible'
-              : 'xl:w-[402px] xl:shrink-0 xl:sticky xl:top-14 xl:max-h-[calc(100dvh-3.5rem)] xl:overflow-y-auto xl:overflow-x-hidden xl:ps-1 xl:pe-0'
+              ? 'border-t border-yt-border pt-4 lg:static lg:max-h-none lg:overflow-visible'
+              : 'lg:w-[360px] lg:shrink-0 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:ps-1 lg:pe-0 xl:w-[402px]'
           )}
         >
           {sidebar}

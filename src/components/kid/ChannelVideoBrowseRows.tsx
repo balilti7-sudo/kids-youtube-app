@@ -23,6 +23,29 @@ function videoMetadata(video: WatchableVideoBase): string | null {
   return views || null
 }
 
+function VideoGridCard({
+  video,
+  active,
+  onSelect,
+  action,
+}: {
+  video: WatchableVideoBase
+  active: boolean
+  onSelect: () => void
+  action?: ReactNode
+}) {
+  return (
+    <YoutubeVideoCard
+      title={video.title}
+      thumbnail={video.thumbnail_url}
+      metadata={videoMetadata(video)}
+      active={active}
+      onClick={onSelect}
+      actionSlot={action}
+    />
+  )
+}
+
 export function ChannelVideoBrowseRows({
   videos,
   activeVideoId,
@@ -50,82 +73,85 @@ export function ChannelVideoBrowseRows({
   }, [allowShorts, tab])
 
   const emptyLabel = (label: string) => (
-    <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-10 text-center text-sm text-zinc-500">
+    <p className="rounded-2xl border border-dashed border-zinc-800 px-3 py-8 text-center text-sm text-zinc-500 xs:px-4 xs:py-10">
       {label}
     </p>
   )
 
+  const homeShelfMobile = (items: WatchableVideoBase[], aria: string, title: string) => (
+    <section aria-label={aria}>
+      <h2 className="mb-3 px-0.5 text-base font-black text-zinc-50">{title}</h2>
+      {/* Phone: horizontal shelf · Tablet+: multi-column grid (YouTube channel home) */}
+      <div className="premium-scrollbar flex gap-3 overflow-x-auto pb-2 pe-1 [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory] md:hidden">
+        {items.map((video) => (
+          <div
+            key={video.youtube_video_id}
+            className="w-[min(78vw,260px)] shrink-0 [scroll-snap-align:start] xs:w-[min(82vw,280px)]"
+          >
+            <VideoGridCard
+              video={video}
+              active={activeVideoId === video.youtube_video_id}
+              onSelect={() => onSelectVideo(video)}
+              action={renderAction?.(video)}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="yt-channel-home-grid hidden md:grid">
+        {items.map((video) => (
+          <VideoGridCard
+            key={video.youtube_video_id}
+            video={video}
+            active={activeVideoId === video.youtube_video_id}
+            onSelect={() => onSelectVideo(video)}
+            action={renderAction?.(video)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+
+  const shortsShelf = (items: WatchableVideoBase[]) => (
+    <section aria-label="סרטונים קצרים">
+      <h2 className="mb-3 px-0.5 text-base font-black text-zinc-50">Shorts</h2>
+      <div className="premium-scrollbar flex gap-2 overflow-x-auto pb-2 pe-1 xs:gap-3 [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory] md:hidden">
+        {items.map((video) => (
+          <div key={video.youtube_video_id} className="[scroll-snap-align:start]">
+            <YoutubeShortCard
+              title={video.title}
+              thumbnail={video.thumbnail_url}
+              active={activeVideoId === video.youtube_video_id}
+              onClick={() => onSelectVideo(video)}
+              actionSlot={renderAction?.(video)}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="yt-shorts-grid hidden md:grid">
+        {items.map((video) => (
+          <YoutubeShortCard
+            key={video.youtube_video_id}
+            title={video.title}
+            thumbnail={video.thumbnail_url}
+            active={activeVideoId === video.youtube_video_id}
+            onClick={() => onSelectVideo(video)}
+            actionSlot={renderAction?.(video)}
+            className="!w-full"
+          />
+        ))}
+      </div>
+    </section>
+  )
+
   return (
-    <div className="flex flex-col gap-4 px-1 pb-2 sm:px-0">
+    <div className="flex min-w-0 flex-col gap-4 px-0.5 pb-2 xs:px-1 sm:px-0">
       <ChannelContentTabs value={tab} onChange={setTab} showShortsTab={allowShorts} />
 
       {tab === 'home' ? (
         <div className="flex flex-col gap-5">
-          {longForm.length > 0 ? (
-            <section aria-label="סרטונים">
-              <h2 className="mb-3 px-0.5 text-base font-black text-zinc-50">סרטונים</h2>
-              <div className="premium-scrollbar flex gap-3 overflow-x-auto pb-2 pe-1 [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory]">
-                {longForm.map((video) => (
-                  <div
-                    key={video.youtube_video_id}
-                    className="w-[min(82vw,280px)] shrink-0 [scroll-snap-align:start] sm:w-[280px]"
-                  >
-                    <YoutubeVideoCard
-                      title={video.title}
-                      thumbnail={video.thumbnail_url}
-                      metadata={videoMetadata(video)}
-                      active={activeVideoId === video.youtube_video_id}
-                      onClick={() => onSelectVideo(video)}
-                      actionSlot={renderAction?.(video)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {allowShorts && shorts.length > 0 ? (
-            <section aria-label="סרטונים קצרים">
-              <h2 className="mb-3 px-0.5 text-base font-black text-zinc-50">Shorts</h2>
-              <div className="premium-scrollbar flex gap-3 overflow-x-auto pb-2 pe-1 [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory]">
-                {shorts.map((video) => (
-                  <div key={video.youtube_video_id} className="[scroll-snap-align:start]">
-                    <YoutubeShortCard
-                      title={video.title}
-                      thumbnail={video.thumbnail_url}
-                      active={activeVideoId === video.youtube_video_id}
-                      onClick={() => onSelectVideo(video)}
-                      actionSlot={renderAction?.(video)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {liveStreams.length > 0 ? (
-            <section aria-label="שידורים חיים">
-              <h2 className="mb-3 px-0.5 text-base font-black text-zinc-50">שידורים חיים</h2>
-              <div className="premium-scrollbar flex gap-3 overflow-x-auto pb-2 pe-1 [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory]">
-                {liveStreams.map((video) => (
-                  <div
-                    key={video.youtube_video_id}
-                    className="w-[min(82vw,280px)] shrink-0 [scroll-snap-align:start] sm:w-[280px]"
-                  >
-                    <YoutubeVideoCard
-                      title={video.title}
-                      thumbnail={video.thumbnail_url}
-                      metadata={videoMetadata(video)}
-                      active={activeVideoId === video.youtube_video_id}
-                      onClick={() => onSelectVideo(video)}
-                      actionSlot={renderAction?.(video)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
+          {longForm.length > 0 ? homeShelfMobile(longForm, 'סרטונים', 'סרטונים') : null}
+          {allowShorts && shorts.length > 0 ? shortsShelf(shorts) : null}
+          {liveStreams.length > 0 ? homeShelfMobile(liveStreams, 'שידורים חיים', 'שידורים חיים') : null}
           {longForm.length === 0 && !(allowShorts && shorts.length > 0) && liveStreams.length === 0
             ? emptyLabel('אין תוכן להצגה בערוץ הזה.')
             : null}
@@ -136,16 +162,14 @@ export function ChannelVideoBrowseRows({
         longForm.length === 0 ? (
           emptyLabel('אין סרטונים ארוכים בערוץ הזה.')
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="yt-video-grid">
             {longForm.map((video) => (
-              <YoutubeVideoCard
+              <VideoGridCard
                 key={video.youtube_video_id}
-                title={video.title}
-                thumbnail={video.thumbnail_url}
-                metadata={videoMetadata(video)}
+                video={video}
                 active={activeVideoId === video.youtube_video_id}
-                onClick={() => onSelectVideo(video)}
-                actionSlot={renderAction?.(video)}
+                onSelect={() => onSelectVideo(video)}
+                action={renderAction?.(video)}
               />
             ))}
           </div>
@@ -156,7 +180,7 @@ export function ChannelVideoBrowseRows({
         !allowShorts || shorts.length === 0 ? (
           emptyLabel(allowShorts ? 'אין Shorts בערוץ הזה.' : 'Shorts כבויים בפרופיל זה.')
         ) : (
-          <div className="flex flex-wrap gap-3">
+          <div className="yt-shorts-grid">
             {shorts.map((video) => (
               <YoutubeShortCard
                 key={video.youtube_video_id}
@@ -165,6 +189,7 @@ export function ChannelVideoBrowseRows({
                 active={activeVideoId === video.youtube_video_id}
                 onClick={() => onSelectVideo(video)}
                 actionSlot={renderAction?.(video)}
+                className="!w-full max-w-none"
               />
             ))}
           </div>
@@ -175,16 +200,14 @@ export function ChannelVideoBrowseRows({
         liveStreams.length === 0 ? (
           emptyLabel('אין שידורים חיים זמינים כרגע.')
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="yt-video-grid">
             {liveStreams.map((video) => (
-              <YoutubeVideoCard
+              <VideoGridCard
                 key={video.youtube_video_id}
-                title={video.title}
-                thumbnail={video.thumbnail_url}
-                metadata={videoMetadata(video)}
+                video={video}
                 active={activeVideoId === video.youtube_video_id}
-                onClick={() => onSelectVideo(video)}
-                actionSlot={renderAction?.(video)}
+                onSelect={() => onSelectVideo(video)}
+                action={renderAction?.(video)}
               />
             ))}
           </div>
