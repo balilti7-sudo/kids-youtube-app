@@ -11,6 +11,7 @@ type Props = {
   videos: WatchableVideoBase[]
   activeVideoId?: string | null
   allowShorts?: boolean
+  hideThumbnails?: boolean
   onSelectVideo: (video: WatchableVideoBase) => void
   renderAction?: (video: WatchableVideoBase) => ReactNode
 }
@@ -26,11 +27,13 @@ function videoMetadata(video: WatchableVideoBase): string | null {
 function VideoGridCard({
   video,
   active,
+  hideThumbnail,
   onSelect,
   action,
 }: {
   video: WatchableVideoBase
   active: boolean
+  hideThumbnail?: boolean
   onSelect: () => void
   action?: ReactNode
 }) {
@@ -40,6 +43,7 @@ function VideoGridCard({
       thumbnail={video.thumbnail_url}
       metadata={videoMetadata(video)}
       active={active}
+      hideThumbnail={hideThumbnail}
       onClick={onSelect}
       actionSlot={action}
     />
@@ -50,6 +54,7 @@ export function ChannelVideoBrowseRows({
   videos,
   activeVideoId,
   allowShorts = false,
+  hideThumbnails = false,
   onSelectVideo,
   renderAction,
 }: Props) {
@@ -91,6 +96,7 @@ export function ChannelVideoBrowseRows({
             <VideoGridCard
               video={video}
               active={activeVideoId === video.youtube_video_id}
+              hideThumbnail={hideThumbnails}
               onSelect={() => onSelectVideo(video)}
               action={renderAction?.(video)}
             />
@@ -103,6 +109,7 @@ export function ChannelVideoBrowseRows({
             key={video.youtube_video_id}
             video={video}
             active={activeVideoId === video.youtube_video_id}
+            hideThumbnail={hideThumbnails}
             onSelect={() => onSelectVideo(video)}
             action={renderAction?.(video)}
           />
@@ -120,6 +127,7 @@ export function ChannelVideoBrowseRows({
             <YoutubeShortCard
               title={video.title}
               thumbnail={video.thumbnail_url}
+              hideThumbnail={hideThumbnails}
               active={activeVideoId === video.youtube_video_id}
               onClick={() => onSelectVideo(video)}
               actionSlot={renderAction?.(video)}
@@ -133,6 +141,7 @@ export function ChannelVideoBrowseRows({
             key={video.youtube_video_id}
             title={video.title}
             thumbnail={video.thumbnail_url}
+            hideThumbnail={hideThumbnails}
             active={activeVideoId === video.youtube_video_id}
             onClick={() => onSelectVideo(video)}
             actionSlot={renderAction?.(video)}
@@ -168,6 +177,7 @@ export function ChannelVideoBrowseRows({
                 key={video.youtube_video_id}
                 video={video}
                 active={activeVideoId === video.youtube_video_id}
+                hideThumbnail={hideThumbnails}
                 onSelect={() => onSelectVideo(video)}
                 action={renderAction?.(video)}
               />
@@ -186,6 +196,7 @@ export function ChannelVideoBrowseRows({
                 key={video.youtube_video_id}
                 title={video.title}
                 thumbnail={video.thumbnail_url}
+                hideThumbnail={hideThumbnails}
                 active={activeVideoId === video.youtube_video_id}
                 onClick={() => onSelectVideo(video)}
                 actionSlot={renderAction?.(video)}
@@ -206,6 +217,7 @@ export function ChannelVideoBrowseRows({
                 key={video.youtube_video_id}
                 video={video}
                 active={activeVideoId === video.youtube_video_id}
+                hideThumbnail={hideThumbnails}
                 onSelect={() => onSelectVideo(video)}
                 action={renderAction?.(video)}
               />

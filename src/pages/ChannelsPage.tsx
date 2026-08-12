@@ -644,6 +644,7 @@ function ChannelsPageInner() {
                     title={activeVideo?.title ?? playingVideo?.title ?? 'טוען…'}
                     channelTitle={activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name}
                     posterUrl={activeVideo?.thumbnail_url ?? playingVideo?.thumbnail_url ?? null}
+                    blankVideoFrame={Boolean(selectedDevice?.hide_thumbnails)}
                     format={activeVideo?.format ?? playingVideo?.format ?? 'long'}
                     onPreviousTrack={goPreviousVideo}
                     onNextTrack={goNextVideo}
@@ -718,6 +719,7 @@ function ChannelsPageInner() {
                             variant="row"
                             title={video.title}
                             thumbnail={video.thumbnail_url}
+                            hideThumbnail={Boolean(selectedDevice?.hide_thumbnails)}
                             onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
                           />
@@ -726,6 +728,7 @@ function ChannelsPageInner() {
                             layout="row"
                             title={video.title}
                             thumbnail={video.thumbnail_url}
+                            hideThumbnail={Boolean(selectedDevice?.hide_thumbnails)}
                             channelName={video.channelName}
                             metadata={formatViewCountLabel(video.viewCount) || null}
                             active={false}
@@ -783,6 +786,7 @@ function ChannelsPageInner() {
                   videos={filteredVideos}
                   activeVideoId={activeVideoId}
                   allowShorts={allowShorts}
+                  hideThumbnails={Boolean(selectedDevice?.hide_thumbnails)}
                   onSelectVideo={selectWatchVideo}
                   renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
                 />

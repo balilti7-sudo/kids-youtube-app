@@ -21,6 +21,7 @@ export interface ChildDeviceState {
   browser_filter_enabled: boolean
   browser_whitelist: string[]
   daily_time_limit_minutes: number
+  hide_thumbnails: boolean
 }
 
 export interface ChildAllowedVideo {
@@ -166,6 +167,7 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
         if (rounded < 1) return 60
         return Math.min(1440, rounded)
       })(),
+      hide_thumbnails: Boolean(r.hide_thumbnails ?? r.hideThumbnails),
     },
     error: null,
   }

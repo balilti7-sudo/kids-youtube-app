@@ -14,6 +14,8 @@ export type YoutubeVideoCardProps = {
   actionSlot?: ReactNode
   /** Parent quick-block overlay — top-start of thumbnail (RTL). */
   thumbnailAction?: ReactNode
+  /** Parental policy: show a black tile instead of the poster image. */
+  hideThumbnail?: boolean
   className?: string
 }
 
@@ -60,6 +62,7 @@ export function YoutubeVideoCard({
   onClick,
   actionSlot,
   thumbnailAction,
+  hideThumbnail = false,
   className,
 }: YoutubeVideoCardProps) {
   const juicy = useJuicyUiEnabled()
@@ -85,18 +88,19 @@ export function YoutubeVideoCard({
     </>
   )
 
-  const thumbImage = thumbnail ? (
-    <img
-      src={thumbnail}
-      alt=""
-      loading="lazy"
-      className={cn('h-full w-full object-cover', juicy ? JUICY_THUMB_INNER_CLASS : 'transition duration-200 group-hover:scale-[1.02]')}
-    />
-  ) : (
-    <div className="flex h-full w-full items-center justify-center text-xs font-medium text-yt-textMuted">
-      וידאו
-    </div>
-  )
+  const thumbImage =
+    hideThumbnail || !thumbnail ? (
+      <div className="flex h-full w-full items-center justify-center bg-black text-xs font-medium text-zinc-500">
+        {hideThumbnail ? '' : 'וידאו'}
+      </div>
+    ) : (
+      <img
+        src={thumbnail}
+        alt=""
+        loading="lazy"
+        className={cn('h-full w-full object-cover', juicy ? JUICY_THUMB_INNER_CLASS : 'transition duration-200 group-hover:scale-[1.02]')}
+      />
+    )
 
   if (layout === 'row') {
     return (

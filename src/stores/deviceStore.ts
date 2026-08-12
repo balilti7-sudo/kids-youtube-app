@@ -7,7 +7,7 @@ import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncPa
 import { supabase } from '../lib/supabase'
 
 const DEVICE_SELECT =
-  'id, user_id, name, device_type, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts, block_youtube_app, browser_filter_enabled, browser_whitelist, daily_time_limit_minutes'
+  'id, user_id, name, device_type, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts, block_youtube_app, browser_filter_enabled, browser_whitelist, daily_time_limit_minutes, hide_thumbnails'
 
 function formatSupabaseError(error: PostgrestError): string {
   const parts = [error.message, error.details, error.hint].filter((p) => p && String(p).trim())
@@ -72,6 +72,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         browser_filter_enabled: data.browser_filter_enabled,
         browser_whitelist: data.browser_whitelist,
         daily_time_limit_minutes: data.daily_time_limit_minutes ?? 60,
+        hide_thumbnails: data.hide_thumbnails,
       }
       void syncParentalControlPolicy(policyFromDeviceFields(device))
       set({ devices: [device], loading: false })
@@ -189,6 +190,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       browser_filter_enabled: data.browserFilterEnabled,
       browser_whitelist: data.browserWhitelist,
       daily_time_limit_minutes: data.dailyTimeLimitMinutes,
+      hide_thumbnails: data.hideThumbnails,
     }
     set({
       devices: get().devices.map((d) => (d.id === deviceId ? { ...d, ...nextFields } : d)),

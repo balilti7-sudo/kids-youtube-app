@@ -1391,7 +1391,8 @@ function KidModePageInner() {
                                 videoId={activeVideo.videoId}
                                 title={activeVideo.title}
                                 channelTitle={activeChannel?.channel_name}
-                                posterUrl={activeVideo.thumbnail}
+                                posterUrl={device?.hide_thumbnails ? null : activeVideo.thumbnail}
+                                blankVideoFrame={Boolean(device?.hide_thumbnails)}
                                 onNextTrack={handlePlayerNextTrack}
                                 onPreviousTrack={handlePlayerPreviousTrack}
                                 hasNextTrack={hasNextChannelVideo}
@@ -1521,6 +1522,7 @@ function KidModePageInner() {
                                     layout="row"
                                     title={video.title}
                                     thumbnail={video.thumbnail}
+                                    hideThumbnail={Boolean(device?.hide_thumbnails)}
                                     metadata={formatViewCountLabel(video.viewCount) || null}
                                     active={isCurrent}
                                     playingLabel="מנגן"

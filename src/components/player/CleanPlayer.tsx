@@ -151,6 +151,11 @@ export type CleanPlayerProps = {
   channelTitle?: string
   /** Poster / artwork; falls back to YouTube thumbnail URLs for `videoId`. */
   posterUrl?: string | null
+  /**
+   * Parental “hide thumbnails”: keep playback/audio running but show a black frame
+   * (no poster / visible video pixels).
+   */
+  blankVideoFrame?: boolean
   /** Lock screen / headset “next” — omit to hide the control where supported. */
   onNextTrack?: () => void
   /** Lock screen / headset “previous”. */
@@ -420,6 +425,7 @@ function CleanPlayerYoutubeIframe({
   className,
   channelTitle,
   posterUrl,
+  blankVideoFrame = false,
   onNextTrack,
   hasNextTrack = true,
   queueControls,
@@ -525,18 +531,26 @@ function CleanPlayerYoutubeIframe({
         </div>
       ) : !src ? null : (
         <>
-          {!iframeReady ? <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} /> : null}
+          {!iframeReady && !blankVideoFrame ? (
+            <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} />
+          ) : null}
           <iframe
             key={src}
             title={title}
             src={src}
-            className={cn('h-full w-full border-0', isLimitReached && 'pointer-events-none invisible')}
+            className={cn(
+              'h-full w-full border-0',
+              (isLimitReached || blankVideoFrame) && 'pointer-events-none invisible'
+            )}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
             allowFullScreen
             loading="eager"
             onLoad={handleIframeLoad}
             referrerPolicy="strict-origin-when-cross-origin"
           />
+          {blankVideoFrame && !isLimitReached ? (
+            <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
+          ) : null}
         </>
       )}
       <span className="sr-only">{title}</span>
@@ -561,6 +575,7 @@ function CleanPlayerMediaBridge({
   className,
   channelTitle,
   posterUrl,
+  blankVideoFrame = false,
   onNextTrack,
   onPreviousTrack,
   hasNextTrack = true,
@@ -881,9 +896,10 @@ function CleanPlayerMediaBridge({
   }, [isLimitReached, phase.kind, onPlaybackActiveChange])
 
   const safePosterVideoId = sanitizeYoutubeVideoId(videoId)
-  const videoPoster =
-    (posterUrl || '').trim() ||
-    (safePosterVideoId ? `https://i.ytimg.com/vi/${safePosterVideoId}/hqdefault.jpg` : undefined)
+  const videoPoster = blankVideoFrame
+    ? undefined
+    : (posterUrl || '').trim() ||
+      (safePosterVideoId ? `https://i.ytimg.com/vi/${safePosterVideoId}/hqdefault.jpg` : undefined)
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -1340,8 +1356,8 @@ function CleanPlayerMediaBridge({
   const isUpcomingLive = phase.kind === 'upcoming_live'
   const isPlaybackError = phase.kind === 'error'
   const isDailyLimit = phase.kind === 'daily_limit' || isLimitReached
-  const hideVideo = isUpcomingLive || isPlaybackError || isDailyLimit
-  const showLoadingOverlay = phase.kind === 'resolving' && !isLimitReached
+  const hideVideo = isUpcomingLive || isPlaybackError || isDailyLimit || blankVideoFrame
+  const showLoadingOverlay = phase.kind === 'resolving' && !isLimitReached && !blankVideoFrame
 
   return (
     <div
@@ -1366,6 +1382,20 @@ function CleanPlayerMediaBridge({
           </p>
         </div>
       ) : null}
+      {blankVideoFrame && phase.kind === 'resolving' && !isLimitReached ? (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center bg-black px-4 text-center text-sm text-zinc-400"
+          role="status"
+          aria-live="polite"
+          dir="rtl"
+        >
+          {bridgeWaking
+            ? 'השרת מתעורר... מיד מתחילים'
+            : filePreparing
+              ? 'הסרטון בהכנה, זה עשוי לקחת דקה…'
+              : 'מכין את הוידאו…'}
+        </div>
+      ) : null}
       {isUpcomingLive ? <UpcomingLiveLionOverlay /> : null}
       {isPlaybackError ? (
         <PlayerErrorOverlay
@@ -1379,7 +1409,7 @@ function CleanPlayerMediaBridge({
           }}
         />
       ) : null}
-      {phase.kind === 'playing' && pipSupported && !isLimitReached ? (
+      {phase.kind === 'playing' && pipSupported && !isLimitReached && !blankVideoFrame ? (
         <button
           type="button"
           onClick={() => void handlePipToggle()}
@@ -1417,6 +1447,9 @@ function CleanPlayerMediaBridge({
           )
         }}
       />
+      {blankVideoFrame && !isDailyLimit && !isUpcomingLive && !isPlaybackError ? (
+        <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
+      ) : null}
       <span className="sr-only">{title}</span>
       </div>
       {showControlBar ? (

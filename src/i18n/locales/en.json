@@ -205,6 +205,23 @@
     "hintOn": "The child can also see short videos (up to 60 seconds and /shorts/).",
     "hintOff": "Short videos under 60 seconds and /shorts/ links are hidden from the child."
   },
+  "thumbnails": {
+    "hideTitle": "Hide thumbnails",
+    "hiddenOn": "Thumbnails hidden — black screen while playing",
+    "hiddenOff": "Thumbnails shown",
+    "hintOn": "List posters are hidden. The player stays black while audio/video continues in the background.",
+    "hintOff": "Video posters and the player picture are shown normally.",
+    "summaryHidden": "Thumbnails hidden",
+    "summaryShown": "Thumbnails shown"
+  },
+  "manageProfile": {
+    "eyebrow": "Channel management & controls",
+    "title": "{{name}}",
+    "lead": "Approve channels and videos, and set Shorts, thumbnails, time limits, and device blocks for this profile.",
+    "controlsTitle": "Content & device controls",
+    "channelsTitle": "Channels & videos",
+    "channelsLead": "Search and approve YouTube channels, or add individual videos to playlists."
+  },
   "parentalOs": {
     "sectionTitle": "Device blocks (YouTube & browser)",
     "youtubeBlockLabel": "Block YouTube app",

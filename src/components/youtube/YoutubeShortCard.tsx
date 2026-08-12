@@ -6,6 +6,7 @@ type Props = {
   title: string
   thumbnail: string | null
   active?: boolean
+  hideThumbnail?: boolean
   onClick?: () => void
   actionSlot?: ReactNode
   className?: string
@@ -17,6 +18,7 @@ export function YoutubeShortCard({
   title,
   thumbnail,
   active,
+  hideThumbnail = false,
   onClick,
   actionSlot,
   className,
@@ -40,15 +42,17 @@ export function YoutubeShortCard({
       )}
     >
       <button type="button" {...wrapClick(onClick)} className={juicyPressableClass(juicy, 'block h-full w-full')}>
-        {thumbnail ? (
+        {hideThumbnail || !thumbnail ? (
+          <div className="flex h-full w-full items-center justify-center bg-black text-[10px] text-zinc-500">
+            {hideThumbnail ? '' : 'Short'}
+          </div>
+        ) : (
           <img
             src={thumbnail}
             alt=""
             loading="lazy"
             className={cn('h-full w-full object-cover', juicy && JUICY_THUMB_INNER_CLASS)}
           />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-500">Short</div>
         )}
       </button>
       {active ? (

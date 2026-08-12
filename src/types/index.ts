@@ -40,6 +40,8 @@ export interface Device {
   browser_whitelist?: string[]
   /** Per-profile daily watch budget in minutes (0 = unlimited). */
   daily_time_limit_minutes?: number
+  /** When true, kid UI hides posters and shows a black player frame while audio/video continues. */
+  hide_thumbnails?: boolean
 }
 
 export interface WhitelistedChannel {

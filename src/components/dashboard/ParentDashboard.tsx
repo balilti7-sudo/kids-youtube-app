@@ -1,16 +1,13 @@
-import { useEffect, useState } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate, useSearchParams, Navigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { useDeviceStore } from '../../stores/deviceStore'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
-import { clearActiveChildProfileIdIfMatches } from '../../lib/activeDeviceSelection'
 import { ChildRuntimeProvider } from '../../contexts/ChildRuntimeContext'
 import { StatsGrid } from './StatsGrid'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ParentSetupGuide } from './ParentSetupGuide'
-import { ChannelManager } from '../channels/ChannelManager'
 import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
@@ -19,12 +16,9 @@ const SETUP_GUIDE_DISMISS_KEY = 'safetube_parent_setup_guide_dismissed_v1'
 function ParentDashboardInner() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const { ownerUserId } = useDeviceOwnerId()
   const { devices, loading } = useDevices(ownerUserId)
-  const removeDevice = useDeviceStore((s) => s.removeDevice)
-  const [managedDeviceId, setManagedDeviceId] = useState<string | null>(null)
-  const [deletingProfile, setDeletingProfile] = useState(false)
   const [guideDismissed, setGuideDismissed] = useState(() => {
     try {
       return localStorage.getItem(SETUP_GUIDE_DISMISS_KEY) === '1'
@@ -32,58 +26,17 @@ function ParentDashboardInner() {
       return false
     }
   })
-  const managedDevice = devices.find((d) => d.id === managedDeviceId) ?? null
 
   const hasProfiles = devices.length > 0
-  const hasChannelsManaged =
-    Boolean(managedDeviceId) || devices.some((d) => (d.channel_count ?? 0) > 0)
+  const hasChannelsManaged = devices.some((d) => (d.channel_count ?? 0) > 0)
   const skipEmptyRedirect = searchParams.get('skipAdd') === '1'
   const manageFromQuery = searchParams.get('manage')
 
-  useEffect(() => {
-    if (!manageFromQuery) return
-    if (!devices.some((d) => d.id === manageFromQuery)) return
-    setManagedDeviceId(manageFromQuery)
-    const next = new URLSearchParams(searchParams)
-    next.delete('manage')
-    setSearchParams(next, { replace: true })
-  }, [manageFromQuery, devices, searchParams, setSearchParams])
-
-  useEffect(() => {
-    if (!managedDeviceId) return
-    const el = document.getElementById('dashboard-channel-manager')
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [managedDeviceId])
-
-  const dismissGuide = () => {
-    setGuideDismissed(true)
-    try {
-      localStorage.setItem(SETUP_GUIDE_DISMISS_KEY, '1')
-    } catch {
-      /* ignore */
-    }
+  // Legacy ?manage= → dedicated manage page
+  if (manageFromQuery) {
+    return <Navigate to={`/dashboard/manage/${encodeURIComponent(manageFromQuery)}`} replace />
   }
 
-  const handleDeleteManagedProfile = async () => {
-    if (!managedDeviceId || deletingProfile) return
-    const confirmed = window.confirm(t('dashboard.deleteProfileConfirm'))
-    if (!confirmed) return
-
-    setDeletingProfile(true)
-    const { error } = await removeDevice(managedDeviceId)
-    setDeletingProfile(false)
-
-    if (error) {
-      toast.error(t('dashboard.deleteFailed'), { description: error.message })
-      return
-    }
-
-    clearActiveChildProfileIdIfMatches(managedDeviceId)
-    toast.success(t('dashboard.profileRemoved'))
-    setManagedDeviceId(null)
-  }
-
-  // Phase 1: empty parental control opens the dedicated add-profile screen.
   if (!loading && devices.length === 0 && !skipEmptyRedirect) {
     return <Navigate to="/dashboard/add-profile" replace />
   }
@@ -94,6 +47,15 @@ function ParentDashboardInner() {
         <LoadingSpinner className="h-8 w-8 border-2 border-sky-400 border-t-transparent" />
       </div>
     )
+  }
+
+  const dismissGuide = () => {
+    setGuideDismissed(true)
+    try {
+      localStorage.setItem(SETUP_GUIDE_DISMISS_KEY, '1')
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
@@ -111,7 +73,7 @@ function ParentDashboardInner() {
         onAddProfile={() => navigate('/dashboard/add-profile')}
         onManageChannels={() => {
           const first = devices[0]
-          if (first) setManagedDeviceId(first.id)
+          if (first) navigate(`/dashboard/manage/${first.id}`)
           else {
             navigate('/dashboard/add-profile')
             toast.info(t('dashboard.createProfileFirst'))
@@ -119,45 +81,7 @@ function ParentDashboardInner() {
         }}
       />
 
-      <DashboardDevicesSection
-        activeManagementDeviceId={managedDeviceId}
-        onManageChannels={setManagedDeviceId}
-      />
-      {managedDeviceId ? (
-        <section
-          id="dashboard-channel-manager"
-          className="rounded-2xl border border-zinc-700/60 bg-zinc-900/70 p-3 shadow-inner ring-1 ring-zinc-800/80 sm:p-4"
-        >
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-base font-bold text-zinc-50">{t('dashboard.channelManagerTitle')}</h2>
-              <p className="text-xs text-zinc-500">
-                {managedDevice
-                  ? t('dashboard.activeProfile', { name: managedDevice.name })
-                  : t('dashboard.chooseProfile')}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-50"
-              onClick={() => setManagedDeviceId(null)}
-            >
-              {t('common.close')}
-            </button>
-          </div>
-          <ChannelManager managedDeviceId={managedDeviceId} embedded />
-          <footer className="mt-4 flex justify-end border-t border-zinc-800/90 pt-3">
-            <button
-              type="button"
-              disabled={deletingProfile}
-              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-950/40 hover:text-red-300 disabled:opacity-50"
-              onClick={() => void handleDeleteManagedProfile()}
-            >
-              {deletingProfile ? t('common.loading') : t('dashboard.deleteProfile')}
-            </button>
-          </footer>
-        </section>
-      ) : null}
+      <DashboardDevicesSection onManageChannels={(id) => navigate(`/dashboard/manage/${id}`)} />
 
       <StatsGrid devices={devices} />
       <LocalScreenTimeParentCard />

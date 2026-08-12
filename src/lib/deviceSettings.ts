@@ -8,6 +8,7 @@ export type DeviceSettingsUpdate = {
   browserWhitelist?: string[] | null
   /** 0 = unlimited; 1–1440 = minutes per day */
   dailyTimeLimitMinutes?: number | null
+  hideThumbnails?: boolean | null
 }
 
 export type DeviceSettingsRow = {
@@ -17,6 +18,7 @@ export type DeviceSettingsRow = {
   browserFilterEnabled: boolean
   browserWhitelist: string[]
   dailyTimeLimitMinutes: number
+  hideThumbnails: boolean
 }
 
 function mapWhitelist(raw: unknown): string[] {
@@ -48,6 +50,7 @@ function mapDeviceSettingsRow(row: Record<string, unknown>): DeviceSettingsRow {
       row.browser_whitelist ?? row.browserWhitelist ?? row.allowed_urls ?? row.allowedUrls
     ),
     dailyTimeLimitMinutes: mapDailyLimit(row.daily_time_limit_minutes ?? row.dailyTimeLimitMinutes),
+    hideThumbnails: Boolean(row.hide_thumbnails ?? row.hideThumbnails),
   }
 }
 
@@ -61,6 +64,7 @@ export function buildParentUpdateDeviceSettingsRpcArgs(
   p_browser_filter_enabled: boolean | null
   p_browser_whitelist: string[] | null
   p_daily_time_limit_minutes: number | null
+  p_hide_thumbnails: boolean | null
 } {
   return {
     p_device_id: deviceId,
@@ -73,6 +77,7 @@ export function buildParentUpdateDeviceSettingsRpcArgs(
       typeof updates.dailyTimeLimitMinutes === 'number' && Number.isFinite(updates.dailyTimeLimitMinutes)
         ? Math.round(updates.dailyTimeLimitMinutes)
         : null,
+    p_hide_thumbnails: typeof updates.hideThumbnails === 'boolean' ? updates.hideThumbnails : null,
   }
 }
 
@@ -94,6 +99,7 @@ export async function parentUpdateDeviceSettings(
         typeof updates.dailyTimeLimitMinutes === 'number' && Number.isFinite(updates.dailyTimeLimitMinutes)
           ? Math.round(updates.dailyTimeLimitMinutes)
           : null,
+      p_hide_thumbnails: typeof updates.hideThumbnails === 'boolean' ? updates.hideThumbnails : null,
     })
     if (error) return { data: null, error: new Error(error.message) }
     if (!data || typeof data !== 'object' || Array.isArray(data)) {

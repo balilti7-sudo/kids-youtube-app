@@ -989,6 +989,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                 setAddedSearchChannelIds(new Set())
                 if (embedded) {
                   setPreviewChannel(null)
+                  navigate('/dashboard')
                   return
                 }
                 navigate('/dashboard')

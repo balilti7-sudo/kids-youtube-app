@@ -61,7 +61,7 @@ export function AddProfilePage() {
         toast.success(t('dashboard.profileAdded'))
         await refetch()
         // Next step: channel management for the new profile.
-        navigate(`/dashboard?manage=${encodeURIComponent(data.id)}`, { replace: true })
+        navigate(`/dashboard/manage/${encodeURIComponent(data.id)}`, { replace: true })
       }
     } catch (e) {
       console.error('Connection Error:', e)

@@ -8,6 +8,7 @@ export type ChildWatchPlayerShellProps = {
   channelTitle?: string
   posterUrl?: string | null
   format: VideoFormat
+  blankVideoFrame?: boolean
   onPreviousTrack?: () => void
   onNextTrack?: () => void
   hasNextTrack?: boolean
@@ -19,6 +20,7 @@ function ChildWatchPlayerShellInner({
   channelTitle,
   posterUrl,
   format,
+  blankVideoFrame = false,
   onPreviousTrack,
   onNextTrack,
   hasNextTrack,
@@ -39,7 +41,8 @@ function ChildWatchPlayerShellInner({
             videoId={videoId}
             title={title}
             channelTitle={channelTitle}
-            posterUrl={posterUrl}
+            posterUrl={blankVideoFrame ? null : posterUrl}
+            blankVideoFrame={blankVideoFrame}
             onPreviousTrack={onPreviousTrack}
             onNextTrack={onNextTrack}
             hasNextTrack={hasNextTrack}
@@ -58,6 +61,7 @@ function propsAreEqual(prev: ChildWatchPlayerShellProps, next: ChildWatchPlayerS
     prev.channelTitle === next.channelTitle &&
     prev.posterUrl === next.posterUrl &&
     prev.format === next.format &&
+    prev.blankVideoFrame === next.blankVideoFrame &&
     prev.hasNextTrack === next.hasNextTrack &&
     prev.onPreviousTrack === next.onPreviousTrack &&
     prev.onNextTrack === next.onNextTrack
