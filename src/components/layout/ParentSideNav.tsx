@@ -109,7 +109,7 @@ export function ParentSideNav() {
               to={item.to}
               onPointerDown={juicy ? juicyBurst : undefined}
               onClick={(e) => {
-                if (pathname === item.to) e.preventDefault()
+                if (pathname === item.to || pathname.startsWith(`${item.to}/`)) e.preventDefault()
               }}
               title={label}
               className={cn(

@@ -9,6 +9,7 @@ import { AuthPage } from './pages/AuthPage'
 import AuthCallback from './pages/AuthCallback'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { AddProfilePage } from './pages/AddProfilePage'
 import { ChannelsPage } from './pages/ChannelsPage'
 import { PlaylistsPage } from './pages/PlaylistsPage'
 import { HiddenVideosPage } from './pages/HiddenVideosPage'
@@ -101,6 +102,7 @@ function AppChrome() {
         >
           <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard/add-profile" element={<AddProfilePage />} />
           <Route path="/channels" element={<ChannelsPage />} />
           <Route path="/playlists" element={<PlaylistsPage />} />
           <Route path="/hidden-videos" element={<HiddenVideosPage />} />

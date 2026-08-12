@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { useDeviceStore } from '../../stores/deviceStore'
+import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
+import { useDevices } from '../../hooks/useDevices'
 import { clearActiveChildProfileIdIfMatches } from '../../lib/activeDeviceSelection'
 import { ChildRuntimeProvider } from '../../contexts/ChildRuntimeContext'
 import { StatsGrid } from './StatsGrid'
@@ -9,16 +12,19 @@ import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ParentSetupGuide } from './ParentSetupGuide'
 import { ChannelManager } from '../channels/ChannelManager'
 import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
+import { LoadingSpinner } from '../ui/LoadingSpinner'
 
 const SETUP_GUIDE_DISMISS_KEY = 'safetube_parent_setup_guide_dismissed_v1'
 
 function ParentDashboardInner() {
   const { t } = useTranslation()
-  const devices = useDeviceStore((s) => s.devices)
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { ownerUserId } = useDeviceOwnerId()
+  const { devices, loading } = useDevices(ownerUserId)
   const removeDevice = useDeviceStore((s) => s.removeDevice)
   const [managedDeviceId, setManagedDeviceId] = useState<string | null>(null)
   const [deletingProfile, setDeletingProfile] = useState(false)
-  const [openAddProfileSignal, setOpenAddProfileSignal] = useState(0)
   const [guideDismissed, setGuideDismissed] = useState(() => {
     try {
       return localStorage.getItem(SETUP_GUIDE_DISMISS_KEY) === '1'
@@ -31,6 +37,17 @@ function ParentDashboardInner() {
   const hasProfiles = devices.length > 0
   const hasChannelsManaged =
     Boolean(managedDeviceId) || devices.some((d) => (d.channel_count ?? 0) > 0)
+  const skipEmptyRedirect = searchParams.get('skipAdd') === '1'
+  const manageFromQuery = searchParams.get('manage')
+
+  useEffect(() => {
+    if (!manageFromQuery) return
+    if (!devices.some((d) => d.id === manageFromQuery)) return
+    setManagedDeviceId(manageFromQuery)
+    const next = new URLSearchParams(searchParams)
+    next.delete('manage')
+    setSearchParams(next, { replace: true })
+  }, [manageFromQuery, devices, searchParams, setSearchParams])
 
   useEffect(() => {
     if (!managedDeviceId) return
@@ -66,6 +83,19 @@ function ParentDashboardInner() {
     setManagedDeviceId(null)
   }
 
+  // Phase 1: empty parental control opens the dedicated add-profile screen.
+  if (!loading && devices.length === 0 && !skipEmptyRedirect) {
+    return <Navigate to="/dashboard/add-profile" replace />
+  }
+
+  if (loading && devices.length === 0) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <LoadingSpinner className="h-8 w-8 border-2 border-sky-400 border-t-transparent" />
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 pb-3">
       <header>
@@ -78,15 +108,12 @@ function ParentDashboardInner() {
         hasChannelsManaged={hasChannelsManaged}
         dismissed={guideDismissed}
         onDismiss={dismissGuide}
-        onAddProfile={() => {
-          setOpenAddProfileSignal((n) => n + 1)
-          document.getElementById('dashboard-profiles')?.scrollIntoView({ behavior: 'smooth' })
-        }}
+        onAddProfile={() => navigate('/dashboard/add-profile')}
         onManageChannels={() => {
           const first = devices[0]
           if (first) setManagedDeviceId(first.id)
           else {
-            setOpenAddProfileSignal((n) => n + 1)
+            navigate('/dashboard/add-profile')
             toast.info(t('dashboard.createProfileFirst'))
           }
         }}
@@ -95,7 +122,6 @@ function ParentDashboardInner() {
       <DashboardDevicesSection
         activeManagementDeviceId={managedDeviceId}
         onManageChannels={setManagedDeviceId}
-        openAddProfileSignal={openAddProfileSignal}
       />
       {managedDeviceId ? (
         <section

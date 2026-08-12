@@ -1,20 +1,16 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Plus, Settings2, Smartphone } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useDevices } from '../../hooks/useDevices'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useSubscription } from '../../hooks/useSubscription'
-import { useDeviceStore } from '../../stores/deviceStore'
 import { Button } from '../ui/Button'
-import { Input } from '../ui/Input'
-import { Modal } from '../ui/Modal'
 import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui/ErrorState'
-import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { AllowShortsDeviceSettings } from './AllowShortsDeviceSettings'
 import { DailyTimeLimitDeviceSettings } from './DailyTimeLimitDeviceSettings'
 import { DeviceOsControlsSettings } from './DeviceOsControlsSettings'
-import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../../types'
 
@@ -117,22 +113,16 @@ function ProfileDeviceCard({
 export function DashboardDevicesSection({
   activeManagementDeviceId,
   onManageChannels,
-  openAddProfileSignal = 0,
 }: {
   activeManagementDeviceId?: string | null
   onManageChannels: (deviceId: string) => void
-  /** Increment to open the add-profile modal (from setup guide). */
-  openAddProfileSignal?: number
 }) {
+  const navigate = useNavigate()
   const { ownerUserId, isDevFallback } = useDeviceOwnerId()
   const { devices, loading, error, refetch } = useDevices(ownerUserId)
   const { subscription } = useSubscription(ownerUserId)
-  const addDevice = useDeviceStore((s) => s.addDevice)
   const { t } = useTranslation()
 
-  const [modalOpen, setModalOpen] = useState(false)
-  const [deviceName, setDeviceName] = useState('')
-  const [saving, setSaving] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [collapseSeeded, setCollapseSeeded] = useState(false)
 
@@ -149,13 +139,6 @@ export function DashboardDevicesSection({
     setCollapseSeeded(true)
   }, [loading, devices, collapseSeeded])
 
-  useEffect(() => {
-    if (openAddProfileSignal > 0) {
-      setDeviceName(t('dashboard.defaultProfileName'))
-      setModalOpen(true)
-    }
-  }, [openAddProfileSignal, t])
-
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev)
@@ -165,55 +148,8 @@ export function DashboardDevicesSection({
     })
   }
 
-  const openModal = () => {
-    setDeviceName(t('dashboard.defaultProfileName'))
-    setModalOpen(true)
-  }
-
-  const closeModal = () => {
-    if (!saving) setModalOpen(false)
-  }
-
-  const handleAdd = async () => {
-    const name = deviceName.trim()
-    if (!name) {
-      toast.error(t('dashboard.enterProfileName'))
-      return
-    }
-    if (!ownerUserId) {
-      toast.error(t('dashboard.missingUserId'))
-      return
-    }
-    if (atLimit) {
-      toast.error(t('dashboard.limitReached', { count: max }))
-      return
-    }
-
-    setSaving(true)
-    try {
-      const { data, error: err } = await addDevice({
-        userId: ownerUserId,
-        name,
-        device_type: 'tablet',
-      })
-      if (err) {
-        console.error('Connection Error:', err)
-        toast.error(t('dashboard.saveFailed'), { description: err.message })
-        return
-      }
-      if (data) {
-        toast.success(t('dashboard.profileAdded'))
-        setExpandedIds((prev) => new Set(prev).add(data.id))
-        await refetch()
-        setModalOpen(false)
-        setDeviceName('')
-      }
-    } catch (e) {
-      console.error('Connection Error:', e)
-      toast.error(t('common.error'), { description: e instanceof Error ? e.message : String(e) })
-    } finally {
-      setSaving(false)
-    }
+  const goAddProfile = () => {
+    navigate('/dashboard/add-profile')
   }
 
   return (
@@ -222,38 +158,25 @@ export function DashboardDevicesSection({
       className="rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/80 sm:p-5"
       aria-labelledby="profiles-section-title"
     >
-      <div className="mb-2 flex flex-col gap-1.5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 id="profiles-section-title" className="text-lg font-bold text-zinc-50">
             {t('dashboard.profiles')}
           </h2>
           <p className="text-xs text-zinc-500">{t('dashboard.profilesLinked', { count: `${devices.length} / ${max}` })}</p>
         </div>
-
-        <div
-          className={cn(
-            'rounded-xl border px-3 py-3',
-            devices.length === 0
-              ? 'border-sky-400/40 bg-sky-950/30 ring-1 ring-sky-400/25'
-              : 'border-zinc-700/50 bg-zinc-950/40'
-          )}
-        >
-          <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            {devices.length === 0 ? t('dashboard.step1Start') : t('dashboard.childProfiles')}
-          </p>
-          <p className="mb-3 text-[13px] leading-snug text-zinc-400">
-            {devices.length === 0 ? t('dashboard.createProfileLeadEmpty') : t('dashboard.createProfileLead')}
-          </p>
-          <button
+        {!atLimit ? (
+          <Button
             type="button"
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-[15px] font-bold text-zinc-900 shadow-md shadow-black/25 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-45"
-            onClick={openModal}
-            disabled={atLimit || !ownerUserId}
+            variant="secondary"
+            className="h-9 shrink-0 gap-1.5 !px-3 !py-2 text-xs font-semibold sm:text-sm"
+            onClick={goAddProfile}
+            disabled={!ownerUserId}
           >
-            <Plus className="h-5 w-5 shrink-0" aria-hidden />
+            <Plus className="h-4 w-4 shrink-0" aria-hidden />
             {t('dashboard.addProfile')}
-          </button>
-        </div>
+          </Button>
+        ) : null}
       </div>
 
       {isDevFallback ? (
@@ -277,7 +200,7 @@ export function DashboardDevicesSection({
           <Smartphone className="h-10 w-10 text-zinc-600" aria-hidden />
           <p className="text-sm font-medium text-zinc-300">{t('dashboard.noProfilesYet')}</p>
           <p className="max-w-xs text-xs text-zinc-500">{t('dashboard.noProfilesHint')}</p>
-          <Button type="button" onClick={openModal} disabled={!ownerUserId || atLimit}>
+          <Button type="button" onClick={goAddProfile} disabled={!ownerUserId || atLimit}>
             {t('dashboard.addProfileNow')}
           </Button>
         </div>
@@ -295,33 +218,6 @@ export function DashboardDevicesSection({
           ))}
         </ul>
       )}
-
-      <Modal
-        open={modalOpen}
-        onClose={closeModal}
-        title={t('dashboard.newProfileTitle')}
-        footer={
-          <>
-            <Button type="button" variant="secondary" onClick={closeModal} disabled={saving}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="button" onClick={() => void handleAdd()} disabled={saving}>
-              {saving ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-              {saving ? t('common.saving') : t('common.save')}
-            </Button>
-          </>
-        }
-      >
-        <p className="mb-3 text-sm text-zinc-400">{t('dashboard.newProfileHint')}</p>
-        <label className="mb-1 block text-sm font-medium text-zinc-300">{t('dashboard.profileName')}</label>
-        <Input
-          value={deviceName}
-          onChange={(e) => setDeviceName(e.target.value)}
-          placeholder={t('dashboard.profileNamePlaceholder')}
-          autoFocus
-          onKeyDown={(e) => e.key === 'Enter' && void handleAdd()}
-        />
-      </Modal>
     </section>
   )
 }

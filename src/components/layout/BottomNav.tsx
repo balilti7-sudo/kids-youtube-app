@@ -26,13 +26,13 @@ export function BottomNav() {
             to="/dashboard"
             label={t('nav.parentControl')}
             icon={ShieldCheck}
-            isActive={pathname === '/dashboard'}
+            isActive={pathname === '/dashboard' || pathname.startsWith('/dashboard/')}
           />
         ) : (
           <NavLink
             to="/dashboard"
             onClick={(e) => {
-              if (pathname === '/dashboard') {
+              if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
                 e.preventDefault()
               }
             }}

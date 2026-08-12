@@ -20,12 +20,14 @@ export function PageBackBar({ fallback = '/dashboard', className, flush }: Props
   const navigate = useNavigate()
   const childProofExits = useKidDeviceTokenPresent()
 
-  const fallbackLabel = fallback === '/dashboard' ? 'בקרת הורים' : fallback === '/auth' ? 'התחברות' : 'מסך ראשי'
+  const fallbackPath = fallback.split('?')[0]
+  const fallbackLabel =
+    fallbackPath === '/dashboard' ? 'בקרת הורים' : fallbackPath === '/auth' ? 'התחברות' : 'מסך ראשי'
 
   const goBack = () => navigate(-1)
 
   const goFallback = () => {
-    if (fallback === '/dashboard') setParentEntryIntent()
+    if (fallbackPath === '/dashboard') setParentEntryIntent()
     navigate(fallback)
   }
 
