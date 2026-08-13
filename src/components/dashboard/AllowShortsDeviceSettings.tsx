@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { useDeviceStore } from '../../stores/deviceStore'
 import type { Device } from '../../types'
-import { cn } from '../../lib/utils'
+import { ParentSettingsToggle } from './ParentSettingsToggle'
 
 type Props = {
   device: Device
@@ -34,41 +34,18 @@ export function AllowShortsDeviceSettings({ device, className }: Props) {
   }
 
   return (
-    <div
-      className={cn(
-        'rounded-xl border border-sky-500/25 bg-sky-950/20 px-3 py-2.5 ring-1 ring-sky-500/10',
-        className
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-zinc-100">{t('shorts.allowTitle')}</span>
-            <input
-              type="checkbox"
-              role="switch"
-              aria-checked={enabled}
-              className="h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-zinc-700 transition checked:bg-sky-500 disabled:opacity-50"
-              style={{
-                backgroundImage: enabled
-                  ? 'radial-gradient(circle at 1.35rem center, white 0.55rem, transparent 0.56rem)'
-                  : 'radial-gradient(circle at 0.35rem center, white 0.55rem, transparent 0.56rem)',
-              }}
-              checked={enabled}
-              disabled={saving}
-              onChange={(e) => {
-                const next = e.target.checked
-                setEnabled(next)
-                void persist(next)
-              }}
-            />
-          </label>
-          <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
-            {enabled ? t('shorts.hintOn') : t('shorts.hintOff')}
-          </p>
-        </div>
-      </div>
-    </div>
+    <ParentSettingsToggle
+      className={className}
+      accent="sky"
+      icon={<Smartphone className="h-5 w-5" />}
+      title={t('shorts.allowTitle')}
+      description={enabled ? t('shorts.hintOn') : t('shorts.hintOff')}
+      checked={enabled}
+      disabled={saving}
+      onChange={(next) => {
+        setEnabled(next)
+        void persist(next)
+      }}
+    />
   )
 }

@@ -79,35 +79,43 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
     void persist(Math.round(parsed))
   }
 
+  const chipClass = (active: boolean) =>
+    cn(
+      'inline-flex min-h-12 min-w-12 items-center justify-center rounded-2xl px-4 text-sm font-semibold transition',
+      active
+        ? 'bg-amber-400 text-zinc-950 shadow-md shadow-amber-900/30'
+        : 'bg-zinc-800/90 text-zinc-100 ring-1 ring-zinc-700/80 hover:bg-zinc-700'
+    )
+
   return (
     <div
       className={cn(
-        'rounded-xl border border-amber-500/25 bg-amber-950/20 px-3 py-2.5 ring-1 ring-amber-500/10',
+        'rounded-2xl border border-amber-500/30 bg-amber-950/20 px-4 py-4 ring-1 ring-amber-500/15',
         className
       )}
     >
-      <div className="flex items-start gap-2">
-        <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
+      <div className="flex items-start gap-3">
+        <span
+          className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black/25 text-amber-300"
+          aria-hidden
+        >
+          <Clock className="h-5 w-5" />
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-zinc-100">{t('timeLimit.title')}</p>
-          <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+          <p className="text-[15px] font-semibold text-zinc-50">{t('timeLimit.title')}</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
             {t('timeLimit.presetsHint')}{' '}
             {t('timeLimit.current', { status: formatLimitLabel(limit, t) })}
           </p>
 
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <div className="mt-4 flex flex-wrap gap-2">
             {PRESETS.map((m) => (
               <button
                 key={m}
                 type="button"
                 disabled={saving}
                 onClick={() => void persist(m)}
-                className={cn(
-                  'rounded-lg px-2.5 py-1.5 text-xs font-semibold transition',
-                  limit === m
-                    ? 'bg-amber-500 text-zinc-950'
-                    : 'bg-zinc-800/90 text-zinc-200 ring-1 ring-zinc-700/80 hover:bg-zinc-700'
-                )}
+                className={chipClass(limit === m)}
               >
                 {formatLimitLabel(m, t)}
               </button>
@@ -116,20 +124,15 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
               type="button"
               disabled={saving}
               onClick={() => void persist(0)}
-              className={cn(
-                'rounded-lg px-2.5 py-1.5 text-xs font-semibold transition',
-                limit === 0
-                  ? 'bg-amber-500 text-zinc-950'
-                  : 'bg-zinc-800/90 text-zinc-200 ring-1 ring-zinc-700/80 hover:bg-zinc-700'
-              )}
+              className={chipClass(limit === 0)}
             >
               {t('timeLimit.unlimited')}
             </button>
           </div>
 
-          <div className="mt-2.5 flex items-end gap-2">
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="min-w-0 flex-1">
-              <label className="mb-1 block text-[11px] font-medium text-zinc-500" htmlFor={`custom-limit-${device.id}`}>
+              <label className="mb-1.5 block text-xs font-medium text-zinc-500" htmlFor={`custom-limit-${device.id}`}>
                 {t('timeLimit.customMinutes')}
               </label>
               <Input
@@ -145,13 +148,12 @@ export function DailyTimeLimitDeviceSettings({ device, className }: Props) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') applyCustom()
                 }}
-                className="h-9"
               />
             </div>
             <Button
               type="button"
               variant="secondary"
-              className="h-9 shrink-0 !px-3 text-xs"
+              className="w-full shrink-0 sm:w-auto"
               disabled={saving || !customDraft.trim()}
               onClick={applyCustom}
             >

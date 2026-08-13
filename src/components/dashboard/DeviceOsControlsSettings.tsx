@@ -37,32 +37,35 @@ function SwitchRow({
   accentCheckedClass?: string
 }) {
   return (
-    <div className="flex items-start gap-2.5">
-      <span className="mt-0.5 shrink-0 text-rose-300" aria-hidden>
+    <div className="flex items-start gap-3 rounded-xl bg-black/20 px-3 py-2.5">
+      <span
+        className="mt-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black/30 text-rose-300"
+        aria-hidden
+      >
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <label className="flex cursor-pointer items-center justify-between gap-3">
-          <span className="text-sm font-semibold text-zinc-100">{label}</span>
+        <label className="flex min-h-14 cursor-pointer items-center justify-between gap-4">
+          <span className="text-[15px] font-semibold leading-snug text-zinc-50">{label}</span>
           <input
             type="checkbox"
             role="switch"
             aria-checked={checked}
             className={cn(
-              'h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-zinc-700 transition disabled:opacity-50',
+              'h-7 w-12 shrink-0 cursor-pointer appearance-none rounded-full bg-zinc-700 transition disabled:opacity-50',
               accentCheckedClass
             )}
             style={{
               backgroundImage: checked
-                ? 'radial-gradient(circle at 1.35rem center, white 0.55rem, transparent 0.56rem)'
-                : 'radial-gradient(circle at 0.35rem center, white 0.55rem, transparent 0.56rem)',
+                ? 'radial-gradient(circle at 2.05rem center, white 0.7rem, transparent 0.72rem)'
+                : 'radial-gradient(circle at 0.55rem center, white 0.7rem, transparent 0.72rem)',
             }}
             checked={checked}
             disabled={disabled}
             onChange={(e) => onChange(e.target.checked)}
           />
         </label>
-        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{description}</p>
+        <p className="mt-1 text-sm leading-relaxed text-zinc-400">{description}</p>
       </div>
     </div>
   )
@@ -149,7 +152,7 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
   return (
     <div
       className={cn(
-        'rounded-xl border border-rose-500/25 bg-rose-950/20 px-3 py-3 ring-1 ring-rose-500/10',
+        'rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-4 ring-1 ring-rose-500/15',
         className
       )}
     >
@@ -157,9 +160,9 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
         {t('parentalOs.sectionTitle')}
       </p>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         <SwitchRow
-          icon={<Youtube className="h-4 w-4" />}
+          icon={<Youtube className="h-5 w-5" />}
           label={t('parentalOs.youtubeBlockLabel')}
           description={
             blockYoutube ? t('parentalOs.youtubeBlockHintOn') : t('parentalOs.youtubeBlockHintOff')
@@ -177,7 +180,7 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
         />
 
         <SwitchRow
-          icon={<ShieldOff className="h-4 w-4" />}
+          icon={<ShieldOff className="h-5 w-5" />}
           label={t('parentalOs.browserBlockLabel')}
           description={
             browserFilter ? t('parentalOs.browserBlockHintOn') : t('parentalOs.browserBlockHintOff')
@@ -198,12 +201,12 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
         />
 
         {browserFilter ? (
-          <div className="rounded-lg border border-zinc-700/70 bg-zinc-950/50 p-2.5">
-            <div className="mb-2 flex items-center gap-1.5">
-              <Globe className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-              <p className="text-xs font-semibold text-zinc-200">{t('parentalOs.allowedSites')}</p>
+          <div className="rounded-2xl border border-zinc-700/70 bg-zinc-950/50 p-3.5">
+            <div className="mb-3 flex items-center gap-2">
+              <Globe className="h-4 w-4 text-zinc-400" aria-hidden />
+              <p className="text-sm font-semibold text-zinc-200">{t('parentalOs.allowedSites')}</p>
             </div>
-            <div className="mb-2 flex gap-2">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row">
               <Input
                 value={draftSite}
                 onChange={(e) => setDraftSite(e.target.value)}
@@ -220,35 +223,35 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
               <Button
                 type="button"
                 variant="secondary"
-                className="!px-3"
+                className="w-full shrink-0 sm:w-auto"
                 disabled={saving}
                 onClick={() => void addSite()}
                 aria-label={t('parentalOs.addSite')}
               >
-                <Plus className="h-4 w-4" />
-                <span className="ms-1 hidden sm:inline">{t('parentalOs.addSite')}</span>
+                <Plus className="h-5 w-5" />
+                <span className="ms-1">{t('parentalOs.addSite')}</span>
               </Button>
             </div>
             {whitelist.length === 0 ? (
-              <p className="text-xs text-amber-200/90">{t('parentalOs.emptyWhitelist')}</p>
+              <p className="text-sm text-amber-200/90">{t('parentalOs.emptyWhitelist')}</p>
             ) : (
-              <ul className="flex flex-wrap gap-1.5" aria-label={t('parentalOs.allowedSites')}>
+              <ul className="flex flex-wrap gap-2" aria-label={t('parentalOs.allowedSites')}>
                 {whitelist.map((host) => (
                   <li
                     key={host}
-                    className="inline-flex max-w-full items-center gap-1 rounded-full bg-zinc-900/90 py-1 pe-1 ps-2.5 text-sm text-zinc-100 ring-1 ring-zinc-700/80"
+                    className="inline-flex max-w-full items-center gap-1 rounded-full bg-zinc-900/90 py-1.5 pe-1.5 ps-3 text-sm text-zinc-100 ring-1 ring-zinc-700/80"
                   >
                     <span className="truncate" dir="ltr">
                       {host}
                     </span>
                     <button
                       type="button"
-                      className="rounded-full p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-rose-300"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-800 hover:text-rose-300"
                       aria-label={t('parentalOs.removeSite', { host })}
                       disabled={saving}
                       onClick={() => void removeSite(host)}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </li>
                 ))}
@@ -258,15 +261,15 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
         ) : null}
 
         {needsAccessibility ? (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-2.5">
-            <div className="flex items-start gap-2">
-              <Accessibility className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-950/40 px-4 py-3.5">
+            <div className="flex items-start gap-3">
+              <Accessibility className="mt-1 h-5 w-5 shrink-0 text-amber-300" aria-hidden />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-amber-50">{t('parentalOs.a11yTitle')}</p>
-                <p className="mt-1 text-xs leading-relaxed text-amber-100/85">{t('parentalOs.a11yBody')}</p>
+                <p className="text-[15px] font-semibold text-amber-50">{t('parentalOs.a11yTitle')}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-amber-100/85">{t('parentalOs.a11yBody')}</p>
                 <Button
                   type="button"
-                  className="mt-2 !py-2 text-xs"
+                  className="mt-3 w-full sm:w-auto"
                   onClick={() => void openParentalControlAccessibilitySettings()}
                 >
                   {t('parentalOs.openA11ySettings')}
@@ -276,7 +279,7 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
           </div>
         ) : null}
 
-        {!native ? <p className="text-xs text-zinc-500">{t('parentalOs.webOnlyNote')}</p> : null}
+        {!native ? <p className="text-sm text-zinc-500">{t('parentalOs.webOnlyNote')}</p> : null}
       </div>
     </div>
   )

@@ -14,7 +14,7 @@ type Props = {
 }
 
 /**
- * RTL: “חזרה” עם חץ ימינה.
+ * RTL: “חזרה” עם חץ ימינה — Material 48dp touch target.
  */
 export function PageBackBar({ fallback = '/dashboard', className, flush }: Props) {
   const navigate = useNavigate()
@@ -32,10 +32,16 @@ export function PageBackBar({ fallback = '/dashboard', className, flush }: Props
   }
 
   const backButtonClass =
-    'inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-zinc-600/80 bg-zinc-800/90 px-2.5 py-2 text-xs font-semibold text-zinc-100 shadow-sm transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99] sm:gap-2 sm:px-3 sm:py-2.5 sm:text-sm'
+    'inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-2 rounded-2xl border border-zinc-600/80 bg-zinc-800/95 px-4 py-3 text-sm font-semibold text-zinc-50 shadow-sm transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]'
 
   return (
-    <div className={cn('flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-3', !flush && 'mb-3 sm:mb-4', className)}>
+    <div
+      className={cn(
+        'sticky top-0 z-20 -mx-1 flex min-w-0 flex-wrap items-center gap-2 bg-gradient-to-b from-zinc-950 via-zinc-950/95 to-transparent px-1 pb-3 pt-1 sm:gap-3',
+        !flush && 'mb-2 sm:mb-3',
+        className
+      )}
+    >
       {childProofExits ? (
         <ChildProofLongPressControl
           onComplete={goBack}
@@ -44,13 +50,13 @@ export function PageBackBar({ fallback = '/dashboard', className, flush }: Props
           title="החזיקו לחוץ 3 שנ׳ לחזרה"
         >
           <span className={backButtonClass}>
-            <ArrowRight className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
+            <ArrowRight className="h-5 w-5 shrink-0 opacity-90" aria-hidden />
             חזרה
           </span>
         </ChildProofLongPressControl>
       ) : (
         <button type="button" onClick={goBack} className={backButtonClass}>
-          <ArrowRight className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
+          <ArrowRight className="h-5 w-5 shrink-0 opacity-90" aria-hidden />
           חזרה
         </button>
       )}
@@ -62,7 +68,7 @@ export function PageBackBar({ fallback = '/dashboard', className, flush }: Props
           ariaLabel={`${fallbackLabel} — לחיצה ארוכה 3 שניות`}
           title={`החזיקו לחוץ 3 שנ׳ ל${fallbackLabel}`}
         >
-          <span className="truncate text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-300 sm:text-sm">
+          <span className="inline-flex min-h-12 items-center truncate px-2 text-sm font-medium text-zinc-400 underline-offset-2 hover:text-zinc-200">
             {fallbackLabel}
           </span>
         </ChildProofLongPressControl>
@@ -70,7 +76,7 @@ export function PageBackBar({ fallback = '/dashboard', className, flush }: Props
         <button
           type="button"
           onClick={goFallback}
-          className="hidden truncate text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-300 min-[420px]:inline sm:text-sm"
+          className="hidden min-h-12 truncate px-2 text-sm font-medium text-zinc-400 underline-offset-2 hover:text-zinc-200 min-[420px]:inline-flex min-[420px]:items-center"
         >
           {fallbackLabel}
         </button>

@@ -71,7 +71,7 @@ export function ParentSetupGuide({
           <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
           {t('setupGuide.completed')}
         </span>
-        <Button type="button" variant="secondary" className="!h-8 !px-2.5 !text-xs" onClick={onDismiss}>
+        <Button type="button" variant="secondary" className="!min-h-10 !px-3 !text-sm" onClick={onDismiss}>
           {t('setupGuide.dismiss')}
         </Button>
       </div>
@@ -144,7 +144,7 @@ export function ParentSetupGuide({
                 {step.ctaLabel && step.onCta ? (
                   <Button
                     type="button"
-                    className="mt-2 !h-9 w-full sm:w-auto !px-4 !text-sm font-bold"
+                    className="mt-3 w-full rounded-2xl font-bold sm:w-auto"
                     onClick={step.onCta}
                   >
                     {step.ctaLabel}

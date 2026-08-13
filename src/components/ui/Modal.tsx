@@ -62,11 +62,16 @@ export function Modal({
             panelClassName
           )}
         >
-          <div className={cn('mb-4 flex shrink-0 items-start justify-between gap-2', headerClassName)}>
-            <h2 id={titleId} className="text-lg font-bold text-yt-text">
+          <div className={cn('mb-4 flex shrink-0 items-start justify-between gap-3', headerClassName)}>
+            <h2 id={titleId} className="pt-1 text-lg font-bold leading-snug text-yt-text sm:text-xl">
               {title}
             </h2>
-            <Button variant="ghost" className="!p-2" onClick={onClose} aria-label="סגור">
+            <Button
+              variant="ghost"
+              className="!min-h-12 !min-w-12 !rounded-2xl !p-0"
+              onClick={onClose}
+              aria-label="סגור"
+            >
               <X className="h-5 w-5" />
             </Button>
           </div>

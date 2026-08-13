@@ -59,10 +59,12 @@ function ParentDashboardInner() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 pb-3">
-      <header>
-        <h1 className="text-lg font-extrabold text-slate-900 dark:text-zinc-50 sm:text-xl">{t('dashboard.title')}</h1>
-        <p className="text-xs text-slate-600 dark:text-zinc-400 sm:text-sm">{t('dashboard.subtitle')}</p>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 pb-6">
+      <header className="space-y-1.5">
+        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-zinc-50 sm:text-3xl">
+          {t('dashboard.title')}
+        </h1>
+        <p className="text-[15px] text-slate-600 dark:text-zinc-400">{t('dashboard.subtitle')}</p>
       </header>
 
       <ParentSetupGuide

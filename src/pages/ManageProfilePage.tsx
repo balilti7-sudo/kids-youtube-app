@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { Settings2 } from 'lucide-react'
+import { Settings2, Tv } from 'lucide-react'
 import { PageBackBar } from '../components/layout/PageBackBar'
 import { ChannelManager } from '../components/channels/ChannelManager'
 import { AllowShortsDeviceSettings } from '../components/dashboard/AllowShortsDeviceSettings'
 import { DailyTimeLimitDeviceSettings } from '../components/dashboard/DailyTimeLimitDeviceSettings'
 import { DeviceOsControlsSettings } from '../components/dashboard/DeviceOsControlsSettings'
 import { HideThumbnailsDeviceSettings } from '../components/dashboard/HideThumbnailsDeviceSettings'
+import { Button } from '../components/ui/Button'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { ChildRuntimeProvider } from '../contexts/ChildRuntimeContext'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
@@ -17,7 +18,7 @@ import { clearActiveChildProfileIdIfMatches } from '../lib/activeDeviceSelection
 import { useDeviceStore } from '../stores/deviceStore'
 
 /**
- * Phase 2 — unified Channel Management & Parental Controls for one child profile.
+ * Unified Channel Management & Parental Controls — scannable Material-style cards.
  */
 function ManageProfilePageInner() {
   const { t } = useTranslation()
@@ -69,49 +70,61 @@ function ManageProfilePageInner() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-8">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pb-10">
       <PageBackBar fallback="/dashboard" />
 
-      <header className="flex flex-col gap-1">
-        <div className="flex items-center gap-2 text-sky-300">
-          <Settings2 className="h-5 w-5 shrink-0" aria-hidden />
+      <header className="space-y-2">
+        <div className="inline-flex items-center gap-2 rounded-full bg-sky-500/10 px-3 py-1.5 text-sky-300 ring-1 ring-sky-500/25">
+          <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
           <p className="text-xs font-semibold uppercase tracking-wide">{t('manageProfile.eyebrow')}</p>
         </div>
-        <h1 className="text-xl font-extrabold text-zinc-50 sm:text-2xl">
+        <h1 className="text-2xl font-extrabold tracking-tight text-zinc-50 sm:text-3xl">
           {t('manageProfile.title', { name: device.name })}
         </h1>
-        <p className="text-sm leading-relaxed text-zinc-400">{t('manageProfile.lead')}</p>
+        <p className="max-w-2xl text-[15px] leading-relaxed text-zinc-400">{t('manageProfile.lead')}</p>
       </header>
 
-      <section
-        className="flex flex-col gap-3 rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-3 shadow-inner ring-1 ring-zinc-800/80 sm:p-4"
-        aria-labelledby="manage-controls-title"
-      >
-        <h2 id="manage-controls-title" className="text-base font-bold text-zinc-50">
+      <section className="space-y-3" aria-labelledby="manage-controls-title">
+        <h2 id="manage-controls-title" className="px-0.5 text-lg font-bold text-zinc-50">
           {t('manageProfile.controlsTitle')}
         </h2>
-        <AllowShortsDeviceSettings device={device} />
-        <HideThumbnailsDeviceSettings device={device} />
-        <DeviceOsControlsSettings device={device} />
-        <DailyTimeLimitDeviceSettings device={device} />
+        <div className="flex flex-col gap-3">
+          <AllowShortsDeviceSettings device={device} />
+          <HideThumbnailsDeviceSettings device={device} />
+          <DailyTimeLimitDeviceSettings device={device} />
+          <DeviceOsControlsSettings device={device} />
+        </div>
       </section>
 
       <section
-        className="rounded-2xl border border-zinc-700/60 bg-zinc-900/70 p-3 shadow-inner ring-1 ring-zinc-800/80 sm:p-4"
+        className="rounded-2xl border border-zinc-600/70 bg-zinc-900/80 p-4 shadow-inner ring-1 ring-zinc-800/70 sm:p-5"
         aria-labelledby="manage-channels-title"
       >
-        <h2 id="manage-channels-title" className="mb-3 text-base font-bold text-zinc-50">
-          {t('manageProfile.channelsTitle')}
-        </h2>
-        <p className="mb-3 text-xs text-zinc-500">{t('manageProfile.channelsLead')}</p>
+        <div className="mb-4 flex items-start gap-3">
+          <span
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-300"
+            aria-hidden
+          >
+            <Tv className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 id="manage-channels-title" className="text-lg font-bold text-zinc-50">
+              {t('manageProfile.channelsTitle')}
+            </h2>
+            <p className="mt-1 text-sm leading-relaxed text-zinc-400">{t('manageProfile.channelsLead')}</p>
+          </div>
+        </div>
         <ChannelManager managedDeviceId={device.id} embedded />
       </section>
 
-      <footer className="flex justify-end border-t border-zinc-800/90 pt-3">
+      <footer className="flex flex-col gap-3 border-t border-zinc-800/90 pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={() => navigate('/dashboard')}>
+          {t('common.back')}
+        </Button>
         <button
           type="button"
           disabled={deleting}
-          className="rounded-lg px-2 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-950/40 hover:text-red-300 disabled:opacity-50"
+          className="inline-flex min-h-12 items-center justify-center rounded-2xl px-4 text-sm font-semibold text-red-400 transition hover:bg-red-950/40 hover:text-red-300 disabled:opacity-50"
           onClick={() => void handleDelete()}
         >
           {deleting ? t('common.loading') : t('dashboard.deleteProfile')}
