@@ -41,18 +41,34 @@ function scheduleQualityUpgrade(
   vid: string,
   startInfo: StreamApiResponse,
   detachHls: () => void,
-  onUpgraded: (info: StreamApiResponse) => void
+  onUpgraded: (info: StreamApiResponse) => void,
+  opts?: { skip?: boolean }
 ): () => void {
   const startHeight = playbackQualityHeight(startInfo.quality || STREAM_START_QUALITY)
   const upgradeHeight = playbackQualityHeight(STREAM_UPGRADE_QUALITY)
-  if (startHeight >= upgradeHeight) {
+  if (opts?.skip || startHeight >= upgradeHeight) {
     return () => {}
   }
 
   let cancelled = false
 
+  const hasHealthyBuffer = () => {
+    try {
+      if (!el.buffered || el.buffered.length === 0) return false
+      const end = el.buffered.end(el.buffered.length - 1)
+      return end - el.currentTime >= 8
+    } catch {
+      return false
+    }
+  }
+
   const runUpgrade = () => {
     if (cancelled) return
+    // Avoid mid-stream swaps while the buffer is thin — common stutter source.
+    if (!hasHealthyBuffer()) {
+      window.setTimeout(runUpgrade, 2500)
+      return
+    }
     void (async () => {
       try {
         const upgrade = await fetchStreamInfo(vid, { quality: STREAM_UPGRADE_QUALITY })
@@ -83,11 +99,12 @@ function scheduleQualityUpgrade(
   const onCanPlay = () => {
     el.removeEventListener('canplay', onCanPlay)
     if (cancelled) return
-    window.setTimeout(runUpgrade, 800)
+    // Give playback time to stabilize before swapping the media URL.
+    window.setTimeout(runUpgrade, 4500)
   }
 
   if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-    window.setTimeout(runUpgrade, 800)
+    window.setTimeout(runUpgrade, 4500)
   } else {
     el.addEventListener('canplay', onCanPlay, { once: true })
   }
@@ -538,16 +555,14 @@ function CleanPlayerYoutubeIframe({
             key={src}
             title={title}
             src={src}
-            className={cn(
-              'h-full w-full border-0',
-              (isLimitReached || blankVideoFrame) && 'pointer-events-none invisible'
-            )}
+            className={cn('h-full w-full border-0', isLimitReached && 'pointer-events-none invisible')}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
             allowFullScreen
             loading="eager"
             onLoad={handleIframeLoad}
             referrerPolicy="strict-origin-when-cross-origin"
           />
+          {/* Black cover only — never visibility:hidden the iframe (throttles decode on WebView). */}
           {blankVideoFrame && !isLimitReached ? (
             <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
           ) : null}
@@ -605,6 +620,8 @@ function CleanPlayerMediaBridge({
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
+  const blankVideoFrameRef = useRef(blankVideoFrame)
+  blankVideoFrameRef.current = blankVideoFrame
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
   const playbackNotifiedRef = useRef(false)
   const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
@@ -796,7 +813,9 @@ function CleanPlayerMediaBridge({
               (upgrade) => {
                 hlsJsActiveRef.current = false
                 setPhase({ kind: 'playing', info: upgrade })
-              }
+              },
+              // Black-screen / audio-first mode: skip mid-stream URL swap stutter.
+              { skip: blankVideoFrameRef.current }
             )
           }
 
@@ -809,6 +828,11 @@ function CleanPlayerMediaBridge({
             const hls = new Hls({
               enableWorker: true,
               lowLatencyMode: false,
+              // Prefer smoother playback over aggressive low-latency ABR on tablets.
+              maxBufferLength: 45,
+              maxMaxBufferLength: 90,
+              backBufferLength: 30,
+              startLevel: -1,
               xhrSetup: (xhr) => {
                 xhr.withCredentials = false
               },
@@ -1060,23 +1084,28 @@ function CleanPlayerMediaBridge({
     if (!el || !('mediaSession' in navigator)) return
 
     let raf = 0
+    let lastPosPush = 0
     let lastNativePush = 0
-    const artworkUrl = primaryArtworkUrl(videoId, posterUrl)
-    const push = () => {
+    const artworkUrl = blankVideoFrame ? null : primaryArtworkUrl(videoId, posterUrl)
+    const push = (forceNative = false) => {
       if (!el.duration || !Number.isFinite(el.duration) || el.duration <= 0) return
       const position = Math.min(Math.max(0, el.currentTime), el.duration)
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: el.duration,
-          playbackRate: el.playbackRate || 1,
-          position,
-        })
-      } catch {
-        /* e.g. iOS */
+      const now = Date.now()
+      // setPositionState on every timeupdate janks Android WebView — ~1 Hz is enough.
+      if (forceNative || now - lastPosPush >= 1000) {
+        lastPosPush = now
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: el.duration,
+            playbackRate: el.playbackRate || 1,
+            position,
+          })
+        } catch {
+          /* e.g. iOS */
+        }
       }
 
-      const now = Date.now()
-      if (now - lastNativePush < 900) return
+      if (!forceNative && now - lastNativePush < 2000) return
       lastNativePush = now
       syncNativeMediaSession({
         title: title || 'SafeTube',
@@ -1091,32 +1120,36 @@ function CleanPlayerMediaBridge({
     }
     const onTime = () => {
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(push)
+      raf = requestAnimationFrame(() => push(false))
+    }
+    const onTransport = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => push(true))
     }
 
     el.addEventListener('timeupdate', onTime)
-    el.addEventListener('loadedmetadata', onTime)
-    el.addEventListener('seeked', onTime)
-    el.addEventListener('ratechange', onTime)
-    el.addEventListener('play', onTime)
-    el.addEventListener('pause', onTime)
-    onTime()
+    el.addEventListener('loadedmetadata', onTransport)
+    el.addEventListener('seeked', onTransport)
+    el.addEventListener('ratechange', onTransport)
+    el.addEventListener('play', onTransport)
+    el.addEventListener('pause', onTransport)
+    onTransport()
 
     return () => {
       cancelAnimationFrame(raf)
       el.removeEventListener('timeupdate', onTime)
-      el.removeEventListener('loadedmetadata', onTime)
-      el.removeEventListener('seeked', onTime)
-      el.removeEventListener('ratechange', onTime)
-      el.removeEventListener('play', onTime)
-      el.removeEventListener('pause', onTime)
+      el.removeEventListener('loadedmetadata', onTransport)
+      el.removeEventListener('seeked', onTransport)
+      el.removeEventListener('ratechange', onTransport)
+      el.removeEventListener('play', onTransport)
+      el.removeEventListener('pause', onTransport)
       try {
         navigator.mediaSession.setPositionState(undefined)
       } catch {
         /* ignore */
       }
     }
-  }, [phase.kind, videoId, title, channelTitle, posterUrl, hasNextTrack, onPreviousTrack])
+  }, [phase.kind, videoId, title, channelTitle, posterUrl, blankVideoFrame, hasNextTrack, onPreviousTrack])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
@@ -1356,7 +1389,9 @@ function CleanPlayerMediaBridge({
   const isUpcomingLive = phase.kind === 'upcoming_live'
   const isPlaybackError = phase.kind === 'error'
   const isDailyLimit = phase.kind === 'daily_limit' || isLimitReached
-  const hideVideo = isUpcomingLive || isPlaybackError || isDailyLimit || blankVideoFrame
+  // Do NOT fold blankVideoFrame into hideVideo — visibility:hidden on a playing
+  // <video> makes Chromium/Android WebView throttle decode and causes stutter.
+  const hideVideo = isUpcomingLive || isPlaybackError || isDailyLimit
   const showLoadingOverlay = phase.kind === 'resolving' && !isLimitReached && !blankVideoFrame
 
   return (
@@ -1426,9 +1461,9 @@ function CleanPlayerMediaBridge({
       <video
         ref={videoRef}
         className={cn('h-full w-full', hideVideo && 'pointer-events-none invisible')}
-        controls
-        tabIndex={hideVideo ? -1 : undefined}
-        aria-hidden={hideVideo}
+        controls={!blankVideoFrame}
+        tabIndex={hideVideo || blankVideoFrame ? -1 : undefined}
+        aria-hidden={hideVideo || blankVideoFrame}
         controlsList="nodownload"
         playsInline
         preload="auto"
@@ -1447,8 +1482,9 @@ function CleanPlayerMediaBridge({
           )
         }}
       />
+      {/* Opaque cover keeps audio/video decoding uninterrupted (no visibility:hidden). */}
       {blankVideoFrame && !isDailyLimit && !isUpcomingLive && !isPlaybackError ? (
-        <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
+        <div className="absolute inset-0 z-[5] bg-black" aria-hidden />
       ) : null}
       <span className="sr-only">{title}</span>
       </div>

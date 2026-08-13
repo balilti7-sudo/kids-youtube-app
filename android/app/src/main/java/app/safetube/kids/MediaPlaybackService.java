@@ -288,21 +288,59 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
         boolean nextCanSkipNext,
         boolean nextCanSkipPrev
     ) {
-        if (nextTitle != null && !nextTitle.isEmpty()) title = nextTitle;
-        if (nextArtist != null && !nextArtist.isEmpty()) artist = nextArtist;
-        if (nextDurationMs >= 0) durationMs = nextDurationMs;
-        if (nextPositionMs >= 0) positionMs = nextPositionMs;
-        playing = nextPlaying;
-        canSkipNext = nextCanSkipNext;
-        canSkipPrev = nextCanSkipPrev;
-        if (nextArtworkUrl != null) {
-            artworkUrl = nextArtworkUrl.isEmpty() ? null : nextArtworkUrl;
+        boolean metaChanged = false;
+        boolean playingChanged = nextPlaying != playing;
+        boolean artworkChanged = false;
+
+        if (nextTitle != null && !nextTitle.isEmpty() && !nextTitle.equals(title)) {
+            title = nextTitle;
+            metaChanged = true;
         }
-        if (playing) requestAudioFocus();
-        publishMetadata();
+        if (nextArtist != null && !nextArtist.isEmpty() && !nextArtist.equals(artist)) {
+            artist = nextArtist;
+            metaChanged = true;
+        }
+        if (nextDurationMs >= 0 && nextDurationMs != durationMs) {
+            durationMs = nextDurationMs;
+            metaChanged = true;
+        }
+        if (nextPositionMs >= 0) positionMs = nextPositionMs;
+        if (nextCanSkipNext != canSkipNext) {
+            canSkipNext = nextCanSkipNext;
+            metaChanged = true;
+        }
+        if (nextCanSkipPrev != canSkipPrev) {
+            canSkipPrev = nextCanSkipPrev;
+            metaChanged = true;
+        }
+        if (nextArtworkUrl != null) {
+            String normalized = nextArtworkUrl.isEmpty() ? null : nextArtworkUrl;
+            if (normalized == null ? artworkUrl != null : !normalized.equals(artworkUrl)) {
+                artworkUrl = normalized;
+                artworkChanged = true;
+                metaChanged = true;
+            }
+        }
+
+        playing = nextPlaying;
+
+        // Only (re)request focus when playback actually starts — not on every position tick.
+        if (playingChanged && playing) {
+            requestAudioFocus();
+        }
+
+        if (metaChanged) {
+            publishMetadata();
+        }
+        // Position / play-state always need a lightweight PlaybackState update.
         publishPlaybackState();
-        maybeLoadArtwork();
-        refreshNotification();
+        if (artworkChanged) {
+            maybeLoadArtwork();
+        }
+        // Notification rebuild is expensive; skip pure seek/position heartbeats.
+        if (metaChanged || playingChanged) {
+            refreshNotification();
+        }
     }
 
     private void emit(String action, Long seekToMs) {

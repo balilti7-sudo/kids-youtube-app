@@ -70,9 +70,40 @@ export function setMediaPlaybackActive(
   }
 }
 
-/** Push live duration / position / artwork into the Android MediaSession (throttled by caller). */
-export function syncNativeMediaSession(meta: NativeMediaSessionUpdate): void {
-  const merged = mergeMeta(meta)
+/** Push live duration / position / artwork into the Android MediaSession (throttled). */
+let lastNativeSyncAt = 0
+let lastNativeSyncKey = ''
+let nativeSyncTimer: ReturnType<typeof setTimeout> | null = null
+let pendingNativeSync: NativeMediaSessionUpdate | null = null
+
+function flushNativeMediaSessionSync() {
+  nativeSyncTimer = null
+  const meta = pendingNativeSync
+  pendingNativeSync = null
+  if (!meta) return
   if (!nativeServiceDesired && !contentPlaying) return
+  const merged = mergeMeta(meta)
+  const key = [
+    merged.title ?? '',
+    merged.artist ?? '',
+    merged.playing ? '1' : '0',
+    merged.artworkUrl ?? '',
+    merged.canSkipNext ? '1' : '0',
+    merged.canSkipPrev ? '1' : '0',
+    // Bucket position to ~2s so heartbeats do not thrash the bridge.
+    String(Math.floor((merged.positionMs ?? 0) / 2000)),
+    String(Math.floor((merged.durationMs ?? 0) / 1000)),
+  ].join('|')
+  const now = Date.now()
+  if (key === lastNativeSyncKey && now - lastNativeSyncAt < 1800) return
+  lastNativeSyncKey = key
+  lastNativeSyncAt = now
   void updateNativeMediaSession(merged)
+}
+
+export function syncNativeMediaSession(meta: NativeMediaSessionUpdate): void {
+  pendingNativeSync = { ...(pendingNativeSync ?? {}), ...meta }
+  if (nativeSyncTimer != null) return
+  // Coalesce rapid timeupdate-driven pushes onto one bridge call.
+  nativeSyncTimer = setTimeout(flushNativeMediaSessionSync, 400)
 }
