@@ -36,6 +36,9 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
+import { isShortsBlockedForProfile } from '../lib/childContentSafety'
+import { listHiddenVideoIdsForChild, listHiddenVideoIdsForDevice } from '../lib/hiddenVideos'
+import { toast } from 'sonner'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -261,12 +264,19 @@ function ChannelsPageInner() {
               setVideosLoading(false)
               return
             }
-            rows = (page.data?.videos ?? []).map((v) => ({
+            const uploaded = (page.data?.videos ?? []).map((v) => ({
               youtube_video_id: v.videoId,
               title: v.title,
               thumbnail_url: v.thumbnail || null,
               duration_seconds: v.durationSeconds ?? null,
             }))
+            // Live uploads bypass cache SQL hidden filter — apply client red line.
+            const hiddenRes = kidToken
+              ? await listHiddenVideoIdsForChild(kidToken)
+              : deviceId
+                ? await listHiddenVideoIdsForDevice(deviceId)
+                : { data: new Set<string>(), error: null }
+            rows = uploaded.filter((v) => !hiddenRes.data.has(v.youtube_video_id))
             if (!kidToken && rows.length > 0) {
               void refreshChannelVideosCache(channelKey, youtubeChannelId, 'initial')
             }
@@ -304,7 +314,7 @@ function ChannelsPageInner() {
         setVideosError(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
       }
     })()
-  }, [selectedChannelDbId, selectedYoutubeChannelId, refreshChannelVideosCache, videosReloadNonce])
+  }, [selectedChannelDbId, selectedYoutubeChannelId, refreshChannelVideosCache, videosReloadNonce, deviceId])
 
   const channelScopedVideos = useMemo((): ChannelWatchVideo[] => {
     if (!selectedChannel) return []
@@ -419,6 +429,25 @@ function ChannelsPageInner() {
       void (async () => {
         if (childRuntime?.isBlocked) return
 
+        const gateTarget = snapshot ?? videos.find((v) => v.youtube_video_id === videoId) ?? null
+        if (
+          gateTarget &&
+          isShortsBlockedForProfile(allowShorts, {
+            title: gateTarget.title,
+            durationSeconds: gateTarget.durationSeconds,
+            youtubeVideoId: gateTarget.youtube_video_id,
+            thumbnail_url: gateTarget.thumbnail_url,
+            format: gateTarget.format,
+          })
+        ) {
+          toast.error('Shorts חסומים בפרופיל זה')
+          return
+        }
+        if (gateTarget && shouldHideFromChildBrowse(gateTarget.title, gateTarget.liveBroadcastContent)) {
+          toast.error('תוכן זה אינו זמין לצפייה')
+          return
+        }
+
         if (snapshot) setPlayingVideo(snapshot)
         logPlaybackStreamRequest(videoId, 'ChannelsPage.selectWatchVideo (play tap)')
         setWatchStarted(true)
@@ -426,7 +455,7 @@ function ChannelsPageInner() {
         window.scrollTo({ top: 0, behavior: 'smooth' })
       })()
     },
-    [videos, toChannelWatchVideo, childRuntime]
+    [videos, toChannelWatchVideo, childRuntime, allowShorts]
   )
 
   const togglePlaylistVideo = (videoId: string) => {
@@ -450,7 +479,7 @@ function ChannelsPageInner() {
       className={`inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs transition ${
         savedPlaylistIds.has(videoId)
           ? 'border-sky-400/60 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
-          : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
+          : 'border-yt-border bg-yt-surfaceHover text-yt-text hover:bg-yt-surfaceHover'
       }`}
       title={savedPlaylistIds.has(videoId) ? 'הסר מהפלייליסט שלי' : 'הוסף לפלייליסט'}
       aria-label={
@@ -525,16 +554,16 @@ function ChannelsPageInner() {
         selectedChannel ? 'lg:max-w-[1754px]' : 'max-w-5xl xl:max-w-6xl'
       }`}
     >
-      <header className="sticky top-0 z-20 rounded-2xl border border-zinc-800 bg-gradient-to-b from-zinc-900/98 to-zinc-950 p-3 shadow-2xl shadow-black/15 backdrop-blur-md xs:rounded-3xl xs:p-4 sm:p-5">
+      <header className="sticky top-0 z-20 rounded-2xl border border-yt-border bg-yt-surface/95 p-3 shadow-2xl shadow-black/15 backdrop-blur-md xs:rounded-3xl xs:p-4 sm:p-5">
         <div className="flex min-w-0 items-center gap-2 xs:gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25 xs:h-12 xs:w-12">
             <Tv className="h-6 w-6 xs:h-7 xs:w-7" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-black text-zinc-50 xs:text-xl">
+            <h1 className="truncate text-lg font-black text-yt-text xs:text-xl">
               {selectedChannel ? selectedChannel.channel_name : 'ערוצים'}
             </h1>
-            <p className="mt-0.5 line-clamp-2 text-xs text-zinc-400 xs:mt-1 xs:text-sm">
+            <p className="mt-0.5 line-clamp-2 text-xs text-yt-textMuted xs:mt-1 xs:text-sm">
               {selectedChannel
                 ? 'צפייה בערוץ — החליפו ערוץ או חזרו לבית מהשורה למטה'
                 : selectedDevice
@@ -554,7 +583,7 @@ function ChannelsPageInner() {
           />
         ) : null}
         {selectedChannel ? (
-          <div className="mt-3 border-t border-zinc-800/80 pt-3 xs:mt-4 xs:pt-4">
+          <div className="mt-3 border-t border-yt-border pt-3 xs:mt-4 xs:pt-4">
             <ChannelVideoSearchBar
               id="child-channel-video-search"
               value={videoSearch}
@@ -562,7 +591,7 @@ function ChannelsPageInner() {
               totalCount={playlistSourceVideos.length}
               filteredCount={filteredVideos.length}
               channelLabel={selectedChannel.channel_name}
-              className="rounded-2xl border border-zinc-800/90 bg-zinc-950/70 p-2.5 shadow-inner shadow-black/20 xs:p-3"
+              className="rounded-2xl border border-yt-border bg-yt-surface p-2.5 shadow-inner shadow-black/20 xs:p-3"
               dropdownResults={channelSearchDropdownItems}
               activeResultId={activeVideoId}
               onSelectResult={(videoId) => selectWatchVideo(videoId)}
@@ -573,32 +602,32 @@ function ChannelsPageInner() {
       </header>
 
       {devicesLoading || loading ? (
-        <div className="flex min-h-48 items-center justify-center gap-3 rounded-3xl border border-zinc-800 bg-zinc-950/60 text-zinc-300">
+        <div className="flex min-h-48 items-center justify-center gap-3 rounded-3xl border border-yt-border bg-yt-bg text-yt-textMuted">
           <LoadingSpinner className="h-8 w-8 border-2 border-sky-400 border-t-transparent" />
           טוען ערוצים…
         </div>
       ) : devices.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-zinc-700 bg-zinc-950/60 px-4 py-12 text-center">
-          <Tv className="mx-auto mb-3 h-12 w-12 text-zinc-600" aria-hidden />
-          <p className="font-semibold text-zinc-300">אין עדיין פרופיל ילד מחובר</p>
+        <div className="rounded-3xl border border-dashed border-yt-border bg-yt-bg px-4 py-12 text-center">
+          <Tv className="mx-auto mb-3 h-12 w-12 text-yt-textMuted" aria-hidden />
+          <p className="font-semibold text-yt-textMuted">אין עדיין פרופיל ילד מחובר</p>
         </div>
       ) : visibleChannels.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-zinc-700 bg-zinc-950/60 px-4 py-12 text-center">
-          <Tv className="mx-auto mb-3 h-12 w-12 text-zinc-600" aria-hidden />
-          <p className="font-semibold text-zinc-300">אין עדיין ערוצים מאושרים</p>
-          <p className="mt-1 text-sm text-zinc-500">ההורה יכול להוסיף ערוצים מתוך בקרת הורים.</p>
+        <div className="rounded-3xl border border-dashed border-yt-border bg-yt-bg px-4 py-12 text-center">
+          <Tv className="mx-auto mb-3 h-12 w-12 text-yt-textMuted" aria-hidden />
+          <p className="font-semibold text-yt-textMuted">אין עדיין ערוצים מאושרים</p>
+          <p className="mt-1 text-sm text-yt-text0">ההורה יכול להוסיף ערוצים מתוך בקרת הורים.</p>
         </div>
       ) : selectedChannel ? (
         <div className="flex min-w-0 flex-col gap-4 md:grid md:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] md:items-start lg:grid-cols-[minmax(200px,240px)_minmax(0,1fr)]">
-          <aside className="sticky top-[7.5rem] hidden max-h-[calc(100dvh-8rem)] overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2 md:block">
+          <aside className="sticky top-[7.5rem] hidden max-h-[calc(100dvh-8rem)] overflow-y-auto rounded-2xl border border-yt-border bg-yt-surface p-2 md:block">
             <button
               type="button"
               onClick={goHome}
-              className="mb-1 flex w-full items-center gap-2 rounded-xl px-2 py-2 text-start text-sm font-semibold text-zinc-300 transition hover:bg-zinc-800"
+              className="mb-1 flex w-full items-center gap-2 rounded-xl px-2 py-2 text-start text-sm font-semibold text-yt-textMuted transition hover:bg-yt-surfaceHover"
             >
               בית הערוצים
             </button>
-            <p className="px-2 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500">ערוצים</p>
+            <p className="px-2 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-yt-text0">ערוצים</p>
             <div className="flex flex-col gap-0.5">
               {visibleChannels.map((channel) => {
                 const active = channel.youtube_channel_id === selectedChannel.youtube_channel_id
@@ -608,7 +637,7 @@ function ChannelsPageInner() {
                     type="button"
                     onClick={() => openChannel(channel.youtube_channel_id)}
                     className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-start transition ${
-                      active ? 'bg-zinc-800 text-zinc-50' : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+                      active ? 'bg-yt-surfaceHover text-yt-text' : 'text-yt-textMuted hover:bg-yt-surfaceHover hover:text-yt-text'
                     }`}
                   >
                     {channel.channel_thumbnail ? (
@@ -619,7 +648,7 @@ function ChannelsPageInner() {
                         loading="lazy"
                       />
                     ) : (
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-yt-surfaceHover">
                         <Tv className="h-4 w-4" aria-hidden />
                       </span>
                     )}
@@ -629,7 +658,7 @@ function ChannelsPageInner() {
               })}
             </div>
           </aside>
-        <section className="min-w-0 max-w-full overflow-x-hidden rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-zinc-800 sm:bg-zinc-950/70 sm:p-4 sm:shadow-xl sm:shadow-black/10">
+        <section className="min-w-0 max-w-full overflow-x-hidden rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-yt-border sm:bg-yt-surface sm:p-4 sm:shadow-xl sm:shadow-black/10">
           {videosError ? (
             <p className="rounded-2xl border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
               {videosError}
@@ -656,6 +685,7 @@ function ChannelsPageInner() {
                     channelName={
                       activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name
                     }
+                    channelThumbnail={selectedChannel.channel_thumbnail ?? null}
                     subtitle={
                       formatViewCountLabel(activeVideo?.viewCount ?? playingVideo?.viewCount) || null
                     }
@@ -685,7 +715,7 @@ function ChannelsPageInner() {
               }
               sidebar={
                 <div className="flex flex-col gap-3 px-1 sm:px-0">
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2">
+                  <div className="rounded-2xl border border-yt-border bg-yt-surface p-2">
                     <button
                       type="button"
                       onClick={() => setShowMyPlaylist((current) => !current)}
@@ -693,7 +723,7 @@ function ChannelsPageInner() {
                       className={`flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl px-3 text-sm font-black transition ${
                         showMyPlaylist
                           ? 'bg-sky-500 text-white shadow-md shadow-sky-950/30'
-                          : 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700'
+                          : 'bg-yt-surfaceHover text-yt-text hover:bg-yt-surfaceHover'
                       }`}
                     >
                       <ListMusic className="h-4 w-4" aria-hidden />
@@ -740,7 +770,7 @@ function ChannelsPageInner() {
                     ))}
                   </YoutubeSuggestedList>
                   {channelRecommendations.length === 0 ? (
-                    <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+                    <p className="rounded-2xl border border-dashed border-yt-border px-4 py-8 text-center text-sm text-yt-text0">
                       {showMyPlaylist
                         ? videoSearch.trim()
                           ? 'אין סרטונים שמורים שמתאימים לחיפוש.'
@@ -756,12 +786,12 @@ function ChannelsPageInner() {
               }
             />
           ) : videosLoading ? (
-            <div className="flex min-h-40 items-center justify-center gap-3 text-zinc-300">
+            <div className="flex min-h-40 items-center justify-center gap-3 text-yt-textMuted">
               <LoadingSpinner className="h-7 w-7 border-2 border-sky-400 border-t-transparent" />
               טוען סרטונים…
             </div>
           ) : videos.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-700 px-4 py-10 text-center text-sm text-zinc-500">
+            <div className="rounded-2xl border border-dashed border-yt-border px-4 py-10 text-center text-sm text-yt-text0">
               <p>{videosError ? videosError : 'אין סרטונים זמינים בערוץ הזה כרגע.'}</p>
               <Button
                 type="button"
@@ -778,7 +808,7 @@ function ChannelsPageInner() {
           ) : (
             <>
               {filteredVideos.length === 0 && videoSearch.trim() ? (
-                <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-10 text-center text-sm text-zinc-400">
+                <p className="rounded-2xl border border-dashed border-yt-border px-4 py-10 text-center text-sm text-yt-textMuted">
                   אין סרטונים שמתאימים לחיפוש &quot;{videoSearch.trim()}&quot;.
                 </p>
               ) : (
@@ -813,9 +843,9 @@ function ChannelsPageInner() {
                   openChannel(channel.youtube_channel_id)
                 }
               }}
-              className="group w-full max-w-none cursor-pointer justify-self-stretch overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:border-zinc-700 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 xs:rounded-3xl"
+              className="group w-full max-w-none cursor-pointer justify-self-stretch overflow-hidden rounded-2xl border border-yt-border bg-yt-surface shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:border-yt-border hover:bg-yt-surfaceHover focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 xs:rounded-3xl"
             >
-              <div className="h-28 bg-zinc-900 sm:h-32">
+              <div className="h-28 bg-yt-surfaceHover sm:h-32">
                 {channel.channel_thumbnail ? (
                   <img
                     src={channel.channel_thumbnail}
@@ -825,19 +855,19 @@ function ChannelsPageInner() {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center text-zinc-600">
+                  <div className="flex h-full w-full items-center justify-center text-yt-textMuted">
                     <Tv className="h-10 w-10" aria-hidden />
                   </div>
                 )}
               </div>
               <div className="flex min-h-[108px] flex-col p-3 text-right">
-                <h2 className="line-clamp-2 text-sm font-bold leading-snug text-zinc-100">{channel.channel_name}</h2>
+                <h2 className="line-clamp-2 text-sm font-bold leading-snug text-yt-text">{channel.channel_name}</h2>
                 {channel.category ? (
                   <p className="mt-1 truncate text-xs text-sky-300">{channel.category}</p>
                 ) : null}
                 <Button
                   type="button"
-                  className="mt-auto min-h-[38px] w-full justify-center rounded-xl bg-zinc-800 px-3 text-xs font-black text-zinc-50 shadow-sm shadow-black/20 ring-1 ring-white/10 hover:bg-zinc-700"
+                  className="mt-auto min-h-[38px] w-full justify-center rounded-xl bg-yt-surfaceHover px-3 text-xs font-black text-yt-text shadow-sm shadow-black/20 ring-1 ring-white/10 hover:bg-yt-surfaceHover"
                   onClick={(event) => {
                     event.stopPropagation()
                     openChannel(channel.youtube_channel_id)

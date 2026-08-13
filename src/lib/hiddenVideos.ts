@@ -115,6 +115,21 @@ export async function listHiddenVideoIdsLocalParent(
   return { data: ids, error: null }
 }
 
+/** Kid token: hidden IDs for the bound device (live-uploads red line). */
+export async function listHiddenVideoIdsForChild(accessToken: string): Promise<{
+  data: Set<string>
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('child_list_hidden_video_ids', {
+    p_access_token: accessToken,
+  })
+  if (error) return { data: new Set(), error: new Error(error.message) }
+  const ids = new Set(
+    ((data ?? []) as { youtube_video_id: string }[]).map((r) => String(r.youtube_video_id || '').trim()).filter(Boolean)
+  )
+  return { data: ids, error: null }
+}
+
 export async function setVideoHiddenAuthenticated(
   deviceId: string,
   pin: string,

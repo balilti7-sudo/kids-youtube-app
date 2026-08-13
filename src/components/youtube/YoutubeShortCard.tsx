@@ -34,7 +34,7 @@ export function YoutubeShortCard({
   const thumb = (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-700/80',
+        'relative overflow-hidden rounded-xl bg-yt-surfaceHover ring-1 ring-yt-border',
         variant === 'shelf'
           ? 'aspect-[9/16] w-full max-w-[148px] min-w-[108px] xs:min-w-[120px] sm:max-w-none sm:w-[148px]'
           : 'aspect-[9/16] h-[100px] w-[56px] shrink-0 xs:h-[120px] xs:w-[68px]',
@@ -43,7 +43,7 @@ export function YoutubeShortCard({
     >
       <button type="button" {...wrapClick(onClick)} className={juicyPressableClass(juicy, 'block h-full w-full')}>
         {hideThumbnail || !thumbnail ? (
-          <div className="flex h-full w-full items-center justify-center bg-black text-[10px] text-zinc-500">
+          <div className="flex h-full w-full items-center justify-center bg-black text-[10px] text-yt-textMuted">
             {hideThumbnail ? '' : 'Short'}
           </div>
         ) : (
@@ -56,7 +56,7 @@ export function YoutubeShortCard({
         )}
       </button>
       {active ? (
-        <span className="pointer-events-none absolute bottom-1 end-1 rounded bg-sky-500 px-1 py-0.5 text-[9px] font-bold text-white">
+        <span className="pointer-events-none absolute bottom-1 end-1 rounded bg-yt-red px-1 py-0.5 text-[9px] font-bold text-white">
           מנגן
         </span>
       ) : null}
@@ -70,7 +70,7 @@ export function YoutubeShortCard({
         <div className="flex min-w-0 flex-1 items-start gap-1">
           <button type="button" {...wrapClick(onClick)} className={juicyPressableClass(juicy, 'min-w-0 flex-1 py-1 text-start')}>
             <h3 className="line-clamp-3 text-sm font-bold leading-snug text-yt-text">{title}</h3>
-            <p className="mt-1 text-[11px] text-sky-300/90">Short</p>
+            <p className="mt-1 text-[11px] text-yt-textMuted">Short</p>
           </button>
           {actionSlot ? <div className="shrink-0 pt-0.5">{actionSlot}</div> : null}
         </div>
@@ -88,7 +88,7 @@ export function YoutubeShortCard({
     >
       {thumb}
       <button type="button" {...wrapClick(onClick)} className={juicyPressableClass(juicy, 'mt-2 w-full text-start')}>
-        <h3 className="line-clamp-2 text-xs font-bold leading-snug text-zinc-100">{title}</h3>
+        <h3 className="line-clamp-2 text-xs font-bold leading-snug text-yt-text">{title}</h3>
       </button>
       {actionSlot ? <div className="mt-1.5 flex justify-end">{actionSlot}</div> : null}
     </article>
