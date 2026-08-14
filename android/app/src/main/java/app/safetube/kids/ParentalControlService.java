@@ -2,10 +2,12 @@ package app.safetube.kids;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -16,7 +18,7 @@ import java.util.regex.Pattern;
 
 /**
  * Watches foreground apps. When parental policies are enabled:
- * - Blocks YouTube app packages (Home + white screen)
+ * - Strictly blocks YouTube family packages (Home + persistent white screen + poll)
  * - Blocks browser navigation outside the hostname whitelist (only when the
  *   address-bar host is confidently known — fail open otherwise)
  * - Also blocks youtube.com inside browsers when YouTube app block is on
@@ -27,11 +29,16 @@ public class ParentalControlService extends AccessibilityService {
     private static final Set<String> YOUTUBE_PACKAGES = new HashSet<>(Arrays.asList(
         "com.google.android.youtube",
         "com.google.android.youtube.tv",
+        "com.google.android.youtube.tvunplugged",
         "com.google.android.apps.youtube.kids",
         "com.google.android.apps.youtube.music",
+        "com.google.android.apps.youtube.creator",
+        "com.google.android.apps.youtube.mango", // YouTube Go
+        "com.google.android.apps.youtube.unplugged",
         "com.vanced.android.youtube",
         "com.teamvanced.android.youtube",
-        "app.revanced.android.youtube"
+        "app.revanced.android.youtube",
+        "com.google.android.youtube.player"
     ));
 
     private static final Set<String> BROWSER_PACKAGES = new HashSet<>(Arrays.asList(
@@ -82,13 +89,65 @@ public class ParentalControlService extends AccessibilityService {
         "(?i)\\b(?:https?://)?((?:[a-z0-9-]+\\.)+[a-z]{2,})(?:[:/\\s]|$)"
     );
 
+    private static final long ENFORCE_POLL_MS = 280L;
+    private static final long ENFORCE_MAX_MS = 12_000L;
+    private static final long BLOCK_UI_COOLDOWN_MS = 450L;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private long lastBlockAt = 0L;
-    private String lastBlockedPkg = "";
+    private long lastBlockUiAt = 0L;
+    private String enforcingPkg = null;
+    private long enforceStartedAt = 0L;
+    private boolean enforceLoopPosted = false;
     private Runnable pendingHostEval;
+
+    private final Runnable enforceLoop = new Runnable() {
+        @Override
+        public void run() {
+            enforceLoopPosted = false;
+            if (!ParentalControlPrefs.isBlockYoutube(ParentalControlService.this)) {
+                stopEnforcement();
+                return;
+            }
+            String fg = resolveForegroundPackage();
+            if (fg != null && isYoutubePackage(fg)) {
+                enforcingPkg = fg;
+                pushBlock(fg, false);
+                scheduleEnforceLoop();
+                return;
+            }
+            // Still within grace window after a YouTube open — keep watching briefly.
+            if (enforcingPkg != null && System.currentTimeMillis() - enforceStartedAt < ENFORCE_MAX_MS) {
+                scheduleEnforceLoop();
+                return;
+            }
+            stopEnforcement();
+        }
+    };
 
     public static ParentalControlService getInstance() {
         return instance;
+    }
+
+    /** True for official YouTube family packages and common forks. */
+    public static boolean isYoutubePackage(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        if (YOUTUBE_PACKAGES.contains(pkg)) return true;
+        // Catch OEM / regional variants: com.google.android.youtube.* / apps.youtube.*
+        return pkg.equals("com.google.android.youtube")
+            || pkg.startsWith("com.google.android.youtube.")
+            || pkg.startsWith("com.google.android.apps.youtube.")
+            || (pkg.contains(".youtube")
+                && (pkg.startsWith("com.google.")
+                    || pkg.startsWith("app.revanced.")
+                    || pkg.startsWith("com.vanced.")
+                    || pkg.startsWith("com.teamvanced.")));
+    }
+
+    /** Called after policy prefs change so blocking starts without waiting for an event. */
+    public static void nudgePolicyChanged() {
+        ParentalControlService svc = instance;
+        if (svc == null) return;
+        svc.handler.post(svc::scanNow);
     }
 
     @Override
@@ -98,9 +157,17 @@ public class ParentalControlService extends AccessibilityService {
     }
 
     @Override
+    public void onServiceConnected() {
+        super.onServiceConnected();
+        // Re-apply immediately if the parent already enabled the toggle.
+        handler.post(this::scanNow);
+    }
+
+    @Override
     public void onDestroy() {
         if (instance == this) instance = null;
         handler.removeCallbacksAndMessages(null);
+        enforceLoopPosted = false;
         super.onDestroy();
     }
 
@@ -108,39 +175,161 @@ public class ParentalControlService extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
         CharSequence pkgCs = event.getPackageName();
-        if (pkgCs == null) return;
-        String pkg = pkgCs.toString();
-        if (pkg.equals(getPackageName())) return;
-
-        boolean blockYoutube = ParentalControlPrefs.isBlockYoutube(this);
-        boolean browserFilter = ParentalControlPrefs.isBrowserFilter(this);
-        if (!blockYoutube && !browserFilter) return;
-
-        if (blockYoutube && YOUTUBE_PACKAGES.contains(pkg)) {
-            triggerBlock(pkg);
+        String eventPkg = pkgCs != null ? pkgCs.toString() : null;
+        if (eventPkg != null && eventPkg.equals(getPackageName())) {
+            // Ignore our own UI except when evaluating after we leave it.
             return;
         }
 
-        if (!BROWSER_PACKAGES.contains(pkg)) return;
+        boolean blockYoutube = ParentalControlPrefs.isBlockYoutube(this);
+        boolean browserFilter = ParentalControlPrefs.isBrowserFilter(this);
+        if (!blockYoutube && !browserFilter) {
+            stopEnforcement();
+            return;
+        }
+
+        int type = event.getEventType();
+        boolean interesting =
+            type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                || type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                || type == AccessibilityEvent.TYPE_VIEW_FOCUSED;
+
+        if (!interesting) return;
+
+        if (blockYoutube) {
+            String fg = eventPkg != null && isYoutubePackage(eventPkg)
+                ? eventPkg
+                : resolveForegroundPackage();
+            if (fg != null && isYoutubePackage(fg)) {
+                startEnforcement(fg);
+                return;
+            }
+        }
+
+        if (eventPkg == null || !BROWSER_PACKAGES.contains(eventPkg)) return;
 
         // App-initiated browser sessions (e.g. Google sign-in Custom Tab) temporarily skip site filter.
         if (ParentalControlPrefs.isBrowserBypassActive(this)) return;
 
-        // Only act on window changes / content updates — ignore noisy minor events.
-        int type = event.getEventType();
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
             && type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             return;
         }
 
-        scheduleBrowserEval(pkg, blockYoutube, browserFilter);
+        scheduleBrowserEval(eventPkg, blockYoutube, browserFilter);
+    }
+
+    private void scanNow() {
+        if (!ParentalControlPrefs.isBlockYoutube(this)) {
+            stopEnforcement();
+            return;
+        }
+        String fg = resolveForegroundPackage();
+        if (fg != null && isYoutubePackage(fg)) {
+            startEnforcement(fg);
+        }
+    }
+
+    private void startEnforcement(String pkg) {
+        enforcingPkg = pkg;
+        enforceStartedAt = System.currentTimeMillis();
+        pushBlock(pkg, true);
+        scheduleEnforceLoop();
+    }
+
+    private void stopEnforcement() {
+        enforcingPkg = null;
+        enforceStartedAt = 0L;
+        handler.removeCallbacks(enforceLoop);
+        enforceLoopPosted = false;
+    }
+
+    private void scheduleEnforceLoop() {
+        if (enforceLoopPosted) return;
+        enforceLoopPosted = true;
+        handler.postDelayed(enforceLoop, ENFORCE_POLL_MS);
+    }
+
+    /**
+     * Best-effort foreground package from the active window tree / window list.
+     * Needed because some OEMs omit packageName on WINDOWS_CHANGED events.
+     */
+    private String resolveForegroundPackage() {
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root != null) {
+                try {
+                    CharSequence pkg = root.getPackageName();
+                    if (pkg != null && pkg.length() > 0) return pkg.toString();
+                } finally {
+                    root.recycle();
+                }
+            }
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                List<AccessibilityWindowInfo> windows = getWindows();
+                if (windows != null) {
+                    for (AccessibilityWindowInfo w : windows) {
+                        if (w == null) continue;
+                        try {
+                            if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                            if (!w.isActive() && !w.isFocused()) continue;
+                            AccessibilityNodeInfo root = w.getRoot();
+                            if (root == null) continue;
+                            try {
+                                CharSequence pkg = root.getPackageName();
+                                if (pkg != null && pkg.length() > 0) return pkg.toString();
+                            } finally {
+                                root.recycle();
+                            }
+                        } catch (Exception ignored) {
+                            /* ignore */
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        }
+        return null;
+    }
+
+    private void pushBlock(String pkg, boolean forceUi) {
+        try {
+            performGlobalAction(GLOBAL_ACTION_HOME);
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+
+        long now = System.currentTimeMillis();
+        if (!forceUi && now - lastBlockUiAt < BLOCK_UI_COOLDOWN_MS) return;
+        lastBlockUiAt = now;
+
+        try {
+            Intent i = new Intent(this, BlockedAppActivity.class);
+            i.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_NO_ANIMATION
+                    | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+            );
+            i.putExtra(BlockedAppActivity.EXTRA_BLOCKED_PACKAGE, pkg);
+            startActivity(i);
+        } catch (Exception ignored) {
+            /* ignore */
+        }
     }
 
     private void scheduleBrowserEval(String pkg, boolean blockYoutube, boolean browserFilter) {
         if (pendingHostEval != null) {
             handler.removeCallbacks(pendingHostEval);
         }
-        // Debounce rapid content-changed storms; address bar often fills a moment later.
         pendingHostEval = () -> {
             pendingHostEval = null;
             String host = extractAddressBarHost();
@@ -151,52 +340,23 @@ public class ParentalControlService extends AccessibilityService {
 
     private void evaluateBrowserHost(String pkg, String host, boolean blockYoutube, boolean browserFilter) {
         if (host == null || host.isEmpty()) {
-            // Fail open: unknown / loading / NTP / inaccessible URL bar must NOT lock the device.
             return;
         }
         if (isInternalBrowserHost(host)) return;
 
         if (blockYoutube && ParentalControlPrefs.isYoutubeHost(host)) {
-            triggerBlock(pkg);
+            startEnforcement(pkg);
             return;
         }
         if (browserFilter) {
             if (ParentalControlPrefs.isBrowserBypassActive(this)) return;
             List<String> whitelist = ParentalControlPrefs.getWhitelist(this);
             if (!ParentalControlPrefs.hostAllowed(host, whitelist)) {
-                triggerBlock(pkg);
+                pushBlock(pkg, true);
             }
         }
     }
 
-    private void triggerBlock(String pkg) {
-        long now = System.currentTimeMillis();
-        if (pkg.equals(lastBlockedPkg) && now - lastBlockAt < 700) return;
-        lastBlockedPkg = pkg;
-        lastBlockAt = now;
-
-        try {
-            performGlobalAction(GLOBAL_ACTION_HOME);
-        } catch (Exception ignored) {
-            /* ignore */
-        }
-
-        try {
-            Intent i = new Intent(this, BlockedAppActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                | Intent.FLAG_ACTIVITY_NO_ANIMATION
-                | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-            startActivity(i);
-        } catch (Exception ignored) {
-            /* ignore */
-        }
-    }
-
-    /**
-     * Resolve the current page host from the browser address bar only.
-     * Never scans page body text (that caused false blocks from links/ads in the tree).
-     */
     private String extractAddressBarHost() {
         AccessibilityNodeInfo root = null;
         try {
@@ -224,7 +384,6 @@ public class ParentalControlService extends AccessibilityService {
                 }
             }
 
-            // Fallback: first editable field that looks like an omnibox URL (not page inputs).
             return findHostInEditableOmnibox(root, 0);
         } catch (Exception e) {
             return null;
@@ -266,7 +425,6 @@ public class ParentalControlService extends AccessibilityService {
         String s = raw.trim();
         if (s.length() < 3) return null;
 
-        // Omnibox placeholders / search mode — not a navigated host.
         String lower = s.toLowerCase(Locale.US);
         if (lower.startsWith("search")
             || lower.contains("search or type")
@@ -278,7 +436,6 @@ public class ParentalControlService extends AccessibilityService {
             || lower.contains("הקלד כתובת")) {
             return null;
         }
-        // Multi-word search queries are not hosts (allow "https://ex.com/a b" rarity via ://).
         if (s.contains(" ") && !s.contains("://")) return null;
 
         if (isInternalBrowserUrl(lower)) return null;
@@ -288,7 +445,6 @@ public class ParentalControlService extends AccessibilityService {
             return ParentalControlPrefs.normalizeHost(m.group(1));
         }
 
-        // Bare hostname typed in the omnibox (e.g. "wikipedia.org")
         if (lower.matches("^(?:www\\.)?(?:[a-z0-9-]+\\.)+[a-z]{2,}$")) {
             return ParentalControlPrefs.normalizeHost(lower);
         }
@@ -315,7 +471,6 @@ public class ParentalControlService extends AccessibilityService {
         return h.isEmpty()
             || h.equals("newtab")
             || h.equals("ntp")
-            // Chrome sometimes exposes these as the "host" of internal pages.
             || h.endsWith(".googlechrome")
             || h.equals("googlechrome");
     }

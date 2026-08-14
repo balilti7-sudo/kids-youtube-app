@@ -39,6 +39,7 @@ import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTrack
 import { isShortsBlockedForProfile } from '../lib/childContentSafety'
 import { listHiddenVideoIdsForChild, listHiddenVideoIdsForDevice } from '../lib/hiddenVideos'
 import { toast } from 'sonner'
+import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
@@ -122,6 +123,7 @@ function ChannelsPageInner() {
   useEffect(() => {
     if (!selectedDevice) return
     setAllowShorts(Boolean(selectedDevice.allow_shorts))
+    void syncParentalControlPolicy(policyFromDeviceFields(selectedDevice))
   }, [selectedDevice])
 
   const { whitelist, loading, refreshChannelVideosCache } = useChannels(deviceId ?? undefined, ownerUserId)

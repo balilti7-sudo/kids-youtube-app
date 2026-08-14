@@ -34,7 +34,9 @@ public final class ParentalControlPrefs {
             .putBoolean(KEY_BLOCK_YOUTUBE, blockYoutube)
             .putBoolean(KEY_BROWSER_FILTER, browserFilter)
             .putString(KEY_WHITELIST, arr.toString())
-            .apply();
+            .commit();
+        // Wake the accessibility service so YouTube is blocked immediately (no wait for next event).
+        ParentalControlService.nudgePolicyChanged();
     }
 
     /** Temporarily skip browser whitelist enforcement (SafeTube-opened login / Custom Tabs). */

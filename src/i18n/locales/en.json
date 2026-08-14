@@ -225,9 +225,9 @@
   "parentalOs": {
     "sectionTitle": "Device blocks (YouTube & browser)",
     "youtubeBlockLabel": "Block YouTube app",
-    "youtubeBlockHintOn": "Opening the YouTube app and youtube.com / m.youtube.com is blocked on the child device.",
+    "youtubeBlockHintOn": "Opening the YouTube app and youtube.com is blocked on the child device (Accessibility required). The launcher icon may still appear — opening it is blocked.",
     "youtubeBlockHintOff": "Off: the child can open the YouTube app.",
-    "youtubeBlockedToast": "YouTube will be blocked on the device",
+    "youtubeBlockedToast": "YouTube will be blocked on the device (after Accessibility is enabled)",
     "youtubeUnblockedToast": "YouTube block removed",
     "browserBlockLabel": "Browser lock (allowed sites only)",
     "browserBlockHintOn": "Only domains on the allow-list open in the browser. Everything else is blocked.",

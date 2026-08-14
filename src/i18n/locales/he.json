@@ -225,9 +225,9 @@
   "parentalOs": {
     "sectionTitle": "חסימות מערכת (יוטיוב ודפדפן)",
     "youtubeBlockLabel": "חסימת אפליקציית YouTube",
-    "youtubeBlockHintOn": "פתיחת אפליקציית YouTube ואתרי youtube.com / m.youtube.com תיחסם במכשיר הילד.",
+    "youtubeBlockHintOn": "פתיחת אפליקציית YouTube ואתרי youtube.com תיחסם במכשיר הילד (נדרש שירות נגישות). האייקון עלול עדיין להופיע — הפתיחה תיחסם.",
     "youtubeBlockHintOff": "כבוי: הילד יכול לפתוח את אפליקציית YouTube במכשיר.",
-    "youtubeBlockedToast": "YouTube ייחסם במכשיר",
+    "youtubeBlockedToast": "YouTube ייחסם במכשיר (לאחר הפעלת שירות הנגישות)",
     "youtubeUnblockedToast": "חסימת YouTube בוטלה",
     "browserBlockLabel": "חסימת דפדפן (אתרים מורשים בלבד)",
     "browserBlockHintOn": "רק דומיינים מהרשימה המורשית ייפתחו בדפדפן. כל השאר ייחסמו.",

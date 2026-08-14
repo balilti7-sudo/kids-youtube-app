@@ -670,7 +670,7 @@ function KidModePageInner() {
       void loadChildData(accessToken).catch((e) => {
         setError(e instanceof Error ? e.message : 'עדכון ערוצים נכשל')
       })
-    }, 30_000)
+    }, 15_000)
     return () => {
       window.clearInterval(channelsId)
     }

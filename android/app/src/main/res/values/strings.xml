@@ -4,6 +4,6 @@
   <string name="title_activity_main">SafeTube 1.1.5</string>
   <string name="package_name">app.safetube.kids</string>
   <string name="custom_url_scheme">app.safetube.kids</string>
-  <string name="parental_control_service_description">SafeTube Parental Control blocks the YouTube app and non-whitelisted websites in browsers when enabled by a parent.</string>
-  <string name="blocked_by_safetube">חסום על ידי SafeTube\nאתר או אפליקציה לא מורשים</string>
+  <string name="parental_control_service_description">SafeTube חוסם פתיחת אפליקציית YouTube (ו־youtube.com בדפדפן) כשההורה מפעיל את החסימה. אייקון YouTube עלול עדיין להופיע במסך הבית — הפתיחה עצמה תיחסם.</string>
+  <string name="blocked_by_safetube">חסום על ידי SafeTube\nYouTube או אתר לא מורשים</string>
 </resources>
