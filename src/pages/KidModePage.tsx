@@ -55,7 +55,7 @@ import { classifyWatchFormat, filterSearchToWhitelistedChannels, isShortsBlocked
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import type { ChannelVideoItem } from '../lib/youtube'
-import { searchYouTubeVideos, fetchChannelUploadsPage, fetchVideoDetailsBatch } from '../lib/youtube'
+import { searchYouTubeVideos, fetchChannelUploadsPage, fetchVideoDetailsBatch, resolveChannelUploadsCursor } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
 import { formatViewCountLabel } from '../lib/formatYoutubeCount'
 import { listHiddenVideoIdsForChild } from '../lib/hiddenVideos'
@@ -110,6 +110,8 @@ function KidModePageInner() {
   const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
   const [parentBootstrapBusy, setParentBootstrapBusy] = useState(false)
   const channelVideosRequestRef = useRef(0)
+  const channelsRef = useRef(channels)
+  channelsRef.current = channels
   const [videoSearchFocused, setVideoSearchFocused] = useState(false)
   const [globalSearchPinOpen, setGlobalSearchPinOpen] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState<string | null>(null)
@@ -480,11 +482,72 @@ function KidModePageInner() {
             return {
               ...v,
               durationSeconds: v.durationSeconds ?? d.durationSeconds,
-              viewCount: d.viewCount,
-              likeCount: d.likeCount,
-              liveBroadcastContent: d.liveBroadcastContent,
+              viewCount: d.viewCount ?? v.viewCount,
+              likeCount: d.likeCount ?? v.likeCount,
+              liveBroadcastContent: d.liveBroadcastContent ?? v.liveBroadcastContent,
             }
           })
+        )
+      })
+
+      // Resolve continuation so every older upload stays reachable via scroll / Load More.
+      const chMeta = channelsRef.current.find((c) => c.youtube_channel_id === yt) ?? null
+      void resolveChannelUploadsCursor({
+        youtubeChannelId: yt,
+        uploadsPlaylistId: chMeta?.videos_cache_uploads_playlist_id,
+        knownVideoIds: next.map((v) => v.videoId),
+        storedToken: chMeta?.videos_cache_next_page_token,
+        storedHasMore: chMeta?.videos_cache_has_more,
+      }).then((resolved) => {
+        if (rid !== channelVideosRequestRef.current || resolved.error || !resolved.data) return
+        const { newerVideos, boundaryOlderVideos, nextPageToken, hasMore, uploadsPlaylistId } =
+          resolved.data
+
+        if (newerVideos.length > 0 || boundaryOlderVideos.length > 0) {
+          setChannelVideos((prev) => {
+            const seen = new Set(prev.map((v) => v.videoId))
+            const newer = newerVideos.filter((v) => !seen.has(v.videoId))
+            for (const v of newer) seen.add(v.videoId)
+            const older = boundaryOlderVideos.filter((v) => !seen.has(v.videoId))
+            if (newer.length === 0 && older.length === 0) return prev
+            return [...newer, ...prev, ...older]
+          })
+          const extras = [...newerVideos, ...boundaryOlderVideos]
+          void fetchVideoDetailsBatch(extras.map((v) => v.videoId)).then((details) => {
+            if (rid !== channelVideosRequestRef.current) return
+            setChannelVideos((prev) =>
+              prev.map((v) => {
+                const d = details.get(v.videoId)
+                if (!d) return v
+                return {
+                  ...v,
+                  durationSeconds: v.durationSeconds ?? d.durationSeconds,
+                  viewCount: d.viewCount ?? v.viewCount,
+                  likeCount: d.likeCount ?? v.likeCount,
+                  liveBroadcastContent: d.liveBroadcastContent ?? v.liveBroadcastContent,
+                }
+              })
+            )
+          })
+        }
+
+        setUploadsCursor({
+          nextPageToken,
+          uploadsPlaylistId: uploadsPlaylistId || chMeta?.videos_cache_uploads_playlist_id || null,
+          hasMore: Boolean(hasMore && nextPageToken),
+        })
+        setChannels((prev) =>
+          prev.map((c) =>
+            c.youtube_channel_id === yt
+              ? {
+                  ...c,
+                  videos_cache_has_more: Boolean(hasMore && nextPageToken),
+                  videos_cache_next_page_token: nextPageToken,
+                  videos_cache_uploads_playlist_id:
+                    uploadsPlaylistId || c.videos_cache_uploads_playlist_id,
+                }
+              : c
+          )
         )
       })
     } catch (e) {
@@ -494,96 +557,10 @@ function KidModePageInner() {
     }
   }, [accessToken])
 
-  const activeAllowedChannel = useMemo(
-    () => channels.find((c) => c.youtube_channel_id === activeChannelId) ?? null,
-    [channels, activeChannelId]
-  )
-
-  // Seed / repair pagination cursor when opening a channel (DB meta or live probe).
-  useEffect(() => {
-    if (!activeChannelId) {
-      setUploadsCursor(null)
-      return
-    }
-    const fromDb = activeAllowedChannel
-    if (fromDb?.videos_cache_next_page_token && fromDb.videos_cache_has_more) {
-      setUploadsCursor({
-        nextPageToken: fromDb.videos_cache_next_page_token,
-        uploadsPlaylistId: fromDb.videos_cache_uploads_playlist_id ?? null,
-        hasMore: true,
-      })
-      return
-    }
-
-    let cancelled = false
-    void (async () => {
-      const page = await fetchChannelUploadsPage(activeChannelId, {
-        maxPages: 1,
-        uploadsPlaylistId: fromDb?.videos_cache_uploads_playlist_id,
-      })
-      if (cancelled || page.error || !page.data) {
-        if (!cancelled) {
-          setUploadsCursor({
-            nextPageToken: null,
-            uploadsPlaylistId: fromDb?.videos_cache_uploads_playlist_id ?? null,
-            hasMore: false,
-          })
-        }
-        return
-      }
-      // Merge any newer uploads not yet in local cache.
-      setChannelVideos((prev) => {
-        const seen = new Set(prev.map((v) => v.videoId))
-        const extra = page.data!.videos.filter((v) => !seen.has(v.videoId))
-        if (extra.length === 0) return prev
-        return [...extra, ...prev]
-      })
-      void fetchVideoDetailsBatch(page.data.videos.map((v) => v.videoId)).then((details) => {
-        if (cancelled) return
-        setChannelVideos((prev) =>
-          prev.map((v) => {
-            const d = details.get(v.videoId)
-            if (!d) return v
-            return {
-              ...v,
-              durationSeconds: v.durationSeconds ?? d.durationSeconds,
-              viewCount: v.viewCount ?? d.viewCount,
-              likeCount: v.likeCount ?? d.likeCount,
-              liveBroadcastContent: v.liveBroadcastContent ?? d.liveBroadcastContent,
-            }
-          })
-        )
-      })
-      setUploadsCursor({
-        nextPageToken: page.data.nextPageToken,
-        uploadsPlaylistId: page.data.uploadsPlaylistId || fromDb?.videos_cache_uploads_playlist_id || null,
-        hasMore: Boolean(page.data.hasMore && page.data.nextPageToken),
-      })
-      setChannels((prev) =>
-        prev.map((c) =>
-          c.youtube_channel_id === activeChannelId
-            ? {
-                ...c,
-                videos_cache_has_more: page.data!.hasMore,
-                videos_cache_next_page_token: page.data!.nextPageToken,
-                videos_cache_uploads_playlist_id:
-                  page.data!.uploadsPlaylistId || c.videos_cache_uploads_playlist_id,
-              }
-            : c
-        )
-      )
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeChannelId, activeAllowedChannel?.youtube_channel_id])
-
   const handleLoadOlderChannelVideos = useCallback(async () => {
     if (!activeChannelId || channelLoadingMore) return
     const token = uploadsCursor?.nextPageToken
     if (!token && !uploadsCursor?.hasMore) return
-    if (!token) return
 
     setChannelLoadingMore(true)
     setError(null)
@@ -613,9 +590,9 @@ function KidModePageInner() {
             return {
               ...v,
               durationSeconds: v.durationSeconds ?? d.durationSeconds,
-              viewCount: v.viewCount ?? d.viewCount,
-              likeCount: v.likeCount ?? d.likeCount,
-              liveBroadcastContent: v.liveBroadcastContent ?? d.liveBroadcastContent,
+              viewCount: d.viewCount ?? v.viewCount,
+              likeCount: d.likeCount ?? v.likeCount,
+              liveBroadcastContent: d.liveBroadcastContent ?? v.liveBroadcastContent,
             }
           })
         )
@@ -631,7 +608,7 @@ function KidModePageInner() {
           c.youtube_channel_id === activeChannelId
             ? {
                 ...c,
-                videos_cache_has_more: page.data!.hasMore,
+                videos_cache_has_more: Boolean(page.data!.hasMore && page.data!.nextPageToken),
                 videos_cache_next_page_token: page.data!.nextPageToken,
                 videos_cache_uploads_playlist_id:
                   page.data!.uploadsPlaylistId || c.videos_cache_uploads_playlist_id,
@@ -644,7 +621,7 @@ function KidModePageInner() {
     }
   }, [activeChannelId, channelLoadingMore, uploadsCursor])
 
-  const channelHasMoreVideos = Boolean(uploadsCursor?.hasMore && uploadsCursor.nextPageToken)
+  const channelHasMoreVideos = Boolean(uploadsCursor?.hasMore)
   const handleBulkAddChannelsToPlaylist = useCallback(async () => {
     if (!accessToken) return
     const selected = channels.filter((c) => channelMultiSelect.selectedIds.has(c.youtube_channel_id))
