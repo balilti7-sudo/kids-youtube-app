@@ -103,6 +103,12 @@ function ChannelsPageInner() {
   const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
   const [allowShorts, setAllowShorts] = useState(false)
+  const [videosLoadingMore, setVideosLoadingMore] = useState(false)
+  const [uploadsCursor, setUploadsCursor] = useState<{
+    nextPageToken: string | null
+    uploadsPlaylistId: string | null
+    hasMore: boolean
+  } | null>(null)
 
   useEffect(() => {
     if (devices.length === 0) return
@@ -126,7 +132,10 @@ function ChannelsPageInner() {
     void syncParentalControlPolicy(policyFromDeviceFields(selectedDevice))
   }, [selectedDevice])
 
-  const { whitelist, loading, refreshChannelVideosCache } = useChannels(deviceId ?? undefined, ownerUserId)
+  const { whitelist, loading, refreshChannelVideosCache, appendChannelVideosCache } = useChannels(
+    deviceId ?? undefined,
+    ownerUserId
+  )
 
   useEffect(() => {
     setSavedPlaylistIds(getSavedPlaylistIds(deviceId))
@@ -163,6 +172,7 @@ function ChannelsPageInner() {
       setVideoSearch('')
       setShowMyPlaylist(false)
       setWatchStarted(false)
+      setUploadsCursor(null)
       return
     }
 
@@ -179,6 +189,7 @@ function ChannelsPageInner() {
       setVideoSearch('')
       setShowMyPlaylist(false)
       setWatchStarted(false)
+      setUploadsCursor(null)
     }
 
     setVideosLoading(true)
@@ -301,11 +312,63 @@ function ChannelsPageInner() {
           if (requestId === videosLoadGenRef.current) setVideos(enriched)
         })
 
-        // Pull newest uploads once per channel open so Home/Videos stay current.
+        // Seed infinite-scroll cursor from whitelist meta, or probe YouTube for more pages.
+        const metaHasMore = Boolean(selectedChannel?.videos_cache_has_more)
+        const metaToken = selectedChannel?.videos_cache_next_page_token ?? null
+        if (metaHasMore && metaToken) {
+          setUploadsCursor({
+            nextPageToken: metaToken,
+            uploadsPlaylistId: selectedChannel?.videos_cache_uploads_playlist_id ?? null,
+            hasMore: true,
+          })
+        } else {
+          void fetchChannelUploadsPage(youtubeChannelId, {
+            maxPages: 1,
+            uploadsPlaylistId: selectedChannel?.videos_cache_uploads_playlist_id,
+          }).then((page) => {
+            if (requestId !== videosLoadGenRef.current || page.error || !page.data) return
+            setVideos((prev) => {
+              const seen = new Set(prev.map((v) => v.youtube_video_id))
+              const extra = page.data!.videos
+                .filter((v) => !seen.has(v.videoId))
+                .map((v) =>
+                  toWatchableVideo({
+                    youtube_video_id: v.videoId,
+                    title: v.title,
+                    thumbnail_url: v.thumbnail || null,
+                    duration_seconds: v.durationSeconds ?? null,
+                  })
+                )
+              return extra.length > 0 ? [...extra, ...prev] : prev
+            })
+            void enrichVideosWithFormat(
+              page.data.videos.map((v) => ({
+                youtube_video_id: v.videoId,
+                title: v.title,
+                thumbnail_url: v.thumbnail || null,
+                durationSeconds: v.durationSeconds ?? null,
+              }))
+            ).then((enriched) => {
+              if (requestId !== videosLoadGenRef.current) return
+              setVideos((prev) => {
+                const byId = new Map(enriched.map((v) => [v.youtube_video_id, v]))
+                return prev.map((v) => byId.get(v.youtube_video_id) ?? v)
+              })
+            })
+            setUploadsCursor({
+              nextPageToken: page.data.nextPageToken,
+              uploadsPlaylistId: page.data.uploadsPlaylistId,
+              hasMore: Boolean(page.data.hasMore && page.data.nextPageToken),
+            })
+          })
+        }
+
+        // Background cache warm — avoid full remount when the list is already on screen.
         if (forceRefreshedChannelRef.current !== channelKey) {
           forceRefreshedChannelRef.current = channelKey
-          void refreshChannelVideosCache(channelKey, youtubeChannelId, 'initial').then(() => {
-            if (requestId === videosLoadGenRef.current) {
+          void refreshChannelVideosCache(channelKey, youtubeChannelId, 'initial').then((result) => {
+            if (requestId !== videosLoadGenRef.current) return
+            if ((result.appended ?? 0) > 0 || result.hasMore) {
               setVideosReloadNonce((n) => n + 1)
             }
           })
@@ -342,6 +405,78 @@ function ChannelsPageInner() {
     )
     return filterVideosRespectingAllowShorts(withoutUpcoming, allowShorts)
   }, [playlistSourceVideos, videoSearch, allowShorts])
+
+  const channelHasMoreVideos = Boolean(uploadsCursor?.hasMore && uploadsCursor.nextPageToken)
+
+  const handleLoadMoreChannelVideos = useCallback(async () => {
+    if (!selectedYoutubeChannelId || !selectedChannelDbId || videosLoadingMore) return
+    const token = uploadsCursor?.nextPageToken
+    if (!token) return
+
+    setVideosLoadingMore(true)
+    setVideosError(null)
+    try {
+      const kidToken = getSavedChildAccessToken()
+      // Parent / authenticated path: append into shared cache then merge locally.
+      if (!kidToken) {
+        const appended = await appendChannelVideosCache(selectedChannelDbId, selectedYoutubeChannelId)
+        if (appended.error) {
+          setVideosError(appended.error.message)
+          return
+        }
+      }
+
+      const page = await fetchChannelUploadsPage(selectedYoutubeChannelId, {
+        maxPages: 1,
+        pageToken: token,
+        uploadsPlaylistId: uploadsCursor?.uploadsPlaylistId,
+      })
+      if (page.error || !page.data) {
+        setVideosError(page.error?.message ?? 'טעינת סרטונים נוספים נכשלה')
+        return
+      }
+
+      const mapped = page.data.videos.map((v) =>
+        toWatchableVideo({
+          youtube_video_id: v.videoId,
+          title: v.title,
+          thumbnail_url: v.thumbnail || null,
+          duration_seconds: v.durationSeconds ?? null,
+        })
+      )
+      setVideos((prev) => {
+        const seen = new Set(prev.map((v) => v.youtube_video_id))
+        return [...prev, ...mapped.filter((v) => !seen.has(v.youtube_video_id))]
+      })
+      void enrichVideosWithFormat(
+        mapped.map((v) => ({
+          youtube_video_id: v.youtube_video_id,
+          title: v.title,
+          thumbnail_url: v.thumbnail_url,
+          durationSeconds: v.durationSeconds,
+        }))
+      ).then((enriched) => {
+        setVideos((prev) => {
+          const byId = new Map(enriched.map((v) => [v.youtube_video_id, v]))
+          return prev.map((v) => byId.get(v.youtube_video_id) ?? v)
+        })
+      })
+
+      setUploadsCursor({
+        nextPageToken: page.data.nextPageToken,
+        uploadsPlaylistId: page.data.uploadsPlaylistId || uploadsCursor?.uploadsPlaylistId || null,
+        hasMore: Boolean(page.data.hasMore && page.data.nextPageToken),
+      })
+    } finally {
+      setVideosLoadingMore(false)
+    }
+  }, [
+    selectedYoutubeChannelId,
+    selectedChannelDbId,
+    videosLoadingMore,
+    uploadsCursor,
+    appendChannelVideosCache,
+  ])
   const channelSearchDropdownItems = useMemo(
     () =>
       filteredVideos.map((video) => ({
@@ -793,7 +928,7 @@ function ChannelsPageInner() {
               טוען סרטונים…
             </div>
           ) : videos.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-yt-border px-4 py-10 text-center text-sm text-yt-text0">
+            <div className="rounded-2xl border border-dashed border-yt-border px-4 py-10 text-center text-sm text-yt-textMuted">
               <p>{videosError ? videosError : 'אין סרטונים זמינים בערוץ הזה כרגע.'}</p>
               <Button
                 type="button"
@@ -820,6 +955,9 @@ function ChannelsPageInner() {
                   allowShorts={allowShorts}
                   hideThumbnails={Boolean(selectedDevice?.hide_thumbnails)}
                   onSelectVideo={selectWatchVideo}
+                  hasMore={!videoSearch.trim() && !showMyPlaylist && channelHasMoreVideos}
+                  loadingMore={videosLoadingMore}
+                  onLoadMore={() => void handleLoadMoreChannelVideos()}
                   renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
                 />
               )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type MouseEvent } from 'react'
 import { ThumbsUp } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { formatLikeCountLabel } from '../../lib/formatYoutubeCount'
@@ -29,6 +29,8 @@ type Props = {
   videoId: string
   /** Public YouTube like count (display only; local toggle is separate). */
   likeCount?: number | null
+  /** Compact icon+count for video grid cards. */
+  compact?: boolean
   className?: string
 }
 
@@ -36,23 +38,28 @@ type Props = {
  * YouTube-styled Like control. Local toggle only (no OAuth) — kids stay inside SafeTube.
  * Shows the public like count when available.
  */
-export function YoutubeLikeButton({ videoId, likeCount, className }: Props) {
+export function YoutubeLikeButton({ videoId, likeCount, compact = false, className }: Props) {
   const [liked, setLiked] = useState(false)
 
   useEffect(() => {
     setLiked(readLikedSet().has(videoId))
   }, [videoId])
 
-  const toggle = useCallback(() => {
-    setLiked((prev) => {
-      const next = !prev
-      const set = readLikedSet()
-      if (next) set.add(videoId)
-      else set.delete(videoId)
-      writeLikedSet(set)
-      return next
-    })
-  }, [videoId])
+  const toggle = useCallback(
+    (event?: MouseEvent) => {
+      event?.stopPropagation()
+      event?.preventDefault()
+      setLiked((prev) => {
+        const next = !prev
+        const set = readLikedSet()
+        if (next) set.add(videoId)
+        else set.delete(videoId)
+        writeLikedSet(set)
+        return next
+      })
+    },
+    [videoId]
+  )
 
   const displayCount = (likeCount ?? 0) + (liked ? 1 : 0)
   const label = formatLikeCountLabel(displayCount > 0 ? displayCount : likeCount)
@@ -60,19 +67,22 @@ export function YoutubeLikeButton({ videoId, likeCount, className }: Props) {
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={(e) => toggle(e)}
       aria-pressed={liked}
       aria-label={liked ? 'הסר לייק' : 'לייק'}
       className={cn(
-        'inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-sm font-semibold transition',
+        'inline-flex items-center font-semibold transition',
+        compact
+          ? 'h-8 gap-1 rounded-full px-2.5 text-xs'
+          : 'h-9 gap-2 rounded-full px-3.5 text-sm',
         liked
           ? 'bg-yt-text text-yt-bg'
           : 'bg-yt-surfaceHover text-yt-text hover:bg-zinc-600/80',
         className
       )}
     >
-      <ThumbsUp className={cn('h-4 w-4', liked && 'fill-current')} aria-hidden />
-      <span>{label || 'לייק'}</span>
+      <ThumbsUp className={cn(compact ? 'h-3.5 w-3.5' : 'h-4 w-4', liked && 'fill-current')} aria-hidden />
+      <span>{label || (compact ? '' : 'לייק')}</span>
     </button>
   )
 }
