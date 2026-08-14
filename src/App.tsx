@@ -5,6 +5,7 @@ import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
 import { ThemeAwareToaster } from './components/theme/ThemeAwareToaster'
 import { SplashScreen } from './components/branding/SplashScreen'
+import { TesterAccessGate } from './components/auth/TesterAccessGate'
 import { AuthPage } from './pages/AuthPage'
 import AuthCallback from './pages/AuthCallback'
 import { OnboardingPage } from './pages/OnboardingPage'
@@ -128,7 +129,9 @@ export default function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <ThemeAwareToaster />
-        <AppChrome />
+        <TesterAccessGate>
+          <AppChrome />
+        </TesterAccessGate>
       </BrowserRouter>
     </ErrorBoundary>
   )

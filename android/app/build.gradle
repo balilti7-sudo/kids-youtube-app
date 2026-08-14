@@ -1,5 +1,68 @@
 apply plugin: 'com.android.application'
 
+// ---------------------------------------------------------------------------
+// Auto version bump — every assemble*/bundle* raises VERSION_CODE + patch.
+// Skip with: ./gradlew assembleDebug -PnoVersionBump
+// Source of truth: android/app/version.properties (synced to package.json by APK script)
+// ---------------------------------------------------------------------------
+def versionPropsFile = file('version.properties')
+def versionProps = new Properties()
+if (versionPropsFile.exists()) {
+    versionPropsFile.withInputStream { stream -> versionProps.load(stream) }
+} else {
+    versionProps['VERSION_CODE'] = '10104'
+    versionProps['VERSION_NAME'] = '1.1.4'
+}
+
+def requestedTasks = gradle.startParameter.taskNames.collect { it.toLowerCase() }
+def isPackagingBuild = requestedTasks.any { name ->
+    name.contains('assemble') || name.contains('bundle') || name.endsWith('assembledebug') || name.endsWith('assemblerelease')
+}
+def skipBump = project.hasProperty('noVersionBump')
+if (isPackagingBuild && !skipBump) {
+    def code = (versionProps.getProperty('VERSION_CODE', '10104') as int) + 1
+    def name = versionProps.getProperty('VERSION_NAME', '1.1.4').trim()
+    def parts = name.tokenize('.')
+    if (parts.size() >= 3) {
+        def patch = (parts[2] as int) + 1
+        name = "${parts[0]}.${parts[1]}.${patch}"
+    } else if (parts.size() == 2) {
+        def minor = (parts[1] as int) + 1
+        name = "${parts[0]}.${minor}"
+    } else {
+        name = "${name}.1"
+    }
+    // Keep versionCode aligned with major*10000 + minor*100 + patch when possible
+    def nameParts = name.tokenize('.')
+    def major = nameParts.size() > 0 ? (nameParts[0] as int) : 1
+    def minor = nameParts.size() > 1 ? (nameParts[1] as int) : 0
+    def patch = nameParts.size() > 2 ? (nameParts[2] as int) : 0
+    def derived = (major * 10000) + (minor * 100) + patch
+    if (derived > code) code = derived
+
+    versionProps.setProperty('VERSION_CODE', code.toString())
+    versionProps.setProperty('VERSION_NAME', name)
+    versionPropsFile.withWriter('UTF-8') { writer ->
+        writer.write("# Auto-bumped by Gradle on APK/AAB packaging. Do not edit versionCode by hand.\n")
+        writer.write("VERSION_CODE=${code}\n")
+        writer.write("VERSION_NAME=${name}\n")
+    }
+
+    // Keep launcher label in sync with the version baked into this APK.
+    def stringsFile = file('src/main/res/values/strings.xml')
+    if (stringsFile.exists()) {
+        def display = "SafeTube ${name}"
+        def xml = stringsFile.getText('UTF-8')
+        xml = xml.replaceAll(/(<string name="app_name">)[^<]*(<\/string>)/, "\$1${display}\$2")
+        xml = xml.replaceAll(/(<string name="title_activity_main">)[^<]*(<\/string>)/, "\$1${display}\$2")
+        stringsFile.write(xml, 'UTF-8')
+    }
+    println "[SafeTube] Bumped version → ${name} (${code})"
+}
+
+def resolvedVersionCode = versionProps.getProperty('VERSION_CODE', '10104') as int
+def resolvedVersionName = versionProps.getProperty('VERSION_NAME', '1.1.4')
+
 android {
     namespace = "app.safetube.kids"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +70,8 @@ android {
         applicationId "app.safetube.kids"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10104
-        versionName "1.1.4"
+        versionCode resolvedVersionCode
+        versionName resolvedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
