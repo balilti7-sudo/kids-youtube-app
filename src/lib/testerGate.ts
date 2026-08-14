@@ -42,10 +42,12 @@ export function clearTesterUnlock() {
   }
 }
 
-/** Gate applies to native APK builds; web/dev stay open unless forced. */
+/** Gate only when Firebase is configured; web/dev stay open unless forced on. */
 export function isTesterGateRequired(): boolean {
   const force = String(import.meta.env.VITE_TESTER_GATE || '').trim().toLowerCase()
   if (force === '0' || force === 'false' || force === 'off') return false
+  // Without Firebase Remote Config there is nothing to enforce — never block launch.
+  if (!isFirebaseConfigured()) return false
   if (force === '1' || force === 'true' || force === 'on') return true
   return Capacitor.isNativePlatform()
 }
@@ -59,6 +61,11 @@ function codesMatch(a: string, b: string): boolean {
 }
 
 export function evaluateTesterPolicy(policy: TesterRemotePolicy): TesterGateStatus {
+  // Remote Config unreachable / not fetched → do not lock the app.
+  if (!policy.fetched) {
+    return { state: 'open' }
+  }
+
   if (!policy.accessEnabled) {
     clearTesterUnlock()
     return {
@@ -70,12 +77,9 @@ export function evaluateTesterPolicy(policy: TesterRemotePolicy): TesterGateStat
 
   const expected = normalizeCode(policy.accessCode)
   if (!expected) {
-    clearTesterUnlock()
-    return {
-      state: 'locked',
-      reason: 'misconfigured',
-      message: 'לא הוגדר קוד גישה ב-Firebase Remote Config (tester_access_code).',
-    }
+    // Misconfigured remote keys should not brick installs — open the app.
+    console.warn('[testerGate] tester_access_code empty after fetch; leaving app open')
+    return { state: 'open' }
   }
 
   const stored = readStoredUnlock()
@@ -94,23 +98,13 @@ export function evaluateTesterPolicy(policy: TesterRemotePolicy): TesterGateStat
 export async function resolveTesterGateStatus(): Promise<TesterGateStatus> {
   if (!isTesterGateRequired()) return { state: 'open' }
 
-  if (!isFirebaseConfigured()) {
-    return {
-      state: 'locked',
-      reason: 'misconfigured',
-      message:
-        'Firebase לא מוגדר בבילד הזה. הוסיפו VITE_FIREBASE_* ב-.env.production ובנו APK מחדש.',
-    }
-  }
-
   try {
     const policy = await fetchTesterRemotePolicy()
     return evaluateTesterPolicy(policy)
   } catch (e) {
-    return {
-      state: 'error',
-      message: e instanceof Error ? e.message : 'בדיקת גישה נכשלה',
-    }
+    // Network / SDK errors must not block normal launch.
+    console.warn('[testerGate] resolve failed; leaving app open', e)
+    return { state: 'open' }
   }
 }
 
@@ -121,24 +115,32 @@ export async function submitTesterAccessCode(input: string): Promise<TesterGateS
     return { state: 'locked', reason: 'need_code', message: 'נא להזין קוד גישה.' }
   }
 
-  const policy = await fetchTesterRemotePolicy()
-  if (!policy.accessEnabled) {
-    clearTesterUnlock()
-    return {
-      state: 'locked',
-      reason: 'disabled',
-      message: 'הגישה לבודקים כבויה כרגע מהדאשבורד.',
+  try {
+    const policy = await fetchTesterRemotePolicy()
+    if (!policy.fetched) {
+      return { state: 'open' }
     }
-  }
-
-  if (!codesMatch(code, policy.accessCode)) {
-    return {
-      state: 'locked',
-      reason: 'need_code',
-      message: 'קוד שגוי. בדקו מול הצוות ונסו שוב.',
+    if (!policy.accessEnabled) {
+      clearTesterUnlock()
+      return {
+        state: 'locked',
+        reason: 'disabled',
+        message: 'הגישה לבודקים כבויה כרגע מהדאשבורד.',
+      }
     }
-  }
 
-  writeStoredUnlock(code)
-  return { state: 'open' }
+    if (!codesMatch(code, policy.accessCode)) {
+      return {
+        state: 'locked',
+        reason: 'need_code',
+        message: 'קוד שגוי. בדקו מול הצוות ונסו שוב.',
+      }
+    }
+
+    writeStoredUnlock(code)
+    return { state: 'open' }
+  } catch (e) {
+    console.warn('[testerGate] submit failed; leaving app open', e)
+    return { state: 'open' }
+  }
 }
