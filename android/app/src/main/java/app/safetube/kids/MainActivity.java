@@ -1,6 +1,7 @@
 package app.safetube.kids;
 
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -25,6 +26,31 @@ public class MainActivity extends BridgeActivity {
             /* ignore */
         }
         installSafeAreaInsets();
+    }
+
+    /**
+     * Forward hardware / Bluetooth media keys to the active MediaSession while the
+     * activity is in the foreground (steering-wheel next/prev/play when AA/BT maps keys here).
+     */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event != null) {
+            int code = event.getKeyCode();
+            boolean mediaKey =
+                code == KeyEvent.KEYCODE_MEDIA_PLAY
+                    || code == KeyEvent.KEYCODE_MEDIA_PAUSE
+                    || code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                    || code == KeyEvent.KEYCODE_MEDIA_NEXT
+                    || code == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                    || code == KeyEvent.KEYCODE_MEDIA_STOP
+                    || code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                    || code == KeyEvent.KEYCODE_MEDIA_REWIND
+                    || code == KeyEvent.KEYCODE_HEADSETHOOK;
+            if (mediaKey && MediaPlaybackService.dispatchMediaKeyEvent(event)) {
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     /**

@@ -4,7 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
@@ -13,32 +13,48 @@ import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
-import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
-import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.ResultReceiver;
 import android.os.SystemClock;
+import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
+import android.view.KeyEvent;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.media.MediaBrowserServiceCompat;
 import androidx.media.app.NotificationCompat.MediaStyle;
+import androidx.media.session.MediaButtonReceiver;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
  * Foreground media service with a real {@link MediaSessionCompat} so lock screen,
- * Bluetooth AVRCP (car / headset), and system media controls can drive playback.
+ * Bluetooth AVRCP (car / headset), Android Auto "Now Playing", and system media
+ * controls can drive playback. Extends {@link MediaBrowserServiceCompat} so car
+ * platforms can bind to the active session.
+ *
  * Transport commands are forwarded into the Capacitor WebView via {@link MediaPlaybackPlugin}.
+ * Hardware volume keys adjust {@link AudioManager#STREAM_MUSIC} (hands-free safe).
  */
-public class MediaPlaybackService extends Service implements AudioManager.OnAudioFocusChangeListener {
+public class MediaPlaybackService extends MediaBrowserServiceCompat
+    implements AudioManager.OnAudioFocusChangeListener {
+
     public static final String CHANNEL_ID = "safetube_playback";
     public static final int NOTIFICATION_ID = 4401;
+    private static final String MEDIA_ROOT_ID = "safetube_root";
+    private static final String MEDIA_NOW_PLAYING_ID = "safetube_now_playing";
 
     public static final String EXTRA_TITLE = "title";
     public static final String EXTRA_ARTIST = "artist";
@@ -103,6 +119,18 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
         );
     }
 
+    /** Route Activity / headset key events into the active MediaSession when possible. */
+    public static boolean dispatchMediaKeyEvent(@Nullable KeyEvent event) {
+        if (event == null) return false;
+        MediaPlaybackService svc = instance;
+        if (svc == null || svc.mediaSession == null || !active) return false;
+        try {
+            return svc.mediaSession.getController().dispatchMediaButtonEvent(event);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -116,11 +144,43 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
             wakeLock.setReferenceCounted(false);
         }
 
-        mediaSession = new MediaSessionCompat(this, "SafeTubeMedia");
+        ComponentName mediaButtonReceiver = new ComponentName(this, MediaButtonReceiver.class);
+        mediaSession = new MediaSessionCompat(this, "SafeTubeMedia", mediaButtonReceiver, null);
         mediaSession.setFlags(
             MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS
                 | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
         );
+
+        Intent mediaButtonIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
+        mediaButtonIntent.setClass(this, MediaButtonReceiver.class);
+        PendingIntent mediaButtonPendingIntent = PendingIntent.getBroadcast(
+            this,
+            0,
+            mediaButtonIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        mediaSession.setMediaButtonReceiver(mediaButtonPendingIntent);
+
+        Intent sessionActivity = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (sessionActivity == null) {
+            sessionActivity = new Intent(this, MainActivity.class);
+        }
+        sessionActivity.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent sessionActivityPi = PendingIntent.getActivity(
+            this,
+            1,
+            sessionActivity,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        mediaSession.setSessionActivity(sessionActivityPi);
+
+        // Route car / Bluetooth absolute volume to the music stream (hands-free volume rocker).
+        try {
+            mediaSession.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
+        } catch (Exception ignored) {
+            /* ignore on older devices */
+        }
+
         mediaSession.setCallback(new MediaSessionCompat.Callback() {
             @Override
             public void onPlay() {
@@ -129,6 +189,7 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
                 playing = true;
                 publishPlaybackState();
                 refreshNotification();
+                notifyChildrenChanged(MEDIA_ROOT_ID);
             }
 
             @Override
@@ -137,6 +198,7 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
                 playing = false;
                 publishPlaybackState();
                 refreshNotification();
+                notifyChildrenChanged(MEDIA_ROOT_ID);
             }
 
             @Override
@@ -179,10 +241,118 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
                 emit("seekbackward", SEEK_STEP_MS);
                 publishPlaybackState();
             }
+
+            @Override
+            public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
+                if (mediaButtonEvent == null) return super.onMediaButtonEvent(mediaButtonEvent);
+                KeyEvent key = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                if (key == null) return super.onMediaButtonEvent(mediaButtonEvent);
+                if (key.getAction() != KeyEvent.ACTION_DOWN) {
+                    return true;
+                }
+                // Prefer explicit handling so stubborn head units / BT stacks stay reliable.
+                switch (key.getKeyCode()) {
+                    case KeyEvent.KEYCODE_MEDIA_PLAY:
+                        onPlay();
+                        return true;
+                    case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                        onPause();
+                        return true;
+                    case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                    case KeyEvent.KEYCODE_HEADSETHOOK:
+                        if (playing) onPause();
+                        else onPlay();
+                        return true;
+                    case KeyEvent.KEYCODE_MEDIA_STOP:
+                        onStop();
+                        return true;
+                    case KeyEvent.KEYCODE_MEDIA_NEXT:
+                        onSkipToNext();
+                        return true;
+                    case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                        onSkipToPrevious();
+                        return true;
+                    case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                        onFastForward();
+                        return true;
+                    case KeyEvent.KEYCODE_MEDIA_REWIND:
+                        onRewind();
+                        return true;
+                    case KeyEvent.KEYCODE_VOLUME_UP:
+                        adjustMusicVolume(AudioManager.ADJUST_RAISE);
+                        return true;
+                    case KeyEvent.KEYCODE_VOLUME_DOWN:
+                        adjustMusicVolume(AudioManager.ADJUST_LOWER);
+                        return true;
+                    case KeyEvent.KEYCODE_VOLUME_MUTE:
+                        adjustMusicVolume(AudioManager.ADJUST_TOGGLE_MUTE);
+                        return true;
+                    default:
+                        return super.onMediaButtonEvent(mediaButtonEvent);
+                }
+            }
+
+            @Override
+            public void onCommand(String command, Bundle extras, ResultReceiver cb) {
+                // Some OEM / car stacks send custom volume commands.
+                if ("android.media.session.command.ADJUST_VOLUME".equals(command) && extras != null) {
+                    int direction = extras.getInt("android.media.VOLUME_CONTROL_DIRECTION", 0);
+                    if (direction > 0) adjustMusicVolume(AudioManager.ADJUST_RAISE);
+                    else if (direction < 0) adjustMusicVolume(AudioManager.ADJUST_LOWER);
+                    if (cb != null) cb.send(0, null);
+                    return;
+                }
+                super.onCommand(command, extras, cb);
+            }
         });
+
+        setSessionToken(mediaSession.getSessionToken());
         mediaSession.setActive(true);
         publishMetadata();
         publishPlaybackState();
+    }
+
+    @Nullable
+    @Override
+    public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
+        // Allow Android Auto / system UI / Bluetooth stacks to browse the active session.
+        return new BrowserRoot(MEDIA_ROOT_ID, null);
+    }
+
+    @Override
+    public void onLoadChildren(
+        @NonNull String parentId,
+        @NonNull Result<List<MediaBrowserCompat.MediaItem>> result
+    ) {
+        List<MediaBrowserCompat.MediaItem> items = new ArrayList<>();
+        if (MEDIA_ROOT_ID.equals(parentId) && active) {
+            MediaMetadataCompat meta = new MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, MEDIA_NOW_PLAYING_ID)
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist)
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, Math.max(0L, durationMs))
+                .build();
+            items.add(
+                new MediaBrowserCompat.MediaItem(
+                    meta.getDescription(),
+                    MediaBrowserCompat.MediaItem.FLAG_PLAYABLE
+                )
+            );
+        }
+        result.sendResult(items);
+    }
+
+    private void adjustMusicVolume(int direction) {
+        if (audioManager == null) return;
+        try {
+            audioManager.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                direction,
+                AudioManager.FLAG_SHOW_UI
+            );
+        } catch (Exception ignored) {
+            /* ignore */
+        }
     }
 
     @Override
@@ -190,6 +360,9 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
         if (intent == null) {
             return START_STICKY;
         }
+
+        // MediaButtonReceiver forwards ACTION_MEDIA_BUTTON here when the session is alive.
+        MediaButtonReceiver.handleIntent(mediaSession, intent);
 
         String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
@@ -210,11 +383,19 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
             return START_STICKY;
         }
         if (ACTION_NEXT.equals(action)) {
-            emit("next", null);
+            if (mediaSession != null && mediaSession.getController() != null) {
+                mediaSession.getController().getTransportControls().skipToNext();
+            } else {
+                emit("next", null);
+            }
             return START_STICKY;
         }
         if (ACTION_PREV.equals(action)) {
-            emit("previous", null);
+            if (mediaSession != null && mediaSession.getController() != null) {
+                mediaSession.getController().getTransportControls().skipToPrevious();
+            } else {
+                emit("previous", null);
+            }
             return START_STICKY;
         }
         if (ACTION_FF.equals(action)) {
@@ -254,9 +435,17 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
         active = true;
         requestAudioFocus();
         acquireWakeLock();
+        if (mediaSession != null) {
+            try {
+                mediaSession.setActive(true);
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        }
         publishMetadata();
         publishPlaybackState();
         maybeLoadArtwork();
+        notifyChildrenChanged(MEDIA_ROOT_ID);
 
         try {
             Notification notification = buildNotification();
@@ -324,20 +513,18 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
 
         playing = nextPlaying;
 
-        // Only (re)request focus when playback actually starts — not on every position tick.
         if (playingChanged && playing) {
             requestAudioFocus();
         }
 
         if (metaChanged) {
             publishMetadata();
+            notifyChildrenChanged(MEDIA_ROOT_ID);
         }
-        // Position / play-state always need a lightweight PlaybackState update.
         publishPlaybackState();
         if (artworkChanged) {
             maybeLoadArtwork();
         }
-        // Notification rebuild is expensive; skip pure seek/position heartbeats.
         if (metaChanged || playingChanged) {
             refreshNotification();
         }
@@ -350,6 +537,7 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
     private void publishMetadata() {
         if (mediaSession == null) return;
         MediaMetadataCompat.Builder meta = new MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, MEDIA_NOW_PLAYING_ID)
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
             .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, title)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist)
@@ -555,6 +743,11 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
             /* ignore */
         }
         try {
+            notifyChildrenChanged(MEDIA_ROOT_ID);
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+        try {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } catch (Exception ignored) {
             /* ignore */
@@ -637,6 +830,8 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
                 new MediaStyle()
                     .setMediaSession(mediaSession.getSessionToken())
                     .setShowActionsInCompactView(0, 1, 2)
+                    .setCancelButtonIntent(serviceAction(ACTION_STOP, 15))
+                    .setShowCancelButton(true)
             );
         }
 
@@ -677,10 +872,5 @@ public class MediaPlaybackService extends Service implements AudioManager.OnAudi
             artworkBitmap = null;
         }
         super.onDestroy();
-    }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
     }
 }

@@ -58,6 +58,7 @@ public class MediaPlaybackPlugin extends Plugin {
                         + "else if(d.action==='seekto'&&typeof d.seekToMs==='number'){v.currentTime=d.seekToMs/1000}"
                         + "else if(d.action==='seekforward'){v.currentTime=Math.min((v.duration||1e9),v.currentTime+((d.seekToMs||10000)/1000))}"
                         + "else if(d.action==='seekbackward'){v.currentTime=Math.max(0,v.currentTime-((d.seekToMs||10000)/1000))}"
+                        // next/previous rely on __safetubeMediaAction → CleanPlayer queue handlers
                         + "}catch(e){}})();";
                 WebView webView = plugin.getBridge() != null ? plugin.getBridge().getWebView() : null;
                 if (webView != null) webView.evaluateJavascript(js, null);

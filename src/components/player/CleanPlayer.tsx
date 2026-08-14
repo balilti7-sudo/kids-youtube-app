@@ -1051,7 +1051,14 @@ function CleanPlayerMediaBridge({
           handleNextVideoRef.current()
           break
         case 'previous':
-          onPreviousTrack?.()
+          // Car / headset UX: restart current track if well underway, otherwise skip back.
+          if (el.currentTime > 3) {
+            el.currentTime = 0
+          } else if (onPreviousTrack) {
+            onPreviousTrack()
+          } else {
+            el.currentTime = 0
+          }
           break
         case 'seekto':
           if (typeof event.seekToMs === 'number' && Number.isFinite(el.duration) && el.duration > 0) {

@@ -1,6 +1,8 @@
 /**
  * Capacitor bridge for Android MediaSession + foreground media service.
- * Exposes transport events from Bluetooth / lock screen / notification into the WebView player.
+ * Exposes transport events from Bluetooth / Android Auto / lock screen / notification
+ * into the WebView player (play, pause, next, previous, seek). Hardware volume is
+ * handled natively on STREAM_MUSIC so steering-wheel volume stays hands-free.
  */
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 
