@@ -23,7 +23,7 @@ import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/ch
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
 import { logPlaybackStreamRequest } from '../lib/streamApi'
-import { fetchChannelUploadsPage } from '../lib/youtube'
+import { fetchChannelUploadsPage, resolveChannelUploadsCursor } from '../lib/youtube'
 import {
   enrichVideosWithFormat,
   filterVideosRespectingAllowShorts,
@@ -312,24 +312,28 @@ function ChannelsPageInner() {
           if (requestId === videosLoadGenRef.current) setVideos(enriched)
         })
 
-        // Seed infinite-scroll cursor from whitelist meta, or probe YouTube for more pages.
-        const metaHasMore = Boolean(selectedChannel?.videos_cache_has_more)
-        const metaToken = selectedChannel?.videos_cache_next_page_token ?? null
-        if (metaHasMore && metaToken) {
-          setUploadsCursor({
-            nextPageToken: metaToken,
-            uploadsPlaylistId: selectedChannel?.videos_cache_uploads_playlist_id ?? null,
-            hasMore: true,
-          })
-        } else {
-          void fetchChannelUploadsPage(youtubeChannelId, {
-            maxPages: 1,
-            uploadsPlaylistId: selectedChannel?.videos_cache_uploads_playlist_id,
-          }).then((page) => {
-            if (requestId !== videosLoadGenRef.current || page.error || !page.data) return
+        // Resolve YouTube-like continuation without resetting to page 1 over a filled cache.
+        void resolveChannelUploadsCursor({
+          youtubeChannelId,
+          uploadsPlaylistId: selectedChannel?.videos_cache_uploads_playlist_id,
+          knownVideoIds: rows.map((r) => r.youtube_video_id),
+          storedToken: selectedChannel?.videos_cache_next_page_token,
+          storedHasMore: selectedChannel?.videos_cache_has_more,
+        }).then((resolved) => {
+          if (requestId !== videosLoadGenRef.current || resolved.error || !resolved.data) return
+          const {
+            newerVideos,
+            boundaryOlderVideos,
+            nextPageToken,
+            hasMore,
+            uploadsPlaylistId,
+          } = resolved.data
+
+          const extras = [...newerVideos, ...boundaryOlderVideos]
+          if (extras.length > 0) {
             setVideos((prev) => {
               const seen = new Set(prev.map((v) => v.youtube_video_id))
-              const extra = page.data!.videos
+              const newerMapped = newerVideos
                 .filter((v) => !seen.has(v.videoId))
                 .map((v) =>
                   toWatchableVideo({
@@ -339,10 +343,22 @@ function ChannelsPageInner() {
                     duration_seconds: v.durationSeconds ?? null,
                   })
                 )
-              return extra.length > 0 ? [...extra, ...prev] : prev
+              for (const v of newerMapped) seen.add(v.youtube_video_id)
+              const olderMapped = boundaryOlderVideos
+                .filter((v) => !seen.has(v.videoId))
+                .map((v) =>
+                  toWatchableVideo({
+                    youtube_video_id: v.videoId,
+                    title: v.title,
+                    thumbnail_url: v.thumbnail || null,
+                    duration_seconds: v.durationSeconds ?? null,
+                  })
+                )
+              if (newerMapped.length === 0 && olderMapped.length === 0) return prev
+              return [...newerMapped, ...prev, ...olderMapped]
             })
             void enrichVideosWithFormat(
-              page.data.videos.map((v) => ({
+              extras.map((v) => ({
                 youtube_video_id: v.videoId,
                 title: v.title,
                 thumbnail_url: v.thumbnail || null,
@@ -355,13 +371,14 @@ function ChannelsPageInner() {
                 return prev.map((v) => byId.get(v.youtube_video_id) ?? v)
               })
             })
-            setUploadsCursor({
-              nextPageToken: page.data.nextPageToken,
-              uploadsPlaylistId: page.data.uploadsPlaylistId,
-              hasMore: Boolean(page.data.hasMore && page.data.nextPageToken),
-            })
+          }
+
+          setUploadsCursor({
+            nextPageToken,
+            uploadsPlaylistId: uploadsPlaylistId || selectedChannel?.videos_cache_uploads_playlist_id || null,
+            hasMore: Boolean(hasMore && nextPageToken),
           })
-        }
+        })
 
         // Background cache warm — avoid full remount when the list is already on screen.
         if (forceRefreshedChannelRef.current !== channelKey) {
@@ -406,19 +423,17 @@ function ChannelsPageInner() {
     return filterVideosRespectingAllowShorts(withoutUpcoming, allowShorts)
   }, [playlistSourceVideos, videoSearch, allowShorts])
 
-  const channelHasMoreVideos = Boolean(uploadsCursor?.hasMore && uploadsCursor.nextPageToken)
-
   const handleLoadMoreChannelVideos = useCallback(async () => {
     if (!selectedYoutubeChannelId || !selectedChannelDbId || videosLoadingMore) return
     const token = uploadsCursor?.nextPageToken
-    if (!token) return
+    if (!token && !uploadsCursor?.hasMore) return
 
     setVideosLoadingMore(true)
     setVideosError(null)
     try {
       const kidToken = getSavedChildAccessToken()
       // Parent / authenticated path: append into shared cache then merge locally.
-      if (!kidToken) {
+      if (!kidToken && token) {
         const appended = await appendChannelVideosCache(selectedChannelDbId, selectedYoutubeChannelId)
         if (appended.error) {
           setVideosError(appended.error.message)
@@ -477,6 +492,8 @@ function ChannelsPageInner() {
     uploadsCursor,
     appendChannelVideosCache,
   ])
+
+  const channelHasMoreVideos = Boolean(uploadsCursor?.hasMore)
   const channelSearchDropdownItems = useMemo(
     () =>
       filteredVideos.map((video) => ({

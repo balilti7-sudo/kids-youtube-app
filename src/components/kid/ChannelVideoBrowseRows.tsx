@@ -222,39 +222,53 @@ export function ChannelVideoBrowseRows({
           {allowShorts && shorts.length > 0 ? shortsShelf(shorts) : null}
           {liveStreams.length > 0 ? homeShelfMobile(liveStreams, 'שידורים חיים', 'שידורים חיים') : null}
           {longForm.length === 0 && !(allowShorts && shorts.length > 0) && liveStreams.length === 0
-            ? emptyLabel('אין תוכן להצגה בערוץ הזה.')
+            ? emptyLabel(
+                hasMore
+                  ? 'טוען את סרטוני הערוץ… גלול למטה או לחץ על טען עוד.'
+                  : 'אין תוכן להצגה בערוץ הזה.'
+              )
             : null}
           {loadMoreFooter}
         </div>
       ) : null}
 
       {tab === 'videos' ? (
-        longForm.length === 0 ? (
-          emptyLabel('אין סרטונים ארוכים בערוץ הזה.')
-        ) : (
-          <>
-            <div className="yt-video-grid">
-              {longForm.map((video) => (
-                <VideoGridCard
-                  key={video.youtube_video_id}
-                  video={video}
-                  active={activeVideoId === video.youtube_video_id}
-                  hideThumbnail={hideThumbnails}
-                  onSelect={() => onSelectVideo(video)}
-                  action={renderAction?.(video)}
-                />
-              ))}
-            </div>
-            {loadMoreFooter}
-          </>
-        )
+        <>
+          {longForm.length === 0
+            ? emptyLabel(
+                hasMore
+                  ? 'עדיין אין סרטונים ארוכים ברשימה שנטענה — טען עוד כדי להמשיך.'
+                  : 'אין סרטונים ארוכים בערוץ הזה.'
+              )
+            : (
+              <div className="yt-video-grid">
+                {longForm.map((video) => (
+                  <VideoGridCard
+                    key={video.youtube_video_id}
+                    video={video}
+                    active={activeVideoId === video.youtube_video_id}
+                    hideThumbnail={hideThumbnails}
+                    onSelect={() => onSelectVideo(video)}
+                    action={renderAction?.(video)}
+                  />
+                ))}
+              </div>
+            )}
+          {loadMoreFooter}
+        </>
       ) : null}
 
       {tab === 'shorts' ? (
-        !allowShorts || shorts.length === 0 ? (
-          emptyLabel(allowShorts ? 'אין Shorts בערוץ הזה.' : 'Shorts כבויים בפרופיל זה.')
-        ) : (
-          <>
+        <>
+          {!allowShorts ? (
+            emptyLabel('Shorts כבויים בפרופיל זה.')
+          ) : shorts.length === 0 ? (
+            emptyLabel(
+              hasMore
+                ? 'עדיין אין Shorts ברשימה שנטענה — טען עוד כדי להמשיך.'
+                : 'אין Shorts בערוץ הזה.'
+            )
+          ) : (
             <div className="yt-shorts-grid">
               {shorts.map((video) => (
                 <YoutubeShortCard
@@ -274,31 +288,35 @@ export function ChannelVideoBrowseRows({
                 />
               ))}
             </div>
-            {loadMoreFooter}
-          </>
-        )
+          )}
+          {allowShorts ? loadMoreFooter : null}
+        </>
       ) : null}
 
       {tab === 'live' ? (
-        liveStreams.length === 0 ? (
-          emptyLabel('אין שידורים חיים זמינים כרגע.')
-        ) : (
-          <>
-            <div className="yt-video-grid">
-              {liveStreams.map((video) => (
-                <VideoGridCard
-                  key={video.youtube_video_id}
-                  video={video}
-                  active={activeVideoId === video.youtube_video_id}
-                  hideThumbnail={hideThumbnails}
-                  onSelect={() => onSelectVideo(video)}
-                  action={renderAction?.(video)}
-                />
-              ))}
-            </div>
-            {loadMoreFooter}
-          </>
-        )
+        <>
+          {liveStreams.length === 0
+            ? emptyLabel(
+                hasMore
+                  ? 'עדיין אין שידורים חיים ברשימה שנטענה — טען עוד כדי להמשיך.'
+                  : 'אין שידורים חיים זמינים כרגע.'
+              )
+            : (
+              <div className="yt-video-grid">
+                {liveStreams.map((video) => (
+                  <VideoGridCard
+                    key={video.youtube_video_id}
+                    video={video}
+                    active={activeVideoId === video.youtube_video_id}
+                    hideThumbnail={hideThumbnails}
+                    onSelect={() => onSelectVideo(video)}
+                    action={renderAction?.(video)}
+                  />
+                ))}
+              </div>
+            )}
+          {loadMoreFooter}
+        </>
       ) : null}
     </div>
   )

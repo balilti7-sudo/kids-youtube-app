@@ -1117,7 +1117,9 @@ export async function fetchChannelUploadsPage(
           data: {
             videos: fallback.data,
             nextPageToken: null,
-            hasMore: false,
+            // RSS is a short snapshot only — keep hasMore true so UI can retry
+            // playlist pagination once quota recovers (Load More / scroll).
+            hasMore: true,
             uploadsPlaylistId: options?.uploadsPlaylistId?.trim() || '',
           },
           error: null,
@@ -1125,6 +1127,178 @@ export async function fetchChannelUploadsPage(
       }
     }
 
+    return { data: null, error: normalized }
+  }
+}
+
+/** Max playlist pages to walk when repairing a missing continuation token. */
+const CURSOR_REPAIR_MAX_PAGES = 80
+
+export type ChannelUploadsCursorResolution = {
+  nextPageToken: string | null
+  hasMore: boolean
+  uploadsPlaylistId: string | null
+  /** Newer uploads found at the head of the playlist (not yet in `knownVideoIds`). */
+  newerVideos: ChannelVideoItem[]
+  /** Older uploads on the page that crosses past the known cache prefix. */
+  boundaryOlderVideos: ChannelVideoItem[]
+}
+
+/**
+ * Resolve a YouTube-like continuation cursor for a channel uploads feed.
+ *
+ * Prefers a stored DB cursor. When the cursor is missing but videos are already
+ * loaded from cache, walks the uploads playlist until past the known IDs so
+ * Load More continues with *older* videos instead of resetting to page 1.
+ */
+export async function resolveChannelUploadsCursor(options: {
+  youtubeChannelId: string
+  uploadsPlaylistId?: string | null
+  knownVideoIds: string[]
+  storedToken?: string | null
+  storedHasMore?: boolean | null
+}): Promise<{ data: ChannelUploadsCursorResolution | null; error: Error | null }> {
+  const id = options.youtubeChannelId.trim()
+  if (!id) return { data: null, error: new Error('Missing channel id') }
+
+  const known = new Set(options.knownVideoIds.map((x) => x.trim()).filter(Boolean))
+  const storedToken = options.storedToken?.trim() || null
+  const storedHasMore = options.storedHasMore
+
+  // Trusted stored continuation — do not re-walk from page 1.
+  if (storedHasMore && storedToken) {
+    return {
+      data: {
+        nextPageToken: storedToken,
+        hasMore: true,
+        uploadsPlaylistId: options.uploadsPlaylistId?.trim() || null,
+        newerVideos: [],
+        boundaryOlderVideos: [],
+      },
+      error: null,
+    }
+  }
+
+  // Explicitly exhausted in DB and we already have a cache — stop.
+  if (storedHasMore === false && !storedToken && known.size > 0) {
+    return {
+      data: {
+        nextPageToken: null,
+        hasMore: false,
+        uploadsPlaylistId: options.uploadsPlaylistId?.trim() || null,
+        newerVideos: [],
+        boundaryOlderVideos: [],
+      },
+      error: null,
+    }
+  }
+
+  // No usable cursor yet (empty channel, or meta missing) — live resolve.
+  const key = getApiKey()
+  if (!key) {
+    return {
+      data: null,
+      error: new Error(
+        'חסר מפתח YouTube: הוסיפו VITE_YOUTUBE_API_KEY לקובץ .env.local והפעילו מחדש את שרת הפיתוח (npm run dev).'
+      ),
+    }
+  }
+
+  try {
+    let uploadsPlaylistId = options.uploadsPlaylistId?.trim() || null
+    if (!uploadsPlaylistId) {
+      uploadsPlaylistId = await fetchChannelUploadsPlaylistId(id, key)
+    }
+    if (!uploadsPlaylistId) {
+      return { data: null, error: new Error('לא נמצאה רשימת העלאות לערוץ (ייתכן שהערוץ לא זמין ב־API).') }
+    }
+
+    // Empty local list — page 1 is both content seed and cursor.
+    if (known.size === 0) {
+      const page = await fetchUploadsPlaylistVideos(uploadsPlaylistId, key, { maxPages: 1 })
+      return {
+        data: {
+          nextPageToken: page.nextPageToken,
+          hasMore: Boolean(page.hasMore && page.nextPageToken),
+          uploadsPlaylistId,
+          newerVideos: page.videos,
+          boundaryOlderVideos: [],
+        },
+        error: null,
+      }
+    }
+
+    // Repair: walk newest→older until we've covered the known set, then return
+    // the leftover page token so scroll continues with unseen older videos.
+    const newerVideos: ChannelVideoItem[] = []
+    let pageToken: string | undefined
+    let pages = 0
+    let matchedKnown = 0
+
+    for (;;) {
+      pages += 1
+      if (pages > CURSOR_REPAIR_MAX_PAGES) {
+        return {
+          data: {
+            nextPageToken: pageToken ?? null,
+            hasMore: Boolean(pageToken),
+            uploadsPlaylistId,
+            newerVideos,
+            boundaryOlderVideos: [],
+          },
+          error: null,
+        }
+      }
+
+      const page = await fetchUploadsPlaylistVideos(uploadsPlaylistId, key, {
+        maxPages: 1,
+        pageToken,
+      })
+
+      const boundaryOlderVideos: ChannelVideoItem[] = []
+      for (const video of page.videos) {
+        if (known.has(video.videoId)) {
+          matchedKnown += 1
+        } else if (matchedKnown === 0) {
+          newerVideos.push(video)
+        } else {
+          boundaryOlderVideos.push(video)
+        }
+      }
+
+      const coveredKnown = matchedKnown >= known.size
+      if (coveredKnown || boundaryOlderVideos.length > 0) {
+        return {
+          data: {
+            nextPageToken: page.nextPageToken,
+            hasMore: Boolean(page.nextPageToken) || boundaryOlderVideos.length > 0,
+            uploadsPlaylistId,
+            newerVideos,
+            boundaryOlderVideos,
+          },
+          error: null,
+        }
+      }
+
+      if (!page.nextPageToken) {
+        return {
+          data: {
+            nextPageToken: null,
+            hasMore: false,
+            uploadsPlaylistId,
+            newerVideos,
+            boundaryOlderVideos: [],
+          },
+          error: null,
+        }
+      }
+
+      pageToken = page.nextPageToken
+    }
+  } catch (e) {
+    console.error('[youtube] resolveChannelUploadsCursor', e)
+    const normalized =
+      e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה')
     return { data: null, error: normalized }
   }
 }
@@ -1191,7 +1365,7 @@ export async function getLatestVideosForChannel(
           data: fallback.data,
           error: null,
           nextPageToken: null,
-          hasMore: false,
+          hasMore: true,
           uploadsPlaylistId: null,
         }
       }
