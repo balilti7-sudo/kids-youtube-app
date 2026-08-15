@@ -71,9 +71,18 @@ export function WhitelistView({
 }: Props) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [videoHits, setVideoHits] = useState<WhitelistVideoHit[]>([])
   const [videoSearchLoading, setVideoSearchLoading] = useState(false)
-  const normalized = normalizeQuery(query)
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedQuery(query), 160)
+    return () => window.clearTimeout(handle)
+  }, [query])
+
+  const normalized = normalizeQuery(debouncedQuery)
+  const liveNormalized = normalizeQuery(query)
+  const hasQuery = liveNormalized.length > 0
 
   const filteredChannels = useMemo(
     () => channels.filter((c) => channelMatches(c, normalized)),
@@ -134,7 +143,7 @@ export function WhitelistView({
           if (!cancelled) setVideoSearchLoading(false)
         }
       })()
-    }, 180)
+    }, 40)
 
     return () => {
       cancelled = true
@@ -163,27 +172,33 @@ export function WhitelistView({
     )
   }
 
-  const hasQuery = normalized.length > 0
   const showEmptyFilter =
-    hasQuery && filteredChannels.length === 0 && videoHits.length === 0 && !videoSearchLoading
+    hasQuery &&
+    normalized.length > 0 &&
+    filteredChannels.length === 0 &&
+    videoHits.length === 0 &&
+    !videoSearchLoading
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
-      <div className="rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-2.5 shadow-inner ring-1 ring-zinc-800/80">
-        <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+      <div className="sticky top-0 z-20 rounded-2xl border border-zinc-700/80 bg-zinc-950/95 p-2.5 shadow-inner ring-1 ring-zinc-800/80 backdrop-blur-md">
+        <div className="mb-1.5 flex min-h-[1.25rem] items-center justify-between gap-2 px-0.5">
           <p className="text-xs font-bold uppercase tracking-wide text-zinc-400">
             {t('channels.whitelistSearchTitle')}
           </p>
-          {hasQuery ? (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
-              onClick={() => setQuery('')}
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
-              {t('common.clear')}
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className={cn(
+              'inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200',
+              hasQuery ? 'visible' : 'invisible pointer-events-none'
+            )}
+            onClick={() => setQuery('')}
+            tabIndex={hasQuery ? 0 : -1}
+            aria-hidden={!hasQuery}
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+            {t('common.clear')}
+          </button>
         </div>
         <RtlSearchInput
           id="whitelist-fast-search"
@@ -192,15 +207,20 @@ export function WhitelistView({
           placeholder={t('channels.whitelistSearchPlaceholder')}
           aria-label={t('channels.whitelistSearchTitle')}
         />
-        {hasQuery ? (
-          <p className="mt-1.5 px-0.5 text-[11px] text-zinc-500">
-            {t('channels.whitelistSearchHint', {
-              channels: filteredChannels.length,
-              videos: videoHits.length,
-            })}
-            {videoSearchLoading ? ` · ${t('common.loading')}` : ''}
-          </p>
-        ) : null}
+        {/* Always reserve hint row height so the first keystroke doesn't shove the list. */}
+        <p
+          className={cn(
+            'mt-1.5 min-h-[1rem] px-0.5 text-[11px] text-zinc-500',
+            hasQuery ? 'visible' : 'invisible'
+          )}
+          aria-live="polite"
+        >
+          {t('channels.whitelistSearchHint', {
+            channels: filteredChannels.length,
+            videos: videoHits.length,
+          })}
+          {videoSearchLoading ? ` · ${t('common.loading')}` : ''}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -234,48 +254,56 @@ export function WhitelistView({
         />
       ) : null}
 
-      {hasQuery && videoHits.length > 0 ? (
+      {/* Fixed-height video hits region — empty state keeps layout stable while searching. */}
+      {hasQuery ? (
         <section
           aria-label={t('channels.whitelistVideoHits')}
-          className="rounded-xl border border-zinc-700/70 bg-zinc-900/50 p-2"
+          className="min-h-[3.5rem] max-h-48 overflow-y-auto rounded-xl border border-zinc-700/70 bg-zinc-900/50 p-2 overscroll-contain"
         >
           <p className="mb-1.5 px-1 text-xs font-semibold text-zinc-400">
             {t('channels.whitelistVideoHits')}
+            {videoSearchLoading ? ` · ${t('common.loading')}` : ''}
           </p>
-          <ul className="flex flex-col gap-1">
-            {videoHits.map((hit) => (
-              <li key={`${hit.channel_id}-${hit.youtube_video_id}`}>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-start transition hover:bg-zinc-800/80"
-                  onClick={() => {
-                    const ch = channelById.get(hit.channel_id)
-                    if (!ch) return
-                    onPreviewRequest(ch, {
-                      videoId: hit.youtube_video_id,
-                      videoSearch: query.trim(),
-                    })
-                  }}
-                >
-                  {hit.thumbnail_url ? (
-                    <img
-                      src={hit.thumbnail_url}
-                      alt=""
-                      className="h-10 w-16 shrink-0 rounded-md object-cover"
-                    />
-                  ) : (
-                    <span className="flex h-10 w-16 shrink-0 items-center justify-center rounded-md bg-zinc-800 text-zinc-500">
-                      <Search className="h-4 w-4" aria-hidden />
+          {videoHits.length > 0 ? (
+            <ul className="flex flex-col gap-1">
+              {videoHits.map((hit) => (
+                <li key={`${hit.channel_id}-${hit.youtube_video_id}`}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-start transition hover:bg-zinc-800/80"
+                    onClick={() => {
+                      const ch = channelById.get(hit.channel_id)
+                      if (!ch) return
+                      onPreviewRequest(ch, {
+                        videoId: hit.youtube_video_id,
+                        videoSearch: query.trim(),
+                      })
+                    }}
+                  >
+                    {hit.thumbnail_url ? (
+                      <img
+                        src={hit.thumbnail_url}
+                        alt=""
+                        className="h-10 w-16 shrink-0 rounded-md object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-10 w-16 shrink-0 items-center justify-center rounded-md bg-zinc-800 text-zinc-500">
+                        <Search className="h-4 w-4" aria-hidden />
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-zinc-100">{hit.title}</span>
+                      <span className="block truncate text-[11px] text-zinc-500">{hit.channel_name}</span>
                     </span>
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-zinc-100">{hit.title}</span>
-                    <span className="block truncate text-[11px] text-zinc-500">{hit.channel_name}</span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="px-1 py-2 text-[11px] text-zinc-500">
+              {videoSearchLoading ? t('common.loading') : 'אין סרטונים תואמים במטמון'}
+            </p>
+          )}
         </section>
       ) : null}
 

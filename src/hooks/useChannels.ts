@@ -264,6 +264,8 @@ export function useChannels(
         .eq('id', channelDbId)
       if (updateError) return { error: new Error(updateError.message), appended: 0, hasMore: false }
 
+      // Cursor fields already patched in-store — skip full whitelist refetch to avoid
+      // remounting search UI (loading flash) while the parent is typing.
       patchWhitelistCursor(channelDbId, {
         last_videos_refresh_at: new Date().toISOString(),
         videos_cache_next_page_token: cursor.nextPageToken,
@@ -271,12 +273,9 @@ export function useChannels(
         videos_cache_has_more: cursor.hasMore,
       })
 
-      if (deviceId) await fetchWhitelistForDevice(deviceId)
       return { error: null, appended: fetched.length, hasMore: cursor.hasMore }
     },
     [
-      deviceId,
-      fetchWhitelistForDevice,
       localAccessToken,
       getLocalParentPin,
       replaceChannelCacheLocalParent,

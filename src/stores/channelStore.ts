@@ -154,14 +154,16 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   setVideoSearchError: (videoSearchError) => set({ videoSearchError }),
 
   fetchWhitelistForDevice: async (deviceId) => {
-    set({ loading: true })
+    // Keep existing list visible during background refresh so search inputs aren't unmounted.
+    const showLoading = get().whitelist.length === 0
+    if (showLoading) set({ loading: true })
     const { data, error } = await supabase
       .from('device_whitelist')
       .select('*, channel:whitelisted_channels(*)')
       .eq('device_id', deviceId)
 
     if (error) {
-      set({ loading: false, whitelist: [] })
+      set({ loading: false, whitelist: showLoading ? [] : get().whitelist })
       return
     }
     const channels = (data ?? [])
@@ -313,18 +315,19 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   },
 
   fetchWhitelistForLocalParent: async (accessToken) => {
-    set({ loading: true })
+    const showLoading = get().whitelist.length === 0
+    if (showLoading) set({ loading: true })
     const { data, error } = await supabase.rpc('local_parent_whitelist_for_device', {
       p_access_token: accessToken,
     })
     if (error) {
-      set({ loading: false, whitelist: [] })
+      set({ loading: false, whitelist: showLoading ? [] : get().whitelist })
       return
     }
     const raw = data as unknown
     const arr = Array.isArray(raw) ? raw : []
     if (!Array.isArray(arr)) {
-      set({ loading: false, whitelist: [] })
+      set({ loading: false, whitelist: showLoading ? [] : get().whitelist })
       return
     }
     const channels = arr as WhitelistedChannel[]

@@ -120,8 +120,14 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
           aria-autocomplete="list"
         />
 
-        {showMatchCount && hasQuery ? (
-          <p className="mt-1.5 text-xs text-yt-textMuted">
+        {showMatchCount ? (
+          <p
+            className={cn(
+              'mt-1.5 min-h-[1rem] text-xs text-yt-textMuted',
+              hasQuery ? 'visible' : 'invisible'
+            )}
+            aria-live="polite"
+          >
             {filteredCount === 0
               ? 'אין התאמות לחיפוש'
               : `מציג ${filteredCount} מתוך ${totalCount} סרטונים`}

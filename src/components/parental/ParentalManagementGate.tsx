@@ -160,7 +160,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
   return (
     <AnimatePresence>
       <motion.div
-        className="safe-area-pad fixed inset-0 z-[200] flex min-h-dvh flex-col items-center justify-center overflow-y-auto bg-slate-950/60 backdrop-blur-xl dark:bg-black/70"
+        className="safe-area-pad fixed inset-0 z-[200] flex min-h-svh flex-col items-end justify-center overflow-y-auto bg-slate-950/60 pb-0 backdrop-blur-xl dark:bg-black/70 sm:items-center sm:pb-6"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -171,12 +171,12 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
           role="dialog"
           aria-modal="true"
           aria-labelledby="parental-gate-title"
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.92, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+          initial={{ y: 24, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 32 }}
           className={cn(
-            'relative w-full max-w-md overflow-hidden rounded-2xl border border-white/20',
+            'relative w-full max-w-md overflow-hidden rounded-t-2xl border border-white/20 sm:rounded-2xl',
             'bg-white/80 shadow-2xl shadow-slate-900/20 ring-1 ring-white/30 backdrop-blur-2xl',
             'dark:border-white/10 dark:bg-zinc-900/80 dark:ring-white/5'
           )}
@@ -244,23 +244,21 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
               </div>
             ) : null}
 
-            {verifying ? (
-              <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-zinc-400">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                מאמתים…
-              </div>
-            ) : null}
-
-            {error ? (
-              <motion.p
-                role="alert"
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-medium text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
-              >
-                {error}
-              </motion.p>
-            ) : null}
+            <div className="min-h-[2.75rem]" aria-live="polite">
+              {verifying ? (
+                <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-zinc-400">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  מאמתים…
+                </div>
+              ) : error ? (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-medium text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
+                >
+                  {error}
+                </p>
+              ) : null}
+            </div>
 
             <div className="border-t border-slate-200/80 pt-4 dark:border-zinc-700/80">
               <Button type="button" variant="secondary" className="w-full" onClick={() => void signOut()}>

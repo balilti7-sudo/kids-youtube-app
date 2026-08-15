@@ -110,23 +110,24 @@ export const RtlSearchInput = memo(function RtlSearchInput({
         aria-autocomplete={ariaAutocomplete}
         className={cn(
           'min-w-0 flex-1 bg-transparent px-4 text-sm font-normal text-yt-text outline-none placeholder:text-yt-textMuted',
-          hasQuery ? 'pl-2' : '',
           inputClassName
         )}
       />
 
-      {hasQuery ? (
-        <button
-          type="button"
-          tabIndex={-1}
-          className="me-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-yt-textMuted transition hover:bg-yt-surfaceHover hover:text-yt-text"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={clearInput}
-          aria-label="מחק את החיפוש"
-        >
-          <X className="h-4 w-4" strokeWidth={2.5} aria-hidden />
-        </button>
-      ) : null}
+      <button
+        type="button"
+        tabIndex={-1}
+        className={cn(
+          'me-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-yt-textMuted transition hover:bg-yt-surfaceHover hover:text-yt-text',
+          hasQuery ? 'visible' : 'invisible pointer-events-none'
+        )}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={clearInput}
+        aria-label="מחק את החיפוש"
+        aria-hidden={!hasQuery}
+      >
+        <X className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+      </button>
 
       {onSubmit ? (
         <button

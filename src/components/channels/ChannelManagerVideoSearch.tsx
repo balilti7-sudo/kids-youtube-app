@@ -177,55 +177,56 @@ export function ChannelManagerVideoSearch({
         open={open}
         onClose={handleClose}
         title="חיפוש סרטונים"
-        bodyClassName="max-h-[70vh] overflow-y-auto"
+        bodyClassName="max-h-[56svh] overflow-y-auto"
+        toolbar={
+          <>
+            <p className="mb-3 text-sm text-zinc-400">
+              חפשו ב-YouTube והוסיפו סרטונים לפלייליסט (Enter או כפתור החיפוש). אפשר גם לבחור כמה סרטונים יחד.
+            </p>
+            <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="search"
+                  dir="auto"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      submitSearch()
+                    }
+                  }}
+                  placeholder="הקלידו שם סרטון…"
+                  aria-label="חיפוש סרטונים ב-YouTube"
+                  className={CHANNEL_MANAGER_SEARCH_INPUT_CLASS}
+                />
+                <button
+                  type="button"
+                  className={CHANNEL_MANAGER_SEARCH_SUBMIT_CLASS}
+                  onClick={submitSearch}
+                  disabled={loading || !input.trim()}
+                  aria-label="חפש סרטונים"
+                  title="חפש"
+                >
+                  {loading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                  ) : (
+                    <Search className="h-5 w-5" aria-hidden />
+                  )}
+                  <span>חפש</span>
+                </button>
+              </div>
+            </div>
+          </>
+        }
         footer={
           <Button type="button" variant="secondary" onClick={handleClose}>
             סגור
           </Button>
         }
       >
-        <p className="mb-3 text-sm text-zinc-400">
-          חפשו ב-YouTube והוסיפו סרטונים לפלייליסט (Enter או כפתור החיפוש). אפשר גם לבחור כמה סרטונים יחד.
-        </p>
-
-        <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <input
-              type="search"
-              dir="auto"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  submitSearch()
-                }
-              }}
-              placeholder="הקלידו שם סרטון…"
-              aria-label="חיפוש סרטונים ב-YouTube"
-              disabled={loading}
-              className={CHANNEL_MANAGER_SEARCH_INPUT_CLASS}
-            />
-            <button
-              type="button"
-              className={CHANNEL_MANAGER_SEARCH_SUBMIT_CLASS}
-              onClick={submitSearch}
-              disabled={loading || !input.trim()}
-              aria-label="חפש סרטונים"
-              title="חפש"
-            >
-              {loading ? (
-                <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-              ) : (
-                <Search className="h-5 w-5" aria-hidden />
-              )}
-              <span>חפש</span>
-            </button>
-          </div>
-        </div>
-
         {query || loading ? (
-          <div className="mt-3 rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80" aria-live="polite">
+          <div className="min-h-[12rem] rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-3 ring-1 ring-zinc-800/80" aria-live="polite">
             {query ? (
               <p className="mb-2 text-xs font-medium text-zinc-400">
                 תוצאות עבור: <span className="text-zinc-100">&quot;{query}&quot;</span>

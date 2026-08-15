@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react'
+import { useEffect, useId, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { Button } from './Button'
@@ -19,24 +19,45 @@ export function Modal({
   title,
   children,
   footer,
+  toolbar,
   size = 'md',
   bodyClassName,
   panelClassName,
   headerClassName,
   footerClassName,
+  toolbarClassName,
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: ReactNode
   footer?: ReactNode
+  /** Fixed chrome above the scroll body (e.g. search) — avoids sticky-in-scroll jumps with the keyboard. */
+  toolbar?: ReactNode
   size?: ModalSize
   bodyClassName?: string
   panelClassName?: string
   headerClassName?: string
   footerClassName?: string
+  toolbarClassName?: string
 }) {
   const titleId = useId()
+
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    const prevPaddingRight = document.body.style.paddingRight
+    const scrollbarGap = window.innerWidth - document.documentElement.clientWidth
+    document.body.style.overflow = 'hidden'
+    if (scrollbarGap > 0) {
+      document.body.style.paddingRight = `${scrollbarGap}px`
+    }
+    return () => {
+      document.body.style.overflow = prevOverflow
+      document.body.style.paddingRight = prevPaddingRight
+    }
+  }, [open])
+
   if (!open) return null
   if (typeof document === 'undefined') return null
 
@@ -53,11 +74,14 @@ export function Modal({
         aria-label="סגור"
         onClick={onClose}
       />
-      {/* Safe-area on the flex shell only — backdrop stays edge-to-edge under system bars. */}
+      {/*
+        Use svh (not dvh) for max-height so the soft keyboard does not constantly
+        resize/recenter the panel while typing. Mobile stays bottom-anchored.
+      */}
       <div className="safe-area-pad pointer-events-none relative z-10 flex h-full w-full items-end justify-center sm:items-center">
         <div
           className={cn(
-            'pointer-events-auto relative flex w-full max-h-[min(92dvh,calc(100dvh-var(--sat)-var(--sab)-1.5rem))] flex-col rounded-t-3xl bg-yt-surface p-4 shadow-2xl ring-1 ring-yt-border sm:rounded-3xl sm:p-6',
+            'pointer-events-auto relative flex w-full max-h-[min(92svh,calc(100svh-var(--sat)-var(--sab)-1.5rem))] flex-col rounded-t-3xl bg-yt-surface p-4 shadow-2xl ring-1 ring-yt-border sm:rounded-3xl sm:p-6',
             SIZE_CLASS[size],
             panelClassName
           )}
@@ -75,7 +99,10 @@ export function Modal({
               <X className="h-5 w-5" />
             </Button>
           </div>
-          <div className={cn('min-h-0 flex-1 overflow-y-auto', bodyClassName ?? 'max-h-[70vh]')}>
+          {toolbar ? (
+            <div className={cn('mb-3 shrink-0', toolbarClassName)}>{toolbar}</div>
+          ) : null}
+          <div className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain', bodyClassName ?? 'max-h-[70svh]')}>
             {children}
           </div>
           {footer ? (

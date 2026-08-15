@@ -650,7 +650,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         ) : null}
       </header>
 
-      {devLoading || listLoading ? (
+      {devLoading || (listLoading && whitelist.length === 0) ? (
         <Skeleton className="h-32 w-full" />
       ) : devices.length === 0 ? (
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>

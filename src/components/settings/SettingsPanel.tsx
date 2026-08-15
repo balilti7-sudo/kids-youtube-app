@@ -64,10 +64,12 @@ export function SettingsPanel() {
             {profile?.email}
           </p>
           {subscription ? (
-            <p className="mt-1 text-xs font-medium text-brand-700 dark:text-brand-500">
+            <p className="mt-1 min-h-[1rem] text-xs font-medium text-brand-700 dark:text-brand-500">
               {t('settings.subscriptionLine', { plan: subscription.plan, status: subscription.status })}
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-1 min-h-[1rem]" aria-hidden />
+          )}
         </div>
       </div>
 
@@ -99,7 +101,7 @@ export function SettingsPanel() {
         onClose={() => setAboutOpen(false)}
         title="🛡️ אודות SafeTube"
         size="lg"
-        bodyClassName="max-h-[75vh] overflow-y-auto text-right"
+        bodyClassName="max-h-[70svh] overflow-y-auto text-right"
         footer={
           <Button type="button" variant="secondary" className="min-w-[7rem]" onClick={() => setAboutOpen(false)}>
             סגור

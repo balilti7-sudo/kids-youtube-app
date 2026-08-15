@@ -159,17 +159,17 @@ export function ParentalPinModal({
             onClick={onClose}
           />
 
-          <div className="safe-area-pad pointer-events-none relative z-10 flex h-full w-full items-center justify-center">
+          <div className="safe-area-pad pointer-events-none relative z-10 flex h-full w-full items-end justify-center sm:items-center sm:p-4">
             <motion.div
               role="dialog"
               aria-modal="true"
               aria-labelledby="parental-pin-title"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.92, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 16, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               className={cn(
-                'pointer-events-auto relative w-full max-w-md overflow-hidden rounded-3xl border border-yt-border',
+                'pointer-events-auto relative w-full max-w-md overflow-hidden rounded-t-3xl border border-yt-border sm:rounded-3xl',
                 'bg-yt-surface shadow-2xl ring-1 ring-yt-border/80'
               )}
               onClick={(e) => e.stopPropagation()}
@@ -218,23 +218,21 @@ export function ParentalPinModal({
                 ))}
               </div>
 
-              {verifying ? (
-                <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-zinc-400">
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  מאמתים…
-                </div>
-              ) : null}
-
-              {error ? (
-                <motion.p
-                  role="alert"
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-medium text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
-                >
-                  {error}
-                </motion.p>
-              ) : null}
+              <div className="min-h-[2.75rem]" aria-live="polite">
+                {verifying ? (
+                  <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-zinc-400">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    מאמתים…
+                  </div>
+                ) : error ? (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-medium text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
+                  >
+                    {error}
+                  </p>
+                ) : null}
+              </div>
             </div>
             </motion.div>
           </div>
