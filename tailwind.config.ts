@@ -7,6 +7,8 @@ export default {
   theme: {
     extend: {
       screens: {
+        /** Very small / feature-phone widths. */
+        xxs: '320px',
         /** Compact / kosher phones below typical Tailwind `sm`. */
         xs: '360px',
       },

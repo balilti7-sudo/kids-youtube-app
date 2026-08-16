@@ -72,7 +72,7 @@ export function ProfileSwitcher() {
         aria-label="החלף פרופיל"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'inline-flex min-h-10 min-w-0 max-w-[9rem] items-center gap-1.5 rounded-2xl border border-zinc-700/80 bg-zinc-800 px-2 py-2 text-xs font-black text-zinc-50 shadow-md shadow-black/25 ring-1 ring-white/10 transition hover:bg-zinc-700 sm:max-w-[14rem] sm:gap-2 sm:px-3'
+          'inline-flex min-h-12 min-w-0 max-w-[min(100%,11rem)] items-center gap-1.5 rounded-2xl border border-zinc-700/80 bg-zinc-800 px-2.5 py-2 text-xs font-black text-zinc-50 shadow-md shadow-black/25 ring-1 ring-white/10 transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:max-w-[14rem] sm:gap-2 sm:px-3'
         )}
       >
         <UsersRound className="h-4 w-4 shrink-0 text-sky-300" aria-hidden />
@@ -97,7 +97,7 @@ export function ProfileSwitcher() {
                 <button
                   type="button"
                   className={cn(
-                    'flex w-full items-center px-3 py-2.5 text-start text-sm font-semibold transition',
+                    'flex min-h-12 w-full items-center px-3 py-2.5 text-start text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-inset',
                     selected
                       ? 'bg-sky-500/20 text-sky-100'
                       : 'text-zinc-100 hover:bg-zinc-800'

@@ -42,7 +42,8 @@ export function ChildProofLongPressControl({
         aria-label={ariaLabel ?? `לחיצה ארוכה ${secondsLabel} שניות`}
         title={title ?? `החזיקו לחוץ ${secondsLabel} שנ׳`}
         className={cn(
-          'relative inline-flex touch-manipulation select-none',
+          'relative inline-flex min-h-12 min-w-12 touch-manipulation select-none rounded-lg',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-offset-2 focus-visible:ring-offset-yt-bg',
           shaking && 'animate-child-proof-shake',
           holding && 'scale-[0.98]'
         )}

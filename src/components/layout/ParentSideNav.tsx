@@ -75,7 +75,7 @@ export function ParentSideNav() {
         <button
           type="button"
           onClick={toggle}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full text-yt-textMuted transition hover:bg-yt-surfaceHover hover:text-yt-text"
+          className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-full text-yt-textMuted transition hover:bg-yt-surfaceHover hover:text-yt-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
           aria-expanded={expanded}
           aria-label={expanded ? 'כווץ תפריט' : 'הרחב תפריט'}
         >
@@ -116,7 +116,8 @@ export function ParentSideNav() {
                 juicyPressableClass(
                   juicy,
                   cn(
-                    'flex rounded-xl text-sm font-medium transition',
+                    'flex min-h-12 rounded-xl text-sm font-medium transition',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-inset',
                     expanded ? 'flex-row items-center gap-3 px-3 py-2.5' : 'flex-col items-center gap-1 px-1 py-2.5',
                     active ? 'bg-yt-surfaceHover text-yt-text' : 'text-yt-textMuted hover:bg-yt-surface/80 hover:text-yt-text'
                   )

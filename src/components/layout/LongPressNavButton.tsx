@@ -35,7 +35,7 @@ export function LongPressNavButton({ to, label, icon: Icon, isActive, layout = '
       <span
         className={cn(
           'flex w-full text-xs font-medium',
-          layout === 'bottom' && 'flex-col items-center gap-1 py-2.5',
+          layout === 'bottom' && 'min-h-12 flex-col items-center justify-center gap-0.5 py-2 xs:gap-1 xs:py-2.5',
           layout === 'rail' && 'flex-row items-center gap-3 rounded-xl px-3 py-2.5',
           layout === 'rail-collapsed' && 'flex-col items-center gap-1 rounded-xl px-1 py-2.5',
           isActive

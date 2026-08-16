@@ -15,6 +15,9 @@
     --yt-search-btn: 241 245 249;
     --yt-text: 15 23 42;
     --yt-text-muted: 100 116 139;
+    /* High-contrast focus ring for D-Pad / keyboard navigation */
+    --focus-ring: 14 165 233;
+    --focus-ring-width: 3px;
     /* Safe-area: env mirrors + runtime vars (native WindowInsets may override --sat/--sab). */
     --sat-env: env(safe-area-inset-top, 0px);
     --sab-env: env(safe-area-inset-bottom, 0px);
@@ -46,12 +49,16 @@
     --yt-search-btn: 34 34 34;
     --yt-text: 255 255 255;
     --yt-text-muted: 170 170 170;
+    --focus-ring: 56 189 248;
   }
 
   html {
     @apply antialiased;
     max-width: 100vw;
     overflow-x: hidden;
+    /* Prefer larger tap targets on coarse pointers (phones / feature phones). */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
     @apply min-h-dvh bg-yt-bg font-sans text-yt-text;
@@ -66,6 +73,66 @@
     max-width: 100vw;
     overflow-x: hidden;
   }
+
+  /*
+   * D-Pad / keyboard: always show a clear selected control.
+   * Legacy browsers without :focus-visible still get a ring on :focus.
+   * Modern browsers hide the ring for pointer clicks via :focus:not(:focus-visible).
+   */
+  :focus {
+    outline: var(--focus-ring-width) solid rgb(var(--focus-ring));
+    outline-offset: 2px;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
+  }
+
+  :focus-visible {
+    outline: var(--focus-ring-width) solid rgb(var(--focus-ring));
+    outline-offset: 2px;
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  [role='button']:focus-visible,
+  [role='link']:focus-visible,
+  [role='menuitem']:focus-visible,
+  [role='option']:focus-visible,
+  [role='tab']:focus-visible,
+  [tabindex]:not([tabindex='-1']):focus-visible {
+    outline: var(--focus-ring-width) solid rgb(var(--focus-ring));
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgb(var(--focus-ring) / 0.35);
+  }
+
+  /* Legacy / feature-phone browsers without :focus-visible support. */
+  @supports not selector(:focus-visible) {
+    a:focus,
+    button:focus,
+    input:focus,
+    select:focus,
+    textarea:focus,
+    [tabindex]:not([tabindex='-1']):focus {
+      outline: var(--focus-ring-width) solid rgb(var(--focus-ring));
+      outline-offset: 2px;
+      box-shadow: 0 0 0 4px rgb(var(--focus-ring) / 0.35);
+    }
+  }
+
+  /* Skip link — first Tab lands here on desktop / D-Pad browsers that start at body. */
+  .skip-to-content {
+    @apply absolute start-2 top-2 z-[100000] -translate-y-[200%] rounded-xl bg-sky-500 px-4 py-3 text-sm font-bold text-white shadow-lg;
+  }
+  .skip-to-content:focus,
+  .skip-to-content:focus-visible {
+    @apply translate-y-0;
+  }
 }
 
 @layer components {
@@ -79,7 +146,8 @@
   }
 
   .yt-shorts-grid {
-    @apply grid grid-cols-3 gap-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8;
+    /* Feature phones: 2 cols; xs+: 3; scale up on tablet/desktop */
+    @apply grid grid-cols-2 gap-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8;
   }
 
   .yt-channel-home-grid {
@@ -92,6 +160,11 @@
 
   .yt-pill-btn-secondary {
     @apply inline-flex min-h-12 min-w-12 items-center justify-center gap-2 rounded-full px-5 py-3 text-[15px] font-semibold transition border border-yt-border bg-transparent text-yt-text hover:bg-yt-surface;
+  }
+
+  /** Minimum interactive target for touch + D-Pad (WCAG 2.5.5 / Android 48dp-ish). */
+  .touch-target {
+    @apply inline-flex min-h-12 min-w-12 items-center justify-center;
   }
 }
 

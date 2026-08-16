@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, X } from 'lucide-react'
 import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/parentPin'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
 import type { ParentPinVerifyResult } from '../../lib/verifyParentProfilePin'
@@ -34,8 +35,12 @@ export function ParentalPinModal({
   const digitsRef = useRef(digits)
   digitsRef.current = digits
   const inFlightRef = useRef(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const firstDigitRef = useRef<HTMLInputElement | null>(null)
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null, null, null])
+
+  useFocusTrap(open, panelRef, { onEscape: onClose, initialFocusRef: firstDigitRef })
 
   const reset = useCallback(() => {
     setDigits(EMPTY_SIX)
@@ -47,8 +52,6 @@ export function ParentalPinModal({
   useEffect(() => {
     if (!open) return
     reset()
-    const t = window.setTimeout(() => inputRefs.current[0]?.focus(), 120)
-    return () => window.clearTimeout(t)
   }, [open, reset])
 
   const tryVerify = useCallback(
@@ -154,6 +157,7 @@ export function ParentalPinModal({
         >
           <button
             type="button"
+            tabIndex={-1}
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             aria-label="סגור"
             onClick={onClose}
@@ -161,15 +165,17 @@ export function ParentalPinModal({
 
           <div className="safe-area-pad pointer-events-none relative z-10 flex h-full w-full items-end justify-center sm:items-center sm:p-4">
             <motion.div
+              ref={panelRef}
               role="dialog"
               aria-modal="true"
               aria-labelledby="parental-pin-title"
+              tabIndex={-1}
               initial={{ y: 24, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 16, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               className={cn(
-                'pointer-events-auto relative w-full max-w-md overflow-hidden rounded-t-3xl border border-yt-border sm:rounded-3xl',
+                'pointer-events-auto relative w-full max-w-md overflow-hidden rounded-t-3xl border border-yt-border outline-none sm:rounded-3xl',
                 'bg-yt-surface shadow-2xl ring-1 ring-yt-border/80'
               )}
               onClick={(e) => e.stopPropagation()}
@@ -181,7 +187,7 @@ export function ParentalPinModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-200/80 hover:text-slate-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-200/80 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                 aria-label="סגור"
               >
                 <X className="h-5 w-5" />
@@ -197,6 +203,7 @@ export function ParentalPinModal({
                     key={i}
                     ref={(el) => {
                       inputRefs.current[i] = el
+                      if (i === 0) firstDigitRef.current = el
                     }}
                     type="password"
                     inputMode="numeric"
@@ -208,7 +215,7 @@ export function ParentalPinModal({
                     onKeyDown={(e) => handleKeyDown(i, e)}
                     className={cn(
                       'h-12 w-10 rounded-xl border-2 bg-white/90 text-center text-lg font-semibold tracking-widest text-slate-900 shadow-inner sm:h-14 sm:w-11',
-                      'outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30',
+                      'outline-none transition focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]',
                       'disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-950/80 dark:text-zinc-100',
                       error ? 'border-red-400 dark:border-red-500/70' : 'border-slate-200 dark:border-zinc-600'
                     )}

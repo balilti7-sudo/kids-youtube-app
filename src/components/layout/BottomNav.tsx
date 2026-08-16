@@ -38,7 +38,8 @@ export function BottomNav() {
             }}
             className={({ isActive }) =>
               cn(
-                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+                'flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium transition xs:gap-1 xs:py-2.5 xs:text-xs',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-inset',
                 isActive ? 'text-yt-text' : 'text-yt-textMuted'
               )
             }
@@ -58,8 +59,9 @@ export function BottomNav() {
           }}
           className={({ isActive }) =>
             cn(
-              'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium',
-              juicyPressableClass(juicy, isActive ? 'text-yt-text' : 'text-yt-textMuted')
+                'flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium xs:gap-1 xs:py-2.5 xs:text-xs',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-inset',
+                juicyPressableClass(juicy, isActive ? 'text-yt-text' : 'text-yt-textMuted')
             )
           }
         >
@@ -84,7 +86,8 @@ export function BottomNav() {
             }}
             className={({ isActive }) =>
               cn(
-                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+                'flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium transition xs:gap-1 xs:py-2.5 xs:text-xs',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-inset',
                 isActive ? 'text-yt-text' : 'text-yt-textMuted'
               )
             }
@@ -105,7 +108,8 @@ export function BottomNav() {
             }}
             className={({ isActive }) =>
               cn(
-                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium',
+                'flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium xs:gap-1 xs:py-2.5 xs:text-xs',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-inset',
                 juicyPressableClass(true, isActive ? 'text-yt-text' : 'text-yt-textMuted')
               )
             }
@@ -132,7 +136,8 @@ export function BottomNav() {
             }}
             className={({ isActive }) =>
               cn(
-                'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition',
+                'flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium transition xs:gap-1 xs:py-2.5 xs:text-xs',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-inset',
                 isActive ? 'text-yt-text' : 'text-yt-textMuted'
               )
             }

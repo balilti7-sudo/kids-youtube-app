@@ -119,12 +119,15 @@ export function AppLayout() {
   return (
     <JuicyUiProvider enabled={juicyChildUi}>
     <div className="relative flex min-h-dvh flex-col bg-yt-bg">
+      <a href="#main-content" className="skip-to-content">
+        דלג לתוכן
+      </a>
       {showGate ? <ParentalManagementGate onUnlocked={handleManagementUnlocked} /> : null}
       {!showGate ? (
         <>
           <div className="flex min-h-0 min-w-0 flex-1">
             <ParentSideNav />
-            <main className="safe-pb-nav flex min-w-0 flex-1 flex-col">
+            <main id="main-content" tabIndex={-1} className="safe-pb-nav flex min-w-0 flex-1 flex-col outline-none">
               <div className="sticky top-0 z-30">
                 {showParentManagementChrome ? <ParentManagementBanner /> : null}
                 <header className="border-b border-yt-border bg-yt-bg/95 px-2 py-1.5 backdrop-blur-md xs:py-2 sm:px-4 sm:py-2.5">
