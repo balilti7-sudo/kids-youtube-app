@@ -41,8 +41,13 @@ export function useFocusTrap(
   }
 ) {
   const previousFocusRef = useRef<HTMLElement | null>(null)
-  const onEscape = options?.onEscape
   const initialFocusRef = options?.initialFocusRef
+
+  // Callers pass inline closures; keeping the latest in a ref means the trap effect
+  // re-runs ONLY on open/close. Re-running per render restored focus away from the
+  // input mid-typing (every keystroke re-rendered the modal → keyboard kept closing).
+  const onEscapeRef = useRef(options?.onEscape)
+  onEscapeRef.current = options?.onEscape
 
   useEffect(() => {
     if (!active) return
@@ -72,6 +77,7 @@ export function useFocusTrap(
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isTopTrap()) return
       if (event.key === 'Escape') {
+        const onEscape = onEscapeRef.current
         if (!onEscape) return
         event.preventDefault()
         event.stopPropagation()
@@ -118,5 +124,5 @@ export function useFocusTrap(
       }
       previousFocusRef.current = null
     }
-  }, [active, containerRef, initialFocusRef, onEscape])
+  }, [active, containerRef, initialFocusRef])
 }

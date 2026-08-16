@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">SafeTube 1.1.10</string>
-  <string name="title_activity_main">SafeTube 1.1.10</string>
+  <string name="app_name">SafeTube 1.1.11</string>
+  <string name="title_activity_main">SafeTube 1.1.11</string>
   <string name="package_name">app.safetube.kids</string>
   <string name="custom_url_scheme">app.safetube.kids</string>
   <string name="parental_control_service_description">SafeTube חוסם פתיחת אפליקציית YouTube (ו־youtube.com בדפדפן) כשההורה מפעיל את החסימה. אייקון YouTube עלול עדיין להופיע במסך הבית — הפתיחה עצמה תיחסם.</string>

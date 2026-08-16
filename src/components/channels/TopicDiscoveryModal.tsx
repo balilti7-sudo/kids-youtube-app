@@ -252,6 +252,7 @@ export function TopicDiscoveryModal({
               />
               <input
                 dir="auto"
+                data-autofocus="true"
                 placeholder="נושא, ערוץ, או מילת מפתח — למשל בישול, מדע, מלאכת יד…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
