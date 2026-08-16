@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, type RefObject } from 'react'
 import type { VideoFormat } from '../../lib/videoFormatClassification'
 import { useVerticalSwipeNav } from '../../hooks/useVerticalSwipeNav'
 import { CleanPlayer } from '../player/CleanPlayer'
@@ -36,7 +36,7 @@ function ChildWatchPlayerShellInner({
 
   return (
     <div
-      ref={containerRef}
+      ref={containerRef as RefObject<HTMLDivElement>}
       {...(isShort ? handlers : {})}
       className={cn(
         'relative overflow-hidden bg-black',

@@ -1,6 +1,15 @@
-# Builds the SafeTube Android debug APK end-to-end:
-#   web build -> capacitor sync -> gradle assembleDebug (auto-bumps version) -> versioned APK copy
+# Builds the SafeTube Android APK end-to-end:
+#   web build -> capacitor sync -> gradle assemble* (auto-bumps version) -> versioned APK copy
+#
+# Usage:
+#   .\scripts\build-android-apk.ps1              # debug (default)
+#   .\scripts\build-android-apk.ps1 -Release     # production / release APK
+#
 # Toolchain lives in C:\android-tools (JDK 21 + Android SDK 36), set up outside the repo.
+param(
+  [switch]$Release
+)
+
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 
@@ -47,6 +56,10 @@ function Stamp-AppDisplayName([string]$versionName) {
 }
 
 $buildStamp = Get-Date -Format 'yyyyMMdd-HHmm'
+$variant = if ($Release) { 'release' } else { 'debug' }
+$gradleTask = if ($Release) { 'assembleRelease' } else { 'assembleDebug' }
+
+Write-Host "Building SafeTube Android $variant APK..."
 
 node ./scripts/patch-capacitor-webview.mjs
 if ($LASTEXITCODE -ne 0) { throw 'capacitor webview patch failed' }
@@ -57,8 +70,8 @@ if ($LASTEXITCODE -ne 0) { throw 'cap sync failed' }
 
 # Gradle bumps version.properties during configuration of assemble*
 Set-Location (Join-Path $root 'android')
-.\gradlew.bat assembleDebug
-if ($LASTEXITCODE -ne 0) { throw 'gradle build failed' }
+.\gradlew.bat $gradleTask
+if ($LASTEXITCODE -ne 0) { throw "gradle $gradleTask failed" }
 Set-Location $root
 
 $ver = Read-AndroidVersion
@@ -67,13 +80,26 @@ $versionCode = $ver.Code
 Sync-PackageJsonVersion $versionName
 $displayName = Stamp-AppDisplayName $versionName
 
-$outDir = Join-Path $root 'android\app\build\outputs\apk\debug'
-$defaultApk = Join-Path $outDir 'app-debug.apk'
-$versionedApk = Join-Path $outDir "SafeTube-$versionName-debug-$buildStamp.apk"
+$outDir = Join-Path $root "android\app\build\outputs\apk\$variant"
+$defaultApkName = if ($Release) { 'app-release.apk' } else { 'app-debug.apk' }
+$defaultApk = Join-Path $outDir $defaultApkName
+if (-not (Test-Path $defaultApk)) {
+  # Some AGP versions emit app-release-unsigned.apk when unsigned; prefer signed name above.
+  $alt = Get-ChildItem -Path $outDir -Filter '*.apk' -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+  if ($alt) { $defaultApk = $alt.FullName } else { throw "APK not found under $outDir" }
+}
+$versionedApk = Join-Path $outDir "SafeTube-$versionName-$variant-$buildStamp.apk"
 Copy-Item -Path $defaultApk -Destination $versionedApk -Force
+
+# Convenience copy at repo root for easy download / sharing
+$rootCopy = Join-Path $root (Split-Path -Leaf $versionedApk)
+Copy-Item -Path $versionedApk -Destination $rootCopy -Force
 
 Write-Host ''
 Write-Host "APK ready: $versionedApk ($([math]::Round((Get-Item $versionedApk).Length/1MB,1)) MB)"
-Write-Host "Also at: $defaultApk"
-Write-Host "App label: $displayName | versionName=$versionName | versionCode=$versionCode"
+Write-Host "Also at:   $defaultApk"
+Write-Host "Repo root: $rootCopy"
+Write-Host "App label: $displayName | versionName=$versionName | versionCode=$versionCode | variant=$variant"
 Write-Host "(version auto-bumped by Gradle; package.json synced)"

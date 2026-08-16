@@ -392,6 +392,7 @@ function KidModePageInner() {
       videoId: activeVideo.videoId,
       youtube_video_id: activeVideo.videoId,
       title: activeVideo.title,
+      channelTitle: activeVideo.channelTitle || '',
       durationSeconds: activeVideo.durationSeconds,
       thumbnail: activeVideo.thumbnail,
       format: classifyWatchFormat({

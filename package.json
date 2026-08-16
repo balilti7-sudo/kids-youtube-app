@@ -1,7 +1,7 @@
 {
   "name": "safetube",
   "private": true,
-  "version": "1.1.8",
+  "version": "1.1.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,8 @@
     "electron": "electron electron/main.cjs",
     "electron:dev": "node scripts/electron-dev.mjs",
     "postinstall": "node scripts/patch-capacitor-webview.mjs",
-    "android:apk": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-android-apk.ps1"
+    "android:apk": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-android-apk.ps1",
+    "android:apk:release": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-android-apk.ps1 -Release"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
