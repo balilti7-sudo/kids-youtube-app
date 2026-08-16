@@ -39,7 +39,9 @@ function ChildWatchPlayerShellInner({
       ref={containerRef}
       {...(isShort ? handlers : {})}
       className={cn(
-        'relative overflow-hidden bg-black touch-pan-y',
+        'relative overflow-hidden bg-black',
+        // touch-pan-y only for Shorts — on long-form it delays/drops taps on <video controls>.
+        isShort ? 'touch-pan-y' : 'touch-manipulation',
         isShort
           ? 'mx-auto w-full max-w-[min(100%,420px)] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:max-w-[420px]'
           : 'w-screen max-w-[100vw] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full'

@@ -21,12 +21,11 @@ export function titleSuggestsYoutubeShort(title: string | null | undefined): boo
 export function thumbnailSuggestsYoutubeShort(thumbnailUrl: string | null | undefined): boolean {
   const u = (thumbnailUrl ?? '').trim().toLowerCase()
   if (!u) return false
+  // Do NOT match generic long-form thumbs (hq720 / hqdefault / maxresdefault / ardefault).
   if (
     u.includes('/shorts/') ||
     u.includes('oardefault') ||
     u.includes('oar2') ||
-    u.includes('ardefault') ||
-    u.includes('hq720') ||
     (u.includes('ytimg.com') && u.includes('vi_webp') && u.includes('oar'))
   ) {
     return true

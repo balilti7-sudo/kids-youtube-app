@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Maximize, Minimize, PictureInPicture2, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
+import { Maximize, Minimize, PictureInPicture2, Play, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
 import Hls from 'hls.js'
 import { setMediaPlaybackActive, syncNativeMediaSession } from '../../lib/mediaPlaybackActivity'
 import { subscribeNativeMediaActions } from '../../lib/nativeMediaPlayback'
@@ -617,6 +617,7 @@ function CleanPlayerMediaBridge({
   const [pipActive, setPipActive] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
   const [loopEnabled, setLoopEnabled] = useState(false)
+  const [needsUserGesture, setNeedsUserGesture] = useState(false)
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
@@ -640,6 +641,7 @@ function CleanPlayerMediaBridge({
 
   useEffect(() => {
     setLoopEnabled(false)
+    setNeedsUserGesture(false)
   }, [videoId])
 
   useEffect(() => {
@@ -1250,16 +1252,29 @@ function CleanPlayerMediaBridge({
     const el = videoRef.current
     if (!el) return
 
+    const clearGestureGate = () => setNeedsUserGesture(false)
     const tryAutoplay = () => {
       if (useDailyWatchBudgetStore.getState().isLimitReached) return
-      void el.play().catch(() => {})
+      void el
+        .play()
+        .then(() => {
+          setNeedsUserGesture(false)
+        })
+        .catch(() => {
+          // Autoplay blocked (common on mobile) — show an explicit play tap target.
+          setNeedsUserGesture(true)
+        })
     }
+    el.addEventListener('playing', clearGestureGate)
     if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
       tryAutoplay()
     } else {
       el.addEventListener('canplay', tryAutoplay, { once: true })
     }
-    return () => el.removeEventListener('canplay', tryAutoplay)
+    return () => {
+      el.removeEventListener('playing', clearGestureGate)
+      el.removeEventListener('canplay', tryAutoplay)
+    }
   }, [phase.kind, videoId, isLimitReached])
 
   useEffect(() => {
@@ -1450,6 +1465,32 @@ function CleanPlayerMediaBridge({
             setRetryNonce((n) => n + 1)
           }}
         />
+      ) : null}
+      {phase.kind === 'playing' &&
+      needsUserGesture &&
+      !isLimitReached &&
+      !blankVideoFrame &&
+      !hideVideo ? (
+        <button
+          type="button"
+          className="absolute inset-0 z-[25] flex flex-col items-center justify-center gap-3 bg-black/45 text-white backdrop-blur-[1px]"
+          onClick={() => {
+            const el = videoRef.current
+            if (!el) return
+            void el
+              .play()
+              .then(() => setNeedsUserGesture(false))
+              .catch(() => setNeedsUserGesture(true))
+          }}
+          aria-label="נגן סרטון"
+        >
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/95 text-black shadow-lg shadow-black/40">
+            <Play className="ms-1 h-8 w-8 fill-current" aria-hidden />
+          </span>
+          <span className="rounded-full bg-black/55 px-3 py-1 text-sm font-semibold" dir="rtl">
+            לחצו לניגון
+          </span>
+        </button>
       ) : null}
       {phase.kind === 'playing' && pipSupported && !isLimitReached && !blankVideoFrame ? (
         <button
