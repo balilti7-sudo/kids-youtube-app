@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Maximize, Minimize, PictureInPicture2, Play, RectangleHorizontal, Repeat, SkipForward } from 'lucide-react'
+import {
+  Lock,
+  LockOpen,
+  Maximize,
+  Minimize,
+  PictureInPicture2,
+  Play,
+  RectangleHorizontal,
+  Repeat,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react'
 import Hls from 'hls.js'
 import { setMediaPlaybackActive, syncNativeMediaSession } from '../../lib/mediaPlaybackActivity'
 import { subscribeNativeMediaActions } from '../../lib/nativeMediaPlayback'
@@ -202,12 +213,20 @@ function useNextVideoHandler(onNextTrack?: () => void, hasNextTrack = true) {
   }, [onNextTrack, hasNextTrack])
 }
 
+const CONTROL_BTN_CLASS =
+  'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-zinc-100 transition hover:bg-white/18 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 sm:h-11 sm:w-11'
+
+const CONTROL_BTN_ACTIVE_CLASS =
+  'border-brand-400/80 bg-brand-600/90 text-white shadow-md shadow-brand-950/30 hover:bg-brand-600'
+
 function PlayerControlBar({
   loopEnabled,
   onLoopToggle,
   onNext,
-  hasNext,
+  onPrevious,
   showQueueControls,
+  tapsLocked,
+  onTapsLockToggle,
   className,
   videoRef,
   playerShellRef,
@@ -215,8 +234,11 @@ function PlayerControlBar({
   loopEnabled: boolean
   onLoopToggle: () => void
   onNext: () => void
-  hasNext: boolean
+  onPrevious?: () => void
+  hasNext?: boolean
   showQueueControls: boolean
+  tapsLocked?: boolean
+  onTapsLockToggle?: () => void
   className?: string
   videoRef?: RefObject<HTMLVideoElement | null>
   playerShellRef?: RefObject<HTMLDivElement | null>
@@ -255,43 +277,90 @@ function PlayerControlBar({
 
   const showMobileExpand = Boolean(videoRef || playerShellRef)
   const showTheaterDesktop = Boolean(theater)
+  const showPrev = showQueueControls && Boolean(onPrevious)
+  const showLock = Boolean(onTapsLockToggle)
 
-  if (!showQueueControls && !showTheaterDesktop && !showMobileExpand) return null
+  if (!showQueueControls && !showTheaterDesktop && !showMobileExpand && !showLock) return null
 
   const expandActive = nativeFullscreen
 
   return (
     <div
       className={cn(
-        'flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-white/10 bg-black/90 px-2 py-2.5 sm:px-3',
+        'flex shrink-0 items-center justify-center gap-1.5 border-t border-white/10 bg-black/90 px-2 py-2 sm:gap-2 sm:px-3 sm:py-2.5',
         className
       )}
       dir="rtl"
       role="toolbar"
       aria-label="בקרת ניגון"
     >
+      {showPrev ? (
+        <button
+          type="button"
+          onClick={() => onPrevious?.()}
+          className={CONTROL_BTN_CLASS}
+          title="הסרטון הקודם"
+          aria-label="הסרטון הקודם"
+        >
+          <SkipBack className="h-5 w-5" aria-hidden />
+        </button>
+      ) : null}
+
+      {showQueueControls ? (
+        <button
+          type="button"
+          onClick={onNext}
+          className={CONTROL_BTN_CLASS}
+          title="הסרטון הבא"
+          aria-label="הסרטון הבא"
+        >
+          <SkipForward className="h-5 w-5" aria-hidden />
+        </button>
+      ) : null}
+
+      {showQueueControls ? (
+        <button
+          type="button"
+          onClick={onLoopToggle}
+          aria-pressed={loopEnabled}
+          className={cn(CONTROL_BTN_CLASS, loopEnabled && CONTROL_BTN_ACTIVE_CLASS)}
+          title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
+          aria-label={loopEnabled ? 'כיבוי נגן שוב ושוב' : 'הפעלת נגן שוב ושוב'}
+        >
+          <Repeat className="h-5 w-5" aria-hidden />
+        </button>
+      ) : null}
+
+      {showLock ? (
+        <button
+          type="button"
+          onClick={onTapsLockToggle}
+          aria-pressed={Boolean(tapsLocked)}
+          className={cn(CONTROL_BTN_CLASS, tapsLocked && CONTROL_BTN_ACTIVE_CLASS)}
+          title={tapsLocked ? 'בטל נעילת מסך' : 'נעילת מסך — מונע לחיצות בטעות'}
+          aria-label={tapsLocked ? 'בטל נעילת מסך' : 'נעילת מסך'}
+        >
+          {tapsLocked ? <Lock className="h-5 w-5" aria-hidden /> : <LockOpen className="h-5 w-5" aria-hidden />}
+        </button>
+      ) : null}
+
       {showMobileExpand ? (
         <button
           type="button"
           onClick={() => void handleMobileExpand()}
           aria-pressed={expandActive}
           aria-label={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
-          className={cn(
-            'flex min-h-[48px] min-w-[48px] flex-1 max-w-[220px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 lg:hidden',
-            expandActive
-              ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
-              : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
-          )}
+          className={cn(CONTROL_BTN_CLASS, 'lg:hidden', expandActive && CONTROL_BTN_ACTIVE_CLASS)}
           title={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
         >
           {expandActive ? (
-            <Minimize className="h-5 w-5 shrink-0" aria-hidden />
+            <Minimize className="h-5 w-5" aria-hidden />
           ) : (
-            <Maximize className="h-5 w-5 shrink-0" aria-hidden />
+            <Maximize className="h-5 w-5" aria-hidden />
           )}
-          <span className="text-sm font-bold">{expandActive ? 'צמצום' : 'הגדלה'}</span>
         </button>
       ) : null}
+
       {showTheaterDesktop ? (
         <button
           type="button"
@@ -299,48 +368,14 @@ function PlayerControlBar({
           aria-pressed={theater!.theaterMode}
           aria-label={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
           className={cn(
-            'hidden min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 lg:flex',
-            theater!.theaterMode
-              ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
-              : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
+            CONTROL_BTN_CLASS,
+            'hidden lg:inline-flex',
+            theater!.theaterMode && CONTROL_BTN_ACTIVE_CLASS
           )}
           title={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
         >
-          <RectangleHorizontal className="h-5 w-5 shrink-0" aria-hidden />
-          <span className="text-sm font-bold">תיאטרון</span>
+          <RectangleHorizontal className="h-5 w-5" aria-hidden />
         </button>
-      ) : null}
-      {showQueueControls ? (
-        <>
-          <button
-            type="button"
-            onClick={onLoopToggle}
-            aria-pressed={loopEnabled}
-            className={cn(
-              'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 px-3 text-sm font-bold transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
-              loopEnabled
-                ? 'border-brand-400 bg-brand-600/90 text-white shadow-md'
-                : 'border-white/25 bg-white/10 text-zinc-100 hover:bg-white/15'
-            )}
-            title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
-          >
-            <Repeat className="h-5 w-5 shrink-0" aria-hidden />
-            <span className="text-sm font-bold">נגן שוב ושוב</span>
-          </button>
-          <button
-            type="button"
-            onClick={onNext}
-            className={cn(
-              'flex min-h-[48px] min-w-[48px] flex-1 max-w-[200px] items-center justify-center gap-2 rounded-xl border-2 border-white/25 bg-white/10 px-3 text-sm font-bold text-zinc-100 transition hover:bg-white/15 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400',
-              !hasNext && 'opacity-85'
-            )}
-            title="הסרטון הבא"
-            aria-label="הסרטון הבא"
-          >
-            <SkipForward className="h-5 w-5 shrink-0" aria-hidden />
-            <span className="text-sm font-bold">הסרטון הבא</span>
-          </button>
-        </>
       ) : null}
     </div>
   )
@@ -444,6 +479,7 @@ function CleanPlayerYoutubeIframe({
   posterUrl,
   blankVideoFrame = false,
   onNextTrack,
+  onPreviousTrack,
   hasNextTrack = true,
   queueControls,
   onVideoPlaybackStarted,
@@ -452,6 +488,7 @@ function CleanPlayerYoutubeIframe({
   const playerShellRef = useRef<HTMLDivElement>(null)
   const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
   const [loopEnabled, setLoopEnabled] = useState(false)
+  const [tapsLocked, setTapsLocked] = useState(false)
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
@@ -474,6 +511,7 @@ function CleanPlayerYoutubeIframe({
   useEffect(() => {
     setIframeReady(false)
     iframePlaybackNotifiedRef.current = false
+    setTapsLocked(false)
   }, [src])
 
   useEffect(() => {
@@ -566,6 +604,16 @@ function CleanPlayerYoutubeIframe({
           {blankVideoFrame && !isLimitReached ? (
             <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
           ) : null}
+          {tapsLocked && !isLimitReached ? (
+            <div
+              className="absolute inset-0 z-[15] flex items-center justify-center bg-black/25"
+              aria-hidden
+            >
+              <span className="rounded-full bg-black/70 p-3 text-white shadow-lg ring-1 ring-white/20">
+                <Lock className="h-6 w-6" aria-hidden />
+              </span>
+            </div>
+          ) : null}
         </>
       )}
       <span className="sr-only">{title}</span>
@@ -575,8 +623,11 @@ function CleanPlayerYoutubeIframe({
           loopEnabled={loopEnabled}
           onLoopToggle={() => setLoopEnabled((v) => !v)}
           onNext={handleNextVideo}
+          onPrevious={onPreviousTrack}
           hasNext={hasNextTrack}
           showQueueControls={showQueueControls}
+          tapsLocked={tapsLocked}
+          onTapsLockToggle={() => setTapsLocked((v) => !v)}
           playerShellRef={playerShellRef}
         />
       ) : null}
@@ -618,6 +669,7 @@ function CleanPlayerMediaBridge({
   const [pipSupported, setPipSupported] = useState(false)
   const [loopEnabled, setLoopEnabled] = useState(false)
   const [needsUserGesture, setNeedsUserGesture] = useState(false)
+  const [tapsLocked, setTapsLocked] = useState(false)
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
@@ -642,6 +694,7 @@ function CleanPlayerMediaBridge({
   useEffect(() => {
     setLoopEnabled(false)
     setNeedsUserGesture(false)
+    setTapsLocked(false)
   }, [videoId])
 
   useEffect(() => {
@@ -1534,6 +1587,16 @@ function CleanPlayerMediaBridge({
       {blankVideoFrame && !isDailyLimit && !isUpcomingLive && !isPlaybackError ? (
         <div className="absolute inset-0 z-[5] bg-black" aria-hidden />
       ) : null}
+      {tapsLocked && !isDailyLimit && !isUpcomingLive && !isPlaybackError ? (
+        <div
+          className="absolute inset-0 z-[15] flex items-center justify-center bg-black/25"
+          aria-hidden
+        >
+          <span className="rounded-full bg-black/70 p-3 text-white shadow-lg ring-1 ring-white/20">
+            <Lock className="h-6 w-6" aria-hidden />
+          </span>
+        </div>
+      ) : null}
       <span className="sr-only">{title}</span>
       </div>
       {showControlBar ? (
@@ -1541,8 +1604,11 @@ function CleanPlayerMediaBridge({
           loopEnabled={loopEnabled}
           onLoopToggle={() => setLoopEnabled((v) => !v)}
           onNext={handleNextVideo}
+          onPrevious={onPreviousTrack}
           hasNext={hasNextTrack}
           showQueueControls={showQueueControls}
+          tapsLocked={tapsLocked}
+          onTapsLockToggle={() => setTapsLocked((v) => !v)}
           videoRef={videoRef}
           playerShellRef={playerShellRef}
         />
