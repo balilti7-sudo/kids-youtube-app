@@ -35,3 +35,7 @@ deploy/windows-server/bridge.secrets.env
 /cd
 /npm
 /npx
+
+# Local APK artifacts (build with npm run android:apk:release)
+*.apk
+!android/**/
