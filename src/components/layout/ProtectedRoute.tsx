@@ -34,9 +34,6 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (profile?.onboarding_done && location.pathname === '/onboarding') {
-    if (isProfileParentPinMissing(profile)) {
-      return <Navigate to="/set-parent-pin" replace />
-    }
     return <Navigate to="/dashboard" replace />
   }
 
@@ -44,10 +41,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/onboarding" replace />
   }
 
-  if (profile?.onboarding_done && isProfileParentPinMissing(profile) && location.pathname !== '/set-parent-pin') {
-    return <Navigate to="/set-parent-pin" replace />
-  }
-
+  // Parent PIN is optional after first value — set from onboarding step 3 or Settings.
   if (profile?.onboarding_done && !isProfileParentPinMissing(profile) && location.pathname === '/set-parent-pin') {
     return <Navigate to="/dashboard" replace />
   }

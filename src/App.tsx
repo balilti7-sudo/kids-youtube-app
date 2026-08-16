@@ -23,7 +23,6 @@ import { SetParentPinPage } from './pages/SetParentPinPage'
 import { DevUiGalleryPage } from './pages/DevUiGalleryPage'
 import { useAuth } from './hooks/useAuth'
 import { BYPASS_AUTH } from './config/dev'
-import { isProfileParentPinMissing } from './lib/parentPin'
 import { WhatsAppFloatingButton } from './components/support/WhatsAppFloatingButton'
 import { preWarmMediaBridge } from './lib/streamApi'
 import { JuicyUiProvider } from './contexts/JuicyUiContext'
@@ -57,7 +56,6 @@ function SmartEntryRoute() {
   if (!isAuthenticated && hasKidToken) return <Navigate to="/kid" replace />
   if (!isAuthenticated) return <Navigate to="/auth" replace />
   if (profile && !profile.onboarding_done) return <Navigate to="/onboarding" replace />
-  if (isProfileParentPinMissing(profile)) return <Navigate to="/set-parent-pin" replace />
   return <Navigate to="/dashboard" replace />
 }
 

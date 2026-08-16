@@ -59,7 +59,7 @@ function clearLoginFailureCounter() {
   }
 }
 
-export function LoginForm({ onSwitchToRegister }: { onSwitchToRegister: () => void }) {
+export function LoginForm({ onSwitchToRegister }: { onSwitchToRegister?: () => void }) {
   const signIn = useAuthStore((s) => s.signIn)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
@@ -100,7 +100,7 @@ export function LoginForm({ onSwitchToRegister }: { onSwitchToRegister: () => vo
           <button
             type="button"
             onClick={() => setShowPassword((v) => !v)}
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-zinc-500 hover:text-zinc-300"
+            className="min-h-12 absolute inset-y-0 right-0 flex w-12 items-center justify-center text-zinc-500 hover:text-zinc-300"
             aria-label={showPassword ? 'הסתר סיסמה' : 'הצג סיסמה'}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -115,13 +115,15 @@ export function LoginForm({ onSwitchToRegister }: { onSwitchToRegister: () => vo
         ) : null}
         {isSubmitting ? 'מתחבר…' : 'התחברות'}
       </Button>
-      <button
-        type="button"
-        onClick={onSwitchToRegister}
-        className="w-full text-center text-sm font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-400"
-      >
-        אין לך חשבון? הרשמה
-      </button>
+      {onSwitchToRegister ? (
+        <button
+          type="button"
+          onClick={onSwitchToRegister}
+          className="min-h-12 w-full text-center text-sm font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-400"
+        >
+          אין לך חשבון? הרשמה
+        </button>
+      ) : null}
     </form>
   )
 }

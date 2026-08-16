@@ -44,6 +44,8 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signUp: (email: string, password: string) => Promise<{ error: Error | null; session: Session | null }>
   verifyEmailCode: (email: string, code: string) => Promise<{ error: Error | null }>
+  /** OTP from passwordless `signInWithOtp` (type email). */
+  verifyEmailOtp: (email: string, code: string) => Promise<{ error: Error | null }>
   signInWithMagicLink: (email: string, emailRedirectTo: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   /** ניקוי טוקן ילד, מצב הורה זמני ב-sessionStorage, והתנתקות Supabase */
@@ -211,7 +213,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         })
       } else if (data.session) {
         clearAuthSessionCounters()
-        // No global onAuthStateChange listener anymore — sync the store ourselves.
         set({ session: data.session, user: data.session.user, loading: false })
         void get().fetchProfile()
       }
@@ -223,12 +224,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  verifyEmailOtp: async (email, code) => {
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: code.replace(/\D/g, '').trim(),
+        type: 'email',
+      })
+      if (error) {
+        const err = error as Error & { status?: number; code?: string }
+        console.error('[Supabase auth.verifyOtp email] details:', {
+          message: err.message,
+          name: err.name,
+          status: err.status,
+          code: err.code,
+        })
+      } else if (data.session) {
+        clearAuthSessionCounters()
+        set({ session: data.session, user: data.session.user, loading: false })
+        void get().fetchProfile()
+      }
+      return { error: error ? new Error(error.message) : null }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[Supabase auth.verifyOtp email] runtime failure:', msg)
+      return { error: new Error(msg) }
+    }
+  },
+
   signInWithMagicLink: async (email, emailRedirectTo) => {
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: email.trim(),
         options: {
           emailRedirectTo,
+          shouldCreateUser: true,
         },
       })
       if (error) {

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BYPASS_AUTH } from '../../config/dev'
+import { useAuth } from '../../hooks/useAuth'
 import { useKidDeviceTokenPresent } from '../../hooks/useKidDeviceTokenPresent'
 import { JuicyUiProvider } from '../../contexts/JuicyUiContext'
 import { getSavedChildAccessToken } from '../../lib/childDevice'
@@ -8,6 +9,7 @@ import { LOCK_MANAGEMENT_APP_EVENT, lockManagementAppShell } from '../../lib/loc
 import { consumeParentEntryIntent } from '../../lib/parentEntryIntent'
 import { isParentManagementLockedPath } from '../../lib/parentManagementPaths'
 import { isMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
+import { isProfileParentPinMissing } from '../../lib/parentPin'
 import {
   clearParentalGateActivity,
   isParentalGateIdleExceeded,
@@ -33,7 +35,9 @@ import { cn } from '../../lib/utils'
 export function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const hasKidDeviceToken = useKidDeviceTokenPresent()
+  const pinNotSetYet = isProfileParentPinMissing(profile)
   const [managementUnlocked, setManagementUnlocked] = useState(
     () => BYPASS_AUTH || isParentalManagementGateUnlocked()
   )
@@ -44,6 +48,14 @@ export function AppLayout() {
       setManagementUnlocked(true)
     }
   }, [])
+
+  /** Until a parent PIN exists, don’t block the shell — PIN is optional after first value. */
+  useLayoutEffect(() => {
+    if (BYPASS_AUTH || !pinNotSetYet) return
+    touchParentalGateActivity()
+    setParentalManagementGateUnlocked()
+    setManagementUnlocked(true)
+  }, [pinNotSetYet])
 
   /** מכשיר עם טוקן ילד: לא לאפשר דילוג על שער ע״י הקלדת URL — חזרה ל־/kid אם לא אומתו. */
   useLayoutEffect(() => {
@@ -112,7 +124,8 @@ export function AppLayout() {
   }, [managementUnlocked, navigate])
 
   const pathRequiresParentUnlock = isParentManagementLockedPath(location.pathname)
-  const showGate = !BYPASS_AUTH && !managementUnlocked && pathRequiresParentUnlock
+  const showGate =
+    !BYPASS_AUTH && !managementUnlocked && pathRequiresParentUnlock && !pinNotSetYet
   const showParentManagementChrome = pathRequiresParentUnlock
   const juicyChildUi = location.pathname === '/channels'
 

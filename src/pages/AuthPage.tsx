@@ -2,7 +2,6 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { AuthScreen } from '../components/auth/AuthScreen'
 import { BYPASS_AUTH } from '../config/dev'
 import { useAuth } from '../hooks/useAuth'
-import { isProfileParentPinMissing } from '../lib/parentPin'
 import { SplashScreen } from '../components/branding/SplashScreen'
 import { setSkipParentalManagementGateOnce } from '../lib/parentalGateSkipOnce'
 
@@ -11,7 +10,7 @@ export function AuthPage() {
   const location = useLocation()
   const nextParam = new URLSearchParams(location.search).get('next')
   const safeNext =
-    nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/dashboard'
+    nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/onboarding'
 
   if (BYPASS_AUTH) {
     return <Navigate to="/dashboard" replace />
@@ -28,12 +27,8 @@ export function AuthPage() {
   }
 
   if (isAuthenticated && profile?.onboarding_done) {
-    if (isProfileParentPinMissing(profile)) {
-      setSkipParentalManagementGateOnce()
-      return <Navigate to="/set-parent-pin" replace />
-    }
     setSkipParentalManagementGateOnce()
-    return <Navigate to={safeNext} replace />
+    return <Navigate to={safeNext === '/onboarding' ? '/dashboard' : safeNext} replace />
   }
 
   if (isAuthenticated && profile && !profile.onboarding_done) {
