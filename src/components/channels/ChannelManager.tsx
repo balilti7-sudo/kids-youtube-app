@@ -614,17 +614,21 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
           </p>
         ) : null}
         {!embedded && devices.length > 1 ? (
-          <select
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            value={deviceId ?? ''}
-            onChange={(e) => handleDeviceChange(e.target.value)}
-          >
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-zinc-400">בחירת פרופיל</span>
+            <select
+              className="min-h-12 appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 outline-none ring-1 ring-zinc-800 focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/20"
+              style={{ colorScheme: 'dark' }}
+              value={deviceId ?? ''}
+              onChange={(e) => handleDeviceChange(e.target.value)}
+            >
+              {devices.map((d) => (
+                <option key={d.id} value={d.id} className="bg-zinc-950 text-zinc-100">
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </label>
         ) : null}
         <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
           <Button

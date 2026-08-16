@@ -90,7 +90,7 @@ function LocalScreenTimeParentCardInner() {
             max={240}
             value={minutes}
             onChange={(e) => setMinutes(e.target.value)}
-            className="w-full"
+            className="w-full border-zinc-700 bg-zinc-950 text-zinc-50"
           />
         </label>
         <Button

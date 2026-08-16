@@ -57,8 +57,8 @@ function ProfileDeviceCard({
         </div>
         <Button
           type="button"
-          variant="primary"
-          className="w-full shrink-0 justify-center gap-2 rounded-2xl sm:w-auto"
+          variant="secondary"
+          className="w-full shrink-0 justify-center gap-2 rounded-2xl border-zinc-600 bg-zinc-800 text-zinc-50 hover:bg-zinc-700 sm:w-auto"
           onClick={() => onManageChannels(device.id)}
           aria-label={t('dashboard.manageChannelsFor', { name: device.name })}
         >

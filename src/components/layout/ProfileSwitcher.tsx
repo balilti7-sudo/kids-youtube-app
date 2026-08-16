@@ -1,16 +1,23 @@
-import { UsersRound } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { ChevronDown, UsersRound } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../../lib/activeDeviceSelection'
+import { cn } from '../../lib/utils'
 
+/**
+ * Custom profile menu (not a native <select>) so Android WebView cannot paint a
+ * bright white system control over the dark parental dashboard.
+ */
 export function ProfileSwitcher() {
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { ownerUserId } = useDeviceOwnerId()
   const { devices } = useDevices(ownerUserId)
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const activeId = useMemo(() => {
     const requested = searchParams.get('device')
@@ -20,9 +27,29 @@ export function ProfileSwitcher() {
     return devices[0]?.id ?? ''
   }, [devices, searchParams])
 
+  const activeName = devices.find((d) => d.id === activeId)?.name ?? ''
+
   useEffect(() => {
     if (activeId) saveActiveChildProfileId(activeId)
   }, [activeId])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: MouseEvent) => {
+      const root = rootRef.current
+      if (!root || root.contains(event.target as Node)) return
+      setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   if (devices.length <= 1) return null
 
@@ -33,24 +60,57 @@ export function ProfileSwitcher() {
     next.set('device', nextDeviceId)
     next.delete('channel')
     navigate({ pathname: location.pathname, search: `?${next.toString()}` }, { replace: false })
+    setOpen(false)
   }
 
   return (
-    <label className="inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-2xl border border-zinc-700/80 bg-zinc-800 px-2 py-2 text-xs font-black text-zinc-50 shadow-md shadow-black/25 ring-1 ring-white/10 transition hover:bg-zinc-700 sm:max-w-[14rem] sm:gap-2 sm:px-3">
-      <UsersRound className="h-4 w-4 shrink-0 text-sky-300" aria-hidden />
-      <span className="hidden shrink-0 whitespace-nowrap min-[420px]:inline">החלף פרופיל</span>
-      <select
-        value={activeId}
-        onChange={(e) => handleChange(e.target.value)}
-        className="min-w-0 max-w-[5.25rem] truncate bg-transparent text-xs font-semibold text-zinc-100 outline-none sm:max-w-[10rem]"
+    <div ref={rootRef} className="relative min-w-0">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         aria-label="החלף פרופיל"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'inline-flex min-h-10 min-w-0 max-w-[9rem] items-center gap-1.5 rounded-2xl border border-zinc-700/80 bg-zinc-800 px-2 py-2 text-xs font-black text-zinc-50 shadow-md shadow-black/25 ring-1 ring-white/10 transition hover:bg-zinc-700 sm:max-w-[14rem] sm:gap-2 sm:px-3'
+        )}
       >
-        {devices.map((device) => (
-          <option key={device.id} value={device.id} className="bg-zinc-950 text-zinc-100">
-            {device.name}
-          </option>
-        ))}
-      </select>
-    </label>
+        <UsersRound className="h-4 w-4 shrink-0 text-sky-300" aria-hidden />
+        <span className="hidden shrink-0 whitespace-nowrap min-[420px]:inline">החלף פרופיל</span>
+        <span className="min-w-0 truncate font-semibold text-zinc-100">{activeName}</span>
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 shrink-0 text-zinc-400 transition', open && 'rotate-180')}
+          aria-hidden
+        />
+      </button>
+
+      {open ? (
+        <ul
+          role="listbox"
+          aria-label="בחירת פרופיל"
+          className="absolute end-0 top-[calc(100%+0.35rem)] z-50 min-w-[11rem] max-w-[16rem] overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 py-1 shadow-xl shadow-black/40 ring-1 ring-white/10"
+        >
+          {devices.map((device) => {
+            const selected = device.id === activeId
+            return (
+              <li key={device.id} role="option" aria-selected={selected}>
+                <button
+                  type="button"
+                  className={cn(
+                    'flex w-full items-center px-3 py-2.5 text-start text-sm font-semibold transition',
+                    selected
+                      ? 'bg-sky-500/20 text-sky-100'
+                      : 'text-zinc-100 hover:bg-zinc-800'
+                  )}
+                  onClick={() => handleChange(device.id)}
+                >
+                  <span className="truncate">{device.name}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </div>
   )
 }
