@@ -129,10 +129,10 @@ export function ChannelCard(props: Props) {
             </span>
           ) : props.added ? (
             <span className="inline-flex items-center gap-1">
-              <CheckCircle2 className="h-4 w-4" /> נוסף!
+              <CheckCircle2 className="h-4 w-4" aria-hidden /> ✓ נוסף
             </span>
           ) : (
-            'הוסף'
+            'הוסף ערוץ'
           )}
         </Button>
       ) : selectionMode ? null : (

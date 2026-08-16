@@ -7,7 +7,7 @@ import { useChannels } from '../../hooks/useChannels'
 import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
 import { supabase } from '../../lib/supabase'
 import { WhitelistView } from './WhitelistView'
-import { ChannelSearch } from './ChannelSearch'
+import { TopicDiscoveryModal } from './TopicDiscoveryModal'
 import { RemoveChannelModal } from './RemoveChannelModal'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { Button } from '../ui/Button'
@@ -49,6 +49,7 @@ type PendingPinAction =
   | { kind: 'openSearch' }
   | { kind: 'openVideoSearch' }
   | { kind: 'add'; channel: YouTubeChannelResult }
+  | { kind: 'addMany'; channels: YouTubeChannelResult[] }
   | { kind: 'remove'; channel: WhitelistedChannel }
 
 type ChannelManagerProps = {
@@ -118,11 +119,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
 
   const {
     whitelist,
-    searchResults,
-    searchLoading,
-    searchError,
     loading: listLoading,
-    search,
     loadWhitelist,
     addToWhitelist,
     removeFromWhitelist,
@@ -132,6 +129,11 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     localAccessToken: localParent.isActive ? localParent.localAccessToken : null,
     getLocalParentPin: localParent.isActive ? getLocalParentPin : undefined,
   })
+
+  const whitelistedChannelIds = useMemo(
+    () => new Set(whitelist.map((c) => c.youtube_channel_id).filter(Boolean)),
+    [whitelist]
+  )
 
   // Backfill cache for channels that never refreshed (or are older than 24h), throttled.
   // Fire-and-forget per channel so whitelist UI stays responsive.
@@ -263,27 +265,61 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     loadWhitelist()
   }, [deviceId, loadWhitelist])
 
-  const handleAdd = async (c: YouTubeChannelResult) => {
+  const handleAdd = async (
+    c: YouTubeChannelResult,
+    opts?: { showSuccessModal?: boolean }
+  ): Promise<boolean> => {
     if (!localParent.isActive && !selectedDevice) {
       toast.error(t('channels.noDeviceSelected'))
-      return
+      return false
     }
+    const showSuccessModal = opts?.showSuccessModal ?? !searchOpen
+    // Optimistic UI: flip to "✓ Added" immediately while the RPC runs.
+    setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
     setAddingId(c.channelId)
     try {
       const { error, cacheError: _cacheError } = await addToWhitelist(c, null)
       if (error) {
         console.error('[ChannelManager] addToWhitelist failed', error.message, c.channelId)
+        setAddedSearchChannelIds((prev) => {
+          const next = new Set(prev)
+          next.delete(c.channelId)
+          return next
+        })
         toast.error(error.message)
-        return
+        return false
       }
-      setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
-      setAddSuccessModalOpen(true)
+      if (showSuccessModal) setAddSuccessModalOpen(true)
+      return true
     } catch (e) {
       console.error('[ChannelManager] handleAdd unexpected error', e)
+      setAddedSearchChannelIds((prev) => {
+        const next = new Set(prev)
+        next.delete(c.channelId)
+        return next
+      })
       toast.error(e instanceof Error ? e.message : t('errors.generic'))
+      return false
     } finally {
       setAddingId(null)
     }
+  }
+
+  const handleAddMany = async (channels: YouTubeChannelResult[]) => {
+    const unique: YouTubeChannelResult[] = []
+    const seen = new Set<string>()
+    for (const c of channels) {
+      if (!c.channelId || seen.has(c.channelId)) continue
+      if (addedSearchChannelIds.has(c.channelId) || whitelistedChannelIds.has(c.channelId)) continue
+      seen.add(c.channelId)
+      unique.push(c)
+    }
+    if (unique.length === 0) return
+    let ok = 0
+    for (const c of unique) {
+      if (await handleAdd(c, { showSuccessModal: false })) ok += 1
+    }
+    if (ok > 0) toast.success(t('channels.channelsAddedCount', { count: ok }))
   }
 
   const confirmRemove = async () => {
@@ -332,6 +368,10 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       void handleAdd(pending.channel)
       return
     }
+    if (pending.kind === 'addMany') {
+      void handleAddMany(pending.channels)
+      return
+    }
     setRemoveTarget(pending.channel)
   }
 
@@ -353,10 +393,23 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
 
   const requestAddChannel = (c: YouTubeChannelResult) => {
     if (embedded && isParentalManagementGateUnlocked()) {
-      void handleAdd(c)
+      void handleAdd(c, { showSuccessModal: false })
       return
     }
     beginPinGate({ kind: 'add', channel: c })
+  }
+
+  const requestAddChannels = (channels: YouTubeChannelResult[]) => {
+    if (channels.length === 0) return
+    if (channels.length === 1) {
+      requestAddChannel(channels[0]!)
+      return
+    }
+    if (embedded && isParentalManagementGateUnlocked()) {
+      void handleAddMany(channels)
+      return
+    }
+    beginPinGate({ kind: 'addMany', channels })
   }
 
   const requestRemoveChannel = (c: WhitelistedChannel) => {
@@ -933,19 +986,17 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         </div>
       )}
 
-      <ChannelSearch
+      <TopicDiscoveryModal
         open={searchOpen}
         onClose={() => {
           setSearchOpen(false)
           setAddedSearchChannelIds(new Set())
         }}
-        onSearch={search}
-        results={searchResults}
-        loading={searchLoading}
-        error={searchError}
-        onAdd={requestAddChannel}
+        onAddChannel={requestAddChannel}
+        onAddChannels={requestAddChannels}
         addingId={addingId}
         addedIds={addedSearchChannelIds}
+        whitelistedChannelIds={whitelistedChannelIds}
         deviceLabel={selectedDevice?.name}
       />
 
