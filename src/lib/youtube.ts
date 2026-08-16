@@ -61,6 +61,8 @@ export interface ChannelVideoItem {
   durationSeconds?: number | null
   viewCount?: number | null
   likeCount?: number | null
+  /** ISO-8601 publish time when known (playlist / RSS / videos.list). */
+  publishedAt?: string | null
   /** YouTube `snippet.liveBroadcastContent`: none | live | upcoming */
   liveBroadcastContent?: 'none' | 'live' | 'upcoming' | null
 }
@@ -82,6 +84,7 @@ export type YoutubeVideoDetails = {
   viewCount: number | null
   likeCount: number | null
   liveBroadcastContent: 'none' | 'live' | 'upcoming' | null
+  publishedAt: string | null
 }
 
 type VideosListDetailsResponse = {
@@ -89,7 +92,7 @@ type VideosListDetailsResponse = {
     id?: string
     contentDetails?: { duration?: string }
     statistics?: { viewCount?: string; likeCount?: string }
-    snippet?: { liveBroadcastContent?: string }
+    snippet?: { liveBroadcastContent?: string; publishedAt?: string }
   }>
   error?: { message?: string }
 }
@@ -131,11 +134,13 @@ export async function fetchVideoDetailsBatch(videoIds: string[]): Promise<Map<st
         if (!id) continue
         const views = Number(item.statistics?.viewCount)
         const likes = Number(item.statistics?.likeCount)
+        const publishedRaw = item.snippet?.publishedAt?.trim() || ''
         out.set(id, {
           durationSeconds: parseYoutubeDurationIso8601(item.contentDetails?.duration),
           viewCount: Number.isFinite(views) && views >= 0 ? views : null,
           likeCount: Number.isFinite(likes) && likes >= 0 ? likes : null,
           liveBroadcastContent: parseLiveBroadcast(item.snippet?.liveBroadcastContent),
+          publishedAt: publishedRaw || null,
         })
       }
     } catch {
@@ -185,12 +190,17 @@ async function fetchChannelVideosFromRss(channelId: string): Promise<{
         const videoId = entry.getElementsByTagName('yt:videoId')[0]?.textContent?.trim() ?? ''
         const title = entry.getElementsByTagName('title')[0]?.textContent?.trim() ?? ''
         const channelTitle = entry.getElementsByTagName('name')[0]?.textContent?.trim() ?? ''
+        const publishedAt =
+          entry.getElementsByTagName('published')[0]?.textContent?.trim() ||
+          entry.getElementsByTagName('updated')[0]?.textContent?.trim() ||
+          null
         if (!videoId || !title) return null
         return {
           videoId,
           title,
           thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
           channelTitle,
+          publishedAt,
         }
       })
       .filter(Boolean) as ChannelVideoItem[]
@@ -906,6 +916,7 @@ type PlaylistItemsListResponse = {
     snippet?: {
       title?: string
       channelTitle?: string
+      publishedAt?: string
       resourceId?: { videoId?: string; kind?: string }
       thumbnails?: { medium?: { url?: string }; default?: { url?: string } }
     }
@@ -935,6 +946,7 @@ type SearchListVideoResponse = {
     snippet?: {
       title?: string
       channelTitle?: string
+      publishedAt?: string
       thumbnails?: { medium?: { url?: string }; default?: { url?: string } }
     }
   }>
@@ -993,6 +1005,7 @@ async function fetchChannelVideosViaSearchQuery(
         title: item.snippet?.title ?? 'ללא כותרת',
         thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
         channelTitle: item.snippet?.channelTitle ?? '',
+        publishedAt: item.snippet?.publishedAt?.trim() || null,
       })
     }
 
@@ -1047,6 +1060,7 @@ async function fetchUploadsPlaylistVideos(
         title: item.snippet?.title ?? 'ללא כותרת',
         thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
         channelTitle: item.snippet?.channelTitle ?? '',
+        publishedAt: item.snippet?.publishedAt?.trim() || null,
       })
     }
 

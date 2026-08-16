@@ -31,6 +31,7 @@ import {
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
 import { formatViewCountLabel } from '../lib/formatYoutubeCount'
+import { formatRelativePublishedAt, joinVideoMetadataParts } from '../lib/formatRelativeTime'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
@@ -202,6 +203,7 @@ function ChannelsPageInner() {
         title: string
         thumbnail_url: string | null
         duration_seconds?: number | null
+        published_at?: string | null
       }>
     ) =>
       rows.map((row) =>
@@ -210,6 +212,7 @@ function ChannelsPageInner() {
           title: row.title,
           thumbnail_url: row.thumbnail_url,
           duration_seconds: row.duration_seconds ?? null,
+          published_at: row.published_at ?? null,
         })
       )
 
@@ -223,12 +226,13 @@ function ChannelsPageInner() {
           title: row.title,
           thumbnail_url: row.thumbnail_url,
           duration_seconds: row.duration_seconds ?? null,
+          published_at: row.published_at ?? null,
         }))
       }
 
       const { data, error } = await supabase
         .from('channel_videos_cache')
-        .select('youtube_video_id, title, thumbnail_url, duration_seconds, position')
+        .select('youtube_video_id, title, thumbnail_url, duration_seconds, published_at, position')
         .eq('channel_id', channelKey)
         .order('position', { ascending: true })
       if (error) throw new Error(error.message)
@@ -238,12 +242,14 @@ function ChannelsPageInner() {
           title: string
           thumbnail_url: string | null
           duration_seconds?: number | null
+          published_at?: string | null
         }
         return {
           youtube_video_id: r.youtube_video_id,
           title: r.title,
           thumbnail_url: r.thumbnail_url,
           duration_seconds: r.duration_seconds ?? null,
+          published_at: r.published_at ?? null,
         }
       })
     }
@@ -283,6 +289,7 @@ function ChannelsPageInner() {
               title: v.title,
               thumbnail_url: v.thumbnail || null,
               duration_seconds: v.durationSeconds ?? null,
+              published_at: v.publishedAt ?? null,
             }))
             // Live uploads bypass cache SQL hidden filter — apply client red line.
             const hiddenRes = kidToken
@@ -308,6 +315,7 @@ function ChannelsPageInner() {
             title: row.title,
             thumbnail_url: row.thumbnail_url,
             durationSeconds: row.duration_seconds ?? null,
+            publishedAt: row.published_at ?? null,
           }))
         ).then((enriched) => {
           if (requestId === videosLoadGenRef.current) setVideos(enriched)
@@ -342,6 +350,7 @@ function ChannelsPageInner() {
                     title: v.title,
                     thumbnail_url: v.thumbnail || null,
                     duration_seconds: v.durationSeconds ?? null,
+                    publishedAt: v.publishedAt ?? null,
                   })
                 )
               for (const v of newerMapped) seen.add(v.youtube_video_id)
@@ -353,6 +362,7 @@ function ChannelsPageInner() {
                     title: v.title,
                     thumbnail_url: v.thumbnail || null,
                     duration_seconds: v.durationSeconds ?? null,
+                    publishedAt: v.publishedAt ?? null,
                   })
                 )
               if (newerMapped.length === 0 && olderMapped.length === 0) return prev
@@ -364,6 +374,7 @@ function ChannelsPageInner() {
                 title: v.title,
                 thumbnail_url: v.thumbnail || null,
                 durationSeconds: v.durationSeconds ?? null,
+                publishedAt: v.publishedAt ?? null,
               }))
             ).then((enriched) => {
               if (requestId !== videosLoadGenRef.current) return
@@ -458,6 +469,7 @@ function ChannelsPageInner() {
           title: v.title,
           thumbnail_url: v.thumbnail || null,
           duration_seconds: v.durationSeconds ?? null,
+          publishedAt: v.publishedAt ?? null,
         })
       )
       setVideos((prev) => {
@@ -470,6 +482,7 @@ function ChannelsPageInner() {
           title: v.title,
           thumbnail_url: v.thumbnail_url,
           durationSeconds: v.durationSeconds,
+          publishedAt: v.publishedAt ?? null,
         }))
       ).then((enriched) => {
         setVideos((prev) => {
@@ -846,7 +859,12 @@ function ChannelsPageInner() {
                     }
                     channelThumbnail={selectedChannel.channel_thumbnail ?? null}
                     subtitle={
-                      formatViewCountLabel(activeVideo?.viewCount ?? playingVideo?.viewCount) || null
+                      joinVideoMetadataParts(
+                        formatViewCountLabel(activeVideo?.viewCount ?? playingVideo?.viewCount),
+                        formatRelativePublishedAt(
+                          activeVideo?.publishedAt ?? playingVideo?.publishedAt
+                        )
+                      )
                     }
                     actions={
                       <>
@@ -919,7 +937,10 @@ function ChannelsPageInner() {
                             thumbnail={video.thumbnail_url}
                             hideThumbnail={Boolean(selectedDevice?.hide_thumbnails)}
                             channelName={video.channelName}
-                            metadata={formatViewCountLabel(video.viewCount) || null}
+                            metadata={joinVideoMetadataParts(
+                              formatViewCountLabel(video.viewCount),
+                              formatRelativePublishedAt(video.publishedAt)
+                            )}
                             active={false}
                             onClick={() => selectWatchVideo(video)}
                             actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}

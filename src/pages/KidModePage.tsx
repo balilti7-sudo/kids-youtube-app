@@ -59,6 +59,7 @@ import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos, fetchChannelUploadsPage, fetchVideoDetailsBatch, resolveChannelUploadsCursor } from '../lib/youtube'
 import type { YouTubeVideoResult } from '../types'
 import { formatViewCountLabel } from '../lib/formatYoutubeCount'
+import { formatRelativePublishedAt, joinVideoMetadataParts } from '../lib/formatRelativeTime'
 import { listHiddenVideoIdsForChild } from '../lib/hiddenVideos'
 import { ScreenTimeChildGate } from '../components/kid/ScreenTimeChildGate'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
@@ -189,6 +190,7 @@ function KidModePageInner() {
       }),
       viewCount: video.viewCount ?? null,
       likeCount: video.likeCount ?? null,
+      publishedAt: video.publishedAt ?? null,
       liveBroadcastContent: video.liveBroadcastContent ?? 'none',
     }))
   }, [filteredVideos])
@@ -465,6 +467,7 @@ function KidModePageInner() {
           thumbnail: v.thumbnail_url ?? '',
           channelTitle: '',
           durationSeconds: v.duration_seconds ?? null,
+          publishedAt: v.published_at ?? null,
         })
       )
     }
@@ -495,6 +498,7 @@ function KidModePageInner() {
           thumbnail: v.thumbnail || '',
           channelTitle: v.channelTitle || '',
           durationSeconds: v.durationSeconds ?? null,
+          publishedAt: v.publishedAt ?? null,
         }))
         // Live uploads bypass SQL hidden-video filter — apply client-side red line.
         const { data: hiddenIds } = await listHiddenVideoIdsForChild(accessToken)
@@ -516,6 +520,7 @@ function KidModePageInner() {
               durationSeconds: v.durationSeconds ?? d.durationSeconds,
               viewCount: d.viewCount ?? v.viewCount,
               likeCount: d.likeCount ?? v.likeCount,
+              publishedAt: v.publishedAt ?? d.publishedAt,
               liveBroadcastContent: d.liveBroadcastContent ?? v.liveBroadcastContent,
             }
           })
@@ -556,6 +561,7 @@ function KidModePageInner() {
                   durationSeconds: v.durationSeconds ?? d.durationSeconds,
                   viewCount: d.viewCount ?? v.viewCount,
                   likeCount: d.likeCount ?? v.likeCount,
+                  publishedAt: v.publishedAt ?? d.publishedAt,
                   liveBroadcastContent: d.liveBroadcastContent ?? v.liveBroadcastContent,
                 }
               })
@@ -624,6 +630,7 @@ function KidModePageInner() {
               durationSeconds: v.durationSeconds ?? d.durationSeconds,
               viewCount: d.viewCount ?? v.viewCount,
               likeCount: d.likeCount ?? v.likeCount,
+              publishedAt: v.publishedAt ?? d.publishedAt,
               liveBroadcastContent: d.liveBroadcastContent ?? v.liveBroadcastContent,
             }
           })
@@ -1570,7 +1577,12 @@ function KidModePageInner() {
                           title={activeVideo.title}
                           channelName={activeChannel?.channel_name ?? null}
                           channelThumbnail={activeChannel?.channel_thumbnail ?? null}
-                          subtitle={formatViewCountLabel(activeVideo.viewCount) || 'מאושר — SafeTube'}
+                          subtitle={
+                            joinVideoMetadataParts(
+                              formatViewCountLabel(activeVideo.viewCount),
+                              formatRelativePublishedAt(activeVideo.publishedAt)
+                            ) || 'מאושר — SafeTube'
+                          }
                           actions={
                             <>
                               <YoutubeLikeButton

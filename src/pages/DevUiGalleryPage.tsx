@@ -42,6 +42,7 @@ const SAMPLE_VIDEOS: WatchableVideoBase[] = [
     format: 'long',
     viewCount: 1_240_000,
     likeCount: 48_200,
+    publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
     liveBroadcastContent: 'none',
   },
   {
@@ -53,6 +54,7 @@ const SAMPLE_VIDEOS: WatchableVideoBase[] = [
     format: 'short',
     viewCount: 88_000,
     likeCount: 3200,
+    publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
     liveBroadcastContent: 'none',
   },
   {
@@ -64,6 +66,7 @@ const SAMPLE_VIDEOS: WatchableVideoBase[] = [
     format: 'long',
     viewCount: 1200,
     likeCount: 90,
+    publishedAt: new Date().toISOString(),
     liveBroadcastContent: 'live',
   },
 ]
@@ -118,7 +121,7 @@ function WatchChromeDemo() {
             <YoutubeWatchVideoDetails
               title={SAMPLE_VIDEOS[0].title}
               channelName="ערוץ לדוגמה"
-              subtitle="1.2M צפיות"
+              subtitle="1.2M צפיות · לפני חודש"
               actions={
                 <>
                   <YoutubeLikeButton videoId={SAMPLE_VIDEOS[0].youtube_video_id} likeCount={48200} />
@@ -138,7 +141,7 @@ function WatchChromeDemo() {
                   layout="row"
                   title={v.title}
                   thumbnail={v.thumbnail_url}
-                  metadata={`${(v.viewCount ?? 0).toLocaleString()} צפיות`}
+                  metadata={`${(v.viewCount ?? 0).toLocaleString()} צפיות · לפני חודש`}
                 />
               </li>
             ))}

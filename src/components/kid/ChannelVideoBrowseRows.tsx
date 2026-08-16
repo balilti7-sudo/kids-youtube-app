@@ -10,6 +10,7 @@ import { isLiveStreamVideo, isVideoShortOrSuspected, partitionVideosForBrowse } 
 import { usePortraitVideoThumbnailIds } from '../../hooks/usePortraitVideoThumbnailIds'
 import { useNearBottomLoadMore } from '../../hooks/useNearBottomLoadMore'
 import { formatLikeCountLabel, formatViewCountLabel } from '../../lib/formatYoutubeCount'
+import { formatRelativePublishedAt, joinVideoMetadataParts } from '../../lib/formatRelativeTime'
 
 type Props = {
   videos: WatchableVideoBase[]
@@ -29,11 +30,13 @@ type Props = {
 function videoMetadata(video: WatchableVideoBase): string | null {
   const views = formatViewCountLabel(video.viewCount)
   const likes = formatLikeCountLabel(video.likeCount)
-  const parts: string[] = []
-  if (video.liveBroadcastContent === 'live') parts.push('בשידור חי')
-  if (views) parts.push(views)
-  if (likes) parts.push(`${likes} לייקים`)
-  return parts.length > 0 ? parts.join(' · ') : null
+  const relative = formatRelativePublishedAt(video.publishedAt)
+  return joinVideoMetadataParts(
+    video.liveBroadcastContent === 'live' ? 'בשידור חי' : null,
+    views,
+    likes ? `${likes} לייקים` : null,
+    relative
+  )
 }
 
 function VideoGridCard({

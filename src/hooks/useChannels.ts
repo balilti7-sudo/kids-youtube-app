@@ -189,7 +189,7 @@ export function useChannels(
           youtube_video_id: v.videoId,
           title: v.title,
           thumbnail_url: v.thumbnail || null,
-          published_at: null as string | null,
+          published_at: v.publishedAt ?? null,
           position: positionOffset + idx,
           duration_seconds: v.durationSeconds ?? null,
         }))
@@ -240,7 +240,7 @@ export function useChannels(
           youtube_video_id: v.videoId,
           title: v.title,
           thumbnail_url: v.thumbnail || null,
-          published_at: null as string | null,
+          published_at: v.publishedAt ?? null,
           position: positionOffset + idx,
           duration_seconds: v.durationSeconds ?? null,
         }))

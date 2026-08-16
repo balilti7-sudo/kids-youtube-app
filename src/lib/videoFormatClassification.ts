@@ -97,6 +97,8 @@ export type WatchableVideoBase = {
   format: VideoFormat
   viewCount?: number | null
   likeCount?: number | null
+  /** ISO-8601 publish time when known. */
+  publishedAt?: string | null
   liveBroadcastContent?: LiveBroadcastContent | null
 }
 
@@ -110,6 +112,8 @@ export function toWatchableVideo(row: {
   watchUrl?: string | null
   viewCount?: number | null
   likeCount?: number | null
+  publishedAt?: string | null
+  published_at?: string | null
   liveBroadcastContent?: LiveBroadcastContent | null
 }): WatchableVideoBase {
   const durationSeconds = row.durationSeconds ?? row.duration_seconds ?? null
@@ -127,6 +131,7 @@ export function toWatchableVideo(row: {
     }),
     viewCount: row.viewCount ?? null,
     likeCount: row.likeCount ?? null,
+    publishedAt: row.publishedAt ?? row.published_at ?? null,
     liveBroadcastContent: row.liveBroadcastContent ?? null,
   }
 }
@@ -140,6 +145,7 @@ export async function enrichVideosWithFormat(
     durationSeconds?: number | null
     viewCount?: number | null
     likeCount?: number | null
+    publishedAt?: string | null
     liveBroadcastContent?: LiveBroadcastContent | null
   }>
 ): Promise<WatchableVideoBase[]> {
@@ -157,6 +163,7 @@ export async function enrichVideosWithFormat(
       durationSeconds: row.durationSeconds ?? fromApi?.durationSeconds ?? null,
       viewCount: row.viewCount ?? fromApi?.viewCount ?? null,
       likeCount: row.likeCount ?? fromApi?.likeCount ?? null,
+      publishedAt: row.publishedAt ?? fromApi?.publishedAt ?? null,
       liveBroadcastContent: row.liveBroadcastContent ?? fromApi?.liveBroadcastContent ?? null,
     })
   })
