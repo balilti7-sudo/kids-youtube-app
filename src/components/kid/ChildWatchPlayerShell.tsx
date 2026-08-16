@@ -1,6 +1,8 @@
 import { memo } from 'react'
 import type { VideoFormat } from '../../lib/videoFormatClassification'
+import { useVerticalSwipeNav } from '../../hooks/useVerticalSwipeNav'
 import { CleanPlayer } from '../player/CleanPlayer'
+import { cn } from '../../lib/utils'
 
 export type ChildWatchPlayerShellProps = {
   videoId: string
@@ -26,16 +28,36 @@ function ChildWatchPlayerShellInner({
   hasNextTrack,
 }: ChildWatchPlayerShellProps) {
   const isShort = format === 'short'
+  const { containerRef, handlers, dragOffsetY, swiping } = useVerticalSwipeNav({
+    enabled: isShort && Boolean(onNextTrack || onPreviousTrack),
+    onSwipeUp: onNextTrack,
+    onSwipeDown: onPreviousTrack,
+  })
 
   return (
     <div
-      className={
+      ref={containerRef}
+      {...(isShort ? handlers : {})}
+      className={cn(
+        'relative overflow-hidden bg-black touch-pan-y',
         isShort
-          ? 'relative mx-auto w-full max-w-[min(100%,420px)] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:max-w-[420px]'
-          : 'relative w-screen max-w-[100vw] overflow-hidden bg-black [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full'
+          ? 'mx-auto w-full max-w-[min(100%,420px)] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:max-w-[420px]'
+          : 'w-screen max-w-[100vw] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full'
+      )}
+      style={
+        isShort && dragOffsetY
+          ? {
+              transform: `translate3d(0, ${dragOffsetY}px, 0)`,
+              transition: swiping ? 'none' : 'transform 180ms ease-out',
+            }
+          : isShort
+            ? { transition: 'transform 180ms ease-out' }
+            : undefined
       }
+      aria-roledescription={isShort ? 'shorts player' : undefined}
+      data-shorts-swipe={isShort ? 'true' : undefined}
     >
-      <div className={`relative w-full ${isShort ? 'pt-[177.78%]' : 'pt-[56.25%]'}`}>
+      <div className={cn('relative w-full', isShort ? 'pt-[177.78%]' : 'pt-[56.25%]')}>
         <div className="absolute inset-0 min-h-0">
           <CleanPlayer
             videoId={videoId}
@@ -50,6 +72,9 @@ function ChildWatchPlayerShellInner({
           />
         </div>
       </div>
+      {isShort ? (
+        <span className="sr-only">החליקו למעלה או למטה למעבר בין Shorts</span>
+      ) : null}
     </div>
   )
 }

@@ -37,6 +37,7 @@ import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/Child
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
 import { isShortsBlockedForProfile } from '../lib/childContentSafety'
+import { buildShortsAwareNavQueue } from '../lib/shortsNavQueue'
 import { listHiddenVideoIdsForChild, listHiddenVideoIdsForDevice } from '../lib/hiddenVideos'
 import { toast } from 'sonner'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
@@ -510,11 +511,15 @@ function ChannelsPageInner() {
     if (playingVideo?.youtube_video_id === activeVideoId) return playingVideo
     return null
   }, [channelScopedVideos, activeVideoId, playingVideo])
-  const activeQueueIndex = useMemo(
-    () => filteredVideos.findIndex((video) => video.youtube_video_id === activeVideoId),
-    [filteredVideos, activeVideoId]
+  const playerNavQueue = useMemo(
+    () => buildShortsAwareNavQueue(filteredVideos, activeVideo ?? playingVideo),
+    [filteredVideos, activeVideo, playingVideo]
   )
-  const hasNextVideo = activeQueueIndex >= 0 && activeQueueIndex < filteredVideos.length - 1
+  const playerNavIndex = useMemo(
+    () => playerNavQueue.findIndex((video) => video.youtube_video_id === activeVideoId),
+    [playerNavQueue, activeVideoId]
+  )
+  const hasNextVideo = playerNavIndex >= 0 && playerNavIndex < playerNavQueue.length - 1
   useEffect(() => {
     if (!watchStarted || !selectedChannel) {
       setChannelRecommendations([])
@@ -645,14 +650,14 @@ function ChannelsPageInner() {
   )
 
   const goNextVideo = useCallback(() => {
-    if (!hasNextVideo) return
-    selectWatchVideo(filteredVideos[activeQueueIndex + 1])
-  }, [hasNextVideo, filteredVideos, activeQueueIndex, selectWatchVideo])
+    if (!hasNextVideo || playerNavIndex < 0) return
+    selectWatchVideo(playerNavQueue[playerNavIndex + 1]!)
+  }, [hasNextVideo, playerNavQueue, playerNavIndex, selectWatchVideo])
 
   const goPreviousVideo = useCallback(() => {
-    if (activeQueueIndex <= 0) return
-    selectWatchVideo(filteredVideos[activeQueueIndex - 1])
-  }, [activeQueueIndex, filteredVideos, selectWatchVideo])
+    if (playerNavIndex <= 0) return
+    selectWatchVideo(playerNavQueue[playerNavIndex - 1]!)
+  }, [playerNavIndex, playerNavQueue, selectWatchVideo])
 
   const openChannel = (youtubeChannelId: string) => {
     if (deviceId) saveActiveChildProfileId(deviceId)

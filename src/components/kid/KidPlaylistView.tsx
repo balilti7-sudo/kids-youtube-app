@@ -18,6 +18,7 @@ import type { ParentPinVerifyResult } from '../../lib/verifyParentManagementPin'
 import { cn } from '../../lib/utils'
 import { classifyWatchFormat, isShortsBlockedForProfile } from '../../lib/childContentSafety'
 import { filterVideosRespectingAllowShorts } from '../../lib/videoFormatClassification'
+import { buildShortsAwareNavQueue } from '../../lib/shortsNavQueue'
 import { shouldHideFromChildBrowse } from '../../lib/liveStreamPolicy'
 
 export type ParentQuickBlockConfig = {
@@ -192,18 +193,39 @@ export function KidPlaylistView({
   }
 
   const active = visibleVideos.find((v) => v.youtube_video_id === activeVideoId) ?? null
-  const activeIndex = visibleVideos.findIndex((v) => v.youtube_video_id === activeVideoId)
-  const hasNextPlaylistVideo = activeIndex >= 0 && activeIndex < visibleVideos.length - 1
+  const playerNavQueue = useMemo(() => {
+    if (!active) return visibleVideos
+    return buildShortsAwareNavQueue(
+      visibleVideos.map((v) => ({
+        ...v,
+        format: classifyWatchFormat({
+          youtubeVideoId: v.youtube_video_id,
+          title: v.title,
+          thumbnail: v.thumbnail_url,
+        }),
+      })),
+      {
+        ...active,
+        format: classifyWatchFormat({
+          youtubeVideoId: active.youtube_video_id,
+          title: active.title,
+          thumbnail: active.thumbnail_url,
+        }),
+      }
+    )
+  }, [visibleVideos, active])
+  const activeIndex = playerNavQueue.findIndex((v) => v.youtube_video_id === activeVideoId)
+  const hasNextPlaylistVideo = activeIndex >= 0 && activeIndex < playerNavQueue.length - 1
 
   const goNext = useCallback(() => {
-    if (activeIndex < 0 || activeIndex >= visibleVideos.length - 1) return
-    handleSelectVideo(visibleVideos[activeIndex + 1].youtube_video_id)
-  }, [visibleVideos, activeIndex, handleSelectVideo])
+    if (activeIndex < 0 || activeIndex >= playerNavQueue.length - 1) return
+    handleSelectVideo(playerNavQueue[activeIndex + 1]!.youtube_video_id)
+  }, [playerNavQueue, activeIndex, handleSelectVideo])
 
   const goPrev = useCallback(() => {
     if (activeIndex <= 0) return
-    handleSelectVideo(visibleVideos[activeIndex - 1].youtube_video_id)
-  }, [visibleVideos, activeIndex, handleSelectVideo])
+    handleSelectVideo(playerNavQueue[activeIndex - 1]!.youtube_video_id)
+  }, [playerNavQueue, activeIndex, handleSelectVideo])
 
   if (playlistsLoading && playlists.length === 0) {
     return (

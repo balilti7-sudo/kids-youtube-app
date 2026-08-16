@@ -52,6 +52,7 @@ import {
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
 import { classifyWatchFormat, filterSearchToWhitelistedChannels, isShortsBlockedForProfile } from '../lib/childContentSafety'
+import { buildShortsAwareNavQueue } from '../lib/shortsNavQueue'
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import type { ChannelVideoItem } from '../lib/youtube'
@@ -383,27 +384,58 @@ function KidModePageInner() {
     [childRuntime?.isBlocked, channelVideos, device?.allow_shorts]
   )
 
-  const activeVideoQueueIndex = useMemo(() => {
+  const playerNavQueue = useMemo(() => {
+    if (!activeVideo) return filteredVideos
+    const asQueueItem = {
+      videoId: activeVideo.videoId,
+      youtube_video_id: activeVideo.videoId,
+      title: activeVideo.title,
+      durationSeconds: activeVideo.durationSeconds,
+      thumbnail: activeVideo.thumbnail,
+      format: classifyWatchFormat({
+        durationSeconds: activeVideo.durationSeconds,
+        youtubeVideoId: activeVideo.videoId,
+        title: activeVideo.title,
+        thumbnail: activeVideo.thumbnail,
+      }),
+    }
+    return buildShortsAwareNavQueue(
+      filteredVideos.map((v) => ({
+        ...v,
+        youtube_video_id: v.videoId,
+        thumbnail: v.thumbnail,
+        format: classifyWatchFormat({
+          durationSeconds: v.durationSeconds,
+          youtubeVideoId: v.videoId,
+          title: v.title,
+          thumbnail: v.thumbnail,
+        }),
+      })),
+      asQueueItem
+    )
+  }, [filteredVideos, activeVideo])
+
+  const playerNavIndex = useMemo(() => {
     if (!activeVideoId) return -1
-    return filteredVideos.findIndex((v) => v.videoId === activeVideoId)
-  }, [filteredVideos, activeVideoId])
+    return playerNavQueue.findIndex((v) => v.videoId === activeVideoId)
+  }, [playerNavQueue, activeVideoId])
 
   const hasNextChannelVideo =
-    activeVideoQueueIndex >= 0 && activeVideoQueueIndex < filteredVideos.length - 1
+    playerNavIndex >= 0 && playerNavIndex < playerNavQueue.length - 1
 
   const handlePlayerNextTrack = useCallback(() => {
-    const list = filteredVideos
+    const list = playerNavQueue
     const idx = list.findIndex((v) => v.videoId === activeVideoId)
     if (idx < 0 || idx >= list.length - 1) return
     handleSelectVideo(list[idx + 1]!.videoId)
-  }, [filteredVideos, activeVideoId, handleSelectVideo])
+  }, [playerNavQueue, activeVideoId, handleSelectVideo])
 
   const handlePlayerPreviousTrack = useCallback(() => {
-    const list = filteredVideos
+    const list = playerNavQueue
     const idx = list.findIndex((v) => v.videoId === activeVideoId)
     if (idx <= 0) return
     handleSelectVideo(list[idx - 1]!.videoId)
-  }, [filteredVideos, activeVideoId, handleSelectVideo])
+  }, [playerNavQueue, activeVideoId, handleSelectVideo])
 
   useEffect(() => {
     if (!childRuntime?.playbackBlocked) return
