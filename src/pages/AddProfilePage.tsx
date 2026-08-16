@@ -24,7 +24,7 @@ export function AddProfilePage() {
   const { subscription } = useSubscription(ownerUserId)
   const addDevice = useDeviceStore((s) => s.addDevice)
 
-  const [deviceName, setDeviceName] = useState(() => t('dashboard.defaultProfileName'))
+  const [deviceName, setDeviceName] = useState('')
   const [saving, setSaving] = useState(false)
 
   const max = subscription?.max_devices ?? 3
@@ -138,7 +138,14 @@ export function AddProfilePage() {
             <button
               type="button"
               className="inline-flex min-h-12 w-full items-center justify-center text-sm font-medium text-zinc-500 transition hover:text-zinc-300"
-              onClick={() => navigate('/dashboard?skipAdd=1')}
+              onClick={() => {
+                const first = devices[0]
+                if (first) {
+                  navigate(`/dashboard/manage/${encodeURIComponent(first.id)}`)
+                  return
+                }
+                navigate('/dashboard?skipAdd=1')
+              }}
               disabled={saving}
             >
               {t('dashboard.skipAddProfileForNow')}
