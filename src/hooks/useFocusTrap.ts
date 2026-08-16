@@ -20,6 +20,13 @@ function listFocusable(root: HTMLElement): HTMLElement[] {
 }
 
 /**
+ * Stack of currently-active traps. When modals stack (e.g. the PIN modal opens on top
+ * of the discovery modal), only the top-most trap may handle Tab/Escape — otherwise
+ * the lower trap steals focus out of the upper modal and Escape closes the wrong one.
+ */
+const trapStack: RefObject<HTMLElement | null>[] = []
+
+/**
  * Trap Tab / Shift+Tab inside `containerRef` while `active`, handle Escape,
  * move initial focus into the container, and restore focus on cleanup.
  * Essential for D-Pad / keyboard users when modals open.
@@ -40,10 +47,14 @@ export function useFocusTrap(
   useEffect(() => {
     if (!active) return
 
+    trapStack.push(containerRef)
+    const isTopTrap = () => trapStack[trapStack.length - 1] === containerRef
+
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
 
     const focusInitial = () => {
+      if (!isTopTrap()) return
       const root = containerRef.current
       if (!root) return
       const preferred = initialFocusRef?.current
@@ -59,6 +70,7 @@ export function useFocusTrap(
     const t = window.setTimeout(focusInitial, 0)
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!isTopTrap()) return
       if (event.key === 'Escape') {
         if (!onEscape) return
         event.preventDefault()
@@ -96,6 +108,8 @@ export function useFocusTrap(
 
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
+      const idx = trapStack.lastIndexOf(containerRef)
+      if (idx !== -1) trapStack.splice(idx, 1)
       window.clearTimeout(t)
       document.removeEventListener('keydown', onKeyDown, true)
       const prev = previousFocusRef.current

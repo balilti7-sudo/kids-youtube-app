@@ -255,6 +255,9 @@
     "title": "{{name}}",
     "lead": "Approve channels and videos, and set Shorts, thumbnails, time limits, and device blocks for this profile.",
     "controlsTitle": "Content & device controls",
+    "sectionContent": "Content",
+    "sectionScreenTime": "Screen time",
+    "sectionProtections": "Device protections",
     "channelsTitle": "Channels & videos",
     "channelsLead": "Search and approve YouTube channels, or add individual videos to playlists."
   },

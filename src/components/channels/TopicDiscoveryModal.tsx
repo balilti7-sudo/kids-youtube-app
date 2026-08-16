@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CheckCircle2, Plus, Search, Tv } from 'lucide-react'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
@@ -26,6 +26,18 @@ type Props = {
   deviceLabel?: string
 }
 
+/** Video search goes through the Media Bridge, which may cold-start — never let it block the modal. */
+const VIDEO_SEARCH_TIMEOUT_MS = 12_000
+
+function withResultTimeout<T>(promise: Promise<T>, ms: number, timeoutValue: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => {
+      setTimeout(() => resolve(timeoutValue), ms)
+    }),
+  ])
+}
+
 function channelFromVideoFallback(video: YouTubeVideoResult): YouTubeChannelResult | null {
   if (!video.channelId) return null
   return {
@@ -49,18 +61,24 @@ export function TopicDiscoveryModal({
 }: Props) {
   const [q, setQ] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loadingChannels, setLoadingChannels] = useState(false)
+  const [loadingVideos, setLoadingVideos] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [videosNote, setVideosNote] = useState<string | null>(null)
   const [channels, setChannels] = useState<YouTubeChannelResult[]>([])
   const [videos, setVideos] = useState<YouTubeVideoResult[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [resolvingChannelId, setResolvingChannelId] = useState<string | null>(null)
+  const searchSeqRef = useRef(0)
 
   const reset = useCallback(() => {
+    searchSeqRef.current += 1
     setQ('')
     setHasSearched(false)
-    setLoading(false)
+    setLoadingChannels(false)
+    setLoadingVideos(false)
     setError(null)
+    setVideosNote(null)
     setChannels([])
     setVideos([])
     setSelectedIds(new Set())
@@ -77,38 +95,58 @@ export function TopicDiscoveryModal({
     [addedIds, whitelistedChannelIds]
   )
 
-  const runSearch = useCallback(async (query: string) => {
+  const runSearch = useCallback((query: string) => {
     const trimmed = query.trim()
     if (!trimmed) return
+    const seq = ++searchSeqRef.current
+    const isCurrent = () => searchSeqRef.current === seq
     setHasSearched(true)
-    setLoading(true)
+    setLoadingChannels(true)
+    setLoadingVideos(true)
     setError(null)
+    setVideosNote(null)
     setSelectedIds(new Set())
-    try {
-      const [channelRes, videoRes] = await Promise.all([
-        searchYouTubeChannels(trimmed),
-        searchYouTubeVideos(trimmed),
-      ])
-      if (channelRes.error && videoRes.error) {
-        setError(channelRes.error.message || videoRes.error.message || 'החיפוש נכשל')
+
+    // Channels come from the YouTube Data API and are the core of this flow —
+    // render them as soon as they arrive, never blocked by the video search.
+    void searchYouTubeChannels(trimmed)
+      .then((res) => {
+        if (!isCurrent()) return
+        setChannels(res.data ?? [])
+        if (res.error) setError(res.error.message)
+      })
+      .catch((e: unknown) => {
+        if (!isCurrent()) return
         setChannels([])
-        setVideos([])
-        return
+        setError(e instanceof Error ? e.message : 'החיפוש נכשל')
+      })
+      .finally(() => {
+        if (isCurrent()) setLoadingChannels(false)
+      })
+
+    // Videos are a bonus section via the Media Bridge (may cold-start) — bounded wait.
+    void withResultTimeout(
+      searchYouTubeVideos(trimmed).catch((e: unknown) => ({
+        data: null,
+        error: e instanceof Error ? e : new Error(String(e)),
+        continuation: null,
+        hasMore: false,
+      })),
+      VIDEO_SEARCH_TIMEOUT_MS,
+      {
+        data: null,
+        error: new Error('חיפוש הסרטונים מתעכב'),
+        continuation: null,
+        hasMore: false,
       }
-      setChannels(channelRes.data ?? [])
-      setVideos(videoRes.data ?? [])
-      if (channelRes.error) {
-        setError(channelRes.error.message)
-      } else if (videoRes.error) {
-        setError(videoRes.error.message)
+    ).then((res) => {
+      if (!isCurrent()) return
+      setVideos(res.data ?? [])
+      if (res.error) {
+        setVideosNote('חיפוש הסרטונים מתעכב — אפשר להוסיף ערוצים כבר עכשיו')
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'החיפוש נכשל')
-      setChannels([])
-      setVideos([])
-    } finally {
-      setLoading(false)
-    }
+      setLoadingVideos(false)
+    })
   }, [])
 
   const selectableChannels = useMemo(
@@ -185,8 +223,13 @@ export function TopicDiscoveryModal({
   }
 
   const selectedCount = selectedIds.size
+  const loading = loadingChannels || loadingVideos
   const empty =
-    hasSearched && !loading && !error && channels.length === 0 && videos.length === 0
+    hasSearched &&
+    !loading &&
+    !error &&
+    channels.length === 0 &&
+    videos.length === 0
 
   return (
     <Modal
@@ -271,12 +314,12 @@ export function TopicDiscoveryModal({
         </div>
       }
     >
-      {error ? <ErrorState message={error} onRetry={() => void runSearch(q)} /> : null}
+      {error ? <ErrorState message={error} onRetry={() => runSearch(q)} /> : null}
 
-      {loading ? (
+      {loadingChannels ? (
         <div className="flex min-h-[8rem] items-center justify-center gap-3 py-8 text-sm text-zinc-400">
           <LoadingSpinner className="h-8 w-8 border-2" />
-          מחפש ערוצים וסרטונים…
+          מחפש ערוצים…
         </div>
       ) : null}
 
@@ -286,7 +329,7 @@ export function TopicDiscoveryModal({
         </p>
       ) : null}
 
-      {!loading && channels.length > 0 ? (
+      {!loadingChannels && channels.length > 0 ? (
         <section className="mb-6" aria-label="ערוצים">
           <div className="mb-3 flex items-center gap-2 px-0.5">
             <Tv className="h-4 w-4 text-sky-300" aria-hidden />
@@ -330,7 +373,20 @@ export function TopicDiscoveryModal({
         </section>
       ) : null}
 
-      {!loading && videos.length > 0 ? (
+      {!loadingChannels && loadingVideos && hasSearched ? (
+        <div className="flex items-center justify-center gap-2 py-4 text-xs text-zinc-500">
+          <LoadingSpinner className="h-4 w-4 border-2" />
+          מחפש גם סרטונים…
+        </div>
+      ) : null}
+
+      {videosNote && !loadingVideos ? (
+        <p className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-center text-xs text-zinc-500">
+          {videosNote}
+        </p>
+      ) : null}
+
+      {!loadingVideos && videos.length > 0 ? (
         <section aria-label="סרטונים">
           <h3 className="mb-3 px-0.5 text-sm font-bold text-zinc-200">סרטונים ({videos.length})</h3>
           <ul className="flex flex-col gap-2">

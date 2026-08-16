@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { Settings2, Tv } from 'lucide-react'
+import { Clapperboard, Settings2, ShieldBan, Timer, Tv } from 'lucide-react'
 import { PageBackBar } from '../components/layout/PageBackBar'
 import { ChannelManager } from '../components/channels/ChannelManager'
 import { AllowShortsDeviceSettings } from '../components/dashboard/AllowShortsDeviceSettings'
 import { DailyTimeLimitDeviceSettings } from '../components/dashboard/DailyTimeLimitDeviceSettings'
 import { DeviceOsControlsSettings } from '../components/dashboard/DeviceOsControlsSettings'
 import { HideThumbnailsDeviceSettings } from '../components/dashboard/HideThumbnailsDeviceSettings'
+import { SettingsGroupSection } from '../components/dashboard/SettingsGroupSection'
 import { Button } from '../components/ui/Button'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { ChildRuntimeProvider } from '../contexts/ChildRuntimeContext'
@@ -89,10 +90,48 @@ function ManageProfilePageInner() {
           {t('manageProfile.controlsTitle')}
         </h2>
         <div className="flex flex-col gap-3">
-          <AllowShortsDeviceSettings device={device} />
-          <HideThumbnailsDeviceSettings device={device} />
-          <DailyTimeLimitDeviceSettings device={device} />
-          <DeviceOsControlsSettings device={device} />
+          <SettingsGroupSection
+            title={t('manageProfile.sectionContent')}
+            summary={[
+              device.allow_shorts ? t('shorts.allowOn') : t('shorts.allowOff'),
+              device.hide_thumbnails
+                ? t('thumbnails.summaryHidden')
+                : t('thumbnails.summaryShown'),
+            ].join(' · ')}
+            icon={<Clapperboard className="h-5 w-5" />}
+            defaultOpen
+          >
+            <AllowShortsDeviceSettings device={device} card={false} />
+            <div className="border-t border-zinc-800/80" aria-hidden />
+            <HideThumbnailsDeviceSettings device={device} card={false} />
+          </SettingsGroupSection>
+
+          <SettingsGroupSection
+            title={t('manageProfile.sectionScreenTime')}
+            summary={
+              device.daily_time_limit_minutes
+                ? t('timeLimit.minutesAbbr', { count: device.daily_time_limit_minutes })
+                : t('timeLimit.unlimited')
+            }
+            icon={<Timer className="h-5 w-5" />}
+          >
+            <DailyTimeLimitDeviceSettings device={device} />
+          </SettingsGroupSection>
+
+          <SettingsGroupSection
+            title={t('manageProfile.sectionProtections')}
+            summary={[
+              device.block_youtube_app
+                ? t('parentalOs.summaryYoutubeOn')
+                : t('parentalOs.summaryYoutubeOff'),
+              device.browser_filter_enabled
+                ? t('parentalOs.summaryBrowserOn')
+                : t('parentalOs.summaryBrowserOff'),
+            ].join(' · ')}
+            icon={<ShieldBan className="h-5 w-5" />}
+          >
+            <DeviceOsControlsSettings device={device} />
+          </SettingsGroupSection>
         </div>
       </section>
 

@@ -255,6 +255,9 @@
     "title": "{{name}}",
     "lead": "Apruebe canales y vídeos, y configure Shorts, miniaturas, límites de tiempo y bloqueos del dispositivo para este perfil.",
     "controlsTitle": "Controles de contenido y dispositivo",
+    "sectionContent": "Contenido",
+    "sectionScreenTime": "Tiempo de pantalla",
+    "sectionProtections": "Protecciones del dispositivo",
     "channelsTitle": "Canales y vídeos",
     "channelsLead": "Busque y apruebe canales de YouTube, o añada vídeos individuales a listas."
   },

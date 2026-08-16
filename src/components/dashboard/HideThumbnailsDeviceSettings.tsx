@@ -9,9 +9,11 @@ import { ParentSettingsToggle } from './ParentSettingsToggle'
 type Props = {
   device: Device
   className?: string
+  /** Render row-only (no card chrome) when nested inside a settings group. */
+  card?: boolean
 }
 
-export function HideThumbnailsDeviceSettings({ device, className }: Props) {
+export function HideThumbnailsDeviceSettings({ device, className, card }: Props) {
   const { t } = useTranslation()
   const updateDeviceSettings = useDeviceStore((s) => s.updateDeviceSettings)
   const [enabled, setEnabled] = useState(Boolean(device.hide_thumbnails))
@@ -36,6 +38,7 @@ export function HideThumbnailsDeviceSettings({ device, className }: Props) {
   return (
     <ParentSettingsToggle
       className={className}
+      card={card}
       accent="zinc"
       icon={<ImageOff className="h-5 w-5" />}
       title={t('thumbnails.hideTitle')}

@@ -120,7 +120,20 @@ function AppChrome() {
 
 export default function App() {
   useEffect(() => {
+    // Render free tier puts the bridge to sleep after ~15 min idle, causing 40s+
+    // cold starts on play. Keep it warm for the whole session, and re-warm when
+    // the app returns to the foreground.
     preWarmMediaBridge()
+    const KEEP_WARM_INTERVAL_MS = 10 * 60 * 1000
+    const interval = window.setInterval(preWarmMediaBridge, KEEP_WARM_INTERVAL_MS)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') preWarmMediaBridge()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   return (

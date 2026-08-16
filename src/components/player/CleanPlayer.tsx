@@ -126,6 +126,9 @@ function scheduleQualityUpgrade(
   }
 }
 
+/** If the upgraded source doesn't produce metadata within this budget, revert to the old URL. */
+const SOURCE_SWAP_WATCHDOG_MS = 12_000
+
 async function swapVideoSourcePreservingTime(
   el: HTMLVideoElement,
   info: StreamApiResponse,
@@ -134,24 +137,56 @@ async function swapVideoSourcePreservingTime(
   const { src } = streamResponseToSource(info)
   const savedTime = el.currentTime
   const wasPlaying = !el.paused && !el.ended
+  // Only direct URL sources reach here (hls.js playback skips the upgrade), so the
+  // previous src is a plain http(s) URL we can restore if the new one stalls.
+  const previousSrc = el.currentSrc || el.src
 
   detachHls()
   el.removeAttribute('src')
 
   return new Promise((resolve) => {
+    let settled = false
+
     const cleanup = () => {
+      window.clearTimeout(watchdog)
       el.removeEventListener('loadedmetadata', onReady)
       el.removeEventListener('error', onErr)
     }
 
-    const onReady = () => {
-      cleanup()
+    const seekToSavedTime = () => {
       try {
         const duration = Number.isFinite(el.duration) ? el.duration : savedTime
         el.currentTime = Math.min(Math.max(0, savedTime), duration)
       } catch {
         /* ignore seek errors */
       }
+    }
+
+    const revertToPreviousSource = (reason: string) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      console.warn(`[CleanPlayer] quality swap ${reason} — reverting to previous source`)
+      if (previousSrc && previousSrc.startsWith('http')) {
+        el.addEventListener(
+          'loadedmetadata',
+          () => {
+            seekToSavedTime()
+            if (wasPlaying) void el.play().catch(() => {})
+          },
+          { once: true }
+        )
+        el.src = previousSrc
+        el.load()
+      }
+      resolve(false)
+    }
+
+    const onReady = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      seekToSavedTime()
       if (wasPlaying) {
         void el.play().finally(() => resolve(true))
       } else {
@@ -159,10 +194,12 @@ async function swapVideoSourcePreservingTime(
       }
     }
 
-    const onErr = () => {
-      cleanup()
-      resolve(false)
-    }
+    const onErr = () => revertToPreviousSource('failed')
+
+    const watchdog = window.setTimeout(
+      () => revertToPreviousSource(`stalled after ${SOURCE_SWAP_WATCHDOG_MS}ms`),
+      SOURCE_SWAP_WATCHDOG_MS
+    )
 
     el.addEventListener('loadedmetadata', onReady, { once: true })
     el.addEventListener('error', onErr, { once: true })
@@ -869,8 +906,11 @@ function CleanPlayerMediaBridge({
                 hlsJsActiveRef.current = false
                 setPhase({ kind: 'playing', info: upgrade })
               },
-              // Black-screen / audio-first mode: skip mid-stream URL swap stutter.
-              { skip: blankVideoFrameRef.current }
+              // Skip the mid-stream URL swap when:
+              // - black-screen / audio-first mode (swap stutter is very visible), or
+              // - hls.js is driving playback (it adapts quality itself, and a failed
+              //   swap after detaching hls.js cannot be reverted — frozen player).
+              { skip: blankVideoFrameRef.current || hlsJsActiveRef.current }
             )
           }
 
@@ -1313,9 +1353,13 @@ function CleanPlayerMediaBridge({
         .then(() => {
           setNeedsUserGesture(false)
         })
-        .catch(() => {
-          // Autoplay blocked (common on mobile) — show an explicit play tap target.
-          setNeedsUserGesture(true)
+        .catch((err: unknown) => {
+          // Show the tap-to-play gate ONLY for autoplay policy blocks. AbortError fires
+          // when a source swap (360p→720p upgrade) interrupts play() — covering the
+          // video with an overlay then made playback look frozen.
+          if (err instanceof DOMException && err.name === 'NotAllowedError') {
+            setNeedsUserGesture(true)
+          }
         })
     }
     el.addEventListener('playing', clearGestureGate)
@@ -1533,7 +1577,15 @@ function CleanPlayerMediaBridge({
             void el
               .play()
               .then(() => setNeedsUserGesture(false))
-              .catch(() => setNeedsUserGesture(true))
+              .catch(() => {
+                // Strict autoplay policy — muted playback is always allowed; the child
+                // can unmute via the native controls once playing.
+                el.muted = true
+                void el
+                  .play()
+                  .then(() => setNeedsUserGesture(false))
+                  .catch(() => setNeedsUserGesture(true))
+              })
           }}
           aria-label="נגן סרטון"
         >

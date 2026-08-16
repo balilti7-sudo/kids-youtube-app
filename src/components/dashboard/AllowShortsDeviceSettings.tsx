@@ -9,9 +9,11 @@ import { ParentSettingsToggle } from './ParentSettingsToggle'
 type Props = {
   device: Device
   className?: string
+  /** Render row-only (no card chrome) when nested inside a settings group. */
+  card?: boolean
 }
 
-export function AllowShortsDeviceSettings({ device, className }: Props) {
+export function AllowShortsDeviceSettings({ device, className, card }: Props) {
   const { t } = useTranslation()
   const updateAllowShorts = useDeviceStore((s) => s.updateAllowShorts)
   const [enabled, setEnabled] = useState(Boolean(device.allow_shorts))
@@ -36,6 +38,7 @@ export function AllowShortsDeviceSettings({ device, className }: Props) {
   return (
     <ParentSettingsToggle
       className={className}
+      card={card}
       accent="sky"
       icon={<Smartphone className="h-5 w-5" />}
       title={t('shorts.allowTitle')}

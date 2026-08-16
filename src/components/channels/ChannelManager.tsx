@@ -13,6 +13,7 @@ import { CleanPlayer } from '../player/CleanPlayer'
 import { Button } from '../ui/Button'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
+import { isProfileParentPinMissing } from '../../lib/parentPin'
 import { setParentPinSession } from '../../lib/parentPinSession'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
@@ -334,7 +335,33 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     }
   }
 
+  const runPendingAction = (pending: PendingPinAction) => {
+    if (pending.kind === 'openSearch') {
+      setSearchOpen(true)
+      return
+    }
+    if (pending.kind === 'openVideoSearch') {
+      setVideoSearchOpenSignal((n) => n + 1)
+      return
+    }
+    if (pending.kind === 'add') {
+      void handleAdd(pending.channel)
+      return
+    }
+    if (pending.kind === 'addMany') {
+      void handleAddMany(pending.channels)
+      return
+    }
+    setRemoveTarget(pending.channel)
+  }
+
   const beginPinGate = (action: PendingPinAction) => {
+    // Onboarding defers PIN setup — a signed-in parent may have no PIN yet. There is
+    // nothing to verify in that state, so the PIN modal would dead-end (no code can match).
+    if (user?.id && profile && isProfileParentPinMissing(profile)) {
+      runPendingAction(action)
+      return
+    }
     pendingPinActionRef.current = action
     setPinModalOpen(true)
   }
@@ -356,23 +383,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     setPinModalOpen(false)
 
     if (!pending) return
-    if (pending.kind === 'openSearch') {
-      setSearchOpen(true)
-      return
-    }
-    if (pending.kind === 'openVideoSearch') {
-      setVideoSearchOpenSignal((n) => n + 1)
-      return
-    }
-    if (pending.kind === 'add') {
-      void handleAdd(pending.channel)
-      return
-    }
-    if (pending.kind === 'addMany') {
-      void handleAddMany(pending.channels)
-      return
-    }
-    setRemoveTarget(pending.channel)
+    runPendingAction(pending)
   }
 
   const requestOpenChannelSearch = () => {

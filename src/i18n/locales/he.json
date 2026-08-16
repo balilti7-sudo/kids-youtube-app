@@ -255,6 +255,9 @@
     "title": "{{name}}",
     "lead": "אשרו ערוצים וסרטונים, והגדירו Shorts, תמונות ממוזערות, מגבלת זמן וחסימות מכשיר לפרופיל זה.",
     "controlsTitle": "בקרת תוכן ומכשיר",
+    "sectionContent": "תוכן",
+    "sectionScreenTime": "זמן מסך",
+    "sectionProtections": "חסימות מכשיר",
     "channelsTitle": "ערוצים וסרטונים",
     "channelsLead": "חפשו ואשרו ערוצי YouTube, או הוסיפו סרטונים בודדים לפלייליסטים."
   },
