@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Capacitor } from '@capacitor/core'
 import {
   Lock,
   LockOpen,
@@ -28,7 +29,6 @@ import {
   fetchStreamInfo,
   getStreamApiBaseUrl,
   STREAM_START_QUALITY,
-  STREAM_UPGRADE_QUALITY,
   streamResponseToSource,
   type StreamApiResponse,
 } from '../../lib/streamApi'
@@ -41,91 +41,7 @@ import { useDailyWatchBudgetStore } from '../../stores/dailyWatchBudgetStore'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
 
-function playbackQualityHeight(raw: string | null | undefined): number {
-  const m = String(raw || '').match(/(\d+)\s*p/i)
-  return m ? Number(m[1]) : 0
-}
-
-function scheduleQualityUpgrade(
-  el: HTMLVideoElement,
-  vid: string,
-  startInfo: StreamApiResponse,
-  detachHls: () => void,
-  onUpgraded: (info: StreamApiResponse) => void,
-  opts?: { skip?: boolean }
-): () => void {
-  const startHeight = playbackQualityHeight(startInfo.quality || STREAM_START_QUALITY)
-  const upgradeHeight = playbackQualityHeight(STREAM_UPGRADE_QUALITY)
-  if (opts?.skip || startHeight >= upgradeHeight) {
-    return () => {}
-  }
-
-  let cancelled = false
-
-  const hasHealthyBuffer = () => {
-    try {
-      if (!el.buffered || el.buffered.length === 0) return false
-      const end = el.buffered.end(el.buffered.length - 1)
-      return end - el.currentTime >= 8
-    } catch {
-      return false
-    }
-  }
-
-  const runUpgrade = () => {
-    if (cancelled) return
-    // Avoid mid-stream swaps while the buffer is thin — common stutter source.
-    if (!hasHealthyBuffer()) {
-      window.setTimeout(runUpgrade, 2500)
-      return
-    }
-    void (async () => {
-      try {
-        const upgrade = await fetchStreamInfo(vid, { quality: STREAM_UPGRADE_QUALITY })
-        if (cancelled) return
-
-        const resolvedHeight = playbackQualityHeight(upgrade.quality)
-        if (resolvedHeight <= startHeight) return
-
-        console.info(
-          `[CleanPlayer] upgrading ${vid} ${startInfo.quality || STREAM_START_QUALITY} -> ${upgrade.quality || STREAM_UPGRADE_QUALITY}`
-        )
-
-        const ok = await swapVideoSourcePreservingTime(el, upgrade, detachHls)
-        if (!ok || cancelled) return
-
-        onUpgraded(upgrade)
-      } catch (err) {
-        if (!cancelled) {
-          console.warn(
-            '[CleanPlayer] quality upgrade skipped:',
-            err instanceof Error ? err.message : err
-          )
-        }
-      }
-    })()
-  }
-
-  const onCanPlay = () => {
-    el.removeEventListener('canplay', onCanPlay)
-    if (cancelled) return
-    // Give playback time to stabilize before swapping the media URL.
-    window.setTimeout(runUpgrade, 4500)
-  }
-
-  if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-    window.setTimeout(runUpgrade, 4500)
-  } else {
-    el.addEventListener('canplay', onCanPlay, { once: true })
-  }
-
-  return () => {
-    cancelled = true
-    el.removeEventListener('canplay', onCanPlay)
-  }
-}
-
-/** If the upgraded source doesn't produce metadata within this budget, revert to the old URL. */
+/** If a recovered source doesn't produce metadata within this budget, revert to the old URL. */
 const SOURCE_SWAP_WATCHDOG_MS = 12_000
 
 async function swapVideoSourcePreservingTime(
@@ -141,7 +57,6 @@ async function swapVideoSourcePreservingTime(
   const previousSrc = el.currentSrc || el.src
 
   detachHls()
-  el.removeAttribute('src')
 
   return new Promise((resolve) => {
     let settled = false
@@ -176,7 +91,6 @@ async function swapVideoSourcePreservingTime(
           { once: true }
         )
         el.src = previousSrc
-        el.load()
       }
       resolve(false)
     }
@@ -203,7 +117,6 @@ async function swapVideoSourcePreservingTime(
     el.addEventListener('loadedmetadata', onReady, { once: true })
     el.addEventListener('error', onErr, { once: true })
     el.src = src
-    el.load()
   })
 }
 
@@ -499,6 +412,8 @@ function applyPlaybackFailure(
 }
 
 function canPlayNativeHls(): boolean {
+  // Android WebView's native HLS is incomplete for googlevideo manifests — always use hls.js.
+  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') return false
   if (typeof document === 'undefined') return false
   const v = document.createElement('video')
   return (
@@ -689,8 +604,6 @@ function CleanPlayerMediaBridge({
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
-  /** Cancels deferred 720p upgrade when the video changes or unmounts. */
-  const upgradeCleanupRef = useRef<(() => void) | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
   /** Stall-recovery bookkeeping: googlevideo can cut a stream mid-play (PO-token enforcement). */
@@ -711,8 +624,6 @@ function CleanPlayerMediaBridge({
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
-  const blankVideoFrameRef = useRef(blankVideoFrame)
-  blankVideoFrameRef.current = blankVideoFrame
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
   const playbackNotifiedRef = useRef(false)
   const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
@@ -830,9 +741,6 @@ function CleanPlayerMediaBridge({
       }
     }
 
-    upgradeCleanupRef.current?.()
-    upgradeCleanupRef.current = null
-
     if (!videoId.trim()) {
       applyPlaybackFailure(new Error('missing videoId'), 'invalid videoId', setPhase)
       return () => {
@@ -888,32 +796,8 @@ function CleanPlayerMediaBridge({
 
         const applyToElement = (el: HTMLVideoElement) => {
           detachHls()
-          upgradeCleanupRef.current?.()
-          upgradeCleanupRef.current = null
-          el.removeAttribute('src')
-          el.load()
 
           const { src: playbackSrc } = streamResponseToSource(info)
-          const safeId = sanitizeYoutubeVideoId(videoId)
-
-          const attachUpgradeAfterStart = () => {
-            if (!safeId) return
-            upgradeCleanupRef.current = scheduleQualityUpgrade(
-              el,
-              safeId,
-              info,
-              detachHls,
-              (upgrade) => {
-                hlsJsActiveRef.current = false
-                setPhase({ kind: 'playing', info: upgrade })
-              },
-              // Skip the mid-stream URL swap when:
-              // - black-screen / audio-first mode (swap stutter is very visible), or
-              // - hls.js is driving playback (it adapts quality itself, and a failed
-              //   swap after detaching hls.js cannot be reverted — frozen player).
-              { skip: blankVideoFrameRef.current || hlsJsActiveRef.current }
-            )
-          }
 
           if (info.format === 'hls' && !canPlayNativeHls()) {
             if (!Hls.isSupported()) {
@@ -950,7 +834,6 @@ function CleanPlayerMediaBridge({
             hls.loadSource(playbackSrc)
             hls.attachMedia(el)
             setPhase({ kind: 'playing', info })
-            attachUpgradeAfterStart()
             return
           }
 
@@ -959,7 +842,6 @@ function CleanPlayerMediaBridge({
             console.info('[CleanPlayer] <video src>', playbackSrc)
           }
           setPhase({ kind: 'playing', info })
-          attachUpgradeAfterStart()
         }
 
         const tryAttach = () => {
@@ -990,8 +872,6 @@ function CleanPlayerMediaBridge({
       cancelled = true
       if (attachRafId != null) cancelAnimationFrame(attachRafId)
       ac?.abort()
-      upgradeCleanupRef.current?.()
-      upgradeCleanupRef.current = null
       detachHls()
     }
   }, [videoId, retryNonce, isLimitReached])

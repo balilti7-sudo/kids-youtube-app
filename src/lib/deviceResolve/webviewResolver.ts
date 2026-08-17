@@ -17,12 +17,12 @@ import type { DeviceResolvedStream } from './index'
 
 const REQUEST_KEY = 'O43z0dpjhgX20SCx4KAo'
 const PO_TOKEN_TTL_MS = 55 * 60 * 1000
-const RESOLVE_TTL_MS = 3.5 * 60 * 60 * 1000
+const RESOLVE_TTL_MS = 8 * 60 * 1000
 
 const HEIGHT_BY_QUALITY: Record<string, number> = {
   '240p': 240, '360p': 360, '480p': 480, '720p': 720, '1080p': 1080,
 }
-const CLIENT_ORDER = ['ANDROID', 'IOS', 'WEB'] as const
+const CLIENT_ORDER = ['IOS', 'ANDROID', 'ANDROID_VR', 'WEB'] as const
 
 /** fetch() shim that routes through native HTTP (no CORS) and returns a real Response. */
 const nativeFetch = capacitorAwareFetch
@@ -147,7 +147,8 @@ export async function resolveWebviewStream(
     try {
       const yt = await Innertube.create({
         client_type: ClientType[clientName as keyof typeof ClientType] ?? ClientType.ANDROID,
-        retrieve_player: false,
+        // WEB needs the player JS to decipher nsig; ANDROID/IOS URLs are pre-deciphered.
+        retrieve_player: clientName === 'WEB',
         fetch: nativeFetch,
         ...(po ? { visitor_data: po.visitorData, po_token: po.sessionPoToken } : {}),
       })
@@ -165,8 +166,25 @@ export async function resolveWebviewStream(
 
       const info = await yt.getBasicInfo(id, options)
       const status = info.playability_status?.status
+      const reason = info.playability_status?.reason || status || ''
       if (status && status !== 'OK') {
-        throw new Error(info.playability_status?.reason || status)
+        throw new Error(reason || status)
+      }
+      if (/sign in to confirm|not a bot|bot check|captcha/i.test(String(reason))) {
+        throw new Error(reason)
+      }
+
+      const hlsManifest = info.streaming_data?.hls_manifest_url
+      if (typeof hlsManifest === 'string' && hlsManifest.startsWith('http')) {
+        const data: DeviceResolvedStream = {
+          videoId: id,
+          playbackUrl: hlsManifest,
+          mime: 'application/vnd.apple.mpegurl',
+          format: 'hls',
+          quality: q,
+        }
+        resolveCache.set(cacheKey, { data, expiresAt: Date.now() + RESOLVE_TTL_MS })
+        return data
       }
 
       const formats = [
@@ -190,19 +208,10 @@ export async function resolveWebviewStream(
 
       const mime = chosen.mime_type || 'video/mp4'
       const isHls = /\.m3u8(\?|$)/i.test(playbackUrl) || /mpegurl/i.test(mime)
-      if (!isHls && po && !/[?&]pot=/i.test(playbackUrl)) {
-        // YouTube's "GVS PO Token binding" enforcement (2026) rejects range requests
-        // mid-stream when `pot` is the session token — the video plays ~1s of buffered
-        // data and then freezes. The streaming token must be bound to the VIDEO ID.
-        let urlPot = ''
-        try {
-          urlPot = await po.mintContentBoundToken(id)
-        } catch {
-          urlPot = po.sessionPoToken
-        }
-        if (urlPot) {
-          playbackUrl += `${playbackUrl.includes('?') ? '&' : '?'}pot=${encodeURIComponent(urlPot)}`
-        }
+      if (!isHls && po?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
+        // GVS checks `pot` on the media request. The player API uses a content-bound
+        // token; the googlevideo URL needs the session token (same as the Media Bridge).
+        playbackUrl += `${playbackUrl.includes('?') ? '&' : '?'}pot=${encodeURIComponent(po.sessionPoToken)}`
       }
 
       const data: DeviceResolvedStream = {

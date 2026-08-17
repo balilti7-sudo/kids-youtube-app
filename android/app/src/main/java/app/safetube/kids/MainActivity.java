@@ -2,12 +2,15 @@ package app.safetube.kids;
 
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapacitorWebView;
 import java.util.Locale;
 
@@ -21,6 +24,16 @@ public class MainActivity extends BridgeActivity {
         try {
             if (bridge != null && bridge.getWebView() != null) {
                 bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+                // Wrap Capacitor's client so googlevideo Range requests get a YouTube Referer
+                // (otherwise the first second plays and then the stream 403s / freezes).
+                bridge.getWebView().setWebViewClient(new BridgeWebViewClient(bridge) {
+                    @Override
+                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                        WebResourceResponse youtube = YoutubeMediaInterceptor.maybeIntercept(request);
+                        if (youtube != null) return youtube;
+                        return super.shouldInterceptRequest(view, request);
+                    }
+                });
             }
         } catch (Exception ignored) {
             /* ignore */

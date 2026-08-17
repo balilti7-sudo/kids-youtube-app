@@ -294,7 +294,7 @@ export const STREAM_START_QUALITY: StreamPlaybackQuality = '360p'
 export const STREAM_UPGRADE_QUALITY: StreamPlaybackQuality = '720p'
 
 /** How long a successful `/api/stream` response stays reusable (proxy URL is stable per videoId). */
-const STREAM_INFO_CACHE_TTL_MS = 20 * 60 * 1000
+const STREAM_INFO_CACHE_TTL_MS = 8 * 60 * 1000
 
 type StreamInfoCacheEntry = { data: StreamApiResponse; cachedAt: number }
 
