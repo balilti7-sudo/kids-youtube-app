@@ -1,5 +1,5 @@
-import { isParentalGateIdleExceeded, touchParentalGateActivity } from './parentalGateActivity'
-import { clearParentPinSession, getParentPinSession } from './parentPinSession'
+import { touchParentalGateActivity } from './parentalGateActivity'
+import { clearParentPinSession } from './parentPinSession'
 import { SAFETUBE_PARENTAL_MANAGEMENT_GATE_KEY } from './safetubeSessionKeys'
 
 export function isParentalManagementGateUnlocked(): boolean {
@@ -26,20 +26,4 @@ export function clearParentalManagementGate(): void {
   } catch {
     /* ignore */
   }
-}
-
-/**
- * True while the parent PIN session is still valid: gate unlocked, not idle past
- * 10 minutes, and (when a PIN exists) the in-memory PIN is still present.
- */
-export function isParentUnlockSessionActive(): boolean {
-  if (!isParentalManagementGateUnlocked()) return false
-  if (isParentalGateIdleExceeded()) return false
-  return true
-}
-
-/** PIN already verified this session — skip extra prompts and extra verify RPCs. */
-export function hasVerifiedParentPinForMutations(): boolean {
-  if (!isParentUnlockSessionActive()) return false
-  return getParentPinSession().length >= 4
 }

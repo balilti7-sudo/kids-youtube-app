@@ -10,7 +10,6 @@ import {
   type HiddenVideoPayload,
 } from '../../lib/hiddenVideos'
 import { toast } from 'sonner'
-import { getParentPinSession } from '../../lib/parentPinSession'
 
 export type QuickBlockButtonProps = {
   video: HiddenVideoPayload
@@ -65,7 +64,7 @@ export function QuickBlockButton({
     e.stopPropagation()
     e.preventDefault()
     if (busy) return
-    const pin = (cachedPin || getParentPinSession()).replace(/\D/g, '').trim()
+    const pin = cachedPin?.replace(/\D/g, '').trim()
     if (pin && pin.length >= 4) {
       void blockVideo(pin)
       return

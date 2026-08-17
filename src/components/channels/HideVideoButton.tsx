@@ -10,7 +10,6 @@ import {
   type HiddenVideoPayload,
 } from '../../lib/hiddenVideos'
 import { toast } from 'sonner'
-import { getParentPinSession } from '../../lib/parentPinSession'
 
 type Props = {
   deviceId: string | null
@@ -84,11 +83,6 @@ export function HideVideoButton({
         )}
         onClick={(e) => {
           e.stopPropagation()
-          const sessionPin = (getParentPinSession() || '').replace(/\D/g, '').trim()
-          if (sessionPin.length >= 4) {
-            void applyAction(sessionPin)
-            return
-          }
           setPinOpen(true)
         }}
       >

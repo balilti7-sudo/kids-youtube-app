@@ -3,7 +3,7 @@ import { getSavedChildAccessToken } from './childDevice'
 /** sessionStorage — local parent session metadata WITHOUT the PIN (PIN stays in memory only). */
 export const SAFETUBE_LOCAL_PARENT_ADMIN_KEY = 'safetube_local_parent_admin'
 
-export const LOCAL_PARENT_SESSION_MS = 10 * 60 * 1000
+export const LOCAL_PARENT_SESSION_MS = 30 * 60 * 1000
 
 export interface LocalParentSession {
   until: number

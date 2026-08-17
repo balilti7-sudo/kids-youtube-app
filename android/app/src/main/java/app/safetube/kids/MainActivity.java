@@ -2,16 +2,12 @@ package app.safetube.kids;
 
 import android.os.Bundle;
 import android.view.KeyEvent;
-import android.webkit.CookieManager;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
-import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapacitorWebView;
 import java.util.Locale;
 
@@ -24,24 +20,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         try {
             if (bridge != null && bridge.getWebView() != null) {
-                WebView webView = bridge.getWebView();
-                webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-                try {
-                    CookieManager cookies = CookieManager.getInstance();
-                    cookies.setAcceptCookie(true);
-                    cookies.setAcceptThirdPartyCookies(webView, true);
-                } catch (Exception ignored) {
-                    /* ignore */
-                }
-                // Intercept YouTube /embed HTML only — never googlevideo media (Range/206).
-                webView.setWebViewClient(new BridgeWebViewClient(bridge) {
-                    @Override
-                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                        WebResourceResponse embed = YoutubeEmbedPageInterceptor.maybeIntercept(request);
-                        if (embed != null) return embed;
-                        return super.shouldInterceptRequest(view, request);
-                    }
-                });
+                bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
             }
         } catch (Exception ignored) {
             /* ignore */

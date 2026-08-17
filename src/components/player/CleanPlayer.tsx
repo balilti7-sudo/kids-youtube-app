@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Capacitor } from '@capacitor/core'
 import {
   Lock,
   LockOpen,
@@ -13,12 +12,9 @@ import {
   SkipForward,
 } from 'lucide-react'
 import Hls from 'hls.js'
-import {
-  shouldUseNativeYoutubeHlsLoader,
-  YoutubeNativeHlsLoader,
-} from '../../lib/youtubeNativeHlsLoader'
 import { setMediaPlaybackActive, syncNativeMediaSession } from '../../lib/mediaPlaybackActivity'
 import { subscribeNativeMediaActions } from '../../lib/nativeMediaPlayback'
+import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
 import { toast } from 'sonner'
 import { useWatchTheaterMode } from '../../hooks/useWatchTheaterMode'
@@ -33,6 +29,7 @@ import {
   fetchStreamInfo,
   getStreamApiBaseUrl,
   STREAM_START_QUALITY,
+  STREAM_UPGRADE_QUALITY,
   streamResponseToSource,
   type StreamApiResponse,
 } from '../../lib/streamApi'
@@ -45,7 +42,91 @@ import { useDailyWatchBudgetStore } from '../../stores/dailyWatchBudgetStore'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
 
-/** If a recovered source doesn't produce metadata within this budget, revert to the old URL. */
+function playbackQualityHeight(raw: string | null | undefined): number {
+  const m = String(raw || '').match(/(\d+)\s*p/i)
+  return m ? Number(m[1]) : 0
+}
+
+function scheduleQualityUpgrade(
+  el: HTMLVideoElement,
+  vid: string,
+  startInfo: StreamApiResponse,
+  detachHls: () => void,
+  onUpgraded: (info: StreamApiResponse) => void,
+  opts?: { skip?: boolean }
+): () => void {
+  const startHeight = playbackQualityHeight(startInfo.quality || STREAM_START_QUALITY)
+  const upgradeHeight = playbackQualityHeight(STREAM_UPGRADE_QUALITY)
+  if (opts?.skip || startHeight >= upgradeHeight) {
+    return () => {}
+  }
+
+  let cancelled = false
+
+  const hasHealthyBuffer = () => {
+    try {
+      if (!el.buffered || el.buffered.length === 0) return false
+      const end = el.buffered.end(el.buffered.length - 1)
+      return end - el.currentTime >= 8
+    } catch {
+      return false
+    }
+  }
+
+  const runUpgrade = () => {
+    if (cancelled) return
+    // Avoid mid-stream swaps while the buffer is thin — common stutter source.
+    if (!hasHealthyBuffer()) {
+      window.setTimeout(runUpgrade, 2500)
+      return
+    }
+    void (async () => {
+      try {
+        const upgrade = await fetchStreamInfo(vid, { quality: STREAM_UPGRADE_QUALITY })
+        if (cancelled) return
+
+        const resolvedHeight = playbackQualityHeight(upgrade.quality)
+        if (resolvedHeight <= startHeight) return
+
+        console.info(
+          `[CleanPlayer] upgrading ${vid} ${startInfo.quality || STREAM_START_QUALITY} -> ${upgrade.quality || STREAM_UPGRADE_QUALITY}`
+        )
+
+        const ok = await swapVideoSourcePreservingTime(el, upgrade, detachHls)
+        if (!ok || cancelled) return
+
+        onUpgraded(upgrade)
+      } catch (err) {
+        if (!cancelled) {
+          console.warn(
+            '[CleanPlayer] quality upgrade skipped:',
+            err instanceof Error ? err.message : err
+          )
+        }
+      }
+    })()
+  }
+
+  const onCanPlay = () => {
+    el.removeEventListener('canplay', onCanPlay)
+    if (cancelled) return
+    // Give playback time to stabilize before swapping the media URL.
+    window.setTimeout(runUpgrade, 4500)
+  }
+
+  if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+    window.setTimeout(runUpgrade, 4500)
+  } else {
+    el.addEventListener('canplay', onCanPlay, { once: true })
+  }
+
+  return () => {
+    cancelled = true
+    el.removeEventListener('canplay', onCanPlay)
+  }
+}
+
+/** If the upgraded source doesn't produce metadata within this budget, revert to the old URL. */
 const SOURCE_SWAP_WATCHDOG_MS = 12_000
 
 async function swapVideoSourcePreservingTime(
@@ -61,6 +142,7 @@ async function swapVideoSourcePreservingTime(
   const previousSrc = el.currentSrc || el.src
 
   detachHls()
+  el.removeAttribute('src')
 
   return new Promise((resolve) => {
     let settled = false
@@ -95,6 +177,7 @@ async function swapVideoSourcePreservingTime(
           { once: true }
         )
         el.src = previousSrc
+        el.load()
       }
       resolve(false)
     }
@@ -121,6 +204,7 @@ async function swapVideoSourcePreservingTime(
     el.addEventListener('loadedmetadata', onReady, { once: true })
     el.addEventListener('error', onErr, { once: true })
     el.src = src
+    el.load()
   })
 }
 
@@ -416,8 +500,6 @@ function applyPlaybackFailure(
 }
 
 function canPlayNativeHls(): boolean {
-  // Android WebView's native HLS is incomplete for googlevideo manifests — always use hls.js.
-  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') return false
   if (typeof document === 'undefined') return false
   const v = document.createElement('video')
   return (
@@ -452,21 +534,15 @@ function CleanPlayerYoutubeIframe({
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
   const [iframeReady, setIframeReady] = useState(false)
   const iframePlaybackNotifiedRef = useRef(false)
-  const embedHost =
-    Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android' ? 'youtube' : 'nocookie'
   const src = useMemo(() => {
     if (!safeId || isLimitReached) return ''
-    const base = buildYoutubePrivacyEmbedUrl(safeId, {
-      origin,
-      autoplay: true,
-      host: embedHost,
-    })
+    const base = buildYoutubePrivacyEmbedUrl(safeId, { origin, autoplay: true })
     if (!loopEnabled) return base
     const u = new URL(base)
     u.searchParams.set('loop', '1')
     u.searchParams.set('playlist', safeId)
     return u.toString()
-  }, [safeId, origin, loopEnabled, isLimitReached, embedHost])
+  }, [safeId, origin, loopEnabled, isLimitReached])
 
   // Reset the skeleton whenever a new video mounts so feedback is instant on tap.
   useEffect(() => {
@@ -559,9 +635,7 @@ function CleanPlayerYoutubeIframe({
             allowFullScreen
             loading="eager"
             onLoad={handleIframeLoad}
-            {...(Capacitor.isNativePlatform()
-              ? {}
-              : { referrerPolicy: 'strict-origin-when-cross-origin' as const })}
+            referrerPolicy="strict-origin-when-cross-origin"
           />
           {/* Black cover only — never visibility:hidden the iframe (throttles decode on WebView). */}
           {blankVideoFrame && !isLimitReached ? (
@@ -612,15 +686,14 @@ function CleanPlayerMediaBridge({
   onVideoPlaybackStarted,
   onPlaybackActiveChange,
   onPlaybackTimeUpdate,
-  onNeedIframeFallback,
-}: CleanPlayerProps & { onNeedIframeFallback?: () => void }) {
+}: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  /** Cancels deferred 720p upgrade when the video changes or unmounts. */
+  const upgradeCleanupRef = useRef<(() => void) | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
-  /** Stall-recovery bookkeeping: googlevideo can cut a stream mid-play (PO-token enforcement). */
-  const stallRecoveryRef = useRef({ videoId: '', attempts: 0, recovering: false })
   const wasPlayingBeforeHiddenRef = useRef(false)
   const onNextTrackRef = useRef(onNextTrack)
   const hasNextTrackRef = useRef(hasNextTrack)
@@ -637,14 +710,11 @@ function CleanPlayerMediaBridge({
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
   const showControlBar = showQueueControls || Boolean(theater)
+  const blankVideoFrameRef = useRef(blankVideoFrame)
+  blankVideoFrameRef.current = blankVideoFrame
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
   const playbackNotifiedRef = useRef(false)
-  const onNeedIframeFallbackRef = useRef(onNeedIframeFallback)
   const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
-
-  useEffect(() => {
-    onNeedIframeFallbackRef.current = onNeedIframeFallback
-  }, [onNeedIframeFallback])
 
   useEffect(() => {
     onNextTrackRef.current = onNextTrack
@@ -759,6 +829,9 @@ function CleanPlayerMediaBridge({
       }
     }
 
+    upgradeCleanupRef.current?.()
+    upgradeCleanupRef.current = null
+
     if (!videoId.trim()) {
       applyPlaybackFailure(new Error('missing videoId'), 'invalid videoId', setPhase)
       return () => {
@@ -786,16 +859,6 @@ function CleanPlayerMediaBridge({
      * changes can tear down the effect before a ref-wait rAF runs, and a rAF that sees
      * `cancelled` would previously exit silently — no fetch, no UI error, no 8787 traffic.
      */
-    const nativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
-    const failOrIframe = (err: unknown, context: string) => {
-      if (nativeAndroid && onNeedIframeFallbackRef.current) {
-        console.warn(`[CleanPlayer] ${context} — falling back to YouTube embed`, err)
-        onNeedIframeFallbackRef.current()
-        return
-      }
-      applyPlaybackFailure(err, context, setPhase)
-    }
-
     void (async () => {
       try {
         console.info(`[CleanPlayer] resolving stream for ${videoId} via ${getStreamApiBaseUrl()}/api/stream/…`)
@@ -824,38 +887,50 @@ function CleanPlayerMediaBridge({
 
         const applyToElement = (el: HTMLVideoElement) => {
           detachHls()
+          upgradeCleanupRef.current?.()
+          upgradeCleanupRef.current = null
+          el.removeAttribute('src')
+          el.load()
 
           const { src: playbackSrc } = streamResponseToSource(info)
+          const safeId = sanitizeYoutubeVideoId(videoId)
 
-          // Progressive googlevideo in Android WebView sends Referer: https://localhost
-          // and freezes after the first second. Don't put those URLs on <video src>.
-          if (info.format !== 'hls' && nativeAndroid) {
-            failOrIframe(new Error('progressive googlevideo is not playable in Android WebView'), 'android progressive')
-            return
+          const attachUpgradeAfterStart = () => {
+            if (!safeId) return
+            upgradeCleanupRef.current = scheduleQualityUpgrade(
+              el,
+              safeId,
+              info,
+              detachHls,
+              (upgrade) => {
+                hlsJsActiveRef.current = false
+                setPhase({ kind: 'playing', info: upgrade })
+              },
+              // Skip the mid-stream URL swap when:
+              // - black-screen / audio-first mode (swap stutter is very visible), or
+              // - hls.js is driving playback (it adapts quality itself, and a failed
+              //   swap after detaching hls.js cannot be reverted — frozen player).
+              { skip: blankVideoFrameRef.current || hlsJsActiveRef.current }
+            )
           }
 
           if (info.format === 'hls' && !canPlayNativeHls()) {
             if (!Hls.isSupported()) {
-              failOrIframe(new Error('HLS not supported'), 'hls unsupported')
+              applyPlaybackFailure(new Error('HLS not supported'), 'hls unsupported', setPhase)
               return
             }
             hlsJsActiveRef.current = true
-            const useNativeLoader = shouldUseNativeYoutubeHlsLoader()
             const hls = new Hls({
-              enableWorker: !useNativeLoader,
+              enableWorker: true,
               lowLatencyMode: false,
               // Prefer smoother playback over aggressive low-latency ABR on tablets.
               maxBufferLength: 45,
               maxMaxBufferLength: 90,
               backBufferLength: 30,
               startLevel: -1,
-              ...(useNativeLoader
-                ? { loader: YoutubeNativeHlsLoader }
-                : {
-                    xhrSetup: (xhr: XMLHttpRequest) => {
-                      xhr.withCredentials = false
-                    },
-                  }),
+              xhrSetup: (xhr) => {
+                xhr.withCredentials = false
+              },
             })
             hlsRef.current = hls
             hls.on(Hls.Events.ERROR, (_evt, data) => {
@@ -869,11 +944,12 @@ function CleanPlayerMediaBridge({
                   /* fall through */
                 }
               }
-              failOrIframe(new Error(`hls fatal: ${data.type}`), 'hls.js')
+              applyPlaybackFailure(new Error(`hls fatal: ${data.type}`), 'hls.js', setPhase)
             })
             hls.loadSource(playbackSrc)
             hls.attachMedia(el)
             setPhase({ kind: 'playing', info })
+            attachUpgradeAfterStart()
             return
           }
 
@@ -882,6 +958,7 @@ function CleanPlayerMediaBridge({
             console.info('[CleanPlayer] <video src>', playbackSrc)
           }
           setPhase({ kind: 'playing', info })
+          attachUpgradeAfterStart()
         }
 
         const tryAttach = () => {
@@ -893,7 +970,7 @@ function CleanPlayerMediaBridge({
           }
           attachFrames += 1
           if (attachFrames >= MAX_ATTACH_FRAMES) {
-            failOrIframe(new Error('video element not mounted'), 'attach timeout')
+            applyPlaybackFailure(new Error('video element not mounted'), 'attach timeout', setPhase)
             return
           }
           attachRafId = requestAnimationFrame(tryAttach)
@@ -904,7 +981,7 @@ function CleanPlayerMediaBridge({
         setBridgeWaking(false)
         setFilePreparing(false)
         if (cancelled || signal.aborted) return
-        failOrIframe(e, 'resolve failed')
+        applyPlaybackFailure(e, 'resolve failed', setPhase)
       }
     })()
 
@@ -912,6 +989,8 @@ function CleanPlayerMediaBridge({
       cancelled = true
       if (attachRafId != null) cancelAnimationFrame(attachRafId)
       ac?.abort()
+      upgradeCleanupRef.current?.()
+      upgradeCleanupRef.current = null
       detachHls()
     }
   }, [videoId, retryNonce, isLimitReached])
@@ -1227,6 +1306,7 @@ function CleanPlayerMediaBridge({
             : meta.durationMs,
         positionMs: Math.round(Math.max(0, el.currentTime) * 1000),
       })
+      if (on) touchParentalGateActivity()
     }
 
     const onPlay = () => {
@@ -1246,7 +1326,12 @@ function CleanPlayerMediaBridge({
     // Sync from the real element state — do not force "playing" before playback starts.
     sync()
 
+    const tick = window.setInterval(() => {
+      if (!el.paused && !el.ended) touchParentalGateActivity()
+    }, 30_000)
+
     return () => {
+      window.clearInterval(tick)
       el.removeAttribute('data-safetube-bg')
       el.removeEventListener('play', onPlay)
       el.removeEventListener('pause', onPause)
@@ -1288,106 +1373,6 @@ function CleanPlayerMediaBridge({
       el.removeEventListener('canplay', tryAutoplay)
     }
   }, [phase.kind, videoId, isLimitReached])
-
-  // Mid-stream stall: googlevideo often plays ~1s then freezes with no `error` event.
-  // On Android, swapping sources made this worse — fall back to the YouTube embed instead.
-  useEffect(() => {
-    if (phase.kind !== 'playing') return
-    const el = videoRef.current
-    if (!el) return
-
-    const nativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
-    if (nativeAndroid) {
-      const STALL_AFTER_MS = 2_500
-      let lastTime = el.currentTime
-      let lastProgressAt = Date.now()
-      const interval = window.setInterval(() => {
-        if (el.paused || el.ended || el.seeking) {
-          lastTime = el.currentTime
-          lastProgressAt = Date.now()
-          return
-        }
-        if (el.currentTime !== lastTime) {
-          lastTime = el.currentTime
-          lastProgressAt = Date.now()
-          return
-        }
-        if (Date.now() - lastProgressAt < STALL_AFTER_MS) return
-        console.warn('[CleanPlayer] playback stalled on device — falling back to YouTube embed')
-        onNeedIframeFallbackRef.current?.()
-      }, 800)
-      return () => window.clearInterval(interval)
-    }
-
-    if (hlsJsActiveRef.current) return // hls.js has its own retry/recovery logic on web
-
-    if (stallRecoveryRef.current.videoId !== videoId) {
-      stallRecoveryRef.current = { videoId, attempts: 0, recovering: false }
-    }
-
-    const STALL_AFTER_MS = 10_000
-    const MAX_RECOVERY_ATTEMPTS = 2
-    let lastTime = el.currentTime
-    let lastProgressAt = Date.now()
-
-    const recover = async () => {
-      const state = stallRecoveryRef.current
-      if (state.recovering) return
-      state.recovering = true
-      state.attempts += 1
-      console.warn(
-        `[CleanPlayer] playback stalled (no progress for ${STALL_AFTER_MS}ms) — recovery attempt ${state.attempts}/${MAX_RECOVERY_ATTEMPTS}`
-      )
-      try {
-        const fresh = await fetchStreamInfo(videoId, {
-          quality: STREAM_START_QUALITY,
-          forceRefresh: true,
-        })
-        if (videoRef.current !== el || stallRecoveryRef.current.videoId !== videoId) return
-        const ok = await swapVideoSourcePreservingTime(el, fresh, () => {})
-        if (ok) {
-          console.info('[CleanPlayer] stall recovery succeeded — resumed with fresh stream URL')
-          setPhase({ kind: 'playing', info: fresh })
-          lastTime = el.currentTime
-          lastProgressAt = Date.now()
-          return
-        }
-        throw new Error('fresh source failed to load')
-      } catch (err) {
-        console.error('[CleanPlayer] stall recovery failed:', err)
-        if (stallRecoveryRef.current.attempts >= MAX_RECOVERY_ATTEMPTS) {
-          applyPlaybackFailure(
-            err instanceof Error ? err : new Error('stream stalled'),
-            'stall recovery',
-            setPhase
-          )
-        }
-      } finally {
-        stallRecoveryRef.current.recovering = false
-      }
-    }
-
-    const interval = window.setInterval(() => {
-      const state = stallRecoveryRef.current
-      if (state.recovering) return
-      if (el.paused || el.ended || el.seeking) {
-        lastTime = el.currentTime
-        lastProgressAt = Date.now()
-        return
-      }
-      if (el.currentTime !== lastTime) {
-        lastTime = el.currentTime
-        lastProgressAt = Date.now()
-        return
-      }
-      if (Date.now() - lastProgressAt < STALL_AFTER_MS) return
-      if (state.attempts >= MAX_RECOVERY_ATTEMPTS) return
-      lastProgressAt = Date.now() // don't re-fire while a recovery is being attempted
-      void recover()
-    }, 2_500)
-
-    return () => window.clearInterval(interval)
-  }, [phase.kind, videoId])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
@@ -1643,10 +1628,6 @@ function CleanPlayerMediaBridge({
             code: target.error?.code,
             message: target.error?.message,
           })
-          if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
-            onNeedIframeFallbackRef.current?.()
-            return
-          }
           applyPlaybackFailure(
             target.error ?? new Error('video element error'),
             'video element',
@@ -1689,25 +1670,15 @@ function CleanPlayerMediaBridge({
 }
 
 /**
- * Default: native `<video>` (on-device HLS / Media Bridge). On Android, a silent freeze
- * after ~1s falls back to `youtube.com/embed` so the child can actually watch.
+ * Default: native `<video>` through the Media Bridge — **not** a YouTube iframe, so there is no
+ * YouTube logo / “Watch on YouTube” in the player chrome (stream is proxied).
  *
- * Optional: set `VITE_YOUTUBE_IFRAME_PLAYER=true` to always use the embed.
+ * Optional: set `VITE_YOUTUBE_IFRAME_PLAYER=true` to use `youtube-nocookie.com/embed` with
+ * `modestbranding=1`, `rel=0`, and related params (see `buildYoutubePrivacyEmbedUrl`).
  */
 export function CleanPlayer(props: CleanPlayerProps) {
-  const [useIframeFallback, setUseIframeFallback] = useState(YOUTUBE_IFRAME_PLAYER)
-
-  useEffect(() => {
-    setUseIframeFallback(YOUTUBE_IFRAME_PLAYER)
-  }, [props.videoId])
-
-  if (YOUTUBE_IFRAME_PLAYER || useIframeFallback) {
+  if (YOUTUBE_IFRAME_PLAYER) {
     return <CleanPlayerYoutubeIframe {...props} />
   }
-  return (
-    <CleanPlayerMediaBridge
-      {...props}
-      onNeedIframeFallback={() => setUseIframeFallback(true)}
-    />
-  )
+  return <CleanPlayerMediaBridge {...props} />
 }

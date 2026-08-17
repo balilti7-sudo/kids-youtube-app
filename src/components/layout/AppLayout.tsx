@@ -8,14 +8,17 @@ import { getSavedChildAccessToken } from '../../lib/childDevice'
 import { LOCK_MANAGEMENT_APP_EVENT, lockManagementAppShell } from '../../lib/lockParentApp'
 import { consumeParentEntryIntent } from '../../lib/parentEntryIntent'
 import { isParentManagementLockedPath } from '../../lib/parentManagementPaths'
+import { isMediaPlaybackActive } from '../../lib/mediaPlaybackActivity'
 import { isProfileParentPinMissing } from '../../lib/parentPin'
 import {
+  clearParentalGateActivity,
   isParentalGateIdleExceeded,
   touchParentalGateActivity,
 } from '../../lib/parentalGateActivity'
 import { consumeSkipParentalManagementGateOnce } from '../../lib/parentalGateSkipOnce'
 import {
-  isParentUnlockSessionActive,
+  clearParentalManagementGate,
+  isParentalManagementGateUnlocked,
   setParentalManagementGateUnlocked,
 } from '../../lib/parentalManagementGateStorage'
 import { ParentalManagementGate } from '../parental/ParentalManagementGate'
@@ -36,12 +39,12 @@ export function AppLayout() {
   const hasKidDeviceToken = useKidDeviceTokenPresent()
   const pinNotSetYet = isProfileParentPinMissing(profile)
   const [managementUnlocked, setManagementUnlocked] = useState(
-    () => BYPASS_AUTH || isParentUnlockSessionActive()
+    () => BYPASS_AUTH || isParentalManagementGateUnlocked()
   )
 
   useLayoutEffect(() => {
     if (consumeSkipParentalManagementGateOnce()) {
-      setParentalManagementGateUnlocked()
+      touchParentalGateActivity()
       setManagementUnlocked(true)
     }
   }, [])
@@ -67,6 +70,13 @@ export function AppLayout() {
   useEffect(() => {
     if (BYPASS_AUTH) setManagementUnlocked(true)
   }, [])
+
+  useEffect(() => {
+    if (BYPASS_AUTH || isParentManagementLockedPath(location.pathname)) return
+    clearParentalManagementGate()
+    clearParentalGateActivity()
+    setManagementUnlocked(false)
+  }, [location.pathname])
 
   useEffect(() => {
     const onLock = () => {
@@ -100,6 +110,10 @@ export function AppLayout() {
   useEffect(() => {
     if (BYPASS_AUTH || !managementUnlocked) return
     const id = window.setInterval(() => {
+      if (isMediaPlaybackActive()) {
+        touchParentalGateActivity()
+        return
+      }
       if (!isParentalGateIdleExceeded()) return
       lockManagementAppShell()
       if (getSavedChildAccessToken()) {

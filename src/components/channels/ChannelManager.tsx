@@ -14,7 +14,7 @@ import { Button } from '../ui/Button'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { isProfileParentPinMissing } from '../../lib/parentPin'
-import { getParentPinSession, setParentPinSession } from '../../lib/parentPinSession'
+import { setParentPinSession } from '../../lib/parentPinSession'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { Skeleton } from '../ui/Skeleton'
@@ -42,7 +42,7 @@ import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
-import { hasVerifiedParentPinForMutations, isParentUnlockSessionActive } from '../../lib/parentalManagementGateStorage'
+import { isParentalManagementGateUnlocked } from '../../lib/parentalManagementGateStorage'
 
 type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
 
@@ -73,6 +73,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [searchOpen, setSearchOpen] = useState(false)
   const [addedSearchChannelIds, setAddedSearchChannelIds] = useState<Set<string>>(new Set())
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
+  const [addingId, setAddingId] = useState<string | null>(null)
   const [removeLoading, setRemoveLoading] = useState(false)
   const [pinModalOpen, setPinModalOpen] = useState(false)
   const [addSuccessModalOpen, setAddSuccessModalOpen] = useState(false)
@@ -258,10 +259,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   useEffect(() => {
     if (localParent.isActive) {
       localParentPinForRpcRef.current = localParent.pin ?? ''
-      return
     }
-    const sessionPin = getParentPinSession()
-    if (sessionPin) localParentPinForRpcRef.current = sessionPin
   }, [localParent.isActive, localParent.pin])
 
   useEffect(() => {
@@ -277,10 +275,11 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       return false
     }
     const showSuccessModal = opts?.showSuccessModal ?? !searchOpen
-    // Optimistic UI: flip to "✓ Added" immediately while the RPC runs in the background.
+    // Optimistic UI: flip to "✓ Added" immediately while the RPC runs.
     setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
+    setAddingId(c.channelId)
     try {
-      const { error } = await addToWhitelist(c, null)
+      const { error, cacheError: _cacheError } = await addToWhitelist(c, null)
       if (error) {
         console.error('[ChannelManager] addToWhitelist failed', error.message, c.channelId)
         setAddedSearchChannelIds((prev) => {
@@ -302,6 +301,8 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       })
       toast.error(e instanceof Error ? e.message : t('errors.generic'))
       return false
+    } finally {
+      setAddingId(null)
     }
   }
 
@@ -315,8 +316,10 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       unique.push(c)
     }
     if (unique.length === 0) return
-    const results = await Promise.all(unique.map((c) => handleAdd(c, { showSuccessModal: false })))
-    const ok = results.filter(Boolean).length
+    let ok = 0
+    for (const c of unique) {
+      if (await handleAdd(c, { showSuccessModal: false })) ok += 1
+    }
     if (ok > 0) toast.success(t('channels.channelsAddedCount', { count: ok }))
   }
 
@@ -359,11 +362,6 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       runPendingAction(action)
       return
     }
-    // Already verified this session (10-minute idle window) — do not re-prompt on every click.
-    if (isParentUnlockSessionActive() && (hasVerifiedParentPinForMutations() || getParentPinSession())) {
-      runPendingAction(action)
-      return
-    }
     pendingPinActionRef.current = action
     setPinModalOpen(true)
   }
@@ -389,14 +387,26 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   }
 
   const requestOpenChannelSearch = () => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      setSearchOpen(true)
+      return
+    }
     beginPinGate({ kind: 'openSearch' })
   }
 
   const requestOpenVideoSearch = () => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      setVideoSearchOpenSignal((n) => n + 1)
+      return
+    }
     beginPinGate({ kind: 'openVideoSearch' })
   }
 
   const requestAddChannel = (c: YouTubeChannelResult) => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      void handleAdd(c, { showSuccessModal: false })
+      return
+    }
     beginPinGate({ kind: 'add', channel: c })
   }
 
@@ -406,10 +416,18 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       requestAddChannel(channels[0]!)
       return
     }
+    if (embedded && isParentalManagementGateUnlocked()) {
+      void handleAddMany(channels)
+      return
+    }
     beginPinGate({ kind: 'addMany', channels })
   }
 
   const requestRemoveChannel = (c: WhitelistedChannel) => {
+    if (embedded && isParentalManagementGateUnlocked()) {
+      setRemoveTarget(c)
+      return
+    }
     beginPinGate({ kind: 'remove', channel: c })
   }
 
@@ -987,7 +1005,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         }}
         onAddChannel={requestAddChannel}
         onAddChannels={requestAddChannels}
-        addingId={null}
+        addingId={addingId}
         addedIds={addedSearchChannelIds}
         whitelistedChannelIds={whitelistedChannelIds}
         deviceLabel={selectedDevice?.name}

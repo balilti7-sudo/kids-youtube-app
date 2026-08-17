@@ -17,12 +17,12 @@ import type { DeviceResolvedStream } from './index'
 
 const REQUEST_KEY = 'O43z0dpjhgX20SCx4KAo'
 const PO_TOKEN_TTL_MS = 55 * 60 * 1000
-const RESOLVE_TTL_MS = 8 * 60 * 1000
+const RESOLVE_TTL_MS = 3.5 * 60 * 60 * 1000
 
 const HEIGHT_BY_QUALITY: Record<string, number> = {
   '240p': 240, '360p': 360, '480p': 480, '720p': 720, '1080p': 1080,
 }
-const CLIENT_ORDER = ['IOS', 'ANDROID', 'ANDROID_VR', 'WEB'] as const
+const CLIENT_ORDER = ['ANDROID', 'IOS', 'WEB'] as const
 
 /** fetch() shim that routes through native HTTP (no CORS) and returns a real Response. */
 const nativeFetch = capacitorAwareFetch
@@ -121,8 +121,7 @@ export async function warmupWebviewResolver(): Promise<void> {
 
 export async function resolveWebviewStream(
   videoId: string,
-  quality = '360p',
-  opts?: { forceRefresh?: boolean }
+  quality = '360p'
 ): Promise<DeviceResolvedStream> {
   const id = String(videoId || '').trim()
   if (!/^[\w-]{11}$/.test(id)) throw new Error('Invalid YouTube video id')
@@ -130,14 +129,9 @@ export async function resolveWebviewStream(
   const minHeight = HEIGHT_BY_QUALITY[q] || 360
 
   const cacheKey = `${id}:${q}`
-  if (opts?.forceRefresh) {
-    // Stall recovery: the cached googlevideo URL was rejected mid-stream — resolve anew.
-    resolveCache.delete(cacheKey)
-  } else {
-    const cached = resolveCache.get(cacheKey)
-    if (cached && cached.expiresAt > Date.now()) return cached.data
-    if (cached) resolveCache.delete(cacheKey)
-  }
+  const cached = resolveCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
+  if (cached) resolveCache.delete(cacheKey)
 
   const { Innertube, ClientType } = await import('youtubei.js')
   const po = await getPoTokenSession().catch(() => null)
@@ -147,8 +141,7 @@ export async function resolveWebviewStream(
     try {
       const yt = await Innertube.create({
         client_type: ClientType[clientName as keyof typeof ClientType] ?? ClientType.ANDROID,
-        // WEB needs the player JS to decipher nsig; ANDROID/IOS URLs are pre-deciphered.
-        retrieve_player: clientName === 'WEB',
+        retrieve_player: false,
         fetch: nativeFetch,
         ...(po ? { visitor_data: po.visitorData, po_token: po.sessionPoToken } : {}),
       })
@@ -166,29 +159,8 @@ export async function resolveWebviewStream(
 
       const info = await yt.getBasicInfo(id, options)
       const status = info.playability_status?.status
-      const reason = info.playability_status?.reason || status || ''
       if (status && status !== 'OK') {
-        throw new Error(reason || status)
-      }
-      if (/sign in to confirm|not a bot|bot check|captcha/i.test(String(reason))) {
-        throw new Error(reason)
-      }
-
-      const hlsManifest = info.streaming_data?.hls_manifest_url
-      if (typeof hlsManifest === 'string' && hlsManifest.startsWith('http')) {
-        let playbackUrl = hlsManifest
-        if (po?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
-          playbackUrl += `${playbackUrl.includes('?') ? '&' : '?'}pot=${encodeURIComponent(po.sessionPoToken)}`
-        }
-        const data: DeviceResolvedStream = {
-          videoId: id,
-          playbackUrl,
-          mime: 'application/vnd.apple.mpegurl',
-          format: 'hls',
-          quality: q,
-        }
-        resolveCache.set(cacheKey, { data, expiresAt: Date.now() + RESOLVE_TTL_MS })
-        return data
+        throw new Error(info.playability_status?.reason || status)
       }
 
       const formats = [
@@ -213,8 +185,6 @@ export async function resolveWebviewStream(
       const mime = chosen.mime_type || 'video/mp4'
       const isHls = /\.m3u8(\?|$)/i.test(playbackUrl) || /mpegurl/i.test(mime)
       if (!isHls && po?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
-        // GVS checks `pot` on the media request. The player API uses a content-bound
-        // token; the googlevideo URL needs the session token (same as the Media Bridge).
         playbackUrl += `${playbackUrl.includes('?') ? '&' : '?'}pot=${encodeURIComponent(po.sessionPoToken)}`
       }
 
