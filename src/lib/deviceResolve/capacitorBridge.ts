@@ -16,9 +16,9 @@ export function initCapacitorDeviceResolve(): void {
 
   const bridge: SafetubeNativeBridge = {
     platform: 'capacitor',
-    async resolve(videoId, quality) {
+    async resolve(videoId, quality, opts) {
       const { resolveWebviewStream } = await import('./webviewResolver')
-      return resolveWebviewStream(videoId, quality)
+      return resolveWebviewStream(videoId, quality, opts)
     },
   }
   window.safetube = bridge

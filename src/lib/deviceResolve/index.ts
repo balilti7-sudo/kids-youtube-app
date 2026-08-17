@@ -23,7 +23,11 @@ export interface DeviceResolvedStream {
 
 export interface SafetubeNativeBridge {
   readonly platform: 'electron' | 'capacitor'
-  resolve(videoId: string, quality: string): Promise<DeviceResolvedStream>
+  resolve(
+    videoId: string,
+    quality: string,
+    opts?: { forceRefresh?: boolean }
+  ): Promise<DeviceResolvedStream>
 }
 
 declare global {
@@ -46,13 +50,18 @@ const VIDEO_ID_RE = /^[\w-]{11}$/
 
 export async function resolveOnDevice(
   videoId: string,
-  quality: string
+  quality: string,
+  opts?: { forceRefresh?: boolean }
 ): Promise<DeviceResolvedStream> {
   const id = String(videoId || '').trim()
   if (!VIDEO_ID_RE.test(id)) throw new Error('Invalid YouTube video id')
   if (!window.safetube?.resolve) throw new Error('On-device resolver is not available')
 
-  const resolved = await window.safetube.resolve(id, String(quality || '360p').trim().toLowerCase())
+  const resolved = await window.safetube.resolve(
+    id,
+    String(quality || '360p').trim().toLowerCase(),
+    opts
+  )
   if (!resolved?.playbackUrl) throw new Error('On-device resolver returned no playbackUrl')
   return resolved
 }

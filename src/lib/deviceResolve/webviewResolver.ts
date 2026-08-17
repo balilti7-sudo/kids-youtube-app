@@ -121,7 +121,8 @@ export async function warmupWebviewResolver(): Promise<void> {
 
 export async function resolveWebviewStream(
   videoId: string,
-  quality = '360p'
+  quality = '360p',
+  opts?: { forceRefresh?: boolean }
 ): Promise<DeviceResolvedStream> {
   const id = String(videoId || '').trim()
   if (!/^[\w-]{11}$/.test(id)) throw new Error('Invalid YouTube video id')
@@ -129,9 +130,14 @@ export async function resolveWebviewStream(
   const minHeight = HEIGHT_BY_QUALITY[q] || 360
 
   const cacheKey = `${id}:${q}`
-  const cached = resolveCache.get(cacheKey)
-  if (cached && cached.expiresAt > Date.now()) return cached.data
-  if (cached) resolveCache.delete(cacheKey)
+  if (opts?.forceRefresh) {
+    // Stall recovery: the cached googlevideo URL was rejected mid-stream — resolve anew.
+    resolveCache.delete(cacheKey)
+  } else {
+    const cached = resolveCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) return cached.data
+    if (cached) resolveCache.delete(cacheKey)
+  }
 
   const { Innertube, ClientType } = await import('youtubei.js')
   const po = await getPoTokenSession().catch(() => null)
@@ -184,8 +190,19 @@ export async function resolveWebviewStream(
 
       const mime = chosen.mime_type || 'video/mp4'
       const isHls = /\.m3u8(\?|$)/i.test(playbackUrl) || /mpegurl/i.test(mime)
-      if (!isHls && po?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
-        playbackUrl += `${playbackUrl.includes('?') ? '&' : '?'}pot=${encodeURIComponent(po.sessionPoToken)}`
+      if (!isHls && po && !/[?&]pot=/i.test(playbackUrl)) {
+        // YouTube's "GVS PO Token binding" enforcement (2026) rejects range requests
+        // mid-stream when `pot` is the session token — the video plays ~1s of buffered
+        // data and then freezes. The streaming token must be bound to the VIDEO ID.
+        let urlPot = ''
+        try {
+          urlPot = await po.mintContentBoundToken(id)
+        } catch {
+          urlPot = po.sessionPoToken
+        }
+        if (urlPot) {
+          playbackUrl += `${playbackUrl.includes('?') ? '&' : '?'}pot=${encodeURIComponent(urlPot)}`
+        }
       }
 
       const data: DeviceResolvedStream = {

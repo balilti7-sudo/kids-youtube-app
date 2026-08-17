@@ -1051,6 +1051,7 @@ export async function fetchStreamInfo(
     signal,
     timeoutMs = STREAM_INFO_TIMEOUT_MS,
     quality = STREAM_START_QUALITY,
+    forceRefresh = false,
     onTransientRetry,
     onFilePreparing,
   }: {
@@ -1058,6 +1059,8 @@ export async function fetchStreamInfo(
     timeoutMs?: number
     /** Requested playback quality (360p start, 720p upgrade). */
     quality?: StreamPlaybackQuality | string
+    /** Stall recovery: bypass all caches and mint a fresh stream URL. */
+    forceRefresh?: boolean
     /** Called before each backoff wait (not called before the first attempt). */
     onTransientRetry?: (info: FetchStreamTransientRetryInfo) => void
     /** Called when Bunny ingest/transcode is still in progress — keep showing the spinner. */
@@ -1071,13 +1074,16 @@ export async function fetchStreamInfo(
 
   const requestedQuality = String(quality || STREAM_START_QUALITY).trim().toLowerCase()
 
-  const cached = getCachedStreamInfo(id, requestedQuality)
-  if (cached) {
-    console.info('[streamApi] stream cache hit', { videoId: id, quality: requestedQuality })
-    return cached
+  if (!forceRefresh) {
+    const cached = getCachedStreamInfo(id, requestedQuality)
+    if (cached) {
+      console.info('[streamApi] stream cache hit', { videoId: id, quality: requestedQuality })
+      return cached
+    }
   }
 
-  const inflightKey = streamInfoCacheKey(id, requestedQuality)
+  // Forced refreshes get their own inflight slot so they never reuse a stale pending resolve.
+  const inflightKey = streamInfoCacheKey(id, requestedQuality) + (forceRefresh ? ':fresh' : '')
 
   // On-device (Electron/Capacitor): resolve from the child's own residential IP and play
   // the googlevideo URL directly — no Media Bridge, no proxy, no server bandwidth.
@@ -1086,7 +1092,7 @@ export async function fetchStreamInfo(
     if (existingDevice) {
       return signal ? Promise.race([existingDevice, waitForAbortSignal(signal)]) : existingDevice
     }
-    const devicePromise = resolveStreamOnDevice(id, requestedQuality, signal)
+    const devicePromise = resolveStreamOnDevice(id, requestedQuality, signal, { forceRefresh })
       .then((data) => {
         setCachedStreamInfo(id, data, requestedQuality)
         return data
@@ -1225,12 +1231,13 @@ async function registerClientStreamOnBridge(
 async function resolveStreamOnDevice(
   videoId: string,
   quality: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  opts?: { forceRefresh?: boolean }
 ): Promise<StreamApiResponse> {
   await assertChildPlaybackAllowedForStream()
-  console.info('[streamApi] on-device resolve', { videoId, quality })
+  console.info('[streamApi] on-device resolve', { videoId, quality, forceRefresh: opts?.forceRefresh })
   const resolved = await Promise.race([
-    resolveOnDevice(videoId, quality),
+    resolveOnDevice(videoId, quality, opts),
     ...(signal ? [waitForAbortSignal(signal)] : []),
   ])
   return {

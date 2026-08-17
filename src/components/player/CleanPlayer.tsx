@@ -694,6 +694,8 @@ function CleanPlayerMediaBridge({
   const upgradeCleanupRef = useRef<(() => void) | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
+  /** Stall-recovery bookkeeping: googlevideo can cut a stream mid-play (PO-token enforcement). */
+  const stallRecoveryRef = useRef({ videoId: '', attempts: 0, recovering: false })
   const wasPlayingBeforeHiddenRef = useRef(false)
   const onNextTrackRef = useRef(onNextTrack)
   const hasNextTrackRef = useRef(hasNextTrack)
@@ -1373,6 +1375,84 @@ function CleanPlayerMediaBridge({
       el.removeEventListener('canplay', tryAutoplay)
     }
   }, [phase.kind, videoId, isLimitReached])
+
+  // Mid-stream stall recovery. YouTube (2026) rejects range requests on googlevideo URLs
+  // whose PO token doesn't satisfy the current enforcement — the `<video>` element plays its
+  // initial buffer (~1s) and then freezes WITHOUT firing an `error` event. Detect "playing
+  // but no progress", re-resolve a fresh URL (cache-bypassed), and resume at the same spot.
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el) return
+    if (hlsJsActiveRef.current) return // hls.js has its own retry/recovery logic
+
+    if (stallRecoveryRef.current.videoId !== videoId) {
+      stallRecoveryRef.current = { videoId, attempts: 0, recovering: false }
+    }
+
+    const STALL_AFTER_MS = 10_000
+    const MAX_RECOVERY_ATTEMPTS = 2
+    let lastTime = el.currentTime
+    let lastProgressAt = Date.now()
+
+    const recover = async () => {
+      const state = stallRecoveryRef.current
+      if (state.recovering) return
+      state.recovering = true
+      state.attempts += 1
+      console.warn(
+        `[CleanPlayer] playback stalled (no progress for ${STALL_AFTER_MS}ms) — recovery attempt ${state.attempts}/${MAX_RECOVERY_ATTEMPTS}`
+      )
+      try {
+        const fresh = await fetchStreamInfo(videoId, {
+          quality: STREAM_START_QUALITY,
+          forceRefresh: true,
+        })
+        if (videoRef.current !== el || stallRecoveryRef.current.videoId !== videoId) return
+        const ok = await swapVideoSourcePreservingTime(el, fresh, () => {})
+        if (ok) {
+          console.info('[CleanPlayer] stall recovery succeeded — resumed with fresh stream URL')
+          setPhase({ kind: 'playing', info: fresh })
+          lastTime = el.currentTime
+          lastProgressAt = Date.now()
+          return
+        }
+        throw new Error('fresh source failed to load')
+      } catch (err) {
+        console.error('[CleanPlayer] stall recovery failed:', err)
+        if (stallRecoveryRef.current.attempts >= MAX_RECOVERY_ATTEMPTS) {
+          applyPlaybackFailure(
+            err instanceof Error ? err : new Error('stream stalled'),
+            'stall recovery',
+            setPhase
+          )
+        }
+      } finally {
+        stallRecoveryRef.current.recovering = false
+      }
+    }
+
+    const interval = window.setInterval(() => {
+      const state = stallRecoveryRef.current
+      if (state.recovering) return
+      if (el.paused || el.ended || el.seeking) {
+        lastTime = el.currentTime
+        lastProgressAt = Date.now()
+        return
+      }
+      if (el.currentTime !== lastTime) {
+        lastTime = el.currentTime
+        lastProgressAt = Date.now()
+        return
+      }
+      if (Date.now() - lastProgressAt < STALL_AFTER_MS) return
+      if (state.attempts >= MAX_RECOVERY_ATTEMPTS) return
+      lastProgressAt = Date.now() // don't re-fire while a recovery is being attempted
+      void recover()
+    }, 2_500)
+
+    return () => window.clearInterval(interval)
+  }, [phase.kind, videoId])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return
