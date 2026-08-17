@@ -40,6 +40,8 @@ import { startKidModeForProfile } from '../lib/startKidMode'
 import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { ParentalPinModal } from '../components/parental/ParentalPinModal'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
+import { setParentPinSession } from '../lib/parentPinSession'
+import { setParentalManagementGateUnlocked, isParentUnlockSessionActive } from '../lib/parentalManagementGateStorage'
 import { supabase } from '../lib/supabase'
 import { setAppModeKid } from '../lib/appMode'
 import { useDeviceStore } from '../stores/deviceStore'
@@ -965,7 +967,7 @@ function KidModePageInner() {
       runParentAction(action)
       return
     }
-    if (parentModeUnlocked) {
+    if (parentModeUnlocked || isParentUnlockSessionActive()) {
       runParentAction(action)
       return
     }
@@ -1010,6 +1012,8 @@ function KidModePageInner() {
     }
 
     unlockParentMode()
+    setParentPinSession(pinForServer)
+    setParentalManagementGateUnlocked()
     setParentModePinOpen(false)
     setParentModePinInput('')
     setParentModePinError(null)

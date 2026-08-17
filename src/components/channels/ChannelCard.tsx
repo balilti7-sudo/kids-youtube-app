@@ -119,17 +119,17 @@ export function ChannelCard(props: Props) {
             e.stopPropagation()
             props.onAdd()
           }}
-          disabled={props.adding || props.added}
-          aria-busy={props.adding}
+          disabled={props.added || props.adding}
+          aria-busy={Boolean(props.adding && !props.added)}
         >
-          {props.adding ? (
+          {props.added ? (
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="h-4 w-4" aria-hidden /> ✓ נוסף
+            </span>
+          ) : props.adding ? (
             <span className="inline-flex items-center gap-2">
               <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" aria-hidden />
               מוסיף…
-            </span>
-          ) : props.added ? (
-            <span className="inline-flex items-center gap-1">
-              <CheckCircle2 className="h-4 w-4" aria-hidden /> ✓ נוסף
             </span>
           ) : (
             'הוסף ערוץ'

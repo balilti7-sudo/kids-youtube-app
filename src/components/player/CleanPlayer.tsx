@@ -14,7 +14,6 @@ import {
 import Hls from 'hls.js'
 import { setMediaPlaybackActive, syncNativeMediaSession } from '../../lib/mediaPlaybackActivity'
 import { subscribeNativeMediaActions } from '../../lib/nativeMediaPlayback'
-import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
 import { toast } from 'sonner'
 import { useWatchTheaterMode } from '../../hooks/useWatchTheaterMode'
@@ -1308,7 +1307,6 @@ function CleanPlayerMediaBridge({
             : meta.durationMs,
         positionMs: Math.round(Math.max(0, el.currentTime) * 1000),
       })
-      if (on) touchParentalGateActivity()
     }
 
     const onPlay = () => {
@@ -1328,12 +1326,7 @@ function CleanPlayerMediaBridge({
     // Sync from the real element state — do not force "playing" before playback starts.
     sync()
 
-    const tick = window.setInterval(() => {
-      if (!el.paused && !el.ended) touchParentalGateActivity()
-    }, 30_000)
-
     return () => {
-      window.clearInterval(tick)
       el.removeAttribute('data-safetube-bg')
       el.removeEventListener('play', onPlay)
       el.removeEventListener('pause', onPause)

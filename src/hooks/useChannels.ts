@@ -414,7 +414,9 @@ export function useChannels(
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
         if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
+        if (ch?.id) {
+          window.setTimeout(() => scheduleChannelVideosCacheRefresh(ch.id, yt.channelId), 800)
+        }
         return { error: null, cacheError: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
@@ -427,7 +429,9 @@ export function useChannels(
       })
       if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
+      if (ch?.id) {
+        window.setTimeout(() => scheduleChannelVideosCacheRefresh(ch.id, yt.channelId), 800)
+      }
       return { error: null, cacheError: null }
     },
     [
@@ -451,7 +455,9 @@ export function useChannels(
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt: data, category })
         if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
+        if (ch?.id) {
+          window.setTimeout(() => scheduleChannelVideosCacheRefresh(ch.id, data.channelId), 800)
+        }
         return { error: null, cacheError: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
@@ -464,7 +470,9 @@ export function useChannels(
       })
       if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
-      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, data.channelId)
+      if (ch?.id) {
+        window.setTimeout(() => scheduleChannelVideosCacheRefresh(ch.id, data.channelId), 800)
+      }
       return { error: null, cacheError: null }
     },
     [

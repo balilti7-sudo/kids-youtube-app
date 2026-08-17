@@ -1,8 +1,7 @@
-import { isMediaPlaybackActive } from './mediaPlaybackActivity'
 import { SAFETUBE_PARENTAL_GATE_ACTIVITY_KEY } from './safetubeSessionKeys'
 
-/** Idle lock after inactivity in parent area (extended; disabled while video plays). */
-export const PARENTAL_GATE_IDLE_LOCK_MS = 45 * 60 * 1000
+/** Parent area stays unlocked this long after the last parent interaction (not kid playback). */
+export const PARENTAL_GATE_IDLE_LOCK_MS = 10 * 60 * 1000
 
 export function touchParentalGateActivity(): void {
   try {
@@ -21,7 +20,6 @@ export function clearParentalGateActivity(): void {
 }
 
 export function isParentalGateIdleExceeded(): boolean {
-  if (isMediaPlaybackActive()) return false
   try {
     const raw = sessionStorage.getItem(SAFETUBE_PARENTAL_GATE_ACTIVITY_KEY)
     if (!raw) return false

@@ -4,6 +4,7 @@ import { useDeviceOwnerId } from './useDeviceOwnerId'
 import { useDevices } from './useDevices'
 import { useLocalParentManagement } from './useLocalParentManagement'
 import { verifyParentManagementPin } from '../lib/verifyParentManagementPin'
+import { getParentPinSession } from '../lib/parentPinSession'
 
 /** Parent dashboard / channel manager — device + PIN context for hide & quick-block. */
 export function useHideVideoContext() {
@@ -39,7 +40,7 @@ export function useHideVideoContext() {
     canQuickBlock,
     deviceId,
     localAccessToken: localParent.localAccessToken,
-    cachedPin: localParent.isActive ? localParent.pin : null,
+    cachedPin: localParent.isActive ? localParent.pin : getParentPinSession() || null,
     verifyPin,
   }
 }
