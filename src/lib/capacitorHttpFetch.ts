@@ -45,6 +45,25 @@ function normalizeResponseBody(data: unknown): string {
 }
 
 /**
+ * Cloudflare edge statuses meaning "the request never reached the origin server"
+ * (Supabase and the Render bridge both sit behind Cloudflare). Safe to retry for
+ * any method — no side effects could have happened. 502/504 are retried for
+ * GET/HEAD only (the origin may have started processing the request).
+ */
+const RETRY_ANY_METHOD_STATUSES = new Set([522, 523])
+const RETRY_IDEMPOTENT_STATUSES = new Set([502, 504])
+const TRANSIENT_MAX_RETRIES = 2
+const TRANSIENT_RETRY_DELAY_MS = 900
+
+function isTransientEdgeStatus(status: number, method: string): boolean {
+  if (RETRY_ANY_METHOD_STATUSES.has(status)) return true
+  if (RETRY_IDEMPOTENT_STATUSES.has(status) && (method === 'GET' || method === 'HEAD')) return true
+  return false
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+/**
  * Drop-in replacement for `fetch` that bypasses WebView CORS on Capacitor Android/iOS.
  * Returns a real `Response` so callers can use `.json()`, `.text()`, etc.
  */
@@ -71,13 +90,33 @@ export async function capacitorAwareFetch(
   const headers = headersToObject(init?.headers ?? request?.headers)
   const data = await bodyToData(init?.body ?? (request ? await request.clone().text() : undefined))
 
-  const res = await CapacitorHttp.request({
+  let res = await CapacitorHttp.request({
     url,
     method,
     headers,
     data,
     responseType: 'text',
   })
+
+  // Cloudflare 522/523 ("connection to origin timed out") shows up as a raw
+  // "error code: 522" body — retry a couple of times before surfacing it.
+  for (
+    let attempt = 0;
+    attempt < TRANSIENT_MAX_RETRIES &&
+    typeof res.status === 'number' &&
+    isTransientEdgeStatus(res.status, method);
+    attempt++
+  ) {
+    console.warn(`[capacitorAwareFetch] transient ${res.status} from edge — retry ${attempt + 1}/${TRANSIENT_MAX_RETRIES}`, url)
+    await sleep(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+    res = await CapacitorHttp.request({
+      url,
+      method,
+      headers,
+      data,
+      responseType: 'text',
+    })
+  }
 
   // Preserve real HTTP status (including < 200). Only fall back when status is missing.
   const status = typeof res.status === 'number' && res.status > 0 ? res.status : 200

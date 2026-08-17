@@ -68,6 +68,21 @@ function readChildPlaylistStorage(): Record<string, string[]> {
   }
 }
 
+/**
+ * Raw transport errors (Cloudflare "error code: 522", fetch failures) are meaningless
+ * to parents — show a friendly, retryable Hebrew message instead.
+ */
+function friendlyVideosError(raw: string): string {
+  if (
+    /error code:\s*5\d\d|\b52[2-4]\b|cloudflare|timed?\s*out|timeout|failed to fetch|networkerror|load failed|err_connection|err_network|socket|econn/i.test(
+      raw
+    )
+  ) {
+    return 'החיבור לשרת נכשל זמנית. בדקו את האינטרנט ונסו שוב בעוד רגע.'
+  }
+  return raw
+}
+
 function getSavedPlaylistIds(deviceId: string | null): Set<string> {
   if (!deviceId) return new Set()
   return new Set(readChildPlaylistStorage()[deviceId] ?? [])
@@ -280,7 +295,7 @@ function ChannelsPageInner() {
             const page = await fetchChannelUploadsPage(youtubeChannelId, { maxPages: 1 })
             if (requestId !== videosLoadGenRef.current) return
             if (page.error) {
-              setVideosError(page.error.message)
+              setVideosError(friendlyVideosError(page.error.message))
               setVideosLoading(false)
               return
             }
@@ -405,7 +420,7 @@ function ChannelsPageInner() {
       } catch (e) {
         if (requestId !== videosLoadGenRef.current) return
         setVideosLoading(false)
-        setVideosError(e instanceof Error ? e.message : 'טעינת סרטונים נכשלה')
+        setVideosError(e instanceof Error ? friendlyVideosError(e.message) : 'טעינת סרטונים נכשלה')
       }
     })()
   }, [selectedChannelDbId, selectedYoutubeChannelId, refreshChannelVideosCache, videosReloadNonce, deviceId])
@@ -448,7 +463,7 @@ function ChannelsPageInner() {
       if (!kidToken && token) {
         const appended = await appendChannelVideosCache(selectedChannelDbId, selectedYoutubeChannelId)
         if (appended.error) {
-          setVideosError(appended.error.message)
+          setVideosError(friendlyVideosError(appended.error.message))
           return
         }
       }
@@ -459,7 +474,7 @@ function ChannelsPageInner() {
         uploadsPlaylistId: uploadsCursor?.uploadsPlaylistId,
       })
       if (page.error || !page.data) {
-        setVideosError(page.error?.message ?? 'טעינת סרטונים נוספים נכשלה')
+        setVideosError(page.error ? friendlyVideosError(page.error.message) : 'טעינת סרטונים נוספים נכשלה')
         return
       }
 

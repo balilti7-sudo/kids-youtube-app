@@ -102,6 +102,9 @@ function humanizeOAuthError(raw: string | null | undefined): string {
   return msg
 }
 
+/** Android can replay the same deep-link intent (cold start + onNewIntent) — exchange each code once. */
+let lastHandledOAuthCode: string | null = null
+
 async function completeOAuthCallback(url: string): Promise<void> {
   void clearParentalControlBrowserBypass()
   // Best effort — Browser.close() is a no-op/unsupported on some Android versions.
@@ -119,10 +122,28 @@ async function completeOAuthCallback(url: string): Promise<void> {
     toast.error(humanizeOAuthError(oauthError))
     return
   }
+  if (code === lastHandledOAuthCode) {
+    console.info('[capacitorAuth] duplicate OAuth deep link ignored')
+    return
+  }
+  lastHandledOAuthCode = code
 
   const { error } = await supabase.auth.exchangeCodeForSession(code)
   if (error) {
     console.error('[capacitorAuth] exchangeCodeForSession failed', error)
+    // "PKCE code verifier not found" = stale/replayed link (fresh install, cleared storage,
+    // or a second delivery of the same intent). If we already hold a session it's harmless;
+    // either way the raw English wall of text does not help a parent.
+    if (/code verifier|pkce/i.test(error.message || '')) {
+      const { data } = await supabase.auth.getSession()
+      if (data.session) {
+        setSkipParentalManagementGateOnce()
+        window.location.assign('/')
+        return
+      }
+      toast.error('קישור ההתחברות פג תוקף או שנפתח ממכשיר אחר — התחברו מחדש.')
+      return
+    }
     toast.error(humanizeOAuthError(error.message))
     return
   }
