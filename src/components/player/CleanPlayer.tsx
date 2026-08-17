@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Capacitor } from '@capacitor/core'
 import {
   Lock,
   LockOpen,
@@ -536,7 +537,14 @@ function CleanPlayerYoutubeIframe({
   const iframePlaybackNotifiedRef = useRef(false)
   const src = useMemo(() => {
     if (!safeId || isLimitReached) return ''
-    const base = buildYoutubePrivacyEmbedUrl(safeId, { origin, autoplay: true })
+    const base = buildYoutubePrivacyEmbedUrl(safeId, {
+      origin,
+      autoplay: true,
+      host:
+        Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+          ? 'youtube'
+          : 'nocookie',
+    })
     if (!loopEnabled) return base
     const u = new URL(base)
     u.searchParams.set('loop', '1')
@@ -1677,7 +1685,10 @@ function CleanPlayerMediaBridge({
  * `modestbranding=1`, `rel=0`, and related params (see `buildYoutubePrivacyEmbedUrl`).
  */
 export function CleanPlayer(props: CleanPlayerProps) {
-  if (YOUTUBE_IFRAME_PLAYER) {
+  const useEmbed =
+    YOUTUBE_IFRAME_PLAYER ||
+    (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android')
+  if (useEmbed) {
     return <CleanPlayerYoutubeIframe {...props} />
   }
   return <CleanPlayerMediaBridge {...props} />

@@ -14,7 +14,7 @@ import { Button } from '../ui/Button'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { isProfileParentPinMissing } from '../../lib/parentPin'
-import { setParentPinSession } from '../../lib/parentPinSession'
+import { getParentPinSession, setParentPinSession } from '../../lib/parentPinSession'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { Skeleton } from '../ui/Skeleton'
@@ -259,7 +259,10 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   useEffect(() => {
     if (localParent.isActive) {
       localParentPinForRpcRef.current = localParent.pin ?? ''
+      return
     }
+    const sessionPin = getParentPinSession()
+    if (sessionPin) localParentPinForRpcRef.current = sessionPin
   }, [localParent.isActive, localParent.pin])
 
   useEffect(() => {

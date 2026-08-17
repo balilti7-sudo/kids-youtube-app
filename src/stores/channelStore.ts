@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { WhitelistedChannel, WhitelistedVideo, YouTubeChannelResult, YouTubeVideoResult } from '../types'
 import { childAllowedChannelToWhitelist, getChildAllowedChannels } from '../lib/childDevice'
 import { verifyLoggedInUserParentPin } from '../lib/verifyParentProfilePin'
+import { isParentalManagementGateUnlocked } from '../lib/parentalManagementGateStorage'
 import { supabase } from '../lib/supabase'
 
 async function requireAuthenticatedParentPin(
@@ -9,6 +10,12 @@ async function requireAuthenticatedParentPin(
   parentPin: string | undefined
 ): Promise<Error | null> {
   const pin = (parentPin || '').replace(/\D/g, '').trim()
+  // The parent already unlocked the management area this session. A second
+  // verify_parent_pin RPC is what made "Add channel" spin forever (and then
+  // fail) whenever Supabase/Cloudflare was slow. RLS still requires login.
+  if (isParentalManagementGateUnlocked()) {
+    return null
+  }
   if (!pin) {
     return new Error('נדרש קוד הורה לביצוע הפעולה')
   }

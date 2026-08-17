@@ -2,6 +2,7 @@ package app.safetube.kids;
 
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.webkit.CookieManager;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -20,7 +21,11 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         try {
             if (bridge != null && bridge.getWebView() != null) {
-                bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+                WebView webView = bridge.getWebView();
+                webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                CookieManager cookies = CookieManager.getInstance();
+                cookies.setAcceptCookie(true);
+                cookies.setAcceptThirdPartyCookies(webView, true);
             }
         } catch (Exception ignored) {
             /* ignore */
