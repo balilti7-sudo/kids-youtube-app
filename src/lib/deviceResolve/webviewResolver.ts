@@ -176,9 +176,13 @@ export async function resolveWebviewStream(
 
       const hlsManifest = info.streaming_data?.hls_manifest_url
       if (typeof hlsManifest === 'string' && hlsManifest.startsWith('http')) {
+        let playbackUrl = hlsManifest
+        if (po?.sessionPoToken && !/[?&]pot=/i.test(playbackUrl)) {
+          playbackUrl += `${playbackUrl.includes('?') ? '&' : '?'}pot=${encodeURIComponent(po.sessionPoToken)}`
+        }
         const data: DeviceResolvedStream = {
           videoId: id,
-          playbackUrl: hlsManifest,
+          playbackUrl,
           mime: 'application/vnd.apple.mpegurl',
           format: 'hls',
           quality: q,

@@ -18,7 +18,7 @@ export function sanitizeYoutubeVideoId(raw: string): string | null {
 
 export function buildYoutubePrivacyEmbedUrl(
   videoId: string,
-  opts?: { origin?: string; autoplay?: boolean }
+  opts?: { origin?: string; autoplay?: boolean; host?: 'nocookie' | 'youtube' }
 ): string {
   const id = sanitizeYoutubeVideoId(videoId)
   if (!id) return ''
@@ -37,10 +37,13 @@ export function buildYoutubePrivacyEmbedUrl(
     params.set('mute', '0')
   }
 
+  params.set('widget_referrer', 'https://www.youtube.com/')
+
   const origin = opts?.origin?.trim()
   if (origin) {
     params.set('origin', origin)
   }
 
-  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${params.toString()}`
+  const host = opts?.host === 'youtube' ? 'www.youtube.com' : 'www.youtube-nocookie.com'
+  return `https://${host}/embed/${encodeURIComponent(id)}?${params.toString()}`
 }

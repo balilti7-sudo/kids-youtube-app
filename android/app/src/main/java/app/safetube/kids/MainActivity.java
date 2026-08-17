@@ -2,6 +2,7 @@ package app.safetube.kids;
 
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -23,14 +24,21 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         try {
             if (bridge != null && bridge.getWebView() != null) {
-                bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
-                // Wrap Capacitor's client so googlevideo Range requests get a YouTube Referer
-                // (otherwise the first second plays and then the stream 403s / freezes).
-                bridge.getWebView().setWebViewClient(new BridgeWebViewClient(bridge) {
+                WebView webView = bridge.getWebView();
+                webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                try {
+                    CookieManager cookies = CookieManager.getInstance();
+                    cookies.setAcceptCookie(true);
+                    cookies.setAcceptThirdPartyCookies(webView, true);
+                } catch (Exception ignored) {
+                    /* ignore */
+                }
+                // Intercept YouTube /embed HTML only — never googlevideo media (Range/206).
+                webView.setWebViewClient(new BridgeWebViewClient(bridge) {
                     @Override
                     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                        WebResourceResponse youtube = YoutubeMediaInterceptor.maybeIntercept(request);
-                        if (youtube != null) return youtube;
+                        WebResourceResponse embed = YoutubeEmbedPageInterceptor.maybeIntercept(request);
+                        if (embed != null) return embed;
                         return super.shouldInterceptRequest(view, request);
                     }
                 });

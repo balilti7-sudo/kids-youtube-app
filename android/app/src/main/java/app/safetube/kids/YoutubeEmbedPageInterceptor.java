@@ -13,33 +13,34 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * googlevideo.com rejects WebView media after the first buffered chunk when the request
- * carries Capacitor's {@code Referer: https://localhost}. Re-issue those requests from the
- * device with YouTube's own Referer/Origin so playback stays on-device (phone ↔ CDN) and
- * subsequent Range requests keep returning 206 instead of silent 403 freezes.
+ * YouTube's embed HTML returns error 153 when the request Referer is Capacitor's
+ * {@code https://localhost}. Re-fetch only {@code /embed/…} documents (never googlevideo
+ * media / Range streams) with a YouTube Referer so the iframe fallback can play.
  */
-final class YoutubeMediaInterceptor {
+final class YoutubeEmbedPageInterceptor {
     private static final String YOUTUBE_ORIGIN = "https://www.youtube.com";
     private static final String YOUTUBE_REFERER = "https://www.youtube.com/";
     private static final int CONNECT_TIMEOUT_MS = 15_000;
-    private static final int READ_TIMEOUT_MS = 30_000;
+    private static final int READ_TIMEOUT_MS = 20_000;
 
-    private YoutubeMediaInterceptor() {}
+    private YoutubeEmbedPageInterceptor() {}
 
     static WebResourceResponse maybeIntercept(WebResourceRequest request) {
         if (request == null) return null;
+        if (!"GET".equalsIgnoreCase(request.getMethod())) return null;
         Uri uri = request.getUrl();
         if (uri == null) return null;
         String host = uri.getHost();
         if (host == null) return null;
         String h = host.toLowerCase(Locale.US);
-        boolean googleVideo = h.endsWith(".googlevideo.com") || h.equals("googlevideo.com");
-        boolean youtubePlayback =
-            (h.endsWith(".youtube.com") || h.equals("youtube.com"))
-                && uri.getPath() != null
-                && uri.getPath().contains("videoplayback");
-        if (!googleVideo && !youtubePlayback) return null;
-        if (!"GET".equalsIgnoreCase(request.getMethod())) return null;
+        boolean youtubeHost =
+            h.equals("youtube.com")
+                || h.endsWith(".youtube.com")
+                || h.equals("youtube-nocookie.com")
+                || h.endsWith(".youtube-nocookie.com");
+        if (!youtubeHost) return null;
+        String path = uri.getPath();
+        if (path == null || !path.contains("/embed/")) return null;
 
         HttpURLConnection conn = null;
         try {
@@ -71,9 +72,7 @@ final class YoutubeMediaInterceptor {
             if (stream == null) stream = new ByteArrayInputStream(new byte[0]);
 
             String mime = conn.getContentType();
-            if (mime == null || mime.isEmpty()) {
-                mime = googleVideo ? "video/mp4" : "application/octet-stream";
-            }
+            if (mime == null || mime.isEmpty()) mime = "text/html";
             int semi = mime.indexOf(';');
             if (semi > 0) mime = mime.substring(0, semi).trim();
 
@@ -86,24 +85,24 @@ final class YoutubeMediaInterceptor {
                 }
             }
 
-            String reason = conn.getResponseMessage();
-            if (reason == null || reason.isEmpty()) reason = code == 206 ? "Partial Content" : "OK";
-
-            return new WebResourceResponse(mime, "UTF-8", code, reason, outHeaders, stream);
+            String encoding = conn.getContentEncoding();
+            return new WebResourceResponse(mime, encoding, code, statusMessage(code), outHeaders, stream);
         } catch (Exception ignored) {
-            if (conn != null) {
-                try {
-                    conn.disconnect();
-                } catch (Exception ignored2) {
-                    /* ignore */
-                }
-            }
-            // Fall back to the WebView's own request rather than failing closed.
+            if (conn != null) conn.disconnect();
             return null;
         }
     }
 
     private static boolean equalsIgnore(String a, String b) {
         return a != null && a.equalsIgnoreCase(b);
+    }
+
+    private static String statusMessage(int code) {
+        if (code == 200) return "OK";
+        if (code == 301) return "Moved Permanently";
+        if (code == 302) return "Found";
+        if (code == 403) return "Forbidden";
+        if (code == 404) return "Not Found";
+        return "OK";
     }
 }
