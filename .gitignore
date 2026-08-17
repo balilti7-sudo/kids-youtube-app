@@ -36,6 +36,7 @@ deploy/windows-server/bridge.secrets.env
 /npm
 /npx
 
-# Local APK artifacts (build with npm run android:apk:release)
+# Gradle/debug APKs stay local. Keep versioned SafeTube builds at repo root
+# so they show in Cursor and GitHub like before.
 *.apk
-!android/**/
+!/SafeTube-*.apk
