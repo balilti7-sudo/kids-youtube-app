@@ -599,8 +599,12 @@ async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promis
   }
 }
 
-/** Delays before 2nd, 3rd, and 4th stream resolution attempts after `Failed to fetch` (Render cold start). */
-const STREAM_TRANSIENT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const
+/**
+ * Delays between stream resolution retries after transient failures (`Failed to fetch`,
+ * 502/504 gateway errors). Total ~32s of waiting spans a Render free-tier cold start (30–45s
+ * including the in-flight request time of each attempt).
+ */
+const STREAM_TRANSIENT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 15_000] as const
 const STREAM_RESOLVE_MAX_ATTEMPTS = 1 + STREAM_TRANSIENT_RETRY_DELAYS_MS.length
 
 export type FetchStreamTransientRetryInfo = {
@@ -857,7 +861,11 @@ async function pollStreamUntilReady(
 
 /** Heuristic: treat these network-layer failures as transient (multi-attempt backoff in `fetchStreamInfo`). */
 function isTransientFetchError(err: unknown): boolean {
-  if (err instanceof StreamApiError) return false
+  if (err instanceof StreamApiError) {
+    // Render's edge answers 502/504 while the bridge dyno wakes or restarts —
+    // retry instead of surfacing "Bad Gateway" to the child.
+    return err.status === 502 || err.status === 504
+  }
   if (err instanceof DOMException && err.name === 'AbortError') return false
   const msg = err instanceof Error ? err.message : String(err ?? '')
   return /Failed to fetch|NetworkError|Load failed|ERR_CONNECTION|ERR_NETWORK|ERR_EMPTY_RESPONSE|ERR_INTERNET_DISCONNECTED|fetch failed/i.test(
