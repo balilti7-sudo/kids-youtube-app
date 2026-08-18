@@ -19,6 +19,7 @@ import {
 } from '../components/playlists/PlaylistMultiSelectToolbar'
 import { useVideoMultiSelect } from '../hooks/useVideoMultiSelect'
 import { useIdMultiSelect } from '../hooks/useIdMultiSelect'
+import { usePlaylists } from '../hooks/usePlaylists'
 import type { PlaylistVideoPayload } from '../lib/playlists'
 import { collectCachedVideosForChildChannels } from '../lib/collectCachedChannelVideos'
 import { toast } from 'sonner'
@@ -98,6 +99,7 @@ function KidModePageInner() {
   const [globalSearchInput, setGlobalSearchInput] = useState('')
   const [kidSurface, setKidSurface] = useState<'watch' | 'parent'>('watch')
   const [kidWatchTab, setKidWatchTab] = useState<'channels' | 'playlist'>('channels')
+  const [openedPlaylistId, setOpenedPlaylistId] = useState<string | null>(null)
   /** כל לחיצה על ערוץ (גם על אותו ערוץ) — כדי ש־useEffect יטען מחדש גם כש־activeChannelId לא משתנה */
   const [channelPickNonce, setChannelPickNonce] = useState(0)
   const [accessToken, setAccessToken] = useState<string | null>(null)
@@ -125,6 +127,11 @@ function KidModePageInner() {
   const [globalSearchError, setGlobalSearchError] = useState<string | null>(null)
   const pendingGlobalSearchQueryRef = useRef<string | null>(null)
   const videoMultiSelect = useVideoMultiSelect()
+  const kidPlaylists = usePlaylists({
+    mode: 'kid',
+    userId: null,
+    childAccessToken: accessToken,
+  })
   const [bulkPlaylistOpen, setBulkPlaylistOpen] = useState(false)
   const channelMultiSelect = useIdMultiSelect()
   const [channelBulkVideos, setChannelBulkVideos] = useState<PlaylistVideoPayload[]>([])
@@ -1319,6 +1326,7 @@ function KidModePageInner() {
                   childAccessToken={accessToken}
                   allowShorts={Boolean(device?.allow_shorts)}
                   hideThumbnails={Boolean(device?.hide_thumbnails)}
+                  initialPlaylistId={openedPlaylistId}
                 />
               ) : null}
             </div>
@@ -1695,6 +1703,11 @@ function KidModePageInner() {
                         onLoadMore={() => void handleLoadOlderChannelVideos()}
                         loadMoreLabel={t('channels.loadOlderVideos')}
                         loadingMoreLabel={t('channels.loadingOlderVideos')}
+                        playlists={kidPlaylists.playlists}
+                        onSelectPlaylist={(playlistId) => {
+                          setOpenedPlaylistId(playlistId)
+                          setKidWatchTab('playlist')
+                        }}
                         onSelectVideo={(video) => {
                           const payload: PlaylistVideoPayload = {
                             youtube_video_id: video.youtube_video_id,

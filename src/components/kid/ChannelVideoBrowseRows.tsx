@@ -11,6 +11,8 @@ import { usePortraitVideoThumbnailIds } from '../../hooks/usePortraitVideoThumbn
 import { useNearBottomLoadMore } from '../../hooks/useNearBottomLoadMore'
 import { formatLikeCountLabel, formatViewCountLabel } from '../../lib/formatYoutubeCount'
 import { formatRelativePublishedAt, joinVideoMetadataParts } from '../../lib/formatRelativeTime'
+import { ListMusic } from 'lucide-react'
+import type { UserPlaylist } from '../../lib/playlists'
 
 type Props = {
   videos: WatchableVideoBase[]
@@ -25,6 +27,9 @@ type Props = {
   onLoadMore?: () => void
   loadMoreLabel?: string
   loadingMoreLabel?: string
+  playlists?: UserPlaylist[]
+  playlistVideos?: WatchableVideoBase[]
+  onSelectPlaylist?: (playlistId: string) => void
 }
 
 function videoMetadata(video: WatchableVideoBase): string | null {
@@ -82,6 +87,9 @@ export function ChannelVideoBrowseRows({
   onLoadMore,
   loadMoreLabel = 'טען עוד סרטונים',
   loadingMoreLabel = 'טוען עוד…',
+  playlists = [],
+  playlistVideos = [],
+  onSelectPlaylist,
 }: Props) {
   const portraitThumbnailIds = usePortraitVideoThumbnailIds(videos)
   const { longForm, shorts } = useMemo(
@@ -150,7 +158,7 @@ export function ChannelVideoBrowseRows({
 
   const shortsShelf = (items: WatchableVideoBase[]) => (
     <section aria-label="סרטונים קצרים">
-      <h2 className="mb-3 px-0.5 text-base font-black text-yt-text">Shorts</h2>
+      <h2 className="mb-3 px-0.5 text-base font-black text-yt-text">שורטים</h2>
       <div className="premium-scrollbar flex gap-2 overflow-x-auto pb-2 pe-1 xs:gap-3 [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory] md:hidden">
         {items.map((video) => (
           <div key={video.youtube_video_id} className="[scroll-snap-align:start]">
@@ -217,7 +225,7 @@ export function ChannelVideoBrowseRows({
 
   return (
     <div className="flex min-w-0 flex-col gap-4 px-0.5 pb-2 xs:px-1 sm:px-0">
-      <ChannelContentTabs value={tab} onChange={setTab} showShortsTab={allowShorts} />
+      <ChannelContentTabs value={tab} onChange={setTab} />
 
       {tab === 'home' ? (
         <div className="flex flex-col gap-5">
@@ -264,12 +272,12 @@ export function ChannelVideoBrowseRows({
       {tab === 'shorts' ? (
         <>
           {!allowShorts ? (
-            emptyLabel('Shorts כבויים בפרופיל זה.')
+            emptyLabel('שורטים כבויים בפרופיל זה.')
           ) : shorts.length === 0 ? (
             emptyLabel(
               hasMore
-                ? 'עדיין אין Shorts ברשימה שנטענה — טען עוד כדי להמשיך.'
-                : 'אין Shorts בערוץ הזה.'
+                ? 'עדיין אין שורטים ברשימה שנטענה — טען עוד כדי להמשיך.'
+                : 'אין שורטים בערוץ הזה.'
             )
           ) : (
             <div className="yt-shorts-grid">
@@ -320,6 +328,47 @@ export function ChannelVideoBrowseRows({
             )}
           {loadMoreFooter}
         </>
+      ) : null}
+
+      {tab === 'playlists' ? (
+        playlists.length > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {playlists.map((pl) => (
+              <li key={pl.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectPlaylist?.(pl.id)}
+                  className="flex w-full items-center gap-3 rounded-xl bg-yt-surfaceHover px-3 py-3 text-start transition hover:bg-[#3f3f3f]/80"
+                >
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-yt-surface text-yt-text">
+                    <ListMusic className="h-6 w-6" aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-yt-text">{pl.name}</span>
+                    <span className="mt-0.5 block text-xs text-yt-textMuted">
+                      {pl.video_count} סרטונים
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : playlistVideos.length > 0 ? (
+          <div className="yt-video-grid">
+            {playlistVideos.map((video) => (
+              <VideoGridCard
+                key={video.youtube_video_id}
+                video={video}
+                active={activeVideoId === video.youtube_video_id}
+                hideThumbnail={hideThumbnails}
+                onSelect={() => onSelectVideo(video)}
+                action={renderAction?.(video)}
+              />
+            ))}
+          </div>
+        ) : (
+          emptyLabel('אין עדיין פלייליסטים. שמרו סרטונים עם «שמירה».')
+        )
       ) : null}
     </div>
   )

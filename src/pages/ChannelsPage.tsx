@@ -1016,6 +1016,9 @@ function ChannelsPageInner() {
                   loadingMore={videosLoadingMore}
                   onLoadMore={() => void handleLoadMoreChannelVideos()}
                   renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
+                  playlistVideos={channelScopedVideos.filter((video) =>
+                    savedPlaylistIds.has(video.youtube_video_id)
+                  )}
                 />
               )}
             </>

@@ -111,7 +111,7 @@ function WatchChromeDemo() {
   return (
     <PhoneFrame dark>
       <div className="p-3">
-        <ChannelContentTabs value={tab} onChange={setTab} showShortsTab />
+        <ChannelContentTabs value={tab} onChange={setTab} />
       </div>
       <YoutubeWatchLayout
         className="px-2"

@@ -33,6 +33,7 @@ type Props = {
   allowShorts?: boolean
   hideThumbnails?: boolean
   parentQuickBlock?: ParentQuickBlockConfig | null
+  initialPlaylistId?: string | null
 }
 
 export function KidPlaylistView({
@@ -40,13 +41,14 @@ export function KidPlaylistView({
   allowShorts = false,
   hideThumbnails = false,
   parentQuickBlock,
+  initialPlaylistId = null,
 }: Props) {
   const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh } = usePlaylists({
     mode: 'kid',
     userId: null,
     childAccessToken,
   })
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialPlaylistId)
   const [videos, setVideos] = useState<PlaylistVideo[]>([])
   const [videosLoading, setVideosLoading] = useState(false)
   const [videosError, setVideosError] = useState<string | null>(null)
@@ -57,6 +59,10 @@ export function KidPlaylistView({
   const loadRequestRef = useRef(0)
 
   const selected = playlists.find((p) => p.id === selectedId) ?? null
+
+  useEffect(() => {
+    if (initialPlaylistId) setSelectedId(initialPlaylistId)
+  }, [initialPlaylistId])
 
   useEffect(() => {
     if (playlists.length > 0 && !selectedId) {

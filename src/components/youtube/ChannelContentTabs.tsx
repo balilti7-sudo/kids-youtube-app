@@ -1,37 +1,32 @@
 import { cn } from '../../lib/utils'
 
-export type ChannelContentTab = 'home' | 'videos' | 'shorts' | 'live'
+export type ChannelContentTab = 'home' | 'videos' | 'shorts' | 'live' | 'playlists'
 
 const TABS: { id: ChannelContentTab; label: string }[] = [
   { id: 'home', label: 'דף הבית' },
   { id: 'videos', label: 'סרטונים' },
-  { id: 'shorts', label: 'Shorts' },
-  { id: 'live', label: 'שידורים חיים' },
+  { id: 'shorts', label: 'שורטים' },
+  { id: 'live', label: 'שידור חי' },
+  { id: 'playlists', label: 'פלייליסטים' },
 ]
 
 type Props = {
   value: ChannelContentTab
   onChange: (tab: ChannelContentTab) => void
-  /** Hide Shorts tab when device policy disables Shorts. */
-  showShortsTab?: boolean
   className?: string
 }
 
 /**
  * YouTube channel-style content tabs. Community is intentionally omitted.
+ * All primary tabs stay visible (no horizontal hide).
  */
-export function ChannelContentTabs({ value, onChange, showShortsTab = true, className }: Props) {
-  const visible = TABS.filter((t) => t.id !== 'shorts' || showShortsTab)
-
+export function ChannelContentTabs({ value, onChange, className }: Props) {
   return (
     <nav
-      className={cn(
-        'premium-scrollbar flex gap-1 overflow-x-auto border-b border-yt-border pb-0 [-webkit-overflow-scrolling:touch]',
-        className
-      )}
+      className={cn('flex flex-wrap gap-x-0.5 border-b border-yt-border', className)}
       aria-label="ניווט תוכן הערוץ"
     >
-      {visible.map((tab) => {
+      {TABS.map((tab) => {
         const active = value === tab.id
         return (
           <button
@@ -41,7 +36,7 @@ export function ChannelContentTabs({ value, onChange, showShortsTab = true, clas
             aria-selected={active}
             onClick={() => onChange(tab.id)}
             className={cn(
-              'relative shrink-0 px-2.5 pb-2.5 pt-2 text-xs font-semibold transition xs:px-3 xs:pb-3 xs:text-sm sm:px-4',
+              'relative shrink-0 px-2.5 pb-2.5 pt-2 text-[13px] font-semibold transition xs:px-3 xs:text-sm sm:px-3.5 sm:text-[15px]',
               active ? 'text-yt-text' : 'text-yt-textMuted hover:text-yt-text'
             )}
           >
