@@ -4,14 +4,16 @@ import { PageBackBar } from '../layout/PageBackBar'
 import { SafeTubeLogo } from '../branding/SafeTubeLogo'
 import { GoogleAuthButton } from './GoogleAuthButton'
 import { LoginForm } from './LoginForm'
+import { RegisterForm } from './RegisterForm'
 import { EmailQuickAuthForm } from './EmailQuickAuthForm'
 import { OnboardingStepper } from '../onboarding/OnboardingStepper'
 import { Button } from '../ui/Button'
 
-/** Step 1 of 3 — email-first entry; password/Google stay under “more options”. */
+/** Google first (largest). Email/password stay below as the secondary path. */
 export function AuthScreen() {
   const { t } = useTranslation()
-  const [showMore, setShowMore] = useState(false)
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [showEmailLink, setShowEmailLink] = useState(false)
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-3 px-3 pb-8 pt-4 xs:px-4 sm:gap-4 sm:pb-10 sm:pt-6">
@@ -40,37 +42,47 @@ export function AuthScreen() {
         </h1>
         <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">{t('auth.step1Lead')}</p>
 
-        <div className="mt-4">
-          <EmailQuickAuthForm />
+        <div className="mt-5">
+          <GoogleAuthButton size="lg" />
         </div>
+
+        <div className="relative my-5">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-200 dark:border-zinc-700" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-slate-500 dark:bg-zinc-900 dark:text-zinc-500">
+              {t('auth.or')}
+            </span>
+          </div>
+        </div>
+
+        <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-zinc-300">
+          {t('auth.passwordSectionTitle')}
+        </p>
+
+        {mode === 'login' ? (
+          <LoginForm onSwitchToRegister={() => setMode('register')} />
+        ) : (
+          <RegisterForm onSwitchToLogin={() => setMode('login')} />
+        )}
 
         <div className="mt-4">
           <Button
             type="button"
             variant="ghost"
             className="w-full text-sm"
-            aria-expanded={showMore}
-            onClick={() => setShowMore((v) => !v)}
+            aria-expanded={showEmailLink}
+            onClick={() => setShowEmailLink((v) => !v)}
           >
-            {showMore ? t('auth.hideMoreOptions') : t('auth.moreOptions')}
+            {showEmailLink ? t('auth.hideMoreOptions') : t('auth.moreOptions')}
           </Button>
         </div>
 
-        {showMore ? (
-          <div className="mt-3 space-y-4 border-t border-slate-200 pt-4 dark:border-zinc-700">
-            <p className="text-xs text-slate-500 dark:text-zinc-500">{t('auth.passwordOptionalHint')}</p>
-            <LoginForm />
-            <div className="relative my-2">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200 dark:border-zinc-700" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-slate-500 dark:bg-zinc-900 dark:text-zinc-500">
-                  {t('auth.or')}
-                </span>
-              </div>
-            </div>
-            <GoogleAuthButton />
+        {showEmailLink ? (
+          <div className="mt-3 border-t border-slate-200 pt-4 dark:border-zinc-700">
+            <p className="mb-3 text-xs text-slate-500 dark:text-zinc-500">{t('auth.emailLinkHint')}</p>
+            <EmailQuickAuthForm />
           </div>
         ) : null}
       </div>

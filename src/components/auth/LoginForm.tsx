@@ -109,9 +109,9 @@ export function LoginForm({ onSwitchToRegister }: { onSwitchToRegister?: () => v
         {errors.password ? <p className="mt-1 text-xs text-red-600">{errors.password.message}</p> : null}
       </div>
       {submitError ? <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p> : null}
-      <Button type="submit" disabled={isSubmitting} className="w-full">
+      <Button type="submit" variant="secondary" disabled={isSubmitting} className="w-full">
         {isSubmitting ? (
-          <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" />
+          <LoadingSpinner className="h-5 w-5 border-2 border-slate-400 border-t-transparent" />
         ) : null}
         {isSubmitting ? 'מתחבר…' : 'התחברות'}
       </Button>
