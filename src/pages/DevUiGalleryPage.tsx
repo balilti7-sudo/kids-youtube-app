@@ -125,8 +125,8 @@ function WatchChromeDemo() {
               actions={
                 <>
                   <YoutubeLikeButton videoId={SAMPLE_VIDEOS[0].youtube_video_id} likeCount={48200} />
-                  <Button variant="secondary" className="rounded-full text-xs">
-                    הוסף לפלייליסט
+                  <Button variant="secondary" className="h-9 rounded-full bg-yt-surfaceHover text-sm">
+                    שמירה
                   </Button>
                 </>
               }
@@ -134,7 +134,7 @@ function WatchChromeDemo() {
           </div>
         }
         sidebar={
-          <YoutubeSuggestedList title="סרטונים מומלצים">
+          <YoutubeSuggestedList title="הבא בתור">
             {SAMPLE_VIDEOS.map((v) => (
               <li key={v.youtube_video_id}>
                 <YoutubeVideoCard

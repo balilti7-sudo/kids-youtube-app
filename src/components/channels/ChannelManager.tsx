@@ -39,6 +39,7 @@ import { ChannelVideoSearchBar } from '../kid/ChannelVideoSearchBar'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
+import { YoutubeLikeButton } from '../youtube/YoutubeLikeButton'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
@@ -807,7 +808,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                   className="mt-2"
                   main={
                     <>
-                      <div className="relative w-full overflow-hidden rounded-none bg-black lg:rounded-none">
+                      <div className="relative w-full overflow-hidden rounded-none bg-black sm:rounded-xl">
                         <div className="relative pt-[56.25%]">
                           <div className="absolute inset-0 min-h-0">
                             <CleanPlayer
@@ -829,6 +830,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                         actions={
                           <>
                             <div className="flex flex-wrap gap-2">
+                              <YoutubeLikeButton videoId={activePreviewVideo.videoId} />
                               {hideVideoCtx.canQuickBlock ? (
                                 <QuickBlockButton
                                   video={{
@@ -850,7 +852,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                                   mode={user?.id ? 'parent' : 'kid'}
                                   userId={user?.id ? (ownerUserId ?? user.id) : null}
                                   childAccessToken={user?.id ? null : localParent.localAccessToken}
-                                  compact
+                                  variant="save"
                                   video={{
                                     youtube_video_id: activePreviewVideo.videoId,
                                     title: activePreviewVideo.title,
@@ -893,7 +895,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                           onAddToPlaylist={() => setBulkPlaylistOpen(true)}
                         />
                       ) : null}
-                      <YoutubeSuggestedList title="סרטונים מומלצים">
+                      <YoutubeSuggestedList title="הבא בתור">
                         {visiblePreviewVideos.map((v) => {
                           const isCurrent = v.videoId === activePreviewVideoId
                           const payload = toPreviewPlaylistPayload(v)

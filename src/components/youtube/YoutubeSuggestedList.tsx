@@ -9,7 +9,7 @@ type YoutubeSuggestedListProps = {
 
 /** Scrollable sidebar list wrapper — YouTube “Up next / suggested” column. */
 export function YoutubeSuggestedList({
-  title = 'סרטונים מומלצים',
+  title = 'הבא בתור',
   children,
   className,
 }: YoutubeSuggestedListProps) {

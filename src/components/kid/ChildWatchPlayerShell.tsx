@@ -43,8 +43,8 @@ function ChildWatchPlayerShellInner({
         // touch-pan-y only for Shorts — on long-form it delays/drops taps on <video controls>.
         isShort ? 'touch-pan-y' : 'touch-manipulation',
         isShort
-          ? 'mx-auto w-full max-w-[min(100%,420px)] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:max-w-[420px]'
-          : 'w-screen max-w-[100vw] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full'
+          ? 'mx-auto w-full max-w-[min(100%,420px)] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:max-w-[420px] sm:rounded-xl'
+          : 'w-screen max-w-[100vw] [margin-inline:calc(50%-50vw)] sm:mx-0 sm:w-full sm:max-w-full sm:rounded-xl'
       )}
       style={
         isShort && dragOffsetY

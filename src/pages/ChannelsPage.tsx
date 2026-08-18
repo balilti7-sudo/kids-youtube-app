@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Check, ListMusic, Plus, ShieldAlert, Tv } from 'lucide-react'
+import { Bookmark, Check, ListMusic, Plus, ShieldAlert, Tv } from 'lucide-react'
 import { ChildChannelsNavCarousel } from '../components/kid/ChildChannelsNavCarousel'
 import { useChannels } from '../hooks/useChannels'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
@@ -867,7 +867,6 @@ function ChannelsPageInner() {
                     hasNextTrack={hasNextVideo}
                   />
                   <YoutubeWatchVideoDetails
-                    className="px-1 pt-3 sm:px-0.5"
                     title={activeVideo?.title ?? playingVideo?.title ?? 'טוען…'}
                     channelName={
                       activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name
@@ -890,15 +889,15 @@ function ChannelsPageInner() {
                         <Button
                           type="button"
                           variant="secondary"
-                          className="gap-2 rounded-full !px-4 !py-2 text-xs font-black"
+                          className="h-9 gap-2 rounded-full !border-0 bg-yt-surfaceHover !px-3.5 !py-0 text-sm font-semibold text-yt-text hover:bg-[#3f3f3f]/80"
                           onClick={() => togglePlaylistVideo(activeVideoId)}
                         >
                           {savedPlaylistIds.has(activeVideoId) ? (
                             <Check className="h-4 w-4" aria-hidden />
                           ) : (
-                            <Plus className="h-4 w-4" aria-hidden />
+                            <Bookmark className="h-4 w-4" aria-hidden />
                           )}
-                          {savedPlaylistIds.has(activeVideoId) ? 'בפלייליסט שלי' : 'הוסף לפלייליסט'}
+                          {savedPlaylistIds.has(activeVideoId) ? 'נשמר' : 'שמירה'}
                         </Button>
                       </>
                     }
@@ -930,8 +929,8 @@ function ChannelsPageInner() {
                       showMyPlaylist
                         ? 'הסרטונים ששמרתי'
                         : (activeVideo?.format ?? playingVideo?.format) === 'short'
-                          ? 'עוד Shorts מומלצים'
-                          : 'סרטונים מומלצים'
+                          ? 'עוד Shorts'
+                          : 'הבא בתור'
                     }
                   >
                     {channelRecommendations.map((video) => (

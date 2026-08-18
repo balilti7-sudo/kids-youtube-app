@@ -400,6 +400,7 @@ export function KidPlaylistView({
                         mode="kid"
                         userId={null}
                         childAccessToken={childAccessToken}
+                        variant="save"
                         video={{
                           youtube_video_id: active.youtube_video_id,
                           title: active.title,

@@ -257,6 +257,10 @@ const CONTROL_BTN_CLASS =
 const CONTROL_BTN_ACTIVE_CLASS =
   'border-brand-400/80 bg-brand-600/90 text-white shadow-md shadow-brand-950/30 hover:bg-brand-600'
 
+/** Overlay chips on the embed — stay above the red progress bar (bottom ~56px). */
+const IFRAME_CHROME_BTN =
+  'pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white shadow-md ring-1 ring-white/15 backdrop-blur-[2px] transition hover:bg-black/75 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-40'
+
 function PlayerControlBar({
   loopEnabled,
   onLoopToggle,
@@ -529,8 +533,9 @@ function CleanPlayerYoutubeIframe({
   const [tapsLocked, setTapsLocked] = useState(false)
   const theater = useWatchTheaterMode()
   const showQueueControls = queueControls ?? Boolean(onNextTrack)
-  const showControlBar = showQueueControls || Boolean(theater)
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
+  const showPrev = showQueueControls && Boolean(onPreviousTrack)
+  const showTheaterDesktop = Boolean(theater)
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
   const [iframeReady, setIframeReady] = useState(false)
@@ -615,67 +620,118 @@ function CleanPlayerYoutubeIframe({
   }, [videoId, title, channelTitle, posterUrl])
 
   return (
-    <div
-      className={cn('flex h-full w-full min-h-0 flex-col overflow-hidden bg-black', className)}
-      dir="ltr"
-    >
-      <div ref={playerShellRef} className="relative min-h-0 flex-1">
-      {isLimitReached ? <DailyLimitOverlay /> : null}
-      {!safeId ? (
-        <div
-          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/90 px-4 text-center text-sm text-amber-100"
-          role="alert"
-          dir="rtl"
-        >
-          <p>מזהה סרטון YouTube לא תקין.</p>
-        </div>
-      ) : !src ? null : (
-        <>
-          {!iframeReady && !blankVideoFrame ? (
-            <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} />
-          ) : null}
-          <iframe
-            key={src}
-            title={title}
-            src={src}
-            className={cn('h-full w-full border-0', isLimitReached && 'pointer-events-none invisible')}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-            allowFullScreen
-            loading="eager"
-            onLoad={handleIframeLoad}
-            referrerPolicy="strict-origin-when-cross-origin"
-          />
-          {/* Black cover only — never visibility:hidden the iframe (throttles decode on WebView). */}
-          {blankVideoFrame && !isLimitReached ? (
-            <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
-          ) : null}
-          {tapsLocked && !isLimitReached ? (
-            <div
-              className="absolute inset-0 z-[15] flex items-center justify-center bg-black/25"
-              aria-hidden
-            >
-              <span className="rounded-full bg-black/70 p-3 text-white shadow-lg ring-1 ring-white/20">
-                <Lock className="h-6 w-6" aria-hidden />
-              </span>
-            </div>
-          ) : null}
-        </>
-      )}
-      <span className="sr-only">{title}</span>
+    <div className={cn('relative h-full w-full min-h-0 overflow-hidden bg-black', className)} dir="ltr">
+      <div ref={playerShellRef} className="absolute inset-0">
+        {isLimitReached ? <DailyLimitOverlay /> : null}
+        {!safeId ? (
+          <div
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/90 px-4 text-center text-sm text-amber-100"
+            role="alert"
+            dir="rtl"
+          >
+            <p>מזהה סרטון YouTube לא תקין.</p>
+          </div>
+        ) : !src ? null : (
+          <>
+            {!iframeReady && !blankVideoFrame ? (
+              <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} />
+            ) : null}
+            <iframe
+              key={src}
+              title={title}
+              src={src}
+              className={cn('h-full w-full border-0', isLimitReached && 'pointer-events-none invisible')}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+              allowFullScreen
+              loading="eager"
+              onLoad={handleIframeLoad}
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+            {/* Black cover only — never visibility:hidden the iframe (throttles decode on WebView). */}
+            {blankVideoFrame && !isLimitReached ? (
+              <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
+            ) : null}
+            {tapsLocked && !isLimitReached ? (
+              <button
+                type="button"
+                className="absolute inset-0 z-[15] flex items-center justify-center bg-black/25"
+                onClick={() => setTapsLocked(false)}
+                aria-label="בטל נעילת מסך"
+              >
+                <span className="rounded-full bg-black/70 p-3 text-white shadow-lg ring-1 ring-white/20">
+                  <Lock className="h-6 w-6" aria-hidden />
+                </span>
+              </button>
+            ) : null}
+            {!tapsLocked && !isLimitReached && safeId && src ? (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-[12] h-14">
+                <div className="absolute start-2 top-2 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTapsLocked(true)}
+                    className={IFRAME_CHROME_BTN}
+                    title="נעילת מסך — מונע לחיצות בטעות"
+                    aria-label="נעילת מסך"
+                  >
+                    <LockOpen className="h-5 w-5" aria-hidden />
+                  </button>
+                  {showQueueControls ? (
+                    <button
+                      type="button"
+                      onClick={() => setLoopEnabled((v) => !v)}
+                      aria-pressed={loopEnabled}
+                      className={cn(IFRAME_CHROME_BTN, loopEnabled && 'bg-white text-black hover:bg-white')}
+                      title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
+                      aria-label={loopEnabled ? 'כיבוי נגן שוב ושוב' : 'הפעלת נגן שוב ושוב'}
+                    >
+                      <Repeat className="h-5 w-5" aria-hidden />
+                    </button>
+                  ) : null}
+                  {showPrev ? (
+                    <button
+                      type="button"
+                      onClick={() => onPreviousTrack?.()}
+                      className={IFRAME_CHROME_BTN}
+                      title="הסרטון הקודם"
+                      aria-label="הסרטון הקודם"
+                    >
+                      <SkipBack className="h-5 w-5" aria-hidden />
+                    </button>
+                  ) : null}
+                  {showQueueControls ? (
+                    <button
+                      type="button"
+                      onClick={handleNextVideo}
+                      className={IFRAME_CHROME_BTN}
+                      title="הסרטון הבא"
+                      aria-label="הסרטון הבא"
+                    >
+                      <SkipForward className="h-5 w-5" aria-hidden />
+                    </button>
+                  ) : null}
+                  {showTheaterDesktop ? (
+                    <button
+                      type="button"
+                      onClick={theater!.toggleTheaterMode}
+                      aria-pressed={theater!.theaterMode}
+                      aria-label={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+                      className={cn(
+                        IFRAME_CHROME_BTN,
+                        'hidden lg:inline-flex',
+                        theater!.theaterMode && 'bg-white text-black hover:bg-white'
+                      )}
+                      title={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+                    >
+                      <RectangleHorizontal className="h-5 w-5" aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+        <span className="sr-only">{title}</span>
       </div>
-      {showControlBar ? (
-        <PlayerControlBar
-          loopEnabled={loopEnabled}
-          onLoopToggle={() => setLoopEnabled((v) => !v)}
-          onNext={handleNextVideo}
-          onPrevious={onPreviousTrack}
-          hasNext={hasNextTrack}
-          showQueueControls={showQueueControls}
-          tapsLocked={tapsLocked}
-          onTapsLockToggle={() => setTapsLocked((v) => !v)}
-          playerShellRef={playerShellRef}
-        />
-      ) : null}
     </div>
   )
 }

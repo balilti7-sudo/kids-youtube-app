@@ -1595,6 +1595,7 @@ function KidModePageInner() {
                                   mode="kid"
                                   userId={null}
                                   childAccessToken={accessToken}
+                                  variant="save"
                                   video={{
                                     youtube_video_id: activeVideo.videoId,
                                     title: activeVideo.title,
