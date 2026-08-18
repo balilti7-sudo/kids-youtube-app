@@ -1,0 +1,29 @@
+---
+description: Do not break Android video playback or channel-add while doing UI/layout work
+alwaysApply: true
+---
+
+# Protect working playback (1.1.20)
+
+Android video play and channel add are **working**. UI, layout, and placement work must not touch this path.
+
+## Playback (Android)
+
+`CleanPlayer` on Capacitor Android **must** use `CleanPlayerYoutubeIframe` (`youtube.com/embed`). That is the working player.
+
+Do **not** unless the user explicitly asks to change playback:
+
+- Switch Android back to `<video src=googlevideo>` / Media Bridge / HLS custom loaders
+- Add WebView `shouldInterceptRequest` for googlevideo or Range/206
+- Mid-play source swaps (360p→720p, stall-recovery URL swap, `el.load()` after clearing `src`)
+- Change `CleanPlayer` export routing, `youtubeEmbedUrl.ts`, or `MainActivity` media/cookie settings
+
+Thumbnails/search can use YouTube Data API. **Bytes on Android play through the embed**, not a raw googlevideo URL in WebView.
+
+## Channel add
+
+If `isParentalManagementGateUnlocked()`, skip a second `verify_parent_pin` RPC. Re-adding that check makes add hang and fail.
+
+## UI work
+
+Change layout/CSS/components around the player. Do not rewrite how the player attaches media. If a design change seems to need a player rewrite, stop and ask.
