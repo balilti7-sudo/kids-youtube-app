@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PlaylistVideoPayload, UserPlaylist } from '../lib/playlists'
 import {
   addVideoToPlaylist,
@@ -25,16 +25,15 @@ export function usePlaylists(opts: {
   const { mode, userId, childAccessToken } = opts
   const [playlists, setPlaylists] = useState<UserPlaylist[]>([])
   const [loading, setLoading] = useState(false)
+  const playlistsRef = useRef(playlists)
+  playlistsRef.current = playlists
 
   const canLoad =
     mode === 'parent' ? Boolean(userId) : Boolean(childAccessToken)
 
   const refresh = useCallback(async () => {
-    if (!canLoad) {
-      setPlaylists([])
-      return
-    }
-    setLoading(true)
+    if (!canLoad) return
+    setLoading((prev) => (playlistsRef.current.length === 0 ? true : prev))
     try {
       if (mode === 'parent' && userId) {
         const { data, error } = await listPlaylistsForUser(userId)
@@ -46,7 +45,7 @@ export function usePlaylists(opts: {
         setPlaylists(data)
       }
     } catch {
-      setPlaylists([])
+      if (playlistsRef.current.length === 0) setPlaylists([])
     } finally {
       setLoading(false)
     }
@@ -141,3 +140,5 @@ export function usePlaylists(opts: {
     ]
   )
 }
+
+export type PlaylistsClient = ReturnType<typeof usePlaylists>

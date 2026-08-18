@@ -113,7 +113,10 @@ export function ChannelCard(props: Props) {
       </button>
       {props.variant === 'search' ? (
         <Button
-          className={cn('min-h-[44px] min-w-[5.5rem] shrink-0 self-center', props.added ? '!bg-brand-700 hover:!bg-brand-800' : '')}
+          className={cn(
+            'min-h-[44px] min-w-[8.5rem] shrink-0 self-center px-3',
+            props.added ? '!bg-emerald-600 hover:!bg-emerald-600' : ''
+          )}
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
@@ -128,8 +131,9 @@ export function ChannelCard(props: Props) {
               מוסיף…
             </span>
           ) : props.added ? (
-            <span className="inline-flex items-center gap-1">
-              <CheckCircle2 className="h-4 w-4" aria-hidden /> ✓ נוסף
+            <span className="inline-flex items-center gap-1.5">
+              <CheckCircle2 className="h-5 w-5" aria-hidden />
+              נוסף בהצלחה
             </span>
           ) : (
             'הוסף ערוץ'

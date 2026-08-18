@@ -276,7 +276,7 @@ function ChannelsPageInner() {
 
         // Cache may still be filling after add — brief retry before falling back to YouTube.
         if (rows.length === 0) {
-          await new Promise((r) => setTimeout(r, 1200))
+          await new Promise((r) => setTimeout(r, 250))
           if (requestId !== videosLoadGenRef.current) return
           rows = await fetchCachedRows()
         }

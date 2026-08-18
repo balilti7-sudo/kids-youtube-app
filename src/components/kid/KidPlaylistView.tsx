@@ -12,7 +12,7 @@ import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
 import { YoutubeLikeButton } from '../youtube/YoutubeLikeButton'
 import { ChildWatchPlayerShell } from './ChildWatchPlayerShell'
-import { usePlaylists } from '../../hooks/usePlaylists'
+import { usePlaylists, type PlaylistsClient } from '../../hooks/usePlaylists'
 import type { PlaylistVideo, UserPlaylist } from '../../lib/playlists'
 import type { ParentPinVerifyResult } from '../../lib/verifyParentManagementPin'
 import { cn } from '../../lib/utils'
@@ -34,6 +34,7 @@ type Props = {
   hideThumbnails?: boolean
   parentQuickBlock?: ParentQuickBlockConfig | null
   initialPlaylistId?: string | null
+  playlistClient?: PlaylistsClient
 }
 
 export function KidPlaylistView({
@@ -42,12 +43,15 @@ export function KidPlaylistView({
   hideThumbnails = false,
   parentQuickBlock,
   initialPlaylistId = null,
+  playlistClient,
 }: Props) {
-  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh } = usePlaylists({
+  const localPlaylists = usePlaylists({
     mode: 'kid',
     userId: null,
-    childAccessToken,
+    childAccessToken: playlistClient ? null : childAccessToken,
   })
+  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh } =
+    playlistClient ?? localPlaylists
   const [selectedId, setSelectedId] = useState<string | null>(initialPlaylistId)
   const [videos, setVideos] = useState<PlaylistVideo[]>([])
   const [videosLoading, setVideosLoading] = useState(false)
@@ -189,8 +193,7 @@ export function KidPlaylistView({
 
   const handlePlaylistMembershipChanged = useCallback(() => {
     if (selectedId) void loadVideos(selectedId)
-    void refresh()
-  }, [selectedId, loadVideos, refresh])
+  }, [selectedId, loadVideos])
 
   const cancelCreate = () => {
     if (creating) return

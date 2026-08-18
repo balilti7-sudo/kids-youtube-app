@@ -485,7 +485,7 @@ function KidModePageInner() {
       if (rid !== channelVideosRequestRef.current) return
 
       if (next.length === 0) {
-        await new Promise((r) => setTimeout(r, 1200))
+        await new Promise((r) => setTimeout(r, 250))
         if (rid !== channelVideosRequestRef.current) return
         next = await fetchCached()
       }
@@ -795,7 +795,7 @@ function KidModePageInner() {
       void loadChildData(accessToken).catch((e) => {
         setError(e instanceof Error ? e.message : 'עדכון ערוצים נכשל')
       })
-    }, 15_000)
+    }, 60_000)
     return () => {
       window.clearInterval(channelsId)
     }
@@ -1327,6 +1327,7 @@ function KidModePageInner() {
                   allowShorts={Boolean(device?.allow_shorts)}
                   hideThumbnails={Boolean(device?.hide_thumbnails)}
                   initialPlaylistId={openedPlaylistId}
+                  playlistClient={kidPlaylists}
                 />
               ) : null}
             </div>

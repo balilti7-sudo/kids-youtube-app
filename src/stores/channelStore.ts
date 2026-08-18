@@ -243,14 +243,12 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     if (link.error) {
       if (link.error.code === '23505') {
         upsertWhitelistChannel(set, get, channelFromSearchResult(channelId, yt, category))
-        void get().fetchWhitelistForDevice(deviceId)
         return { error: null }
       }
       return { error: new Error(link.error.message) }
     }
 
     upsertWhitelistChannel(set, get, channelFromSearchResult(channelId, yt, category))
-    void get().fetchWhitelistForDevice(deviceId)
     return { error: null }
   },
 
@@ -362,7 +360,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     if (row.channel_id) {
       upsertWhitelistChannel(set, get, channelFromSearchResult(row.channel_id, yt, category))
     }
-    void get().fetchWhitelistForLocalParent(accessToken)
     return { error: null }
   },
 

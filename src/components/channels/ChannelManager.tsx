@@ -122,7 +122,6 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const {
     whitelist,
     loading: listLoading,
-    loadWhitelist,
     addToWhitelist,
     removeFromWhitelist,
     refreshChannelVideosCache,
@@ -137,8 +136,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     [whitelist]
   )
 
-  // Backfill cache for channels that never refreshed (or are older than 24h), throttled.
-  // Fire-and-forget per channel so whitelist UI stays responsive.
+  // Backfill stale caches after the list is on screen so opening channels stays snappy.
   useEffect(() => {
     if (listLoading || whitelist.length === 0 || staleRefreshStartedRef.current) return
     const stale = whitelist
@@ -148,10 +146,13 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       })
       .slice(0, 4)
     if (stale.length === 0) return
-    staleRefreshStartedRef.current = true
-    for (const ch of stale) {
-      void refreshChannelVideosCache(ch.id, ch.youtube_channel_id, false)
-    }
+    const timer = window.setTimeout(() => {
+      staleRefreshStartedRef.current = true
+      for (const ch of stale) {
+        void refreshChannelVideosCache(ch.id, ch.youtube_channel_id, false)
+      }
+    }, 2500)
+    return () => window.clearTimeout(timer)
   }, [listLoading, whitelist, refreshChannelVideosCache])
 
   useEffect(() => {
@@ -183,12 +184,13 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       // Cache may still be empty if a prior refresh failed — force YouTube refresh once, then retry.
       if (videos.length === 0) {
         toast.message(t('channels.refreshingCache'))
-        for (const ch of selected) {
-          const refreshed = await refreshChannelVideosCache(ch.id, ch.youtube_channel_id, true)
-          if (refreshed.error) {
-            toast.error(t('channels.loadVideosFailed'), { description: refreshed.error.message })
-            return
-          }
+        const refreshed = await Promise.all(
+          selected.map((ch) => refreshChannelVideosCache(ch.id, ch.youtube_channel_id, true))
+        )
+        const firstError = refreshed.find((r) => r.error)?.error
+        if (firstError) {
+          toast.error(t('channels.loadVideosFailed'), { description: firstError.message })
+          return
         }
         ;({ videos, error, skippedEmptyChannels } = await collect())
         if (error) {
@@ -266,19 +268,16 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     if (sessionPin) localParentPinForRpcRef.current = sessionPin
   }, [localParent.isActive, localParent.pin])
 
-  useEffect(() => {
-    loadWhitelist()
-  }, [deviceId, loadWhitelist])
-
   const handleAdd = async (
     c: YouTubeChannelResult,
-    opts?: { showSuccessModal?: boolean }
+    opts?: { showSuccessModal?: boolean; toastSuccess?: boolean }
   ): Promise<boolean> => {
     if (!localParent.isActive && !selectedDevice) {
       toast.error(t('channels.noDeviceSelected'))
       return false
     }
     const showSuccessModal = opts?.showSuccessModal ?? !searchOpen
+    const toastSuccess = opts?.toastSuccess ?? !showSuccessModal
     // Optimistic UI: flip to "✓ Added" immediately while the RPC runs.
     setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
     setAddingId(c.channelId)
@@ -295,6 +294,9 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         return false
       }
       if (showSuccessModal) setAddSuccessModalOpen(true)
+      else if (toastSuccess) {
+        toast.success(t('channels.channelAddedTitle'), { description: c.title })
+      }
       return true
     } catch (e) {
       console.error('[ChannelManager] handleAdd unexpected error', e)
@@ -321,8 +323,13 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     }
     if (unique.length === 0) return
     let ok = 0
-    for (const c of unique) {
-      if (await handleAdd(c, { showSuccessModal: false })) ok += 1
+    const batchSize = 4
+    for (let i = 0; i < unique.length; i += batchSize) {
+      const slice = unique.slice(i, i + batchSize)
+      const results = await Promise.all(
+        slice.map((c) => handleAdd(c, { showSuccessModal: false, toastSuccess: false }))
+      )
+      ok += results.filter(Boolean).length
     }
     if (ok > 0) toast.success(t('channels.channelsAddedCount', { count: ok }))
   }

@@ -223,10 +223,11 @@ export function TopicDiscoveryModal({
   }
 
   const selectedCount = selectedIds.size
-  const loading = loadingChannels || loadingVideos
+  const loading = loadingChannels
   const empty =
     hasSearched &&
-    !loading &&
+    !loadingChannels &&
+    !loadingVideos &&
     !error &&
     channels.length === 0 &&
     videos.length === 0
