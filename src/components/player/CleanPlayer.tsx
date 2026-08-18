@@ -1678,11 +1678,11 @@ function CleanPlayerMediaBridge({
 }
 
 /**
- * Default: native `<video>` through the Media Bridge — **not** a YouTube iframe, so there is no
- * YouTube logo / “Watch on YouTube” in the player chrome (stream is proxied).
+ * Android (Capacitor): YouTube embed (`CleanPlayerYoutubeIframe`). Direct googlevideo
+ * `<video src>` freezes in this WebView — do not switch Android back to Media Bridge / HLS.
  *
- * Optional: set `VITE_YOUTUBE_IFRAME_PLAYER=true` to use `youtube-nocookie.com/embed` with
- * `modestbranding=1`, `rel=0`, and related params (see `buildYoutubePrivacyEmbedUrl`).
+ * Web / other platforms: native `<video>` via Media Bridge unless
+ * `VITE_YOUTUBE_IFRAME_PLAYER=true`.
  */
 export function CleanPlayer(props: CleanPlayerProps) {
   const useEmbed =

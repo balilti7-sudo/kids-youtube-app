@@ -1,0 +1,23 @@
+---
+description: Never break working Android video play or channel add during UI/layout work
+alwaysApply: true
+---
+
+# Protect working playback (1.1.20)
+
+Videos work on Android. Channel add works after the parent gate. Layout/CSS/positioning must not change that.
+
+## Do not touch unless the user explicitly asks to change playback
+
+- `src/components/player/CleanPlayer.tsx` — on Capacitor Android, `CleanPlayer` **must** render `CleanPlayerYoutubeIframe` (YouTube `youtube.com/embed`). Do not switch Android back to `<video src=googlevideo>`, hls.js, Media Bridge bytes, custom HLS loaders, or WebView `shouldInterceptRequest` for media.
+- `src/lib/youtubeEmbedUrl.ts` — keep `widget_referrer` and Android `host: 'youtube'`.
+- `android/.../MainActivity.java` — keep `setMediaPlaybackRequiresUserGesture(false)` and third-party cookies. Do not add a googlevideo interceptor.
+- `src/stores/channelStore.ts` — if the parental management gate is already unlocked, **skip** a second `verify_parent_pin` RPC. That extra call hung add-channel forever.
+
+## UI / design work
+
+Move, restyle, and reposition screens freely. If a layout change would edit the files above, stop and keep the playback/add logic identical. Do not “improve” streaming, PO tokens, quality swaps, or stall recovery on Android.
+
+## If playback is reported broken
+
+Fix by restoring the 1.1.20 Android embed path. Do not invent a new stream pipeline.

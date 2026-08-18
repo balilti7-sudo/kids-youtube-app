@@ -1,0 +1,22 @@
+---
+description: Locked Android player contract — embed only
+globs: src/components/player/**/*.tsx,src/lib/youtubeEmbedUrl.ts,src/lib/deviceResolve/**/*.ts,src/lib/streamApi.ts,android/app/src/main/java/app/safetube/kids/MainActivity.java
+alwaysApply: false
+---
+
+# Android player contract
+
+```tsx
+// REQUIRED on Capacitor Android
+const useEmbed =
+  YOUTUBE_IFRAME_PLAYER ||
+  (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android')
+if (useEmbed) return <CleanPlayerYoutubeIframe {...props} />
+```
+
+```tsx
+// FORBIDDEN on Android — WebView Referer https://localhost freezes after ~1s
+el.src = googlevideoUrl
+```
+
+Do not add `YoutubeMediaInterceptor` / Range intercept. Do not mid-play `src` swaps (360p→720p).
