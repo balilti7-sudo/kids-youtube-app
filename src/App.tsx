@@ -4,7 +4,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
 import { ThemeAwareToaster } from './components/theme/ThemeAwareToaster'
-import { SplashScreen } from './components/branding/SplashScreen'
+import { SplashScreen, BootSplash } from './components/branding/SplashScreen'
 import { TesterAccessGate } from './components/auth/TesterAccessGate'
 import { AuthPage } from './pages/AuthPage'
 import AuthCallback from './pages/AuthCallback'
@@ -139,10 +139,12 @@ export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
-        <ThemeAwareToaster />
-        <TesterAccessGate>
-          <AppChrome />
-        </TesterAccessGate>
+        <BootSplash>
+          <ThemeAwareToaster />
+          <TesterAccessGate>
+            <AppChrome />
+          </TesterAccessGate>
+        </BootSplash>
       </BrowserRouter>
     </ErrorBoundary>
   )

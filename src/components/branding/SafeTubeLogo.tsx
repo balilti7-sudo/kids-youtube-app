@@ -17,7 +17,7 @@ const sizeWidths = {
   lg: 'w-[280px] max-w-[min(100%,280px)]',
 } as const
 
-const ENTRANCE_DURATION_S = 4
+const ENTRANCE_DURATION_S = 0.45
 
 /**
  * לוגו מ-`public/logo.png` — רינדור ישיר ושקוף, ללא mix-blend / filters / רקע על ה-img.
