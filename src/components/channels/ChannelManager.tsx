@@ -415,7 +415,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
 
   const requestAddChannel = (c: YouTubeChannelResult) => {
     if (embedded && isParentalManagementGateUnlocked()) {
-      void handleAdd(c, { showSuccessModal: false })
+      void handleAdd(c, { showSuccessModal: true })
       return
     }
     beginPinGate({ kind: 'add', channel: c })
@@ -705,28 +705,32 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             </select>
           </label>
         ) : null}
-        <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
-          <Button
-            type="button"
-            className={cn(
-              CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
-              whitelist.length === 0 &&
-                'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-zinc-950 animate-pulse'
-            )}
-            onClick={requestOpenChannelSearch}
-          >
-            {whitelist.length === 0 ? t('channels.startHereSearchChannel') : t('channels.searchChannel')}
-          </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+          <div className={cn('flex-1', CHANNEL_MANAGER_SEARCH_SHELL_CLASS)}>
+            <Button
+              type="button"
+              className={cn(
+                CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
+                'w-full',
+                whitelist.length === 0 &&
+                  'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-zinc-950 animate-pulse'
+              )}
+              onClick={requestOpenChannelSearch}
+            >
+              {whitelist.length === 0 ? 'הוספת ערוצים — התחילו כאן' : 'הוספת ערוצים'}
+            </Button>
+          </div>
+          {user?.id || ownerUserId || localParent.localAccessToken ? (
+            <ChannelManagerVideoSearch
+              className="flex-1"
+              userId={user?.id ? (ownerUserId ?? user.id) : null}
+              childAccessToken={user?.id ? null : localParent.localAccessToken}
+              mode={user?.id ? 'parent' : 'kid'}
+              onOpenRequest={requestOpenVideoSearch}
+              openSignal={videoSearchOpenSignal}
+            />
+          ) : null}
         </div>
-        {user?.id || ownerUserId || localParent.localAccessToken ? (
-          <ChannelManagerVideoSearch
-            userId={user?.id ? (ownerUserId ?? user.id) : null}
-            childAccessToken={user?.id ? null : localParent.localAccessToken}
-            mode={user?.id ? 'parent' : 'kid'}
-            onOpenRequest={requestOpenVideoSearch}
-            openSignal={videoSearchOpenSignal}
-          />
-        ) : null}
       </header>
 
       {devLoading || (listLoading && whitelist.length === 0) ? (
@@ -1049,37 +1053,33 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         title={t('channels.channelAddedTitle')}
         bodyClassName="max-h-[70vh] overflow-y-auto"
         footer={
-          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-start">
+          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="secondary"
               className="w-full sm:w-auto"
-              onClick={() => setAddSuccessModalOpen(false)}
+              onClick={() => {
+                setAddSuccessModalOpen(false)
+                setSearchOpen(true)
+              }}
             >
-              {t('channels.addAnother')}
+              הוספת ערוצים נוספים
             </Button>
             <Button
               type="button"
               className="w-full sm:w-auto"
               onClick={() => {
                 setAddSuccessModalOpen(false)
-                setSearchOpen(false)
-                setAddedSearchChannelIds(new Set())
-                if (embedded) {
-                  setPreviewChannel(null)
-                  navigate('/dashboard')
-                  return
-                }
-                navigate('/dashboard')
+                if (!embedded) navigate('/dashboard')
               }}
             >
-              {embedded ? t('channels.finish') : t('channels.backToParent')}
+              אישור
             </Button>
           </div>
         }
       >
         <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-300">
-          {t('channels.addMoreOrReturn')}
+          הערוץ נוסף בהצלחה לרשימת הערוצים המאושרים. אפשר להוסיף עוד ערוצים או ללחוץ אישור לסיום.
         </p>
       </Modal>
 

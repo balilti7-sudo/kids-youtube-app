@@ -4,6 +4,10 @@
   <string name="title_activity_main">SafeTube 1.1.23</string>
   <string name="package_name">app.safetube.kids</string>
   <string name="custom_url_scheme">app.safetube.kids</string>
-  <string name="parental_control_service_description">SafeTube חוסם פתיחת אפליקציית YouTube (ו־youtube.com בדפדפן) כשההורה מפעיל את החסימה. אייקון YouTube עלול עדיין להופיע במסך הבית — הפתיחה עצמה תיחסם.</string>
+  <string name="parental_control_service_description">SafeTube חוסם פתיחת אפליקציית YouTube (com.google.android.youtube) כשההורה מפעיל את החסימה. כשמנסים לפתוח YouTube — SafeTube יחזור לקדמה.</string>
+  <string name="parental_control_notification_channel">חסימת YouTube</string>
+  <string name="parental_control_notification_channel_desc">שומר את SafeTube פעיל ברקע כדי לחסום את אפליקציית YouTube</string>
+  <string name="parental_control_notification_title">SafeTube — YouTube חסום</string>
+  <string name="parental_control_notification_body">מניעת פתיחת אפליקציית YouTube פעילה</string>
   <string name="blocked_by_safetube">חסום על ידי SafeTube\nYouTube או אתר לא מורשים</string>
 </resources>

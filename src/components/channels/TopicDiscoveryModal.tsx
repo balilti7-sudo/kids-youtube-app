@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, CheckCircle2, Plus, Search, Tv } from 'lucide-react'
+import { Check, Search, Tv } from 'lucide-react'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { ChannelCard } from './ChannelCard'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { ErrorState } from '../ui/ErrorState'
+import { VoiceMicButton } from '../search/VoiceMicButton'
 import { cn } from '../../lib/utils'
-import {
-  getYouTubeChannelById,
-  searchYouTubeChannels,
-  searchYouTubeVideos,
-} from '../../lib/youtube'
-import type { YouTubeChannelResult, YouTubeVideoResult } from '../../types'
+import { searchYouTubeChannels } from '../../lib/youtube'
+import type { YouTubeChannelResult } from '../../types'
 
 type Props = {
   open: boolean
@@ -24,29 +21,6 @@ type Props = {
   /** Channels already on the device whitelist (UC ids). */
   whitelistedChannelIds?: Set<string>
   deviceLabel?: string
-}
-
-/** Video search goes through the Media Bridge, which may cold-start — never let it block the modal. */
-const VIDEO_SEARCH_TIMEOUT_MS = 12_000
-
-function withResultTimeout<T>(promise: Promise<T>, ms: number, timeoutValue: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => {
-      setTimeout(() => resolve(timeoutValue), ms)
-    }),
-  ])
-}
-
-function channelFromVideoFallback(video: YouTubeVideoResult): YouTubeChannelResult | null {
-  if (!video.channelId) return null
-  return {
-    channelId: video.channelId,
-    title: video.channelTitle || 'ערוץ',
-    thumbnail: '',
-    subscriberCount: '—',
-    description: '',
-  }
 }
 
 export function TopicDiscoveryModal({
@@ -62,13 +36,9 @@ export function TopicDiscoveryModal({
   const [q, setQ] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
   const [loadingChannels, setLoadingChannels] = useState(false)
-  const [loadingVideos, setLoadingVideos] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [videosNote, setVideosNote] = useState<string | null>(null)
   const [channels, setChannels] = useState<YouTubeChannelResult[]>([])
-  const [videos, setVideos] = useState<YouTubeVideoResult[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [resolvingChannelId, setResolvingChannelId] = useState<string | null>(null)
   const searchSeqRef = useRef(0)
 
   const reset = useCallback(() => {
@@ -76,13 +46,9 @@ export function TopicDiscoveryModal({
     setQ('')
     setHasSearched(false)
     setLoadingChannels(false)
-    setLoadingVideos(false)
     setError(null)
-    setVideosNote(null)
     setChannels([])
-    setVideos([])
     setSelectedIds(new Set())
-    setResolvingChannelId(null)
   }, [])
 
   useEffect(() => {
@@ -102,13 +68,9 @@ export function TopicDiscoveryModal({
     const isCurrent = () => searchSeqRef.current === seq
     setHasSearched(true)
     setLoadingChannels(true)
-    setLoadingVideos(true)
     setError(null)
-    setVideosNote(null)
     setSelectedIds(new Set())
 
-    // Channels come from the YouTube Data API and are the core of this flow —
-    // render them as soon as they arrive, never blocked by the video search.
     void searchYouTubeChannels(trimmed)
       .then((res) => {
         if (!isCurrent()) return
@@ -123,30 +85,6 @@ export function TopicDiscoveryModal({
       .finally(() => {
         if (isCurrent()) setLoadingChannels(false)
       })
-
-    // Videos are a bonus section via the Media Bridge (may cold-start) — bounded wait.
-    void withResultTimeout(
-      searchYouTubeVideos(trimmed).catch((e: unknown) => ({
-        data: null,
-        error: e instanceof Error ? e : new Error(String(e)),
-        continuation: null,
-        hasMore: false,
-      })),
-      VIDEO_SEARCH_TIMEOUT_MS,
-      {
-        data: null,
-        error: new Error('חיפוש הסרטונים מתעכב'),
-        continuation: null,
-        hasMore: false,
-      }
-    ).then((res) => {
-      if (!isCurrent()) return
-      setVideos(res.data ?? [])
-      if (res.error) {
-        setVideosNote('חיפוש הסרטונים מתעכב — אפשר להוסיף ערוצים כבר עכשיו')
-      }
-      setLoadingVideos(false)
-    })
   }, [])
 
   const selectableChannels = useMemo(
@@ -178,45 +116,6 @@ export function TopicDiscoveryModal({
     clearSelection()
   }
 
-  const addChannelFromVideo = async (video: YouTubeVideoResult) => {
-    if (video.channelId) {
-      if (isAdded(video.channelId)) return
-      setResolvingChannelId(video.channelId)
-      try {
-        const { data, error: resolveError } = await getYouTubeChannelById(video.channelId)
-        if (data) {
-          onAddChannel(data)
-          return
-        }
-        const fallback = channelFromVideoFallback(video)
-        if (fallback) onAddChannel(fallback)
-        else if (resolveError) setError(resolveError.message)
-      } finally {
-        setResolvingChannelId(null)
-      }
-      return
-    }
-
-    const title = video.channelTitle.trim()
-    if (!title) {
-      setError('לא נמצא מזהה ערוץ לסרטון זה')
-      return
-    }
-    setResolvingChannelId(video.videoId)
-    try {
-      const { data, error: searchError } = await searchYouTubeChannels(title)
-      const match =
-        data?.find((c) => c.title.trim().toLowerCase() === title.toLowerCase()) ?? data?.[0] ?? null
-      if (match) {
-        onAddChannel(match)
-        return
-      }
-      setError(searchError?.message || 'לא נמצא ערוץ מתאים לסרטון')
-    } finally {
-      setResolvingChannelId(null)
-    }
-  }
-
   const handleClose = () => {
     reset()
     onClose()
@@ -225,18 +124,13 @@ export function TopicDiscoveryModal({
   const selectedCount = selectedIds.size
   const loading = loadingChannels
   const empty =
-    hasSearched &&
-    !loadingChannels &&
-    !loadingVideos &&
-    !error &&
-    channels.length === 0 &&
-    videos.length === 0
+    hasSearched && !loadingChannels && !error && channels.length === 0
 
   return (
     <Modal
       open={open}
       onClose={handleClose}
-      title={deviceLabel ? `גילוי נושאים עבור ${deviceLabel}` : 'גילוי נושאים וערוצים'}
+      title={deviceLabel ? `הוספת ערוצים — ${deviceLabel}` : 'הוספת ערוצים'}
       size="lg"
       panelClassName="max-h-[92svh] border border-zinc-700/70 bg-gradient-to-b from-zinc-900 via-zinc-950 to-black p-0 text-zinc-100 ring-zinc-700/80 sm:rounded-[2rem]"
       headerClassName="mb-0 border-b border-zinc-800/90 px-5 py-4 sm:px-6"
@@ -254,7 +148,7 @@ export function TopicDiscoveryModal({
               <input
                 dir="auto"
                 data-autofocus="true"
-                placeholder="נושא, ערוץ, או מילת מפתח — למשל בישול, מדע, מלאכת יד…"
+                placeholder="שם ערוץ או נושא — למשל בישול, מדע, מלאכת יד…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => {
@@ -264,9 +158,16 @@ export function TopicDiscoveryModal({
                   }
                 }}
                 className="h-12 w-full rounded-2xl border border-zinc-700 bg-zinc-900/90 pe-4 ps-12 text-sm font-medium text-zinc-50 outline-none transition placeholder:text-zinc-500 focus:border-sky-400/70 focus:ring-4 focus:ring-sky-500/15"
-                aria-label="חיפוש נושא או ערוץ"
+                aria-label="חיפוש ערוץ"
               />
             </div>
+            <VoiceMicButton
+              onResult={(spoken) => {
+                setQ(spoken)
+                void runSearch(spoken)
+              }}
+              className="h-12 w-12 shrink-0 bg-zinc-800 text-zinc-100 hover:bg-zinc-700"
+            />
             <Button
               type="button"
               className="h-12 min-w-28 rounded-2xl bg-zinc-100 px-5 font-bold text-zinc-950 shadow-lg shadow-black/20 hover:bg-white disabled:opacity-60"
@@ -278,7 +179,7 @@ export function TopicDiscoveryModal({
             </Button>
           </div>
           <p className="mt-2 text-xs text-zinc-500">
-            תוצאות מיידיות: ערוצים וסרטונים. הוסיפו ערוץ בלחיצה אחת — בלי לרענן את הדף.
+            חיפוש ערוצים שלמים בלבד — לא סרטונים בודדים. אפשר גם לדבר במקום להקליד.
           </p>
         </div>
       }
@@ -372,90 +273,6 @@ export function TopicDiscoveryModal({
               )
             })}
           </div>
-        </section>
-      ) : null}
-
-      {!loadingChannels && loadingVideos && hasSearched ? (
-        <div className="flex items-center justify-center gap-2 py-4 text-xs text-zinc-500">
-          <LoadingSpinner className="h-4 w-4 border-2" />
-          מחפש גם סרטונים…
-        </div>
-      ) : null}
-
-      {videosNote && !loadingVideos ? (
-        <p className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-center text-xs text-zinc-500">
-          {videosNote}
-        </p>
-      ) : null}
-
-      {!loadingVideos && videos.length > 0 ? (
-        <section aria-label="סרטונים">
-          <h3 className="mb-3 px-0.5 text-sm font-bold text-zinc-200">סרטונים ({videos.length})</h3>
-          <ul className="flex flex-col gap-2">
-            {videos.map((video) => {
-              const added = video.channelId ? isAdded(video.channelId) : false
-              const busy =
-                resolvingChannelId === video.channelId || resolvingChannelId === video.videoId
-              return (
-                <li
-                  key={video.videoId}
-                  className="flex gap-3 rounded-xl border border-zinc-800 bg-zinc-900/80 p-2.5"
-                >
-                  {video.thumbnail ? (
-                    <img
-                      src={video.thumbnail}
-                      alt=""
-                      className="h-16 w-[6.5rem] shrink-0 rounded-lg object-cover"
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="h-16 w-[6.5rem] shrink-0 rounded-lg bg-zinc-800" aria-hidden />
-                  )}
-                  <div className="min-w-0 flex-1 text-right">
-                    <p className="line-clamp-2 text-sm font-semibold leading-snug text-zinc-100">
-                      {video.title}
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap items-center justify-end gap-2">
-                      {video.channelTitle ? (
-                        <span className="truncate text-xs text-zinc-400">{video.channelTitle}</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={added || busy}
-                        onClick={() => void addChannelFromVideo(video)}
-                        className={cn(
-                          'inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 text-xs font-bold transition',
-                          added
-                            ? 'bg-brand-700/90 text-white'
-                            : 'bg-zinc-100 text-zinc-950 hover:bg-white disabled:opacity-60'
-                        )}
-                        aria-label={
-                          added
-                            ? `הערוץ ${video.channelTitle || ''} כבר נוסף`
-                            : `הוסף את ערוץ ${video.channelTitle || 'היוצר'}`
-                        }
-                      >
-                        {busy ? (
-                          <LoadingSpinner className="h-3.5 w-3.5 border-2" />
-                        ) : added ? (
-                          <>
-                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                            נוסף
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="h-3.5 w-3.5" aria-hidden />
-                            הוסף ערוץ
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
         </section>
       ) : null}
 

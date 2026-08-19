@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { SafeTubeChannelAvatar } from '../ui/SafeTubeChannelAvatar'
 
 type YoutubeWatchVideoDetailsProps = {
   title: string
@@ -9,6 +10,9 @@ type YoutubeWatchVideoDetailsProps = {
   subtitle?: string | null
   description?: string | null
   actions?: ReactNode
+  /** Opens the channel inside SafeTube (never an external YouTube link). */
+  onChannelClick?: () => void
+  hideImages?: boolean
   className?: string
 }
 
@@ -23,6 +27,8 @@ export function YoutubeWatchVideoDetails({
   subtitle,
   description,
   actions,
+  onChannelClick,
+  hideImages = false,
   className,
 }: YoutubeWatchVideoDetailsProps) {
   const [descOpen, setDescOpen] = useState(false)
@@ -30,9 +36,29 @@ export function YoutubeWatchVideoDetails({
   useEffect(() => {
     setDescOpen(false)
   }, [title, subtitle, description])
-  const initial = (channelName || '?').trim().charAt(0).toUpperCase() || '?'
   const desc = (description || '').trim()
   const hasDescBox = Boolean(subtitle || desc)
+
+  const channelRowInner = (
+    <>
+      <span
+        className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-yt-surfaceHover text-sm font-bold text-yt-text"
+        aria-hidden
+      >
+        <SafeTubeChannelAvatar
+          name={channelName}
+          thumbnail={channelThumbnail}
+          hide={hideImages}
+          className="h-full w-full rounded-full"
+        />
+      </span>
+      <div className="min-w-0">
+        {channelName ? (
+          <p className="truncate text-base font-semibold leading-tight text-yt-text">{channelName}</p>
+        ) : null}
+      </div>
+    </>
+  )
 
   return (
     <div className={cn('mt-3 px-3 sm:mt-3 sm:px-0', className)}>
@@ -41,23 +67,18 @@ export function YoutubeWatchVideoDetails({
       </h1>
 
       <div className="mt-3 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-yt-surfaceHover text-sm font-bold text-yt-text"
-            aria-hidden
+        {onChannelClick ? (
+          <button
+            type="button"
+            onClick={onChannelClick}
+            className="flex min-w-0 items-center gap-3 rounded-full text-start transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+            aria-label={channelName ? `פתיחת ערוץ ${channelName} ב-SafeTube` : 'פתיחת ערוץ ב-SafeTube'}
           >
-            {channelThumbnail ? (
-              <img src={channelThumbnail} alt="" className="h-full w-full object-cover" loading="lazy" />
-            ) : (
-              initial
-            )}
-          </span>
-          <div className="min-w-0">
-            {channelName ? (
-              <p className="truncate text-base font-semibold leading-tight text-yt-text">{channelName}</p>
-            ) : null}
-          </div>
-        </div>
+            {channelRowInner}
+          </button>
+        ) : (
+          <div className="flex min-w-0 items-center gap-3">{channelRowInner}</div>
+        )}
         {actions ? (
           <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>
         ) : null}

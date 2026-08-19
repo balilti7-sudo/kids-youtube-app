@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Globe, ShieldOff, Plus, Trash2, Accessibility, Youtube } from 'lucide-react'
+import { Globe, ShieldOff, Plus, Trash2, Accessibility, Youtube, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useDeviceStore } from '../../stores/deviceStore'
 import type { Device } from '../../types'
 import { cn } from '../../lib/utils'
@@ -82,6 +83,7 @@ function SwitchRow({
  */
 export function DeviceOsControlsSettings({ device, className }: Props) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const updateDeviceSettings = useDeviceStore((s) => s.updateDeviceSettings)
   const [blockYoutube, setBlockYoutube] = useState(Boolean(device.block_youtube_app))
   const [browserFilter, setBrowserFilter] = useState(Boolean(device.browser_filter_enabled))
@@ -110,9 +112,13 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
     browserWhitelist?: string[]
   }) => {
     setSaving(true)
-    const { error } = await updateDeviceSettings(device.id, updates)
+    const { error, offlineQueued } = await updateDeviceSettings(device.id, updates)
     setSaving(false)
     if (error) {
+      if (offlineQueued) {
+        toast.warning(t('parentalOs.savedOffline'), { description: t('parentalOs.savedOfflineHint') })
+        return true
+      }
       toast.error(t('parentalOs.saveFailed'), { description: error.message })
       setBlockYoutube(Boolean(device.block_youtube_app))
       setBrowserFilter(Boolean(device.browser_filter_enabled))
@@ -257,6 +263,17 @@ export function DeviceOsControlsSettings({ device, className }: Props) {
                 ))}
               </ul>
             )}
+            {whitelist.length > 0 ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-3 w-full sm:w-auto"
+                onClick={() => navigate(`/kid/browser?host=${encodeURIComponent(whitelist[0])}`)}
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span className="ms-2">{t('parentalOs.openSafeBrowser')}</span>
+              </Button>
+            ) : null}
           </div>
         ) : null}
 

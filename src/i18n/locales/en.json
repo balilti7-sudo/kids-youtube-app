@@ -293,7 +293,22 @@
     "summaryYoutubeOn": "YouTube blocked",
     "summaryYoutubeOff": "YouTube allowed",
     "summaryBrowserOn": "Browser filtered",
-    "summaryBrowserOff": "Browser open"
+    "summaryBrowserOff": "Browser open",
+    "savedOffline": "Saved locally",
+    "savedOfflineHint": "Settings are active on this device. Cloud sync will resume when you're back online.",
+    "openSafeBrowser": "Open approved browser"
+  },
+  "safeBrowser": {
+    "title": "Approved sites",
+    "subtitle": "Only parent-approved domains",
+    "open": "Approved sites",
+    "back": "Back",
+    "home": "Home",
+    "frameTitle": "Approved browser — {{host}}",
+    "blockedNavigation": "That site isn't approved — returned to the safe page.",
+    "noKidSession": "No kid profile found on this device.",
+    "filterDisabled": "Browser filtering is off for this profile.",
+    "emptyList": "No sites on the list yet. A parent can add domains from the dashboard."
   },
   "settings": {
     "title": "Settings",

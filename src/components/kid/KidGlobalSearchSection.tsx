@@ -3,6 +3,7 @@ import type { YouTubeVideoResult } from '../../types'
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
+import { SafeTubeFilteredImage } from '../ui/SafeTubeFilteredImage'
 import { KidGlobalSearchBar } from './KidGlobalSearchBar'
 
 export type KidGlobalSearchSectionProps = {
@@ -20,6 +21,7 @@ export type KidGlobalSearchSectionProps = {
   onClear: () => void
   compact?: boolean
   className?: string
+  hideThumbnails?: boolean
 }
 
 export const KidGlobalSearchSection = memo(function KidGlobalSearchSection({
@@ -37,6 +39,7 @@ export const KidGlobalSearchSection = memo(function KidGlobalSearchSection({
   onClear,
   compact = false,
   className,
+  hideThumbnails = false,
 }: KidGlobalSearchSectionProps) {
   const panelId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -114,11 +117,11 @@ export const KidGlobalSearchSection = memo(function KidGlobalSearchSection({
                       className={`flex gap-2 rounded-lg border border-yt-border bg-yt-input/40 ${compact ? 'p-1.5' : 'p-2'}`}
                     >
                       {video.thumbnail ? (
-                        <img
+                        <SafeTubeFilteredImage
                           src={video.thumbnail}
-                          alt=""
+                          hide={hideThumbnails}
                           className={`shrink-0 rounded-md object-cover ${compact ? 'h-10 w-16' : 'h-14 w-24'}`}
-                          loading="lazy"
+                          placeholderClassName="shrink-0 rounded-md"
                         />
                       ) : null}
                       <div className="min-w-0 flex-1 text-right">

@@ -19,6 +19,7 @@ import { SubscriptionPage } from './pages/SubscriptionPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { KidModePage } from './pages/KidModePage'
+import { SafeBrowserPage } from './pages/SafeBrowserPage'
 import { SetParentPinPage } from './pages/SetParentPinPage'
 import { DevUiGalleryPage } from './pages/DevUiGalleryPage'
 import { useAuth } from './hooks/useAuth'
@@ -26,6 +27,7 @@ import { BYPASS_AUTH } from './config/dev'
 import { WhatsAppFloatingButton } from './components/support/WhatsAppFloatingButton'
 import { preWarmMediaBridge } from './lib/streamApi'
 import { JuicyUiProvider } from './contexts/JuicyUiContext'
+import { PlaybackPauseOnLeave } from './components/player/PlaybackPauseOnLeave'
 
 function KidModeRoute() {
   return (
@@ -69,6 +71,7 @@ function AppChrome() {
 
   return (
     <>
+      <PlaybackPauseOnLeave />
       {hideSupportFab ? null : <WhatsAppFloatingButton />}
       <Routes>
         <Route path="/" element={<SmartEntryRoute />} />
@@ -77,6 +80,14 @@ function AppChrome() {
         {import.meta.env.DEV ? <Route path="/dev/ui-gallery" element={<DevUiGalleryPage />} /> : null}
         {/** /kid = KidModePage — approved videos play via `CleanPlayer` (no alternate embed on this route). */}
         <Route path="/kid" element={<KidModeRoute />} />
+        <Route
+          path="/kid/browser"
+          element={
+            <JuicyUiProvider enabled>
+              <SafeBrowserPage />
+            </JuicyUiProvider>
+          }
+        />
         <Route
           path="/onboarding"
           element={

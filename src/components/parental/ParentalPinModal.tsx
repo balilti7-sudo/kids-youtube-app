@@ -3,10 +3,12 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, X } from 'lucide-react'
 import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/parentPin'
+import { enrollBiometricParentPin } from '../../lib/parentBiometricUnlock'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
 import type { ParentPinVerifyResult } from '../../lib/verifyParentProfilePin'
+import { ParentBiometricButton } from './ParentBiometricButton'
 type DigitSlot = '' | string
 type SixDigit = [DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot]
 
@@ -67,6 +69,7 @@ export function ParentalPinModal({
       inFlightRef.current = false
       setVerifying(false)
       if (result.ok) {
+        void enrollBiometricParentPin(trimmed)
         onVerified(trimmed)
         return
       }
@@ -196,6 +199,12 @@ export function ParentalPinModal({
 
             <div className="space-y-5 px-5 py-6">
               <p className="text-sm leading-relaxed text-yt-textMuted">{description}</p>
+
+              <ParentBiometricButton
+                autoPrompt={open}
+                onPin={(pin) => void tryVerify(pin)}
+                className="w-full min-h-12 gap-2 rounded-xl"
+              />
 
               <div dir="ltr" className="flex flex-wrap justify-center gap-2" onPaste={handlePaste}>
                 {SLOT_INDEXES.map((i) => (

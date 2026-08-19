@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ListMusic, Plus, Trash2, X } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
@@ -11,9 +11,10 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
-import { QuickBlockButton } from '../components/channels/QuickBlockButton'
+import { PlaylistQueueHint, PlaylistQueueRow, type PlaylistBlockConfig } from '../components/playlists/PlaylistQueueRow'
 import { VideoThumbWithQuickBlock } from '../components/video/VideoThumbWithQuickBlock'
 import { useHideVideoContext } from '../hooks/useHideVideoContext'
+import { usePlaylistQueueHandlers } from '../hooks/usePlaylistQueueHandlers'
 import { cn } from '../lib/utils'
 import { toast } from 'sonner'
 
@@ -21,7 +22,7 @@ export function PlaylistsPage() {
   const { user } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
   const userId = ownerUserId ?? user?.id ?? null
-  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh } = usePlaylists({
+  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh, removeVideo, reorderVideos } = usePlaylists({
     mode: 'parent',
     userId,
     childAccessToken: null,
@@ -36,6 +37,17 @@ export function PlaylistsPage() {
   const [creating, setCreating] = useState(false)
   const loadRequestRef = useRef(0)
   const hideVideoCtx = useHideVideoContext()
+
+  const blockConfig = useMemo((): PlaylistBlockConfig | null => {
+    if (!hideVideoCtx.canQuickBlock) return null
+    return {
+      enabled: true,
+      deviceId: hideVideoCtx.deviceId,
+      localAccessToken: hideVideoCtx.localAccessToken,
+      cachedPin: hideVideoCtx.cachedPin,
+      verifyPin: hideVideoCtx.verifyPin,
+    }
+  }, [hideVideoCtx])
 
   const selected = playlists.find((p) => p.id === selectedId) ?? null
 
@@ -72,6 +84,31 @@ export function PlaylistsPage() {
     [fetchVideos]
   )
 
+  const queueHandlers = usePlaylistQueueHandlers({
+    playlistId: selectedId,
+    videos,
+    setVideos,
+    activeVideoId,
+    setActiveVideoId,
+    removeVideo,
+    reorderVideos,
+    onRefresh: () => void refresh(),
+    reloadVideos: (id) => void loadVideos(id),
+  })
+
+  const handleBlocked = useCallback((youtubeVideoId: string) => {
+    setVideos((prev) => {
+      const idx = prev.findIndex((v) => v.youtube_video_id === youtubeVideoId)
+      const next = prev.filter((v) => v.youtube_video_id !== youtubeVideoId)
+      setActiveVideoId((current) =>
+        current === youtubeVideoId
+          ? next[idx]?.youtube_video_id ?? next[idx - 1]?.youtube_video_id ?? null
+          : current
+      )
+      return next
+    })
+  }, [])
+
   useEffect(() => {
     if (playlists.length === 0) return
     const saved = getSavedActivePlaylistId()
@@ -84,10 +121,14 @@ export function PlaylistsPage() {
     }
   }, [playlists, selectedId])
 
-  const selectPlaylist = useCallback((playlistId: string) => {
-    setSelectedId(playlistId)
-    saveActivePlaylistId(playlistId)
-  }, [])
+  const selectPlaylist = useCallback(
+    (playlistId: string) => {
+      setSelectedId(playlistId)
+      const pl = playlists.find((p) => p.id === playlistId)
+      saveActivePlaylistId(playlistId, pl?.name)
+    },
+    [playlists]
+  )
 
   useEffect(() => {
     if (!selectedId) {
@@ -96,8 +137,6 @@ export function PlaylistsPage() {
       setVideosLoading(false)
       return
     }
-    setVideos([])
-    setActiveVideoId(null)
     void loadVideos(selectedId)
   }, [selectedId, loadVideos])
 
@@ -302,6 +341,7 @@ export function PlaylistsPage() {
                     mode="parent"
                     userId={userId}
                     childAccessToken={null}
+                    initialPlaylists={playlists}
                     video={{
                       youtube_video_id: active.youtube_video_id,
                       title: active.title,
@@ -310,50 +350,63 @@ export function PlaylistsPage() {
                       channel_name: active.channel_name,
                     }}
                     compact
-                    onAdded={() => void loadVideos(selected.id)}
+                    onAdded={() => {
+                      if (!selected) return
+                      setVideos((prev) => {
+                        if (prev.some((v) => v.youtube_video_id === active.youtube_video_id)) {
+                          return prev
+                        }
+                        return [
+                          ...prev,
+                          {
+                            youtube_video_id: active.youtube_video_id,
+                            title: active.title,
+                            thumbnail_url: active.thumbnail_url,
+                            youtube_channel_id: active.youtube_channel_id,
+                            channel_name: active.channel_name,
+                            video_order: prev.length + 1,
+                            created_at: new Date().toISOString(),
+                          },
+                        ]
+                      })
+                      void refresh()
+                    }}
                   />
                 </div>
-                <ul className="max-h-64 space-y-2 overflow-y-auto">
-                  {videos.map((v) => (
+                <PlaylistQueueHint />
+                <ul className="max-h-[min(50vh,420px)] space-y-2 overflow-y-auto">
+                  {videos.map((v, index) => (
                     <li key={v.youtube_video_id}>
-                      <div
-                        className={cn(
-                          'flex w-full gap-2 rounded-lg p-2 text-right',
-                          v.youtube_video_id === activeVideoId
-                            ? 'bg-brand-50 ring-1 ring-brand-400 dark:bg-brand-950/30'
-                            : 'hover:bg-slate-50 dark:hover:bg-zinc-800/60'
-                        )}
+                      <PlaylistQueueRow
+                        active={v.youtube_video_id === activeVideoId}
+                        index={index}
+                        isFirst={index === 0}
+                        isLast={index === videos.length - 1}
+                        reordering={queueHandlers.reordering}
+                        onSelect={() => setActiveVideoId(v.youtube_video_id)}
+                        onRemove={() => queueHandlers.handleRemove(v.youtube_video_id)}
+                        onMoveUp={() => queueHandlers.handleMoveUp(index)}
+                        onMoveDown={() => queueHandlers.handleMoveDown(index)}
+                        blockConfig={blockConfig}
+                        blockVideo={{
+                          youtube_video_id: v.youtube_video_id,
+                          title: v.title,
+                          thumbnail_url: v.thumbnail_url,
+                          youtube_channel_id: v.youtube_channel_id,
+                          channel_name: v.channel_name,
+                        }}
+                        onBlocked={() => handleBlocked(v.youtube_video_id)}
                       >
-                        <VideoThumbWithQuickBlock
-                          thumbnailUrl={v.thumbnail_url}
-                          className="h-12 w-20 rounded"
-                          onClick={() => setActiveVideoId(v.youtube_video_id)}
-                          quickBlock={
-                            hideVideoCtx.canQuickBlock ? (
-                              <QuickBlockButton
-                                video={{
-                                  youtube_video_id: v.youtube_video_id,
-                                  title: v.title,
-                                  thumbnail_url: v.thumbnail_url,
-                                  youtube_channel_id: v.youtube_channel_id,
-                                  channel_name: v.channel_name,
-                                }}
-                                deviceId={hideVideoCtx.deviceId}
-                                localAccessToken={hideVideoCtx.localAccessToken}
-                                cachedPin={hideVideoCtx.cachedPin}
-                                verifyPin={hideVideoCtx.verifyPin}
-                              />
-                            ) : null
-                          }
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setActiveVideoId(v.youtube_video_id)}
-                          className="min-w-0 flex-1 text-right"
-                        >
-                          <span className="line-clamp-2 text-xs font-medium">{v.title}</span>
-                        </button>
-                      </div>
+                        <div className="flex w-full gap-2 p-2 text-right">
+                          <VideoThumbWithQuickBlock
+                            thumbnailUrl={v.thumbnail_url}
+                            className="h-12 w-20 shrink-0 rounded"
+                          />
+                          <span className="line-clamp-2 min-w-0 flex-1 self-center text-xs font-medium text-slate-900 dark:text-zinc-100">
+                            {v.title}
+                          </span>
+                        </div>
+                      </PlaylistQueueRow>
                     </li>
                   ))}
                 </ul>

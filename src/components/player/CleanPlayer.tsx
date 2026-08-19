@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import Hls from 'hls.js'
 import { setMediaPlaybackActive, syncNativeMediaSession } from '../../lib/mediaPlaybackActivity'
+import { registerPlaybackPauseHandler } from '../../lib/playbackController'
 import { subscribeNativeMediaActions } from '../../lib/nativeMediaPlayback'
 import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
@@ -26,6 +27,8 @@ import {
   isDocumentFullscreen,
 } from '../../lib/requestElementFullscreen'
 import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
+import { useYoutubeIframePlayer } from '../../hooks/useYoutubeIframePlayer'
+import { YoutubeEmbedBrandingShield } from './YoutubeEmbedBrandingShield'
 import {
   fetchStreamInfo,
   getStreamApiBaseUrl,
@@ -527,7 +530,7 @@ function CleanPlayerYoutubeIframe({
   onVideoPlaybackStarted,
   onPlaybackActiveChange,
 }: CleanPlayerProps) {
-  const playerShellRef = useRef<HTMLDivElement>(null)
+  const playerHostRef = useRef<HTMLDivElement>(null)
   const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
   const [loopEnabled, setLoopEnabled] = useState(false)
   const [tapsLocked, setTapsLocked] = useState(false)
@@ -538,31 +541,27 @@ function CleanPlayerYoutubeIframe({
   const showTheaterDesktop = Boolean(theater)
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
-  const [iframeReady, setIframeReady] = useState(false)
-  const iframePlaybackNotifiedRef = useRef(false)
-  const src = useMemo(() => {
-    if (!safeId || isLimitReached) return ''
-    const base = buildYoutubePrivacyEmbedUrl(safeId, {
-      origin,
-      autoplay: true,
-      host:
-        Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
-          ? 'youtube'
-          : 'nocookie',
-    })
-    if (!loopEnabled) return base
-    const u = new URL(base)
-    u.searchParams.set('loop', '1')
-    u.searchParams.set('playlist', safeId)
-    return u.toString()
-  }, [safeId, origin, loopEnabled, isLimitReached])
 
-  // Reset the skeleton whenever a new video mounts so feedback is instant on tap.
+  const { playerReady } = useYoutubeIframePlayer({
+    containerRef: playerHostRef,
+    videoId: safeId,
+    loopEnabled,
+    disabled: isLimitReached || !safeId,
+    title,
+    channelTitle,
+    posterUrl,
+    origin,
+    onReady: () => onPlaybackActiveChange?.(true),
+    onPlaybackStarted: onVideoPlaybackStarted,
+    onPlayingChange: onPlaybackActiveChange,
+    onNextTrack,
+    onPreviousTrack,
+    hasNextTrack,
+  })
+
   useEffect(() => {
-    setIframeReady(false)
-    iframePlaybackNotifiedRef.current = false
     setTapsLocked(false)
-  }, [src])
+  }, [safeId, loopEnabled])
 
   useEffect(() => {
     if (!isLimitReached) return
@@ -581,47 +580,16 @@ function CleanPlayerYoutubeIframe({
     }
   }, [videoId])
 
-  const handleIframeLoad = useCallback(() => {
-    setIframeReady(true)
-    const id = sanitizeYoutubeVideoId(videoId)
-    if (id && onVideoPlaybackStarted && !iframePlaybackNotifiedRef.current) {
-      iframePlaybackNotifiedRef.current = true
-      onVideoPlaybackStarted(id)
-    }
-    onPlaybackActiveChange?.(true)
-  }, [videoId, onVideoPlaybackStarted, onPlaybackActiveChange])
-
   useEffect(() => {
     return () => {
       onPlaybackActiveChange?.(false)
+      setMediaPlaybackActive(false)
     }
   }, [videoId, onPlaybackActiveChange])
 
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
-    const artwork = pickArtwork(videoId, posterUrl)
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: title || 'SafeTube',
-        artist: (channelTitle || '').trim() || 'SafeTube',
-        album: 'SafeTube',
-        artwork: artwork.length ? artwork : buildYoutubeArtwork(videoId),
-      })
-    } catch {
-      /* ignore */
-    }
-    return () => {
-      try {
-        navigator.mediaSession.metadata = null
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [videoId, title, channelTitle, posterUrl])
-
   return (
     <div className={cn('relative h-full w-full min-h-0 overflow-hidden bg-black', className)} dir="ltr">
-      <div ref={playerShellRef} className="absolute inset-0">
+      <div className="absolute inset-0">
         {isLimitReached ? <DailyLimitOverlay /> : null}
         {!safeId ? (
           <div
@@ -631,23 +599,16 @@ function CleanPlayerYoutubeIframe({
           >
             <p>מזהה סרטון YouTube לא תקין.</p>
           </div>
-        ) : !src ? null : (
+        ) : (
           <>
-            {!iframeReady && !blankVideoFrame ? (
+            {!playerReady && !blankVideoFrame ? (
               <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} />
             ) : null}
-            <iframe
-              key={src}
-              title={title}
-              src={src}
-              className={cn('h-full w-full border-0', isLimitReached && 'pointer-events-none invisible')}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-              allowFullScreen
-              loading="eager"
-              onLoad={handleIframeLoad}
-              referrerPolicy="strict-origin-when-cross-origin"
+            <div
+              ref={playerHostRef}
+              className={cn('h-full w-full', isLimitReached && 'pointer-events-none invisible')}
             />
-            {/* Black cover only — never visibility:hidden the iframe (throttles decode on WebView). */}
+            {!isLimitReached && safeId ? <YoutubeEmbedBrandingShield /> : null}
             {blankVideoFrame && !isLimitReached ? (
               <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
             ) : null}
@@ -663,7 +624,7 @@ function CleanPlayerYoutubeIframe({
                 </span>
               </button>
             ) : null}
-            {!tapsLocked && !isLimitReached && safeId && src ? (
+            {!tapsLocked && !isLimitReached && safeId ? (
               <div className="pointer-events-none absolute inset-x-0 top-0 z-[12] h-14">
                 <div className="absolute start-2 top-2 flex items-center gap-1.5">
                   <button
@@ -758,7 +719,6 @@ function CleanPlayerMediaBridge({
   const upgradeCleanupRef = useRef<(() => void) | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
-  const wasPlayingBeforeHiddenRef = useRef(false)
   const onNextTrackRef = useRef(onNextTrack)
   const hasNextTrackRef = useRef(hasNextTrack)
   const handleNextVideoRef = useRef<() => void>(() => {})
@@ -1477,59 +1437,21 @@ function CleanPlayerMediaBridge({
     const el = videoRef.current
     if (!el) return
 
-    const resumeIfNeeded = () => {
-      if (useDailyWatchBudgetStore.getState().isLimitReached) return
-      if (el.ended) return
-      if (el.paused) {
-        void el.play()
-          .then(() => {
-            setMediaPlaybackActive(true, {
-              title: title || 'SafeTube',
-              artist: channelTitle || 'מתנגן עכשיו',
-            })
-          })
-          .catch(() => {
-            setMediaPlaybackActive(false, undefined, { maintainNativeService: true })
-          })
-        return
-      }
-      setMediaPlaybackActive(true, {
-        title: title || 'SafeTube',
-        artist: channelTitle || 'מתנגן עכשיו',
-      })
-    }
-
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        wasPlayingBeforeHiddenRef.current = !el.paused || wasPlayingBeforeHiddenRef.current
-        if (wasPlayingBeforeHiddenRef.current) {
-          // Prefer real playback; if paused, keep service only (no budget tick).
-          if (el.paused) {
-            setMediaPlaybackActive(false, undefined, { maintainNativeService: true })
-          }
-          window.setTimeout(resumeIfNeeded, 80)
-          window.setTimeout(resumeIfNeeded, 400)
+        if (!el.paused && !el.ended) {
+          el.pause()
         }
+        setMediaPlaybackActive(false)
         return
-      }
-      if (
-        document.visibilityState === 'visible' &&
-        wasPlayingBeforeHiddenRef.current &&
-        !useDailyWatchBudgetStore.getState().isLimitReached
-      ) {
-        void el.play().catch(() => {})
       }
     }
 
-    // Cordova/Capacitor fires a document "pause" event on Android backgrounding.
     const onCordovaPause = () => {
-      wasPlayingBeforeHiddenRef.current = !el.paused || wasPlayingBeforeHiddenRef.current
-      if (!wasPlayingBeforeHiddenRef.current) return
-      if (el.paused) {
-        setMediaPlaybackActive(false, undefined, { maintainNativeService: true })
+      if (!el.paused && !el.ended) {
+        el.pause()
       }
-      window.setTimeout(resumeIfNeeded, 80)
-      window.setTimeout(resumeIfNeeded, 400)
+      setMediaPlaybackActive(false)
     }
 
     document.addEventListener('visibilitychange', onVisibility)
@@ -1539,6 +1461,16 @@ function CleanPlayerMediaBridge({
       document.removeEventListener('pause', onCordovaPause)
     }
   }, [phase.kind, videoId, title, channelTitle])
+
+  useEffect(() => {
+    if (phase.kind !== 'playing') return
+    const el = videoRef.current
+    if (!el) return
+    return registerPlaybackPauseHandler(() => {
+      if (!el.paused && !el.ended) el.pause()
+      setMediaPlaybackActive(false)
+    })
+  }, [phase.kind, videoId])
 
   useEffect(() => {
     if (phase.kind !== 'playing') return

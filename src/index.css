@@ -329,4 +329,13 @@
       display: none !important;
     }
   }
+
+  /* Kid profile: hide YouTube CDN images in the app shell (not inside the embed iframe). */
+  html.safetube-hide-images img[src*='ytimg.com'],
+  html.safetube-hide-images img[src*='ggpht.com'],
+  html.safetube-hide-images img[src*='googleusercontent.com'] {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none;
+  }
 }

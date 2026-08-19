@@ -29,6 +29,8 @@ export function buildYoutubePrivacyEmbedUrl(
     iv_load_policy: '3',
     playsinline: '1',
     enablejsapi: '0',
+    fs: '0',
+    disablekb: '1',
   })
 
   // Autoplay for instant playback the moment the player mounts on tap.

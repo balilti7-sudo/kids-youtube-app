@@ -3,9 +3,11 @@ import { supabase } from './supabase'
 import { clearLocalParentSession } from './localParentAdmin'
 import { clearAppMode } from './appMode'
 import { secureGet, secureRemove, secureSet } from './secureStorage'
+import { humanizeSupabaseError } from './supabaseErrorMessage'
 
 const CHILD_ACCESS_TOKEN_KEY = 'safetube_kid_access_token'
 const SECURE_TOKEN_KEY = 'kid_access_token'
+const CHILD_DEVICE_STATE_CACHE_KEY = 'safetube_child_device_state_v1'
 
 /** In-memory cache so sync callers keep working after async hydrate. */
 let memoryToken: string | null = null
@@ -125,11 +127,44 @@ export function clearChildAccessToken() {
   }
 }
 
-export async function getChildDeviceState(accessToken: string): Promise<{ data: ChildDeviceState | null; error: Error | null }> {
+function cacheChildDeviceState(state: ChildDeviceState) {
+  try {
+    localStorage.setItem(CHILD_DEVICE_STATE_CACHE_KEY, JSON.stringify(state))
+  } catch {
+    /* ignore */
+  }
+}
+
+function readCachedChildDeviceState(): ChildDeviceState | null {
+  try {
+    const raw = localStorage.getItem(CHILD_DEVICE_STATE_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ChildDeviceState
+    if (!parsed?.device_id) return null
+    return {
+      ...parsed,
+      browser_whitelist: Array.isArray(parsed.browser_whitelist) ? parsed.browser_whitelist : [],
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function getChildDeviceState(accessToken: string): Promise<{
+  data: ChildDeviceState | null
+  error: Error | null
+  fromCache?: boolean
+}> {
   const { data, error } = await supabase.rpc('child_get_device_state', {
     p_access_token: accessToken,
   })
-  if (error) return { data: null, error: new Error(error.message) }
+  if (error) {
+    const cached = readCachedChildDeviceState()
+    if (cached) {
+      return { data: cached, error: null, fromCache: true }
+    }
+    return { data: null, error: new Error(humanizeSupabaseError(error.message)) }
+  }
   const row = Array.isArray(data) ? data[0] : null
   if (!row) return { data: null, error: null }
   const r = row as Record<string, unknown>
@@ -143,8 +178,7 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
     ? whitelistRaw.map((h) => String(h ?? '').trim()).filter(Boolean)
     : []
 
-  return {
-    data: {
+  const next: ChildDeviceState = {
       device_id: deviceId,
       device_name: deviceName,
       is_blocked: Boolean(r.is_blocked),
@@ -168,9 +202,9 @@ export async function getChildDeviceState(accessToken: string): Promise<{ data: 
         return Math.min(1440, rounded)
       })(),
       hide_thumbnails: Boolean(r.hide_thumbnails ?? r.hideThumbnails),
-    },
-    error: null,
-  }
+    }
+  cacheChildDeviceState(next)
+  return { data: next, error: null }
 }
 
 export function mapHeartbeatRow(row: Record<string, unknown>): Partial<ChildDeviceState> {

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { VoiceMicButton } from './VoiceMicButton'
 
 export type RtlSearchInputProps = {
   id?: string
@@ -8,6 +9,8 @@ export type RtlSearchInputProps = {
   onChange: (value: string) => void
   /** Enter key or search icon — e.g. global YouTube search (must be gated in kid mode). */
   onSubmit?: (query: string) => void
+  /** Show microphone for voice search instead of typing. */
+  enableVoice?: boolean
   placeholder?: string
   className?: string
   inputClassName?: string
@@ -29,6 +32,7 @@ export const RtlSearchInput = memo(function RtlSearchInput({
   className,
   inputClassName,
   onSubmit,
+  enableVoice = true,
   onFocusChange,
   'aria-label': ariaLabel,
   'aria-expanded': ariaExpanded,
@@ -66,6 +70,17 @@ export const RtlSearchInput = memo(function RtlSearchInput({
     if (!q) return
     onSubmit(q)
   }, [localValue, onSubmit])
+
+  const handleVoiceResult = useCallback(
+    (spoken: string) => {
+      commitChange(spoken)
+      if (onSubmit) {
+        const q = spoken.trim()
+        if (q) onSubmit(q)
+      }
+    },
+    [commitChange, onSubmit]
+  )
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -128,6 +143,10 @@ export const RtlSearchInput = memo(function RtlSearchInput({
       >
         <X className="h-4 w-4" strokeWidth={2.5} aria-hidden />
       </button>
+
+      {enableVoice ? (
+        <VoiceMicButton onResult={handleVoiceResult} className="me-1" />
+      ) : null}
 
       {onSubmit ? (
         <button

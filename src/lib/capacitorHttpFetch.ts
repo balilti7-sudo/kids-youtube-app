@@ -26,7 +26,6 @@ async function bodyToData(body: BodyInit | null | undefined): Promise<unknown> {
     const view = body as ArrayBufferView
     return new TextDecoder().decode(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
   }
-  // ReadableStream / FormData / others — best-effort text via Response helper
   try {
     return await new Response(body).text()
   } catch {
@@ -61,7 +60,117 @@ function isTransientEdgeStatus(status: number, method: string): boolean {
   return false
 }
 
+function isTransientConnectionError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase()
+  return (
+    msg.includes('failed to connect') ||
+    msg.includes('network error') ||
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('unable to resolve host') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('enotfound') ||
+    msg.includes('econnrefused') ||
+    msg.includes('connection reset') ||
+    msg.includes('socket')
+  )
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+type HttpRequestOptions = {
+  url: string
+  method: string
+  headers: Record<string, string>
+  data: unknown
+}
+
+async function capacitorHttpRequestWithRetries(
+  opts: HttpRequestOptions,
+  method: string
+): Promise<Awaited<ReturnType<typeof CapacitorHttp.request>>> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
+    try {
+      let res = await CapacitorHttp.request({
+        url: opts.url,
+        method: opts.method,
+        headers: opts.headers,
+        data: opts.data,
+        responseType: 'text',
+      })
+
+      for (
+        let edgeAttempt = 0;
+        edgeAttempt < TRANSIENT_MAX_RETRIES &&
+        typeof res.status === 'number' &&
+        isTransientEdgeStatus(res.status, method);
+        edgeAttempt++
+      ) {
+        console.warn(
+          `[capacitorAwareFetch] transient ${res.status} from edge — retry ${edgeAttempt + 1}/${TRANSIENT_MAX_RETRIES}`,
+          opts.url
+        )
+        await sleep(TRANSIENT_RETRY_DELAY_MS * (edgeAttempt + 1))
+        res = await CapacitorHttp.request({
+          url: opts.url,
+          method: opts.method,
+          headers: opts.headers,
+          data: opts.data,
+          responseType: 'text',
+        })
+      }
+
+      return res
+    } catch (err) {
+      lastError = err
+      if (attempt < TRANSIENT_MAX_RETRIES && isTransientConnectionError(err)) {
+        console.warn(
+          `[capacitorAwareFetch] connection error — retry ${attempt + 1}/${TRANSIENT_MAX_RETRIES}`,
+          opts.url,
+          err
+        )
+        await sleep(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+        continue
+      }
+      throw err
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
+async function webFetchWithRetries(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const method = (init?.method ?? 'GET').toUpperCase()
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(input, init)
+      if (
+        attempt < TRANSIENT_MAX_RETRIES &&
+        isTransientEdgeStatus(res.status, method)
+      ) {
+        console.warn(`[capacitorAwareFetch] web transient ${res.status} — retry ${attempt + 1}`)
+        await sleep(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+        continue
+      }
+      return res
+    } catch (err) {
+      lastError = err
+      if (attempt < TRANSIENT_MAX_RETRIES && isTransientConnectionError(err)) {
+        console.warn(`[capacitorAwareFetch] web connection error — retry ${attempt + 1}`)
+        await sleep(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+        continue
+      }
+      throw err
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
 
 /**
  * Drop-in replacement for `fetch` that bypasses WebView CORS on Capacitor Android/iOS.
@@ -72,7 +181,7 @@ export async function capacitorAwareFetch(
   init?: RequestInit
 ): Promise<Response> {
   if (!Capacitor.isNativePlatform()) {
-    return fetch(input, init)
+    return webFetchWithRetries(input, init)
   }
 
   const request = input instanceof Request ? input : null
@@ -90,40 +199,11 @@ export async function capacitorAwareFetch(
   const headers = headersToObject(init?.headers ?? request?.headers)
   const data = await bodyToData(init?.body ?? (request ? await request.clone().text() : undefined))
 
-  let res = await CapacitorHttp.request({
-    url,
-    method,
-    headers,
-    data,
-    responseType: 'text',
-  })
+  const res = await capacitorHttpRequestWithRetries({ url, method, headers, data }, method)
 
-  // Cloudflare 522/523 ("connection to origin timed out") shows up as a raw
-  // "error code: 522" body — retry a couple of times before surfacing it.
-  for (
-    let attempt = 0;
-    attempt < TRANSIENT_MAX_RETRIES &&
-    typeof res.status === 'number' &&
-    isTransientEdgeStatus(res.status, method);
-    attempt++
-  ) {
-    console.warn(`[capacitorAwareFetch] transient ${res.status} from edge — retry ${attempt + 1}/${TRANSIENT_MAX_RETRIES}`, url)
-    await sleep(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
-    res = await CapacitorHttp.request({
-      url,
-      method,
-      headers,
-      data,
-      responseType: 'text',
-    })
-  }
-
-  // Preserve real HTTP status (including < 200). Only fall back when status is missing.
   const status = typeof res.status === 'number' && res.status > 0 ? res.status : 200
   const responseHeaders = (res.headers as Record<string, string>) || {}
 
-  // Supabase PATCH/UPDATE often returns 204 No Content. The Fetch Response constructor
-  // throws: "Response with null body status cannot have body" if we pass any body (even "").
   if (NULL_BODY_STATUSES.has(status)) {
     return new Response(null, {
       status,

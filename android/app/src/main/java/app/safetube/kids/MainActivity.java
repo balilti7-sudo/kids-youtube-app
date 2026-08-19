@@ -3,8 +3,13 @@ package app.safetube.kids;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
+import com.getcapacitor.Bridge;
+import com.getcapacitor.BridgeWebChromeClient;
+import com.getcapacitor.BridgeWebViewClient;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -13,14 +18,21 @@ import com.getcapacitor.CapacitorWebView;
 import java.util.Locale;
 
 public class MainActivity extends BridgeActivity {
+    public static final String EXTRA_YOUTUBE_BLOCKED = "safetube_youtube_blocked";
+    public static final String EXTRA_BROWSER_BLOCKED = "safetube_browser_blocked";
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MediaPlaybackPlugin.class);
         registerPlugin(ParentalControlPlugin.class);
         registerPlugin(SecureStoragePlugin.class);
+        registerPlugin(BiometricUnlockPlugin.class);
+        registerPlugin(ChildDisplayPlugin.class);
         super.onCreate(savedInstanceState);
+        handleParentalBlockIntent(getIntent());
         try {
             if (bridge != null && bridge.getWebView() != null) {
+                installSafeTubeWebViewGuards(bridge);
                 WebView webView = bridge.getWebView();
                 webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
                 CookieManager cookies = CookieManager.getInstance();
@@ -31,6 +43,53 @@ public class MainActivity extends BridgeActivity {
             /* ignore */
         }
         installSafeAreaInsets();
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleParentalBlockIntent(intent);
+    }
+
+    /** Parental control redirected here after blocking YouTube or a non-whitelisted browser site. */
+    private void handleParentalBlockIntent(android.content.Intent intent) {
+        if (intent == null) return;
+        if (intent.getBooleanExtra(EXTRA_YOUTUBE_BLOCKED, false)) {
+            intent.removeExtra(EXTRA_YOUTUBE_BLOCKED);
+            notifyParentalBlockInWebView("__safetubeOnYoutubeAppBlocked");
+            return;
+        }
+        if (intent.getBooleanExtra(EXTRA_BROWSER_BLOCKED, false)) {
+            intent.removeExtra(EXTRA_BROWSER_BLOCKED);
+            notifyParentalBlockInWebView("__safetubeOnBrowserSiteBlocked");
+        }
+    }
+
+    private void notifyParentalBlockInWebView(String callbackName) {
+        try {
+            if (bridge == null || bridge.getWebView() == null) return;
+            bridge
+                .getWebView()
+                .post(
+                    () -> {
+                        try {
+                            bridge
+                                .getWebView()
+                                .evaluateJavascript(
+                                    "(function(){try{"
+                                        + "if(window." + callbackName + ")window." + callbackName + "();"
+                                        + "}catch(e){}})();",
+                                    null
+                                );
+                        } catch (Exception ignored) {
+                            /* ignore */
+                        }
+                    }
+                );
+        } catch (Exception ignored) {
+            /* ignore */
+        }
     }
 
     /**
@@ -110,32 +169,93 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPause() {
         super.onPause();
-        keepWebViewMediaAlive();
+        pauseWebViewMedia();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-        keepWebViewMediaAlive();
+        pauseWebViewMedia();
     }
 
     /**
-     * Capacitor/Cordova keep JS timers when KeepRunning=true, but Chromium still
-     * suspends media when the window is not visible. Re-resume the WebView and
-     * nudge &lt;video&gt;.play() whenever our media FGS is active.
+     * Block main-frame navigation to YouTube watch/channel pages and popups from the embed player.
+     * Delegates to Capacitor's WebView clients so plugins and routing keep working.
      */
-    private void keepWebViewMediaAlive() {
-        if (!MediaPlaybackService.isActive() && !CapacitorWebView.allowBackgroundMedia) return;
+    private void installSafeTubeWebViewGuards(Bridge bridge) {
+        WebView webView = bridge.getWebView();
+        if (webView == null) return;
+
+        webView.setWebViewClient(
+            new BridgeWebViewClient(bridge) {
+                @Override
+                public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                    WebResourceResponse blocked = SafeTubeImageFilter.maybeBlock(getApplicationContext(), request);
+                    if (blocked != null) return blocked;
+                    return super.shouldInterceptRequest(view, request);
+                }
+
+                @Override
+                @SuppressWarnings("deprecation")
+                public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
+                    return super.shouldInterceptRequest(view, url);
+                }
+
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    if (
+                        request != null
+                            && request.isForMainFrame()
+                            && SafeTubeUrlGuard.shouldBlockMainFrame(request.getUrl())
+                    ) {
+                        return true;
+                    }
+                    return super.shouldOverrideUrlLoading(view, request);
+                }
+
+                @Override
+                @SuppressWarnings("deprecation")
+                public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                    if (SafeTubeUrlGuard.shouldBlockMainFrame(android.net.Uri.parse(url))) {
+                        return true;
+                    }
+                    return super.shouldOverrideUrlLoading(view, url);
+                }
+            }
+        );
+
+        webView.setWebChromeClient(
+            new BridgeWebChromeClient(bridge) {
+                @Override
+                public boolean onCreateWindow(
+                    WebView view,
+                    boolean isDialog,
+                    boolean isUserGesture,
+                    android.os.Message resultMsg
+                ) {
+                    // YouTube embed logo / title opens a new window — stay inside SafeTube.
+                    return false;
+                }
+            }
+        );
+    }
+
+    /**
+     * Stop WebView media when the app is backgrounded or the screen is locked.
+     */
+    private void pauseWebViewMedia() {
         try {
+            CapacitorWebView.allowBackgroundMedia = false;
             if (bridge == null) return;
             WebView webView = bridge.getWebView();
             if (webView == null) return;
-            webView.onResume();
-            webView.resumeTimers();
             webView.evaluateJavascript(
-                "(function(){try{var v=document.querySelector('video');"
-                    + "if(v&&v.paused&&!v.ended&&v.getAttribute('data-safetube-bg')==='1')"
-                    + "{v.play().catch(function(){})}}catch(e){}})();",
+                "(function(){try{"
+                    + "if(window.__safetubePauseAllPlayback)window.__safetubePauseAllPlayback();"
+                    + "var v=document.querySelector('video');"
+                    + "if(v&&!v.paused&&!v.ended)v.pause();"
+                    + "if(window.__safetubeYtPlayer)window.__safetubeYtPlayer.pause();"
+                    + "}catch(e){}})();",
                 null
             );
         } catch (Exception ignored) {

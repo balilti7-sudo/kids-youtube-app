@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PlaylistVideoPayload, UserPlaylist } from '../lib/playlists'
 import {
-  addVideoToPlaylist,
+  addVideoToPlaylistViaRpc,
   addVideoToPlaylistForChild,
   createPlaylistForChild,
   createPlaylistForUser,
@@ -13,6 +13,8 @@ import {
   playlistIdsContainingVideoForChild,
   removeVideoFromPlaylist,
   removeVideoFromPlaylistForChild,
+  reorderPlaylistVideos,
+  reorderPlaylistVideosForChild,
 } from '../lib/playlists'
 
 export type PlaylistMode = 'parent' | 'kid'
@@ -86,7 +88,7 @@ export function usePlaylists(opts: {
 
   const addVideo = useCallback(
     async (playlistId: string, payload: PlaylistVideoPayload) => {
-      if (mode === 'parent') return addVideoToPlaylist(playlistId, payload)
+      if (mode === 'parent') return addVideoToPlaylistViaRpc(playlistId, payload)
       if (childAccessToken) return addVideoToPlaylistForChild(childAccessToken, playlistId, payload)
       return { error: new Error('לא מחובר') }
     },
@@ -98,6 +100,17 @@ export function usePlaylists(opts: {
       if (mode === 'parent') return removeVideoFromPlaylist(playlistId, youtubeVideoId)
       if (childAccessToken) {
         return removeVideoFromPlaylistForChild(childAccessToken, playlistId, youtubeVideoId)
+      }
+      return { error: new Error('לא מחובר') }
+    },
+    [mode, childAccessToken]
+  )
+
+  const reorderVideos = useCallback(
+    async (playlistId: string, orderedYoutubeVideoIds: string[]) => {
+      if (mode === 'parent') return reorderPlaylistVideos(playlistId, orderedYoutubeVideoIds)
+      if (childAccessToken) {
+        return reorderPlaylistVideosForChild(childAccessToken, playlistId, orderedYoutubeVideoIds)
       }
       return { error: new Error('לא מחובר') }
     },
@@ -126,6 +139,7 @@ export function usePlaylists(opts: {
       fetchVideos,
       addVideo,
       removeVideo,
+      reorderVideos,
       getPlaylistIdsForVideo,
     }),
     [
@@ -136,6 +150,7 @@ export function usePlaylists(opts: {
       fetchVideos,
       addVideo,
       removeVideo,
+      reorderVideos,
       getPlaylistIdsForVideo,
     ]
   )

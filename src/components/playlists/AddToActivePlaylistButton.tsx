@@ -5,12 +5,9 @@ import { cn } from '../../lib/utils'
 import {
   ACTIVE_PLAYLIST_CHANGED_EVENT,
   getSavedActivePlaylistId,
+  getSavedActivePlaylistName,
 } from '../../lib/activePlaylistSelection'
-import {
-  addVideoToPlaylistViaRpc,
-  getPlaylistByIdForUser,
-  type PlaylistVideoPayload,
-} from '../../lib/playlists'
+import { addVideoToPlaylistViaRpc, type PlaylistVideoPayload } from '../../lib/playlists'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
 type Props = {
@@ -28,25 +25,26 @@ export function AddToActivePlaylistButton({
   className,
   onAdded,
 }: Props) {
-  const [activePlaylistName, setActivePlaylistName] = useState<string | null>(null)
+  const [activePlaylistName, setActivePlaylistName] = useState<string | null>(() =>
+    getSavedActivePlaylistName()
+  )
   const [adding, setAdding] = useState(false)
 
-  const refreshActivePlaylist = useCallback(async () => {
+  const refreshActivePlaylist = useCallback(() => {
     const savedId = getSavedActivePlaylistId()
-    if (!savedId || !userId) {
+    if (!savedId) {
       setActivePlaylistName(null)
       return
     }
-    const { data } = await getPlaylistByIdForUser(userId, savedId)
-    setActivePlaylistName(data?.name ?? null)
-  }, [userId])
+    setActivePlaylistName(getSavedActivePlaylistName())
+  }, [])
 
   useEffect(() => {
-    void refreshActivePlaylist()
+    refreshActivePlaylist()
   }, [refreshActivePlaylist])
 
   useEffect(() => {
-    const handler = () => void refreshActivePlaylist()
+    const handler = () => refreshActivePlaylist()
     window.addEventListener(ACTIVE_PLAYLIST_CHANGED_EVENT, handler)
     return () => window.removeEventListener(ACTIVE_PLAYLIST_CHANGED_EVENT, handler)
   }, [refreshActivePlaylist])
@@ -63,13 +61,8 @@ export function AddToActivePlaylistButton({
       return
     }
 
+    const playlistName = getSavedActivePlaylistName()
     setAdding(true)
-    const { data: playlist, error: lookupError } = await getPlaylistByIdForUser(userId, playlistId)
-    if (lookupError || !playlist) {
-      setAdding(false)
-      toast.error('חובה לפתוח פלייליסט לפני הוספת סרטונים בודדים')
-      return
-    }
 
     const { error } = await addVideoToPlaylistViaRpc(playlistId, video)
     setAdding(false)
@@ -83,8 +76,7 @@ export function AddToActivePlaylistButton({
       return
     }
 
-    setActivePlaylistName(playlist.name)
-    toast.success(`נוסף ל"${playlist.name}"`)
+    toast.success(playlistName ? `נוסף ל"${playlistName}"` : 'נוסף לפלייליסט')
     onAdded?.()
   }
 

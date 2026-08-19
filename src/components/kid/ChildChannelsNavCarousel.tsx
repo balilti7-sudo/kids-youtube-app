@@ -1,14 +1,17 @@
-import { Home, Tv } from 'lucide-react'
+import { Home } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { WhitelistedChannel } from '../../types'
 import { useJuicyPointerBurst, useJuicyUiEnabled, juicyPressableClass } from '../../contexts/JuicyUiContext'
 import { cn } from '../../lib/utils'
+
+import { SafeTubeChannelAvatar } from '../ui/SafeTubeChannelAvatar'
 
 type Props = {
   channels: WhitelistedChannel[]
   activeYoutubeChannelId?: string | null
   onHome: () => void
   onSelectChannel: (youtubeChannelId: string) => void
+  hideThumbnails?: boolean
   className?: string
 }
 
@@ -17,6 +20,7 @@ export function ChildChannelsNavCarousel({
   activeYoutubeChannelId = null,
   onHome,
   onSelectChannel,
+  hideThumbnails = false,
   className,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -92,17 +96,12 @@ export function ChildChannelsNavCarousel({
                     : 'ring-zinc-700 hover:ring-zinc-500 hover:scale-[1.03]'
                 )}
               >
-                {channel.channel_thumbnail ? (
-                  <img
-                    src={channel.channel_thumbnail}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <Tv className="h-9 w-9 text-zinc-500" aria-hidden />
-                )}
+                <SafeTubeChannelAvatar
+                  name={channel.channel_name}
+                  thumbnail={channel.channel_thumbnail}
+                  hide={hideThumbnails}
+                  className="h-full w-full rounded-full"
+                />
                 {isActive ? (
                   <span className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-inset ring-sky-300/40" aria-hidden />
                 ) : null}

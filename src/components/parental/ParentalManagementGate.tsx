@@ -8,9 +8,11 @@ import { cn } from '../../lib/utils'
 import { isEmergencyParentManagementBypass } from '../../lib/verifyParentProfilePin'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { setParentPinSession } from '../../lib/parentPinSession'
+import { enrollBiometricParentPin } from '../../lib/parentBiometricUnlock'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../ui/Button'
 import { ParentalForgotPinModal } from './ParentalForgotPinModal'
+import { ParentBiometricButton } from './ParentBiometricButton'
 
 type DigitSlot = '' | string
 type SixDigit = [DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot, DigitSlot]
@@ -77,6 +79,7 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
       setVerifying(false)
       if (result.ok) {
         setParentPinSession(trimmed)
+        void enrollBiometricParentPin(trimmed)
         onUnlocked()
         return
       }
@@ -199,6 +202,12 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
             <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
               כדי לגשת לבקרת ההורים ולהגדרות — הזינו את קוד ההורה בן 6 הספרות מהפרופיל. לאחר מילוי כל הספרות הכניסה תתבצע אוטומטית.
             </p>
+
+            <ParentBiometricButton
+              autoPrompt
+              onPin={(pin) => void tryVerify(pin)}
+              className="w-full min-h-12 gap-2 rounded-xl"
+            />
 
             <div dir="ltr" className="flex flex-wrap justify-center gap-2" onPaste={handlePaste}>
               {SLOT_INDEXES.map((i) => (

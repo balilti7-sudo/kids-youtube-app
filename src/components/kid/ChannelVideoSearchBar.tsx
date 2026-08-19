@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils'
 import { Button } from '../ui/Button'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { RtlSearchInput } from '../search/RtlSearchInput'
+import { SafeTubeFilteredImage } from '../ui/SafeTubeFilteredImage'
 
 const DROPDOWN_PAGE_SIZE = 12
 
@@ -26,6 +27,7 @@ export type ChannelVideoSearchBarProps = {
   activeResultId?: string | null
   onSelectResult?: (id: string) => void
   dropdownLoading?: boolean
+  hideThumbnails?: boolean
 }
 
 /**
@@ -44,6 +46,7 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
   activeResultId,
   onSelectResult,
   dropdownLoading = false,
+  hideThumbnails = false,
 }: ChannelVideoSearchBarProps) {
   const listboxId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -167,11 +170,11 @@ export const ChannelVideoSearchBar = memo(function ChannelVideoSearchBar({
                         onClick={() => handleSelect(video.id)}
                       >
                         {video.thumbnail ? (
-                          <img
+                          <SafeTubeFilteredImage
                             src={video.thumbnail}
-                            alt=""
+                            hide={hideThumbnails}
                             className="h-11 w-[4.5rem] shrink-0 rounded-md object-cover"
-                            loading="lazy"
+                            placeholderClassName="shrink-0 rounded-md"
                           />
                         ) : (
                           <div className="h-11 w-[4.5rem] shrink-0 rounded-md bg-yt-input" aria-hidden />

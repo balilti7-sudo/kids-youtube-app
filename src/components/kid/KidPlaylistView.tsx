@@ -5,7 +5,11 @@ import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { AddToPlaylistButton } from '../playlists/AddToPlaylistButton'
-import { QuickBlockButton } from '../channels/QuickBlockButton'
+import {
+  PlaylistQueueHint,
+  PlaylistQueueRow,
+  type PlaylistBlockConfig,
+} from '../playlists/PlaylistQueueRow'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
@@ -20,6 +24,8 @@ import { classifyWatchFormat, isShortsBlockedForProfile } from '../../lib/childC
 import { filterVideosRespectingAllowShorts } from '../../lib/videoFormatClassification'
 import { buildShortsAwareNavQueue } from '../../lib/shortsNavQueue'
 import { shouldHideFromChildBrowse } from '../../lib/liveStreamPolicy'
+import { saveActivePlaylistId } from '../../lib/activePlaylistSelection'
+import { usePlaylistQueueHandlers } from '../../hooks/usePlaylistQueueHandlers'
 
 export type ParentQuickBlockConfig = {
   enabled: boolean
@@ -35,6 +41,8 @@ type Props = {
   parentQuickBlock?: ParentQuickBlockConfig | null
   initialPlaylistId?: string | null
   playlistClient?: PlaylistsClient
+  /** Open a whitelisted channel inside SafeTube (never an external YouTube link). */
+  onOpenChannel?: (youtubeChannelId: string) => void
 }
 
 export function KidPlaylistView({
@@ -44,14 +52,23 @@ export function KidPlaylistView({
   parentQuickBlock,
   initialPlaylistId = null,
   playlistClient,
+  onOpenChannel,
 }: Props) {
   const localPlaylists = usePlaylists({
     mode: 'kid',
     userId: null,
     childAccessToken: playlistClient ? null : childAccessToken,
   })
-  const { playlists, loading: playlistsLoading, createPlaylist, fetchVideos, refresh } =
-    playlistClient ?? localPlaylists
+  const playlistApi = playlistClient ?? localPlaylists
+  const {
+    playlists,
+    loading: playlistsLoading,
+    createPlaylist,
+    fetchVideos,
+    refresh,
+    removeVideo,
+    reorderVideos,
+  } = playlistApi
   const [selectedId, setSelectedId] = useState<string | null>(initialPlaylistId)
   const [videos, setVideos] = useState<PlaylistVideo[]>([])
   const [videosLoading, setVideosLoading] = useState(false)
@@ -62,6 +79,16 @@ export function KidPlaylistView({
   const [creating, setCreating] = useState(false)
   const loadRequestRef = useRef(0)
 
+  const blockConfig = useMemo((): PlaylistBlockConfig | null => {
+    if (!parentQuickBlock?.enabled) return null
+    return {
+      enabled: true,
+      localAccessToken: parentQuickBlock.localAccessToken,
+      cachedPin: parentQuickBlock.cachedPin,
+      verifyPin: parentQuickBlock.verifyPin,
+    }
+  }, [parentQuickBlock])
+
   const selected = playlists.find((p) => p.id === selectedId) ?? null
 
   useEffect(() => {
@@ -70,9 +97,16 @@ export function KidPlaylistView({
 
   useEffect(() => {
     if (playlists.length > 0 && !selectedId) {
-      setSelectedId(playlists[0].id)
+      const first = playlists[0]!
+      setSelectedId(first.id)
+      saveActivePlaylistId(first.id, first.name)
     }
   }, [playlists, selectedId])
+
+  const selectPlaylist = useCallback((pl: UserPlaylist) => {
+    setSelectedId(pl.id)
+    saveActivePlaylistId(pl.id, pl.name)
+  }, [])
 
   const loadVideos = useCallback(
     async (playlistId: string) => {
@@ -106,6 +140,35 @@ export function KidPlaylistView({
       }
     },
     [fetchVideos]
+  )
+
+  const queueHandlers = usePlaylistQueueHandlers({
+    playlistId: selectedId,
+    videos,
+    setVideos,
+    activeVideoId,
+    setActiveVideoId,
+    removeVideo,
+    reorderVideos,
+    onRefresh: () => void refresh(),
+    reloadVideos: (id) => void loadVideos(id),
+  })
+
+  const handleBlocked = useCallback(
+    (youtubeVideoId: string) => {
+      setVideos((prev) => {
+        const idx = prev.findIndex((v) => v.youtube_video_id === youtubeVideoId)
+        const next = prev.filter((v) => v.youtube_video_id !== youtubeVideoId)
+        setActiveVideoId((current) =>
+          current === youtubeVideoId
+            ? next[idx]?.youtube_video_id ?? next[idx - 1]?.youtube_video_id ?? null
+            : current
+        )
+        return next
+      })
+      void refresh()
+    },
+    [refresh]
   )
 
   const visibleVideos = useMemo(
@@ -164,8 +227,6 @@ export function KidPlaylistView({
       setVideosLoading(false)
       return
     }
-    setVideos([])
-    setActiveVideoId(null)
     void loadVideos(selectedId)
   }, [selectedId, loadVideos])
 
@@ -188,12 +249,15 @@ export function KidPlaylistView({
     setNewName('')
     setCreateOpen(false)
     toast.success('הפלייליסט נוצר')
-    if (data?.id) setSelectedId(data.id)
+    if (data?.id) {
+      setSelectedId(data.id)
+      saveActivePlaylistId(data.id, name)
+    }
   }
 
   const handlePlaylistMembershipChanged = useCallback(() => {
-    if (selectedId) void loadVideos(selectedId)
-  }, [selectedId, loadVideos])
+    void refresh()
+  }, [refresh])
 
   const cancelCreate = () => {
     if (creating) return
@@ -341,7 +405,7 @@ export function KidPlaylistView({
           <button
             key={pl.id}
             type="button"
-            onClick={() => setSelectedId(pl.id)}
+            onClick={() => selectPlaylist(pl)}
             className={cn(
               'shrink-0 rounded-full border px-4 py-2 text-sm font-semibold transition',
               selectedId === pl.id
@@ -401,6 +465,12 @@ export function KidPlaylistView({
                 <YoutubeWatchVideoDetails
                   title={active.title}
                   channelName={active.channel_name}
+                  onChannelClick={
+                    active.youtube_channel_id && onOpenChannel
+                      ? () => onOpenChannel(active.youtube_channel_id!)
+                      : undefined
+                  }
+                  hideImages={hideThumbnails}
                   subtitle="מאושר — SafeTube"
                   actions={
                     <>
@@ -409,6 +479,7 @@ export function KidPlaylistView({
                         mode="kid"
                         userId={null}
                         childAccessToken={childAccessToken}
+                        initialPlaylists={playlists}
                         variant="save"
                         video={{
                           youtube_video_id: active.youtube_video_id,
@@ -426,72 +497,69 @@ export function KidPlaylistView({
             ) : null
           }
           sidebar={
-            <YoutubeSuggestedList title="סדר הניגון">
-              {visibleVideos.map((video, index) => {
-                const isCurrent = video.youtube_video_id === activeVideoId
-                return (
-                  <li key={video.youtube_video_id} className="w-full">
-                    <YoutubeVideoCard
-                      layout="row"
-                      title={video.title}
-                      thumbnail={video.thumbnail_url}
-                      hideThumbnail={hideThumbnails}
-                      channelName={video.channel_name}
-                      active={isCurrent}
-                      playingLabel="מנגן"
-                      onClick={() => handleSelectVideo(video.youtube_video_id)}
-                      thumbnailAction={
-                        parentQuickBlock?.enabled ? (
-                          <QuickBlockButton
-                            video={{
-                              youtube_video_id: video.youtube_video_id,
-                              title: video.title,
-                              thumbnail_url: video.thumbnail_url,
-                              youtube_channel_id: video.youtube_channel_id,
-                              channel_name: video.channel_name,
-                            }}
-                            localAccessToken={parentQuickBlock.localAccessToken}
-                            cachedPin={parentQuickBlock.cachedPin}
-                            verifyPin={parentQuickBlock.verifyPin}
-                            onSuccess={() => {
-                              const nextId =
-                                activeVideoId === video.youtube_video_id
-                                  ? visibleVideos[index + 1]?.youtube_video_id ??
-                                    visibleVideos[index - 1]?.youtube_video_id ??
-                                    null
-                                  : activeVideoId
-                              setVideos((prev) =>
-                                prev.filter((x) => x.youtube_video_id !== video.youtube_video_id)
-                              )
-                              if (activeVideoId === video.youtube_video_id) {
-                                setActiveVideoId(nextId)
-                              }
-                              void refresh()
-                            }}
-                          />
-                        ) : null
-                      }
-                      actionSlot={
-                        <AddToPlaylistButton
-                          mode="kid"
-                          userId={null}
-                          childAccessToken={childAccessToken}
-                          compact
-                          video={{
-                            youtube_video_id: video.youtube_video_id,
-                            title: video.title,
-                            thumbnail_url: video.thumbnail_url,
-                            youtube_channel_id: video.youtube_channel_id,
-                            channel_name: video.channel_name,
-                          }}
-                          onAdded={handlePlaylistMembershipChanged}
+            <>
+              <PlaylistQueueHint />
+              <YoutubeSuggestedList title="סדר הניגון">
+                {videos.map((video, index) => {
+                  const isCurrent = video.youtube_video_id === activeVideoId
+                  const isVisible = visibleVideos.some(
+                    (v) => v.youtube_video_id === video.youtube_video_id
+                  )
+                  return (
+                    <li key={video.youtube_video_id} className="w-full">
+                      <PlaylistQueueRow
+                        active={isCurrent}
+                        index={index}
+                        isFirst={index === 0}
+                        isLast={index === videos.length - 1}
+                        reordering={queueHandlers.reordering}
+                        onSelect={() => handleSelectVideo(video.youtube_video_id)}
+                        onRemove={() => queueHandlers.handleRemove(video.youtube_video_id)}
+                        onMoveUp={() => queueHandlers.handleMoveUp(index)}
+                        onMoveDown={() => queueHandlers.handleMoveDown(index)}
+                        blockConfig={blockConfig}
+                        blockVideo={{
+                          youtube_video_id: video.youtube_video_id,
+                          title: video.title,
+                          thumbnail_url: video.thumbnail_url,
+                          youtube_channel_id: video.youtube_channel_id,
+                          channel_name: video.channel_name,
+                        }}
+                        onBlocked={() => handleBlocked(video.youtube_video_id)}
+                        className={!isVisible ? 'opacity-60' : undefined}
+                      >
+                        <YoutubeVideoCard
+                          layout="row"
+                          title={video.title}
+                          thumbnail={video.thumbnail_url}
+                          hideThumbnail={hideThumbnails}
+                          channelName={video.channel_name}
+                          active={isCurrent}
+                          playingLabel="מנגן"
+                          actionSlot={
+                            <AddToPlaylistButton
+                              mode="kid"
+                              userId={null}
+                              childAccessToken={childAccessToken}
+                              initialPlaylists={playlists}
+                              compact
+                              video={{
+                                youtube_video_id: video.youtube_video_id,
+                                title: video.title,
+                                thumbnail_url: video.thumbnail_url,
+                                youtube_channel_id: video.youtube_channel_id,
+                                channel_name: video.channel_name,
+                              }}
+                              onAdded={handlePlaylistMembershipChanged}
+                            />
+                          }
                         />
-                      }
-                    />
-                  </li>
-                )
-              })}
-            </YoutubeSuggestedList>
+                      </PlaylistQueueRow>
+                    </li>
+                  )
+                })}
+              </YoutubeSuggestedList>
+            </>
           }
         />
       )}

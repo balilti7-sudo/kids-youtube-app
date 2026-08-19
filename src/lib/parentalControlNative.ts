@@ -3,6 +3,14 @@
  * Enforced by Android AccessibilityService — requires the parent to enable the service once.
  */
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import { toast } from 'sonner'
+
+declare global {
+  interface Window {
+    __safetubeOnYoutubeAppBlocked?: () => void
+    __safetubeOnBrowserSiteBlocked?: () => void
+  }
+}
 
 export type ParentalControlPolicy = {
   blockYoutube: boolean
@@ -134,4 +142,21 @@ export function normalizeWhitelistHost(input: string): string {
   while (s.endsWith('.')) s = s.slice(0, -1)
   if (!/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/.test(s) && s !== 'localhost') return ''
   return s
+}
+
+/** Native layer calls this after blocking com.google.android.youtube and reopening SafeTube. */
+export function initParentalControlNativeBridge(): void {
+  if (typeof window === 'undefined' || !isParentalControlNativeAvailable()) return
+  window.__safetubeOnYoutubeAppBlocked = () => {
+    toast.info('YouTube חסום', {
+      description: 'אפליקציית YouTube נחסמה. SafeTube נשאר פתוח.',
+      duration: 3500,
+    })
+  }
+  window.__safetubeOnBrowserSiteBlocked = () => {
+    toast.info('אתר חסום', {
+      description: 'האתר לא ברשימה המורשית. SafeTube נשאר פתוח.',
+      duration: 3500,
+    })
+  }
 }

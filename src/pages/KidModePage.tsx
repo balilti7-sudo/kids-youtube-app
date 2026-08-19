@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users } from 'lucide-react'
+import { ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users, Globe } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
+import { useChildImageFilter } from '../hooks/useChildImageFilter'
+import { SafeTubeChannelAvatar } from '../components/ui/SafeTubeChannelAvatar'
 import { ChannelVideoBrowseRows } from '../components/kid/ChannelVideoBrowseRows'
 import { ChildWatchPlayerShell } from '../components/kid/ChildWatchPlayerShell'
 import { KidGlobalSearchSection } from '../components/kid/KidGlobalSearchSection'
 import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
 import { YoutubeLikeButton } from '../components/youtube/YoutubeLikeButton'
-import { KidPlaylistView } from '../components/kid/KidPlaylistView'
+import { KidPlaylistView, type ParentQuickBlockConfig } from '../components/kid/KidPlaylistView'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
 import { AddToPlaylistModal } from '../components/playlists/AddToPlaylistModal'
 import {
@@ -38,7 +40,7 @@ import {
   type ChildDeviceState,
 } from '../lib/childDevice'
 import { startKidModeForProfile } from '../lib/startKidMode'
-import { isLocalParentSessionValid, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
+import { isLocalParentSessionValid, readLocalParentSession, writeLocalParentSession, LOCAL_PARENT_SESSION_MS } from '../lib/localParentAdmin'
 import { ParentalPinModal } from '../components/parental/ParentalPinModal'
 import { SAFETUBE_PARENT_MODE_UNLOCK_UNTIL_KEY } from '../lib/safetubeSessionKeys'
 import { supabase } from '../lib/supabase'
@@ -68,6 +70,7 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { logPlaybackStreamRequest } from '../lib/streamApi'
+import { pauseAllPlayback } from '../lib/playbackController'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import { PARENT_PIN_DIGIT_MAX } from '../lib/parentPin'
@@ -114,6 +117,8 @@ function KidModePageInner() {
   const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
   const [parentBootstrapBusy, setParentBootstrapBusy] = useState(false)
   const channelVideosRequestRef = useRef(0)
+  const channelBrowseRef = useRef<HTMLDivElement>(null)
+  const playerAnchorRef = useRef<HTMLDivElement>(null)
   const channelsRef = useRef(channels)
   channelsRef.current = channels
   const [videoSearchFocused, setVideoSearchFocused] = useState(false)
@@ -150,6 +155,10 @@ function KidModePageInner() {
     setKidSurface('watch')
     setKidWatchTab('channels')
   }, [])
+
+  useEffect(() => {
+    pauseAllPlayback()
+  }, [kidWatchTab, kidSurface])
 
   const clearParentTabLongPress = useCallback(() => {
     if (parentTabLongPressRef.current != null) {
@@ -241,6 +250,18 @@ function KidModePageInner() {
     [accessToken]
   )
 
+  const kidParentQuickBlock = useMemo((): ParentQuickBlockConfig | null => {
+    if (!isLocalParentSessionValid()) return null
+    const session = readLocalParentSession()
+    if (!session?.accessToken) return null
+    return {
+      enabled: true,
+      localAccessToken: session.accessToken,
+      cachedPin: session.pin,
+      verifyPin: verifyKidGlobalSearchPin,
+    }
+  }, [parentModeUnlocked, verifyKidGlobalSearchPin])
+
   const clearGlobalSearch = useCallback(() => {
     pendingGlobalSearchQueryRef.current = null
     setGlobalSearchInput('')
@@ -303,6 +324,9 @@ function KidModePageInner() {
     setGlobalSearchHasMore(hasMore)
   }, [globalSearchQuery, globalSearchContinuation, globalSearchLoadingMore, channels])
 
+  const hideKidImages = Boolean(device?.hide_thumbnails)
+  useChildImageFilter(hideKidImages)
+
   const handleGlobalSearchRequest = useCallback((query: string) => {
     const q = query.trim()
     if (!q) return
@@ -324,6 +348,7 @@ function KidModePageInner() {
       loadingMore: globalSearchLoadingMore,
       onLoadMore: loadMoreGlobalYoutubeSearch,
       onClear: clearGlobalSearch,
+      hideThumbnails: hideKidImages,
     }),
     [
       globalSearchInput,
@@ -336,6 +361,7 @@ function KidModePageInner() {
       globalSearchLoadingMore,
       loadMoreGlobalYoutubeSearch,
       clearGlobalSearch,
+      hideKidImages,
     ]
   )
 
@@ -392,6 +418,39 @@ function KidModePageInner() {
     },
     [childRuntime?.isBlocked, channelVideos, device?.allow_shorts]
   )
+
+  const handleWatchChannelClick = useCallback(() => {
+    if (!activeChannelId) return
+    setKidWatchTab('channels')
+    setKidSurface('watch')
+    window.requestAnimationFrame(() => {
+      channelBrowseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }, [activeChannelId])
+
+  const handleOpenChannel = useCallback(
+    (youtubeChannelId: string) => {
+      const yt = youtubeChannelId.trim()
+      if (!yt || !channels.some((c) => c.youtube_channel_id === yt)) return
+      setOpenedPlaylistId(null)
+      setKidWatchTab('channels')
+      setKidSurface('watch')
+      setActiveChannelId(yt)
+      setChannelPickNonce((n) => n + 1)
+      window.requestAnimationFrame(() => {
+        channelBrowseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      })
+    },
+    [channels]
+  )
+
+  useEffect(() => {
+    if (!activeVideoId) return
+    const frame = window.requestAnimationFrame(() => {
+      playerAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [activeVideoId])
 
   const playerNavQueue = useMemo(() => {
     if (!activeVideo) return filteredVideos
@@ -720,8 +779,15 @@ function KidModePageInner() {
 
   const loadChildData = useCallback(async (token: string) => {
     const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
-    if (stateRes.error) throw stateRes.error
+    if (stateRes.error && !stateRes.data) throw stateRes.error
     if (!stateRes.data) throw new Error('הפרופיל לא נמצא. בחרו פרופיל מחדש או פתחו את בקרת ההורים.')
+
+    if (stateRes.fromCache) {
+      toast.message('מצב לא מקוון', {
+        description: 'נטענו הגדרות מכשיר מהמטמון. הסינון והרשימה המורשית עדיין פעילים.',
+        duration: 4500,
+      })
+    }
 
     setDevice(stateRes.data)
     void syncParentalControlPolicy(policyFromDeviceFields(stateRes.data))
@@ -1162,6 +1228,20 @@ function KidModePageInner() {
           </div>
           <SafeTubeBrandMark to="/kid" className="justify-self-center px-0.5" />
           <div className="flex min-w-0 items-center justify-end gap-2 ps-2 pe-0.5 sm:gap-3 sm:pe-1">
+            {kidSurface === 'watch' &&
+            device.browser_filter_enabled &&
+            Array.isArray(device.browser_whitelist) &&
+            device.browser_whitelist.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => navigate('/kid/browser')}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 transition hover:bg-emerald-500/20 dark:text-emerald-300"
+                aria-label={t('safeBrowser.open')}
+                title={t('safeBrowser.open')}
+              >
+                <Globe className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
             {kidSurface === 'watch' ? <LionProfileButton /> : null}
             <div
               className="flex shrink-0 items-center gap-0.5 rounded-full border border-yt-border bg-yt-input p-0.5"
@@ -1328,6 +1408,8 @@ function KidModePageInner() {
                   hideThumbnails={Boolean(device?.hide_thumbnails)}
                   initialPlaylistId={openedPlaylistId}
                   playlistClient={kidPlaylists}
+                  parentQuickBlock={kidParentQuickBlock}
+                  onOpenChannel={handleOpenChannel}
                 />
               ) : null}
             </div>
@@ -1434,18 +1516,12 @@ function KidModePageInner() {
                             className="!h-9 !w-9"
                           />
                         ) : null}
-                        {channel.channel_thumbnail ? (
-                          <img
-                            src={channel.channel_thumbnail}
-                            alt=""
-                            className="h-10 w-10 shrink-0 rounded-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-500 dark:bg-zinc-800">
-                            <Smartphone className="h-4 w-4" />
-                          </div>
-                        )}
+                        <SafeTubeChannelAvatar
+                          name={channel.channel_name}
+                          thumbnail={channel.channel_thumbnail}
+                          hide={hideKidImages}
+                          className="h-10 w-10 shrink-0 rounded-full"
+                        />
                         <span className="line-clamp-2 min-w-0 flex-1 text-xs font-medium leading-snug text-slate-800 dark:text-zinc-200">
                           {channel.channel_name}
                         </span>
@@ -1520,18 +1596,12 @@ function KidModePageInner() {
                               ✓
                             </span>
                           ) : null}
-                          {channel.channel_thumbnail ? (
-                            <img
-                              src={channel.channel_thumbnail}
-                              alt=""
-                              className="h-12 w-12 rounded-full object-cover"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-200 dark:bg-zinc-800">
-                              <Smartphone className="h-5 w-5 text-slate-500" />
-                            </div>
-                          )}
+                          <SafeTubeChannelAvatar
+                            name={channel.channel_name}
+                            thumbnail={channel.channel_thumbnail}
+                            hide={hideKidImages}
+                            className="h-12 w-12 rounded-full"
+                          />
                           <span className="line-clamp-1 max-w-[4.5rem] text-center text-[10px] font-medium text-slate-800 dark:text-zinc-200">
                             {channel.channel_name}
                           </span>
@@ -1554,6 +1624,7 @@ function KidModePageInner() {
                     activeResultId={activeVideoId}
                     onSelectResult={handleSelectVideo}
                     dropdownLoading={channelLoading}
+                    hideThumbnails={hideKidImages}
                   />
                 </div>
 
@@ -1567,26 +1638,30 @@ function KidModePageInner() {
                       </div>
                     ) : activeVideo ? (
                       <>
-                        <ChildWatchPlayerShell
-                          videoId={activeVideo.videoId}
-                          title={activeVideo.title}
-                          channelTitle={activeChannel?.channel_name}
-                          posterUrl={device?.hide_thumbnails ? null : activeVideo.thumbnail}
-                          blankVideoFrame={Boolean(device?.hide_thumbnails)}
-                          format={classifyWatchFormat({
-                            durationSeconds: activeVideo.durationSeconds,
-                            youtubeVideoId: activeVideo.videoId,
-                            title: activeVideo.title,
-                            thumbnail: activeVideo.thumbnail,
-                          })}
-                          onNextTrack={handlePlayerNextTrack}
-                          onPreviousTrack={handlePlayerPreviousTrack}
-                          hasNextTrack={hasNextChannelVideo}
-                        />
+                        <div ref={playerAnchorRef} className="scroll-mt-4 w-full" data-safetube-player>
+                          <ChildWatchPlayerShell
+                            videoId={activeVideo.videoId}
+                            title={activeVideo.title}
+                            channelTitle={activeChannel?.channel_name}
+                            posterUrl={device?.hide_thumbnails ? null : activeVideo.thumbnail}
+                            blankVideoFrame={Boolean(device?.hide_thumbnails)}
+                            format={classifyWatchFormat({
+                              durationSeconds: activeVideo.durationSeconds,
+                              youtubeVideoId: activeVideo.videoId,
+                              title: activeVideo.title,
+                              thumbnail: activeVideo.thumbnail,
+                            })}
+                            onNextTrack={handlePlayerNextTrack}
+                            onPreviousTrack={handlePlayerPreviousTrack}
+                            hasNextTrack={hasNextChannelVideo}
+                          />
+                        </div>
                         <YoutubeWatchVideoDetails
                           title={activeVideo.title}
                           channelName={activeChannel?.channel_name ?? null}
                           channelThumbnail={activeChannel?.channel_thumbnail ?? null}
+                          hideImages={hideKidImages}
+                          onChannelClick={handleWatchChannelClick}
                           subtitle={
                             joinVideoMetadataParts(
                               formatViewCountLabel(activeVideo.viewCount),
@@ -1604,6 +1679,7 @@ function KidModePageInner() {
                                   mode="kid"
                                   userId={null}
                                   childAccessToken={accessToken}
+                                  initialPlaylists={kidPlaylists.playlists}
                                   variant="save"
                                   video={{
                                     youtube_video_id: activeVideo.videoId,
@@ -1651,7 +1727,7 @@ function KidModePageInner() {
                     )
                   }
                   sidebar={
-                    <>
+                    <div ref={channelBrowseRef} className="min-h-0">
                       <ChannelVideoSearchBar
                         id="kid-channel-video-search"
                         value={videoSearch}
@@ -1665,6 +1741,7 @@ function KidModePageInner() {
                         activeResultId={activeVideoId}
                         onSelectResult={handleSelectVideo}
                         dropdownLoading={channelLoading}
+                        hideThumbnails={hideKidImages}
                       />
 
                       {accessToken ? (
@@ -1743,6 +1820,7 @@ function KidModePageInner() {
                                 mode="kid"
                                 userId={null}
                                 childAccessToken={accessToken}
+                                initialPlaylists={kidPlaylists.playlists}
                                 compact
                                 video={{
                                   youtube_video_id: video.youtube_video_id,
@@ -1767,7 +1845,7 @@ function KidModePageInner() {
                           </p>
                         </div>
                       ) : null}
-                    </>
+                    </div>
                   }
                 />
               </div>
@@ -1887,6 +1965,7 @@ function KidModePageInner() {
           mode="kid"
           userId={null}
           childAccessToken={accessToken}
+          initialPlaylists={kidPlaylists.playlists}
           videos={videoMultiSelect.selectedVideos}
           onSuccess={() => {
             videoMultiSelect.exitSelectionMode()
@@ -1905,6 +1984,7 @@ function KidModePageInner() {
           mode="kid"
           userId={null}
           childAccessToken={accessToken}
+          initialPlaylists={kidPlaylists.playlists}
           videos={channelBulkVideos}
           onSuccess={() => {
             channelMultiSelect.exitSelectionMode()

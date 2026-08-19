@@ -3,15 +3,49 @@ import type { PostgrestError } from '@supabase/supabase-js'
 import type { Device } from '../types'
 import { getChildDeviceState } from '../lib/childDevice'
 import { parentUpdateDeviceSettings, type DeviceSettingsUpdate } from '../lib/deviceSettings'
+import {
+  cacheDeviceSettings,
+  enqueueDeviceSettingsUpdate,
+  mergeDeviceSettingsFields,
+  readCachedDevicesForUser,
+  type DeviceSettingsFields,
+} from '../lib/deviceSettingsOfflineCache'
+import { humanizeSupabaseError } from '../lib/supabaseErrorMessage'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import { supabase } from '../lib/supabase'
+
+function deviceToSettingsFields(device: Device): DeviceSettingsFields {
+  return {
+    allow_shorts: Boolean(device.allow_shorts),
+    block_youtube_app: Boolean(device.block_youtube_app),
+    browser_filter_enabled: Boolean(device.browser_filter_enabled),
+    browser_whitelist: Array.isArray(device.browser_whitelist) ? device.browser_whitelist : [],
+    daily_time_limit_minutes: device.daily_time_limit_minutes ?? 60,
+    hide_thumbnails: Boolean(device.hide_thumbnails),
+  }
+}
+
+function isTransientSaveError(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes('failed to connect') ||
+    m.includes('network') ||
+    m.includes('timeout') ||
+    m.includes('522') ||
+    m.includes('523') ||
+    m.includes('502') ||
+    m.includes('504') ||
+    m.includes('fetch')
+  )
+}
 
 const DEVICE_SELECT =
   'id, user_id, name, device_type, is_online, is_blocked, last_seen_at, created_at, updated_at, allow_shorts, block_youtube_app, browser_filter_enabled, browser_whitelist, daily_time_limit_minutes, hide_thumbnails'
 
 function formatSupabaseError(error: PostgrestError): string {
   const parts = [error.message, error.details, error.hint].filter((p) => p && String(p).trim())
-  return parts.length ? parts.join(' — ') : error.message || 'שגיאה לא ידועה'
+  const raw = parts.length ? parts.join(' — ') : error.message || 'שגיאה לא ידועה'
+  return humanizeSupabaseError(raw)
 }
 
 interface DeviceState {
@@ -26,7 +60,7 @@ interface DeviceState {
   updateDeviceSettings: (
     deviceId: string,
     updates: DeviceSettingsUpdate
-  ) => Promise<{ error: Error | null }>
+  ) => Promise<{ error: Error | null; offlineQueued?: boolean }>
   addDevice: (payload: {
     userId: string
     name: string
@@ -75,6 +109,14 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         hide_thumbnails: data.hide_thumbnails,
       }
       void syncParentalControlPolicy(policyFromDeviceFields(device))
+      cacheDeviceSettings(device.id, {
+        allow_shorts: device.allow_shorts,
+        block_youtube_app: device.block_youtube_app,
+        browser_filter_enabled: device.browser_filter_enabled,
+        browser_whitelist: device.browser_whitelist,
+        daily_time_limit_minutes: device.daily_time_limit_minutes ?? 60,
+        hide_thumbnails: device.hide_thumbnails,
+      })
       set({ devices: [device], loading: false })
     } catch (err) {
       console.error('[deviceStore.fetchDeviceFromChildToken]', err)
@@ -133,6 +175,27 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       if (error) {
         const msg = formatSupabaseError(error)
         console.error('[deviceStore.fetchDevices]', error)
+        const cached = readCachedDevicesForUser(userId)
+        if (cached.length > 0) {
+          const fromCache: Device[] = cached.map((c) => ({
+            id: c.deviceId,
+            user_id: userId,
+            name: 'מכשיר (מטמון)',
+            device_type: 'tablet',
+            is_online: false,
+            is_blocked: false,
+            last_seen_at: null,
+            created_at: new Date(c.updatedAt).toISOString(),
+            updated_at: new Date(c.updatedAt).toISOString(),
+            channel_count: 0,
+            ...c.fields,
+          }))
+          set({ devices: fromCache, loading: false, error: msg })
+          for (const c of cached) {
+            void syncParentalControlPolicy(policyFromDeviceFields(c.fields))
+          }
+          return
+        }
         set({ loading: false, error: msg })
         return
       }
@@ -143,6 +206,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
             .from('device_whitelist')
             .select('*', { count: 'exact', head: true })
             .eq('device_id', d.id)
+          cacheDeviceSettings(d.id, deviceToSettingsFields(d), userId)
           return {
             ...d,
             channel_count: count ?? 0,
@@ -154,7 +218,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       console.error('[deviceStore.fetchDevices] Network/runtime failure:', err)
       set({
         loading: false,
-        error: 'לא ניתן להתחבר ל-Supabase כרגע (Network error). בדוק חיבור אינטרנט, חוסם פרסומות, או Firewall.',
+        error: humanizeSupabaseError('Network error'),
       })
     }
   },
@@ -176,9 +240,31 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   updateDeviceSettings: async (deviceId, updates) => {
+    const current = get().devices.find((d) => d.id === deviceId)
+    if (!current) {
+      return { error: new Error('המכשיר לא נמצא') }
+    }
+
+    const optimisticFields = mergeDeviceSettingsFields(deviceToSettingsFields(current), updates)
+    set({
+      devices: get().devices.map((d) => (d.id === deviceId ? { ...d, ...optimisticFields } : d)),
+    })
+    cacheDeviceSettings(deviceId, optimisticFields, current.user_id || undefined)
+    void syncParentalControlPolicy(policyFromDeviceFields(optimisticFields))
+
     const { data, error } = await parentUpdateDeviceSettings(deviceId, updates)
     if (error) {
       console.error('[deviceStore.updateDeviceSettings]', error)
+      if (isTransientSaveError(error.message)) {
+        enqueueDeviceSettingsUpdate(deviceId, updates)
+        return { error, offlineQueued: true }
+      }
+      const rollback = deviceToSettingsFields(current)
+      set({
+        devices: get().devices.map((d) => (d.id === deviceId ? { ...d, ...rollback } : d)),
+      })
+      cacheDeviceSettings(deviceId, rollback, current.user_id || undefined)
+      void syncParentalControlPolicy(policyFromDeviceFields(rollback))
       return { error }
     }
     if (!data) {
@@ -195,6 +281,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     set({
       devices: get().devices.map((d) => (d.id === deviceId ? { ...d, ...nextFields } : d)),
     })
+    cacheDeviceSettings(deviceId, nextFields, current.user_id || undefined)
     void syncParentalControlPolicy(policyFromDeviceFields(nextFields))
     return { error: null }
   },

@@ -37,6 +37,11 @@ public final class ParentalControlPrefs {
             .commit();
         // Wake the accessibility service so YouTube is blocked immediately (no wait for next event).
         ParentalControlService.nudgePolicyChanged();
+        if (blockYoutube) {
+            ParentalControlForegroundService.sync(ctx);
+        } else {
+            ParentalControlForegroundService.stop(ctx);
+        }
     }
 
     /** Temporarily skip browser whitelist enforcement (SafeTube-opened login / Custom Tabs). */

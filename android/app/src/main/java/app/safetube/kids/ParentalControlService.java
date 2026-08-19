@@ -159,6 +159,9 @@ public class ParentalControlService extends AccessibilityService {
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
+        if (ParentalControlPrefs.isBlockYoutube(this)) {
+            ParentalControlForegroundService.sync(this);
+        }
         // Re-apply immediately if the parent already enabled the toggle.
         handler.post(this::scanNow);
     }
@@ -168,6 +171,9 @@ public class ParentalControlService extends AccessibilityService {
         if (instance == this) instance = null;
         handler.removeCallbacksAndMessages(null);
         enforceLoopPosted = false;
+        if (!ParentalControlPrefs.isBlockYoutube(this)) {
+            ParentalControlForegroundService.stop(this);
+        }
         super.onDestroy();
     }
 
@@ -306,6 +312,11 @@ public class ParentalControlService extends AccessibilityService {
             /* ignore */
         }
 
+        if (isYoutubePackage(pkg)) {
+            bringSafeTubeToFront(forceUi, MainActivity.EXTRA_YOUTUBE_BLOCKED);
+            return;
+        }
+
         long now = System.currentTimeMillis();
         if (!forceUi && now - lastBlockUiAt < BLOCK_UI_COOLDOWN_MS) return;
         lastBlockUiAt = now;
@@ -352,8 +363,38 @@ public class ParentalControlService extends AccessibilityService {
             if (ParentalControlPrefs.isBrowserBypassActive(this)) return;
             List<String> whitelist = ParentalControlPrefs.getWhitelist(this);
             if (!ParentalControlPrefs.hostAllowed(host, whitelist)) {
-                pushBlock(pkg, true);
+                pushBrowserBlock(pkg);
             }
+        }
+    }
+
+    /** Non-whitelisted browser URL — return to SafeTube instead of a lock screen. */
+    private void pushBrowserBlock(String pkg) {
+        try {
+            performGlobalAction(GLOBAL_ACTION_HOME);
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+        bringSafeTubeToFront(true, MainActivity.EXTRA_BROWSER_BLOCKED);
+    }
+
+    private void bringSafeTubeToFront(boolean forceUi, String extraKey) {
+        long now = System.currentTimeMillis();
+        if (!forceUi && now - lastBlockUiAt < BLOCK_UI_COOLDOWN_MS) return;
+        lastBlockUiAt = now;
+
+        try {
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            );
+            i.putExtra(extraKey, true);
+            startActivity(i);
+        } catch (Exception ignored) {
+            /* ignore */
         }
     }
 

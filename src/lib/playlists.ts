@@ -61,11 +61,41 @@ function mapVideoRow(row: Record<string, unknown>): PlaylistVideo | null {
   }
 }
 
+type PlaylistListCacheEntry = { data: UserPlaylist[]; fetchedAt: number }
+const playlistListCache = new Map<string, PlaylistListCacheEntry>()
+const PLAYLIST_LIST_CACHE_MS = 45_000
+
+function playlistListCacheKey(mode: 'parent' | 'kid', id: string) {
+  return `${mode}:${id}`
+}
+
+export function invalidatePlaylistListCache(mode?: 'parent' | 'kid', id?: string) {
+  if (mode && id) {
+    playlistListCache.delete(playlistListCacheKey(mode, id))
+    return
+  }
+  playlistListCache.clear()
+}
+
+export function peekCachedPlaylists(mode: 'parent' | 'kid', id: string): UserPlaylist[] | null {
+  const entry = playlistListCache.get(playlistListCacheKey(mode, id))
+  if (!entry) return null
+  if (Date.now() - entry.fetchedAt > PLAYLIST_LIST_CACHE_MS) return null
+  return entry.data
+}
+
+function writePlaylistListCache(mode: 'parent' | 'kid', id: string, data: UserPlaylist[]) {
+  playlistListCache.set(playlistListCacheKey(mode, id), { data, fetchedAt: Date.now() })
+}
+
 /** Parent (authenticated): list playlists */
 export async function listPlaylistsForUser(userId: string): Promise<{
   data: UserPlaylist[]
   error: Error | null
 }> {
+  const cached = peekCachedPlaylists('parent', userId)
+  if (cached) return { data: cached, error: null }
+
   const { data, error } = await supabase
     .from('playlists')
     .select('id, name, updated_at, playlist_videos(count)')
@@ -84,6 +114,7 @@ export async function listPlaylistsForUser(userId: string): Promise<{
     const count = r.playlist_videos?.[0]?.count ?? 0
     return { id: r.id, name: r.name, video_count: count, updated_at: r.updated_at }
   })
+  writePlaylistListCache('parent', userId, mapped)
   return { data: mapped, error: null }
 }
 
@@ -140,6 +171,7 @@ export async function createPlaylistForUser(
   }
 
   const row = data as { id: string; name: string; updated_at: string }
+  invalidatePlaylistListCache('parent', userId)
   return {
     data: { id: row.id, name: row.name, video_count: 0, updated_at: row.updated_at },
     error: null,
@@ -148,6 +180,7 @@ export async function createPlaylistForUser(
 
 export async function deletePlaylistForUser(playlistId: string): Promise<{ error: Error | null }> {
   const { error } = await supabase.from('playlists').delete().eq('id', playlistId)
+  if (!error) invalidatePlaylistListCache()
   return { error: error ? new Error(error.message) : null }
 }
 
@@ -183,7 +216,10 @@ export async function addVideoToPlaylistViaRpc(
     p_channel_name: payload.channel_name ?? null,
   })
 
-  if (!error) return { error: null }
+  if (!error) {
+    invalidatePlaylistListCache()
+    return { error: null }
+  }
 
   const msg = error.message
   if (msg.includes('PLAYLIST_NOT_FOUND')) {
@@ -227,6 +263,7 @@ export async function addVideoToPlaylist(
 
   if (!error) {
     await supabase.from('playlists').update({ updated_at: new Date().toISOString() }).eq('id', playlistId)
+    invalidatePlaylistListCache()
   }
   return { error: error ? new Error(error.message) : null }
 }
@@ -240,6 +277,7 @@ export async function removeVideoFromPlaylist(
     .delete()
     .eq('playlist_id', playlistId)
     .eq('youtube_video_id', youtubeVideoId)
+  if (!error) invalidatePlaylistListCache()
   return { error: error ? new Error(error.message) : null }
 }
 
@@ -263,6 +301,9 @@ export async function listPlaylistsForChild(accessToken: string): Promise<{
   data: UserPlaylist[]
   error: Error | null
 }> {
+  const cached = peekCachedPlaylists('kid', accessToken)
+  if (cached) return { data: cached, error: null }
+
   const { data, error } = await supabase.rpc('child_playlists_list', {
     p_access_token: accessToken,
   })
@@ -270,6 +311,7 @@ export async function listPlaylistsForChild(accessToken: string): Promise<{
   const mapped = ((data ?? []) as Record<string, unknown>[])
     .map(mapPlaylistRow)
     .filter((r): r is UserPlaylist => r !== null)
+  writePlaylistListCache('kid', accessToken, mapped)
   return { data: mapped, error: null }
 }
 
@@ -287,6 +329,7 @@ export async function createPlaylistForChild(
     if (msg.includes('PLAYLIST_NAME_TOO_LONG')) return { data: null, error: new Error('השם ארוך מדי') }
     return { data: null, error: new Error(msg) }
   }
+  invalidatePlaylistListCache('kid', accessToken)
   return { data: typeof data === 'string' ? data : null, error: null }
 }
 
@@ -319,7 +362,10 @@ export async function addVideoToPlaylistForChild(
     p_youtube_channel_id: payload.youtube_channel_id ?? null,
     p_channel_name: payload.channel_name ?? null,
   })
-  if (!error) return { error: null }
+  if (!error) {
+    invalidatePlaylistListCache('kid', accessToken)
+    return { error: null }
+  }
   const msg = error.message
   if (msg.includes('VIDEO_NOT_ON_APPROVED_CHANNEL')) {
     return { error: new Error('אפשר להוסיף רק סרטונים מערוצים מאושרים.') }
@@ -340,6 +386,7 @@ export async function removeVideoFromPlaylistForChild(
     p_playlist_id: playlistId,
     p_youtube_video_id: youtubeVideoId,
   })
+  if (!error) invalidatePlaylistListCache('kid', accessToken)
   return { error: error ? new Error(error.message) : null }
 }
 
@@ -354,4 +401,44 @@ export async function playlistIdsContainingVideoForChild(
   if (error) return { data: [], error: new Error(error.message) }
   const ids = ((data ?? []) as { playlist_id: string }[]).map((r) => r.playlist_id)
   return { data: ids, error: null }
+}
+
+export async function reorderPlaylistVideos(
+  playlistId: string,
+  orderedYoutubeVideoIds: string[]
+): Promise<{ error: Error | null }> {
+  const ids = orderedYoutubeVideoIds.map((id) => id.trim()).filter(Boolean)
+  const { error } = await supabase.rpc('parent_reorder_playlist_videos', {
+    p_playlist_id: playlistId,
+    p_ordered_video_ids: ids,
+  })
+  if (!error) {
+    invalidatePlaylistListCache()
+    return { error: null }
+  }
+  const msg = error.message
+  if (msg.includes('PLAYLIST_NOT_FOUND')) return { error: new Error('הפלייליסט לא נמצא') }
+  if (msg.includes('AUTH_REQUIRED')) return { error: new Error('לא מחובר') }
+  return { error: new Error(msg) }
+}
+
+export async function reorderPlaylistVideosForChild(
+  accessToken: string,
+  playlistId: string,
+  orderedYoutubeVideoIds: string[]
+): Promise<{ error: Error | null }> {
+  const ids = orderedYoutubeVideoIds.map((id) => id.trim()).filter(Boolean)
+  const { error } = await supabase.rpc('child_playlist_reorder_videos', {
+    p_access_token: accessToken,
+    p_playlist_id: playlistId,
+    p_ordered_video_ids: ids,
+  })
+  if (!error) {
+    invalidatePlaylistListCache('kid', accessToken)
+    return { error: null }
+  }
+  const msg = error.message
+  if (msg.includes('PLAYLIST_NOT_FOUND')) return { error: new Error('הפלייליסט לא נמצא') }
+  if (msg.includes('INVALID_CHILD_TOKEN')) return { error: new Error('מכשיר לא מחובר') }
+  return { error: new Error(msg) }
 }

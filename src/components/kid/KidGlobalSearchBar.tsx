@@ -28,7 +28,7 @@ export const KidGlobalSearchBar = memo(function KidGlobalSearchBar({
       <div className="mb-2 text-right">
         <h3 className="text-sm font-bold leading-tight text-yt-text">חיפוש ב-YouTube</h3>
         <p className="mt-0.5 text-[11px] font-medium text-yt-textMuted">
-          חיפוש בכל YouTube — נדרש PIN הורה
+          חיפוש בכל YouTube — דברו או הקלידו (נדרש PIN הורה)
         </p>
       </div>
       <RtlSearchInput

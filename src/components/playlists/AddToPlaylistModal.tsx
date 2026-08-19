@@ -14,11 +14,13 @@ import {
   createPlaylistForUser,
   listPlaylistsForChild,
   listPlaylistsForUser,
+  peekCachedPlaylists,
   playlistIdsContainingVideo,
   playlistIdsContainingVideoForChild,
   removeVideoFromPlaylist,
   removeVideoFromPlaylistForChild,
 } from '../../lib/playlists'
+import { mapPool } from '../../lib/mapPool'
 import { cn } from '../../lib/utils'
 
 type Props = {
@@ -27,6 +29,8 @@ type Props = {
   mode: PlaylistMode
   userId: string | null
   childAccessToken: string | null
+  /** Preloaded list — modal opens instantly without waiting for network. */
+  initialPlaylists?: UserPlaylist[]
   /** Single video (legacy) or many videos for bulk add. Prefer `videos` when both set. */
   video?: PlaylistVideoPayload
   videos?: PlaylistVideoPayload[]
@@ -43,12 +47,48 @@ function dedupeVideos(list: PlaylistVideoPayload[]): PlaylistVideoPayload[] {
   return [...map.values()]
 }
 
+type SaveTask =
+  | { kind: 'add'; playlistId: string; video: PlaylistVideoPayload }
+  | { kind: 'remove'; playlistId: string; youtubeVideoId: string }
+
+async function runSaveTasks(
+  tasks: SaveTask[],
+  mode: PlaylistMode,
+  childAccessToken: string | null
+): Promise<{ failed: number; succeeded: number }> {
+  const results = await mapPool(tasks, 6, async (task) => {
+    if (task.kind === 'add') {
+      const res =
+        mode === 'parent'
+          ? await addVideoToPlaylistViaRpc(task.playlistId, task.video)
+          : childAccessToken
+            ? await addVideoToPlaylistForChild(childAccessToken, task.playlistId, task.video)
+            : { error: new Error('לא מחובר') }
+      return res.error ? 0 : 1
+    }
+    const res =
+      mode === 'parent'
+        ? await removeVideoFromPlaylist(task.playlistId, task.youtubeVideoId)
+        : childAccessToken
+          ? await removeVideoFromPlaylistForChild(
+              childAccessToken,
+              task.playlistId,
+              task.youtubeVideoId
+            )
+          : { error: new Error('לא מחובר') }
+    return res.error ? 0 : 1
+  })
+  const succeeded = results.reduce((sum, n) => sum + n, 0)
+  return { failed: tasks.length - succeeded, succeeded }
+}
+
 export function AddToPlaylistModal({
   open,
   onClose,
   mode,
   userId,
   childAccessToken,
+  initialPlaylists,
   video,
   videos,
   onSuccess,
@@ -62,7 +102,14 @@ export function AddToPlaylistModal({
   const isBulk = resolvedVideos.length > 1
   const primaryVideo = resolvedVideos[0] ?? null
 
-  const [playlists, setPlaylists] = useState<UserPlaylist[]>([])
+  const cacheKeyId = mode === 'parent' ? userId : childAccessToken
+  const seededPlaylists = useMemo(() => {
+    if (initialPlaylists && initialPlaylists.length > 0) return initialPlaylists
+    if (cacheKeyId) return peekCachedPlaylists(mode, cacheKeyId) ?? []
+    return []
+  }, [initialPlaylists, mode, cacheKeyId])
+
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>(seededPlaylists)
   const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const initialIdsRef = useRef<Set<string>>(new Set())
@@ -83,10 +130,12 @@ export function AddToPlaylistModal({
     setError(null)
     setFilterQuery('')
     setNewName('')
-    setLoading(true)
-    setPlaylists([])
     setSelectedIds(new Set())
     initialIdsRef.current = new Set()
+
+    const hasSeed = seededPlaylists.length > 0
+    setPlaylists(hasSeed ? seededPlaylists : [])
+    setLoading(!hasSeed)
 
     void (async () => {
       try {
@@ -109,7 +158,7 @@ export function AddToPlaylistModal({
         if (cancelled) return
 
         if (listResult.error) {
-          setError(listResult.error.message)
+          if (!hasSeed) setError(listResult.error.message)
           return
         }
 
@@ -118,7 +167,7 @@ export function AddToPlaylistModal({
         setSelectedIds(ids)
         initialIdsRef.current = ids
       } catch {
-        if (!cancelled) setError('טעינת פלייליסטים נכשלה')
+        if (!cancelled && !hasSeed) setError('טעינת פלייליסטים נכשלה')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -136,6 +185,7 @@ export function AddToPlaylistModal({
     primaryVideo?.youtube_video_id,
     membershipVideoId,
     isBulk,
+    seededPlaylists,
   ])
 
   const filteredPlaylists = useMemo(() => {
@@ -190,7 +240,23 @@ export function AddToPlaylistModal({
     }
   }
 
-  const handleSave = async () => {
+  const persistChanges = async (tasks: SaveTask[], successMessage: string) => {
+    onSuccess?.()
+    onClose()
+
+    const { failed, succeeded } = await runSaveTasks(tasks, mode, childAccessToken)
+    if (failed > 0 && succeeded === 0) {
+      toast.error('הוספה לפלייליסט נכשלה')
+      return
+    }
+    if (failed > 0) {
+      toast.warning(`${successMessage} (${failed} פעולות נכשלו)`)
+      return
+    }
+    toast.success(successMessage)
+  }
+
+  const handleSave = () => {
     if (resolvedVideos.length === 0) {
       setError('לא נבחרו סרטונים')
       return
@@ -203,36 +269,19 @@ export function AddToPlaylistModal({
         return
       }
 
-      setSaving(true)
-      setError(null)
-      let added = 0
-      let failed = 0
-
+      const tasks: SaveTask[] = []
       for (const pid of playlistIds) {
         for (const v of resolvedVideos) {
-          const res =
-            mode === 'parent'
-              ? await addVideoToPlaylistViaRpc(pid, v)
-              : childAccessToken
-                ? await addVideoToPlaylistForChild(childAccessToken, pid, v)
-                : { error: new Error('לא מחובר') }
-          if (res.error) failed += 1
-          else added += 1
+          tasks.push({ kind: 'add', playlistId: pid, video: v })
         }
       }
 
-      setSaving(false)
-      if (failed > 0 && added === 0) {
-        setError('הוספה לפלייליסט נכשלה')
-        return
-      }
-      toast.success(
-        failed > 0
-          ? `נוספו ${added} סרטונים (${failed} נכשלו)`
-          : `נוספו ${resolvedVideos.length} סרטונים לפלייליסט`
-      )
-      onSuccess?.()
-      onClose()
+      setSaving(true)
+      setError(null)
+      void persistChanges(
+        tasks,
+        `נוספו ${resolvedVideos.length} סרטונים לפלייליסט`
+      ).finally(() => setSaving(false))
       return
     }
 
@@ -247,41 +296,20 @@ export function AddToPlaylistModal({
       return
     }
 
+    const tasks: SaveTask[] = [
+      ...toAdd.map((pid) => ({ kind: 'add' as const, playlistId: pid, video: single })),
+      ...toRemove.map((pid) => ({
+        kind: 'remove' as const,
+        playlistId: pid,
+        youtubeVideoId: single.youtube_video_id,
+      })),
+    ]
+
     setSaving(true)
     setError(null)
-
-    for (const pid of toAdd) {
-      const res =
-        mode === 'parent'
-          ? await addVideoToPlaylistViaRpc(pid, single)
-          : childAccessToken
-            ? await addVideoToPlaylistForChild(childAccessToken, pid, single)
-            : { error: new Error('לא מחובר') }
-      if (res.error) {
-        setSaving(false)
-        setError(res.error.message)
-        return
-      }
-    }
-
-    for (const pid of toRemove) {
-      const res =
-        mode === 'parent'
-          ? await removeVideoFromPlaylist(pid, single.youtube_video_id)
-          : childAccessToken
-            ? await removeVideoFromPlaylistForChild(childAccessToken, pid, single.youtube_video_id)
-            : { error: new Error('לא מחובר') }
-      if (res.error) {
-        setSaving(false)
-        setError(res.error.message)
-        return
-      }
-    }
-
-    setSaving(false)
-    toast.success(toAdd.length > 0 && toRemove.length === 0 ? 'נוסף לפלייליסט' : 'הפלייליסט עודכן')
-    onSuccess?.()
-    onClose()
+    const message =
+      toAdd.length > 0 && toRemove.length === 0 ? 'נוסף לפלייליסט' : 'הפלייליסט עודכן'
+    void persistChanges(tasks, message).finally(() => setSaving(false))
   }
 
   const titleText = isBulk ? 'הוספה מרובה לפלייליסט' : 'הוסף לפלייליסט'
@@ -302,8 +330,8 @@ export function AddToPlaylistModal({
           </Button>
           <Button
             type="button"
-            onClick={() => void handleSave()}
-            disabled={saving || loading || resolvedVideos.length === 0}
+            onClick={handleSave}
+            disabled={saving || (loading && playlists.length === 0) || resolvedVideos.length === 0}
           >
             {saving ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
             {saving ? 'שומר…' : isBulk ? `הוסף ${resolvedVideos.length} סרטונים` : 'שמור'}
@@ -353,7 +381,7 @@ export function AddToPlaylistModal({
 
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
 
-      {loading ? (
+      {loading && playlists.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-8">
           <LoadingSpinner className="h-8 w-8 border-2 border-brand-500 border-t-transparent" />
           <span className="text-sm text-slate-600">טוען פלייליסטים…</span>

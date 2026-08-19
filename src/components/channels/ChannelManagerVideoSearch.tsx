@@ -14,6 +14,7 @@ import {
   PlaylistSelectCheckbox,
 } from '../playlists/PlaylistMultiSelectToolbar'
 import { useVideoMultiSelect } from '../../hooks/useVideoMultiSelect'
+import { VoiceMicButton } from '../search/VoiceMicButton'
 import {
   CHANNEL_MANAGER_SEARCH_INPUT_CLASS,
   CHANNEL_MANAGER_SEARCH_SHELL_CLASS,
@@ -168,7 +169,7 @@ export function ChannelManagerVideoSearch({
               else setOpen(true)
             }}
           >
-            חיפוש סרטונים
+            הוספת סרטונים
           </Button>
         </div>
       </div>
@@ -196,9 +197,16 @@ export function ChannelManagerVideoSearch({
                       submitSearch()
                     }
                   }}
-                  placeholder="הקלידו שם סרטון…"
+                  placeholder="דברו או הקלידו שם סרטון…"
                   aria-label="חיפוש סרטונים ב-YouTube"
                   className={CHANNEL_MANAGER_SEARCH_INPUT_CLASS}
+                />
+                <VoiceMicButton
+                  onResult={(spoken) => {
+                    setInput(spoken)
+                    void runSearch(spoken)
+                  }}
+                  className="h-12 w-12 shrink-0 self-end bg-zinc-800 text-zinc-100 hover:bg-zinc-700 sm:self-auto"
                 />
                 <button
                   type="button"

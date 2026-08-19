@@ -1,4 +1,5 @@
 import { isLocalParentSessionValid, readLocalParentSession } from './localParentAdmin'
+import { humanizeSupabaseError } from './supabaseErrorMessage'
 import { supabase } from './supabase'
 
 export type DeviceSettingsUpdate = {
@@ -101,7 +102,7 @@ export async function parentUpdateDeviceSettings(
           : null,
       p_hide_thumbnails: typeof updates.hideThumbnails === 'boolean' ? updates.hideThumbnails : null,
     })
-    if (error) return { data: null, error: new Error(error.message) }
+    if (error) return { data: null, error: new Error(humanizeSupabaseError(error.message)) }
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return { data: null, error: null }
     }
@@ -112,7 +113,7 @@ export async function parentUpdateDeviceSettings(
     'parent_update_device_settings',
     buildParentUpdateDeviceSettingsRpcArgs(deviceId, updates)
   )
-  if (error) return { data: null, error: new Error(error.message) }
+  if (error) return { data: null, error: new Error(humanizeSupabaseError(error.message)) }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return { data: null, error: null }
   }
