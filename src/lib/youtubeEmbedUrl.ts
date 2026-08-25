@@ -18,7 +18,7 @@ export function sanitizeYoutubeVideoId(raw: string): string | null {
 
 export function buildYoutubePrivacyEmbedUrl(
   videoId: string,
-  opts?: { origin?: string; autoplay?: boolean; host?: 'nocookie' | 'youtube' }
+  opts?: { origin?: string; autoplay?: boolean }
 ): string {
   const id = sanitizeYoutubeVideoId(videoId)
   if (!id) return ''
@@ -29,8 +29,6 @@ export function buildYoutubePrivacyEmbedUrl(
     iv_load_policy: '3',
     playsinline: '1',
     enablejsapi: '0',
-    fs: '0',
-    disablekb: '1',
   })
 
   // Autoplay for instant playback the moment the player mounts on tap.
@@ -44,8 +42,5 @@ export function buildYoutubePrivacyEmbedUrl(
     params.set('origin', origin)
   }
 
-  params.set('widget_referrer', 'https://www.youtube.com/')
-
-  const host = opts?.host === 'youtube' ? 'www.youtube.com' : 'www.youtube-nocookie.com'
-  return `https://${host}/embed/${encodeURIComponent(id)}?${params.toString()}`
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${params.toString()}`
 }
