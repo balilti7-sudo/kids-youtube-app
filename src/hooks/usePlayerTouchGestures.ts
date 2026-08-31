@@ -7,8 +7,13 @@ import {
 } from '../lib/requestElementFullscreen'
 import { requestPlayerChromeBump, requestPlayerChromeHold, requestPlayerChromeRelease, requestPlayerChromeToggle } from './useAutoHidePlayerChrome'
 import { lockPlayerOrientation, unlockPlayerOrientationSafe } from '../lib/playerOrientation'
-import { isPlayerExpanded, setPlayerTheaterActive } from '../lib/playerTheater'
 import { requestChromeOffsetRefresh } from '../lib/chromeOffset'
+import {
+  enterLongVideoTheater,
+  enterShortVideoTheater,
+  exitPlayerTheater,
+  isPlayerExpanded,
+} from '../lib/playerTheater'
 
 export const PLAYER_GESTURE_SEEK_STEP_SEC = 10
 export const PLAYER_GESTURE_DOUBLE_TAP_MS = 320
@@ -42,8 +47,16 @@ async function unlockOrientationIfPossible(): Promise<void> {
   await unlockPlayerOrientationSafe()
 }
 
-/** Short/vertical watch surface stays portrait when expanded (9:16, not landscape). */
-function isShortWatchSurface(root?: HTMLElement | null, video?: HTMLVideoElement | null): boolean {
+type ExpandTarget = {
+  video?: HTMLVideoElement | null
+  root?: HTMLElement | null
+}
+
+/**
+ * Detect short watch surface from DOM only.
+ * Used by the thin router — long/short enter paths do not share orientation logic.
+ */
+export function isShortWatchSurface(root?: HTMLElement | null, video?: HTMLVideoElement | null): boolean {
   const el = root ?? video
   if (!el) {
     return Boolean(
@@ -96,10 +109,11 @@ async function waitForViewportSettle(): Promise<void> {
   })
 }
 
-export async function enterPlayerGestureFullscreen(opts: {
-  video?: HTMLVideoElement | null
-  root?: HTMLElement | null
-}): Promise<void> {
+/**
+ * Long-form expand only: landscape lock + long theater + optional native <video> FS.
+ * Does not share orientation / theater flags with the short path.
+ */
+export async function enterLongVideoExpand(opts: ExpandTarget): Promise<void> {
   if (isPlayerExpanded()) {
     requestChromeOffsetRefresh()
     requestPlayerChromeBump()
@@ -107,28 +121,19 @@ export async function enterPlayerGestureFullscreen(opts: {
   }
   const video = opts.video
   const root = opts.root
-  const shortSurface = isShortWatchSurface(root, video)
 
-  // Orientation is best-effort — failure must not block theater.
   try {
-    if (shortSurface) {
-      await lockPlayerOrientation('portrait')
-      await waitForViewportSettle()
-    } else {
-      await lockPlayerOrientation('landscape')
-      await waitForViewportSettle()
-    }
+    await lockPlayerOrientation('landscape')
+    await waitForViewportSettle()
   } catch {
     /* continue — class theater still fills the viewport */
   }
 
-  // Class theater fills the real viewport even when WebView fullscreen is a no-op.
-  setPlayerTheaterActive(true, root, { portrait: shortSurface })
+  enterLongVideoTheater(root)
   requestPlayerChromeHold()
 
   try {
-    // Native <video> fullscreen on Android often forces landscape — never for Shorts.
-    if (video && !shortSurface) {
+    if (video) {
       try {
         await enterNativeVideoFullscreen(video)
         return
@@ -140,7 +145,7 @@ export async function enterPlayerGestureFullscreen(opts: {
       try {
         await enterElementFullscreen(root)
       } catch {
-        /* theater class already active — usable fallback */
+        /* long theater class already active — usable fallback */
       }
     }
   } finally {
@@ -150,10 +155,59 @@ export async function enterPlayerGestureFullscreen(opts: {
   }
 }
 
+/**
+ * Short expand only: portrait lock + short theater.
+ * Never uses native <video> fullscreen (Android forces landscape).
+ */
+export async function enterShortVideoExpand(opts: ExpandTarget): Promise<void> {
+  if (isPlayerExpanded()) {
+    requestChromeOffsetRefresh()
+    requestPlayerChromeBump()
+    return
+  }
+  const root = opts.root
+
+  try {
+    await lockPlayerOrientation('portrait')
+    await waitForViewportSettle()
+  } catch {
+    /* continue — class theater still fills the viewport */
+  }
+
+  enterShortVideoTheater(root)
+  requestPlayerChromeHold()
+
+  try {
+    if (root) {
+      try {
+        await enterElementFullscreen(root)
+      } catch {
+        /* short theater class already active — usable fallback */
+      }
+    }
+  } finally {
+    requestPlayerChromeRelease()
+    requestChromeOffsetRefresh()
+    requestPlayerChromeBump()
+  }
+}
+
+/**
+ * Thin router for existing call sites (CleanPlayer / gestures).
+ * Detection happens once; then a dedicated long or short machine runs.
+ */
+export async function enterPlayerGestureFullscreen(opts: ExpandTarget): Promise<void> {
+  if (isShortWatchSurface(opts.root, opts.video)) {
+    await enterShortVideoExpand(opts)
+    return
+  }
+  await enterLongVideoExpand(opts)
+}
+
 export async function exitPlayerGestureFullscreen(): Promise<void> {
   requestPlayerChromeHold()
   try {
-    setPlayerTheaterActive(false)
+    exitPlayerTheater()
   } catch {
     /* ignore */
   }

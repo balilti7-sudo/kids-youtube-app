@@ -3,6 +3,9 @@
  * Android WebView often accepts requestFullscreen() without actually
  * promoting the player to the screen, so :fullscreen CSS never fills.
  * html.safetube-theater is the reliable viewport contract.
+ *
+ * Long vs Short are separate expand modes (not a single portrait flag):
+ * each sets its own orientation-facing CSS class and tracked mode.
  */
 import { isDocumentFullscreen } from './requestElementFullscreen'
 import { requestChromeOffsetRefresh } from './chromeOffset'
@@ -10,11 +13,19 @@ import { requestPlayerChromeBump } from '../hooks/useAutoHidePlayerChrome'
 import { unlockPlayerOrientationSafe } from './playerOrientation'
 
 const THEATER_CLASS = 'safetube-theater'
-const THEATER_PORTRAIT_CLASS = 'safetube-theater-portrait'
+/** Long-form expand (16:9 / landscape-facing). */
+const THEATER_LONG_CLASS = 'safetube-theater-long'
+/** Short expand (9:16 / portrait-facing). */
+const THEATER_SHORT_CLASS = 'safetube-theater-short'
+/** Legacy alias kept so older CSS selectors still match short expand. */
+const THEATER_PORTRAIT_LEGACY_CLASS = 'safetube-theater-portrait'
+
+export type PlayerExpandMode = 'long' | 'short'
 
 /** True only after native document fullscreen actually engaged for this expand session. */
 let nativeFullscreenEngaged = false
 let recoveryInstalled = false
+let activeExpandMode: PlayerExpandMode | null = null
 
 export function isPlayerTheaterActive(): boolean {
   return typeof document !== 'undefined' && document.documentElement.classList.contains(THEATER_CLASS)
@@ -24,32 +35,88 @@ export function isPlayerExpanded(): boolean {
   return isDocumentFullscreen() || isPlayerTheaterActive()
 }
 
+/** Which expand machine is active (null when collapsed). */
+export function getPlayerExpandMode(): PlayerExpandMode | null {
+  return activeExpandMode
+}
+
+function clearModeClasses(target: HTMLElement): void {
+  target.classList.remove(THEATER_LONG_CLASS, THEATER_SHORT_CLASS, THEATER_PORTRAIT_LEGACY_CLASS)
+}
+
+function applyExpandMode(mode: PlayerExpandMode): void {
+  const html = document.documentElement
+  const body = document.body
+  clearModeClasses(html)
+  clearModeClasses(body)
+  if (mode === 'long') {
+    html.classList.add(THEATER_LONG_CLASS)
+    body.classList.add(THEATER_LONG_CLASS)
+  } else {
+    html.classList.add(THEATER_SHORT_CLASS, THEATER_PORTRAIT_LEGACY_CLASS)
+    body.classList.add(THEATER_SHORT_CLASS, THEATER_PORTRAIT_LEGACY_CLASS)
+  }
+}
+
+function clearTheaterDom(root?: HTMLElement | null): void {
+  document.documentElement.classList.remove(THEATER_CLASS)
+  document.body.classList.remove(THEATER_CLASS)
+  clearModeClasses(document.documentElement)
+  clearModeClasses(document.body)
+  if (root) root.classList.remove('safetube-theater-root')
+  document.querySelectorAll('.safetube-theater-root').forEach((el) => {
+    el.classList.remove('safetube-theater-root')
+  })
+  nativeFullscreenEngaged = false
+  activeExpandMode = null
+}
+
+function enterTheaterMode(mode: PlayerExpandMode, root?: HTMLElement | null): void {
+  if (typeof document === 'undefined') return
+  installPlayerTheaterRecovery()
+  activeExpandMode = mode
+  document.documentElement.classList.add(THEATER_CLASS)
+  document.body.classList.add(THEATER_CLASS)
+  applyExpandMode(mode)
+  if (root) root.classList.add('safetube-theater-root')
+  requestChromeOffsetRefresh()
+  requestPlayerChromeBump()
+}
+
+/** Long-form expand theater — landscape-facing 16:9 letterbox contract. */
+export function enterLongVideoTheater(root?: HTMLElement | null): void {
+  enterTheaterMode('long', root)
+}
+
+/** Short expand theater — portrait-facing 9:16 contract. */
+export function enterShortVideoTheater(root?: HTMLElement | null): void {
+  enterTheaterMode('short', root)
+}
+
+/** Exit whichever expand machine is active. */
+export function exitPlayerTheater(): void {
+  if (typeof document === 'undefined') return
+  installPlayerTheaterRecovery()
+  clearTheaterDom()
+  requestChromeOffsetRefresh()
+  requestPlayerChromeBump()
+}
+
+/**
+ * @deprecated Prefer enterLongVideoTheater / enterShortVideoTheater / exitPlayerTheater.
+ * Kept so older call sites that pass a portrait flag keep compiling during the split.
+ */
 export function setPlayerTheaterActive(
   on: boolean,
   root?: HTMLElement | null,
   opts?: { portrait?: boolean }
 ): void {
-  if (typeof document === 'undefined') return
-  installPlayerTheaterRecovery()
-  document.documentElement.classList.toggle(THEATER_CLASS, on)
-  document.body.classList.toggle(THEATER_CLASS, on)
-  const portrait = Boolean(on && opts?.portrait)
-  document.documentElement.classList.toggle(THEATER_PORTRAIT_CLASS, portrait)
-  document.body.classList.toggle(THEATER_PORTRAIT_CLASS, portrait)
-  if (root) {
-    root.classList.toggle('safetube-theater-root', on)
-  }
   if (!on) {
-    nativeFullscreenEngaged = false
-    document.documentElement.classList.remove(THEATER_PORTRAIT_CLASS)
-    document.body.classList.remove(THEATER_PORTRAIT_CLASS)
-    document.querySelectorAll('.safetube-theater-root').forEach((el) => {
-      el.classList.remove('safetube-theater-root')
-    })
+    exitPlayerTheater()
+    return
   }
-  // Keep measured chrome + auto-hide in sync with expand / collapse.
-  requestChromeOffsetRefresh()
-  requestPlayerChromeBump()
+  if (opts?.portrait) enterShortVideoTheater(root)
+  else enterLongVideoTheater(root)
 }
 
 /**
@@ -86,7 +153,7 @@ export function installPlayerTheaterRecovery(): void {
       return
     }
     // External FS exit while class theater still on → full recovery.
-    setPlayerTheaterActive(false)
+    exitPlayerTheater()
     void unlockPlayerOrientationSafe()
   }
 

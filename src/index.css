@@ -335,8 +335,9 @@
 
   /**
    * Fullscreen Theater — class (html.safetube-theater) OR native :fullscreen.
-   * WebView often fails to promote :fullscreen; the class fills the real viewport
-   * for both long (landscape) and short (portrait) Expand.
+   * WebView often fails to promote :fullscreen; the class fills the real viewport.
+   * Long (`safetube-theater-long`) and Short (`safetube-theater-short`) are separate
+   * expand modes — do not share one portrait flag for both.
    * Desktop Watch "theaterMode" (sidebar stack) is a separate concept — do not conflate.
    */
   html.safetube-theater,
@@ -427,9 +428,10 @@
    * Shorts lane shell is z-120; MiniPlayer shell is z-90 (outside stage).
    */
 
-  html.safetube-theater .safetube-player-stage,
-  .safetube-player-root:fullscreen .safetube-player-stage,
-  .safetube-player-root:-webkit-full-screen .safetube-player-stage {
+  /* Long expand stage: 16:9 contained in the visible viewport. */
+  html.safetube-theater.safetube-theater-long .safetube-player-stage,
+  html.safetube-theater-long .safetube-player-root:fullscreen .safetube-player-stage,
+  html.safetube-theater-long .safetube-player-root:-webkit-full-screen .safetube-player-stage {
     position: absolute !important;
     inset: auto !important;
     top: 50% !important;
@@ -439,19 +441,32 @@
     min-height: 0 !important;
     aspect-ratio: unset !important;
     transform: translate(-50%, -50%) !important;
-    /* Landscape contain: 16:9 inside the visible box — no overscan crop. */
     width: min(100%, calc(100svh * 16 / 9)) !important;
     height: min(100%, calc(100svw * 9 / 16)) !important;
     max-width: 100% !important;
     max-height: 100% !important;
   }
 
-  /* Vertical Short expand: 9:16 contained in the visible viewport. */
+  /* Short expand stage: 9:16 contained (never landscape strip). */
+  html.safetube-theater.safetube-theater-short .safetube-player-stage,
+  html.safetube-theater-short .safetube-player-root:fullscreen .safetube-player-stage,
+  html.safetube-theater-short .safetube-player-root:-webkit-full-screen .safetube-player-stage,
   html.safetube-theater.safetube-theater-portrait .safetube-player-stage,
   html.safetube-theater-portrait .safetube-player-root:fullscreen .safetube-player-stage,
   html.safetube-theater-portrait .safetube-player-root:-webkit-full-screen .safetube-player-stage {
+    position: absolute !important;
+    inset: auto !important;
+    top: 50% !important;
+    left: 50% !important;
+    flex: none !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    aspect-ratio: unset !important;
+    transform: translate(-50%, -50%) !important;
     width: min(100%, calc(100svh * 9 / 16)) !important;
     height: min(100%, calc(100svw * 16 / 9)) !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
   }
 
   html.safetube-theater .safetube-player-chrome,
