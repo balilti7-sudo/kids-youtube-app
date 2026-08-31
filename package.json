@@ -1,7 +1,7 @@
 {
   "name": "safetube",
   "private": true,
-  "version": "1.1.23",
+  "version": "1.1.68",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,6 +23,7 @@
     "@capacitor/browser": "^8.0.4",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
+    "@capgo/capacitor-speech-recognition": "^8.1.11",
     "@hookform/resolvers": "^3.9.1",
     "@supabase/supabase-js": "^2.47.10",
     "@videojs/http-streaming": "^3.17.4",

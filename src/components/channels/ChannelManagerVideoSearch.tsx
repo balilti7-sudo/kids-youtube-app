@@ -31,6 +31,8 @@ type Props = {
   onOpenRequest?: () => void
   /** Increment after PIN verification to open the modal. */
   openSignal?: number
+  /** Drop the outer gray shell — used for embedded empty-state CTAs. */
+  compactTrigger?: boolean
 }
 
 function filterValidSearchResults(data: YouTubeVideoResult[] | null | undefined): YouTubeVideoResult[] {
@@ -47,6 +49,7 @@ export function ChannelManagerVideoSearch({
   className,
   onOpenRequest,
   openSignal = 0,
+  compactTrigger = false,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -160,7 +163,7 @@ export function ChannelManagerVideoSearch({
   return (
     <>
       <div className={cn('w-full', className)}>
-        <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
+        {compactTrigger ? (
           <Button
             type="button"
             className={CHANNEL_MANAGER_SEARCH_CONTROL_CLASS}
@@ -171,7 +174,20 @@ export function ChannelManagerVideoSearch({
           >
             הוספת סרטונים
           </Button>
-        </div>
+        ) : (
+          <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
+            <Button
+              type="button"
+              className={CHANNEL_MANAGER_SEARCH_CONTROL_CLASS}
+              onClick={() => {
+                if (onOpenRequest) onOpenRequest()
+                else setOpen(true)
+              }}
+            >
+              הוספת סרטונים
+            </Button>
+          </div>
+        )}
       </div>
 
       <Modal
@@ -180,11 +196,7 @@ export function ChannelManagerVideoSearch({
         title="חיפוש סרטונים"
         bodyClassName="max-h-[56svh] overflow-y-auto"
         toolbar={
-          <>
-            <p className="mb-3 text-sm text-zinc-400">
-              חפשו ב-YouTube והוסיפו סרטונים לפלייליסט (Enter או כפתור החיפוש). אפשר גם לבחור כמה סרטונים יחד.
-            </p>
-            <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
+          <div className={CHANNEL_MANAGER_SEARCH_SHELL_CLASS}>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   type="search"
@@ -197,7 +209,7 @@ export function ChannelManagerVideoSearch({
                       submitSearch()
                     }
                   }}
-                  placeholder="דברו או הקלידו שם סרטון…"
+                  placeholder="שם סרטון…"
                   aria-label="חיפוש סרטונים ב-YouTube"
                   className={CHANNEL_MANAGER_SEARCH_INPUT_CLASS}
                 />
@@ -225,7 +237,6 @@ export function ChannelManagerVideoSearch({
                 </button>
               </div>
             </div>
-          </>
         }
         footer={
           <Button type="button" variant="secondary" onClick={handleClose}>

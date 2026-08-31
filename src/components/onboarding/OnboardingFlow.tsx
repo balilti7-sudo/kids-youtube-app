@@ -24,10 +24,10 @@ import { ErrorState } from '../ui/ErrorState'
 type Phase = 'action' | 'value'
 
 /**
- * Steps 2–3 after email auth:
+ * Steps after auth (legacy path if onboarding still incomplete):
  * - Auto-create a default child profile
- * - Search & approve a first channel (core value)
- * - Show success + optional PIN later
+ * - Search & approve a first channel
+ * - Continue to parent PIN if missing, else dashboard
  */
 export function OnboardingFlow() {
   const { t } = useTranslation()
@@ -157,14 +157,14 @@ export function OnboardingFlow() {
     }
   }
 
-  const finish = async (opts?: { goPin?: boolean; goKid?: boolean }) => {
+  const finish = async (opts?: { goKid?: boolean }) => {
     if (!user) return
     setFinishing(true)
     try {
       await supabase.from('profiles').update({ onboarding_done: true }).eq('id', user.id)
       await refreshProfile()
       setSkipParentalManagementGateOnce()
-      if (opts?.goPin && isProfileParentPinMissing(profile)) {
+      if (isProfileParentPinMissing(profile)) {
         navigate('/set-parent-pin', { replace: true })
         return
       }
@@ -322,26 +322,21 @@ export function OnboardingFlow() {
                 disabled={finishing}
                 onClick={() => void finish()}
               >
-                {finishing ? t('onboarding.saving') : t('onboarding.finishToDashboard')}
+                {finishing
+                  ? t('onboarding.saving')
+                  : isProfileParentPinMissing(profile)
+                    ? t('onboarding.continueToPin')
+                    : t('onboarding.finishToDashboard')}
               </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full"
-                disabled={finishing}
-                onClick={() => void finish({ goKid: true })}
-              >
-                {t('onboarding.openKidMode')}
-              </Button>
-              {isProfileParentPinMissing(profile) ? (
+              {!isProfileParentPinMissing(profile) ? (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="secondary"
                   className="w-full"
                   disabled={finishing}
-                  onClick={() => void finish({ goPin: true })}
+                  onClick={() => void finish({ goKid: true })}
                 >
-                  {t('onboarding.setPinOptional')}
+                  {t('onboarding.openKidMode')}
                 </Button>
               ) : null}
               <button

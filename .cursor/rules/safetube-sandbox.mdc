@@ -1,3 +1,8 @@
+---
+description: SafeTube sandbox — no external YouTube exposure from kid UI
+alwaysApply: true
+---
+
 # SafeTube sandbox — no external YouTube exposure
 
 SafeTube is a child-safe sandbox. **Never** link, redirect, or fall back to the official YouTube app or youtube.com watch/channel pages from kid-facing UI.
@@ -5,14 +10,13 @@ SafeTube is a child-safe sandbox. **Never** link, redirect, or fall back to the 
 ## Required behavior
 
 1. **In-app navigation only** — Channel logos, titles, cards, and search results must open content inside SafeTube routes/components (`KidModePage`, `ChannelsPage`, playlists). Use callbacks (`onChannelClick`, `handleSelectVideo`), not `<a href="https://youtube.com/...">`.
-2. **No YouTube branding in the player chrome** — Use `YoutubeEmbedBrandingShield` on embed players. Keep `modestbranding=1`, `rel=0`, `fs=0` in embed params.
-3. **Block escape hatches** — `installSafeTubeSandboxGuards()` in `main.tsx`; Android `MainActivity` wraps `BridgeWebViewClient` / `BridgeWebChromeClient` to block main-frame YouTube URLs and `window.open` popups from the embed.
-4. **Playback path unchanged** — Android still uses `CleanPlayerYoutubeIframe` + YouTube IFrame API (`youtube.com/embed`). Do not switch to raw googlevideo/HLS in WebView.
+2. **Block escape hatches** — `installSafeTubeSandboxGuards()` in `main.tsx`; Android `MainActivity` wraps `BridgeWebViewClient` / `BridgeWebChromeClient` to block main-frame YouTube URLs and `window.open` popups.
+3. **Playback path frozen** — Android uses `CleanPlayerMediaBridge` + native `<video>` + HLS (1.1.13). Do **not** switch to YouTube IFrame API or custom embed controls during sandbox or feature work. See `protect-playback.mdc`.
 
 ## Before adding UI that touches channels or videos
 
-- Does this click open an external URL, `window.open`, `Browser.open`, or `AppLauncher` for YouTube? → Remove or gate to parent-only flows (e.g. OS block toggle).
-- Does this add an `<iframe>` without branding shields? → Add `YoutubeEmbedBrandingShield`.
-- Does this add WebView URL handling? → Delegate to Capacitor's client and block via `SafeTubeUrlGuard`.
+- Does this click open an external URL, `window.open`, `Browser.open`, or `AppLauncher` for YouTube? → Remove or gate to parent-only flows.
+- Does this edit `CleanPlayer`, `streamApi`, or `MainActivity` media logic? → **Stop.** Playback is sacred.
+- Does this add WebView URL handling? → Delegate to Capacitor's client and block via `SafeTubeUrlGuard` only for navigation — not for media bytes.
 
 Parent-only flows (auth, WhatsApp support, deliberate “open YouTube” unblock) are exempt when explicitly labeled for parents.

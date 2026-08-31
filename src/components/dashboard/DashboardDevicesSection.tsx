@@ -9,17 +9,6 @@ import { ErrorState } from '../ui/ErrorState'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../../types'
 
-function formatLimitBrief(minutes: number | undefined, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  const n = Number(minutes ?? 60)
-  if (!Number.isFinite(n) || n < 0) return t('timeLimit.minutesAbbr', { count: 60 })
-  if (n === 0) return t('timeLimit.unlimited')
-  if (n < 60) return t('timeLimit.minutesAbbr', { count: Math.round(n) })
-  const h = Math.floor(n / 60)
-  const m = Math.round(n % 60)
-  if (m === 0) return t('timeLimit.hoursAbbr', { count: h })
-  return t('timeLimit.hoursMinutesAbbr', { hours: h, minutes: m })
-}
-
 function ProfileDeviceCard({
   device,
   onManageChannels,
@@ -28,15 +17,7 @@ function ProfileDeviceCard({
   onManageChannels: (deviceId: string) => void
 }) {
   const { t } = useTranslation()
-  const limitLabel = formatLimitBrief(device.daily_time_limit_minutes, t)
-  const shortsLabel = device.allow_shorts ? t('shorts.allowOn') : t('shorts.allowOff')
-  const thumbsLabel = device.hide_thumbnails ? t('thumbnails.summaryHidden') : t('thumbnails.summaryShown')
-  const youtubeLabel = device.block_youtube_app
-    ? t('parentalOs.summaryYoutubeOn')
-    : t('parentalOs.summaryYoutubeOff')
-  const browserLabel = device.browser_filter_enabled
-    ? t('parentalOs.summaryBrowserOn')
-    : t('parentalOs.summaryBrowserOff')
+  const channelCount = device.channel_count ?? 0
 
   return (
     <li className="rounded-2xl border border-zinc-700/80 bg-zinc-950/70 p-3.5 ring-1 ring-zinc-800/60 sm:p-4">
@@ -51,7 +32,7 @@ function ProfileDeviceCard({
           <span className="min-w-0 flex-1">
             <span className="block truncate text-base font-semibold text-zinc-50">{device.name}</span>
             <span className="mt-1 block text-xs leading-relaxed text-zinc-500 sm:truncate">
-              {limitLabel} · {shortsLabel} · {thumbsLabel} · {youtubeLabel} · {browserLabel}
+              {channelCount === 0 ? 'אין ערוצים עדיין' : `${channelCount} ערוצים מאושרים`}
             </span>
           </span>
         </div>

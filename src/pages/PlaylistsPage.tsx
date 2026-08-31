@@ -6,17 +6,25 @@ import { usePlaylists } from '../hooks/usePlaylists'
 import type { PlaylistVideo, UserPlaylist } from '../lib/playlists'
 import { deletePlaylistForUser } from '../lib/playlists'
 import { clearActivePlaylistIdIfMatches, getSavedActivePlaylistId, saveActivePlaylistId } from '../lib/activePlaylistSelection'
-import { CleanPlayer } from '../components/player/CleanPlayer'
+import { ChildWatchPlayerShell } from '../components/kid/ChildWatchPlayerShell'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { AddToPlaylistButton } from '../components/playlists/AddToPlaylistButton'
+import { PlaylistTabVideoSearch } from '../components/playlists/PlaylistTabVideoSearch'
 import { PlaylistQueueHint, PlaylistQueueRow, type PlaylistBlockConfig } from '../components/playlists/PlaylistQueueRow'
 import { VideoThumbWithQuickBlock } from '../components/video/VideoThumbWithQuickBlock'
 import { useHideVideoContext } from '../hooks/useHideVideoContext'
 import { usePlaylistQueueHandlers } from '../hooks/usePlaylistQueueHandlers'
 import { cn } from '../lib/utils'
+import { scrollPlayerIntoViewForWatch } from '../lib/scrollPlayerIntoView'
+import { classifyWatchFormat } from '../lib/childContentSafety'
 import { toast } from 'sonner'
+import {
+  appendPlaylistVideoIfMissing,
+  PLAYLIST_VIDEO_ADDED_EVENT,
+  type PlaylistVideoAddedDetail,
+} from '../lib/playlistEvents'
 
 export function PlaylistsPage() {
   const { user } = useAuth()
@@ -36,6 +44,7 @@ export function PlaylistsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const loadRequestRef = useRef(0)
+  const playerAnchorRef = useRef<HTMLDivElement>(null)
   const hideVideoCtx = useHideVideoContext()
 
   const blockConfig = useMemo((): PlaylistBlockConfig | null => {
@@ -110,6 +119,18 @@ export function PlaylistsPage() {
   }, [])
 
   useEffect(() => {
+    const onAdded = (event: Event) => {
+      const detail = (event as CustomEvent<PlaylistVideoAddedDetail>).detail
+      if (!detail?.video || !selectedId) return
+      if (!detail.playlistIds.includes(selectedId)) return
+      setVideos((prev) => appendPlaylistVideoIfMissing(prev, detail.video))
+      void refresh()
+    }
+    window.addEventListener(PLAYLIST_VIDEO_ADDED_EVENT, onAdded)
+    return () => window.removeEventListener(PLAYLIST_VIDEO_ADDED_EVENT, onAdded)
+  }, [selectedId, refresh])
+
+  useEffect(() => {
     if (playlists.length === 0) return
     const saved = getSavedActivePlaylistId()
     if (saved && playlists.some((p) => p.id === saved)) {
@@ -152,7 +173,6 @@ export function PlaylistsPage() {
     }
     setNewName('')
     setCreateOpen(false)
-    await refresh()
     if (data?.id) selectPlaylist(data.id)
   }
 
@@ -189,6 +209,11 @@ export function PlaylistsPage() {
     if (activeIndex <= 0) return
     setActiveVideoId(videos[activeIndex - 1].youtube_video_id)
   }
+
+  const playQueueVideo = useCallback((videoId: string) => {
+    setActiveVideoId(videoId)
+    scrollPlayerIntoViewForWatch(playerAnchorRef.current)
+  }, [])
 
   if (!userId) {
     return (
@@ -261,6 +286,19 @@ export function PlaylistsPage() {
         ) : null}
       </section>
 
+      {playlists.length > 0 ? (
+        <PlaylistTabVideoSearch
+          className="mb-4"
+          mode="parent"
+          userId={userId}
+          childAccessToken={null}
+          initialPlaylists={playlists}
+          preferredPlaylistId={selectedId}
+          preferredPlaylistName={selected?.name ?? null}
+          defaultExpanded={false}
+        />
+      ) : null}
+
       {playlistsLoading && playlists.length === 0 ? (
         <div className="flex justify-center py-16">
           <LoadingSpinner className="h-9 w-9 border-2 border-brand-500 border-t-transparent" />
@@ -320,20 +358,25 @@ export function PlaylistsPage() {
               </p>
             ) : active ? (
               <div className="space-y-3">
-                <div className="relative overflow-hidden rounded-xl bg-black pt-[56.25%]">
-                  <div className="absolute inset-0">
-                    <CleanPlayer
-                      key={active.youtube_video_id}
-                      videoId={active.youtube_video_id}
-                      title={active.title}
-                      channelTitle={active.channel_name ?? undefined}
-                      posterUrl={active.thumbnail_url}
-                      onNextTrack={goNext}
-                      onPreviousTrack={goPrev}
-                      hasNextTrack={hasNext}
-                      className="h-full w-full"
-                    />
-                  </div>
+                <div
+                  ref={playerAnchorRef}
+                  className="scroll-mt-chrome w-full"
+                  data-safetube-player
+                >
+                  <ChildWatchPlayerShell
+                    videoId={active.youtube_video_id}
+                    title={active.title}
+                    channelTitle={active.channel_name ?? undefined}
+                    posterUrl={active.thumbnail_url}
+                    format={classifyWatchFormat({
+                      youtubeVideoId: active.youtube_video_id,
+                      title: active.title,
+                      thumbnail: active.thumbnail_url,
+                    })}
+                    onNextTrack={goNext}
+                    onPreviousTrack={goPrev}
+                    hasNextTrack={hasNext}
+                  />
                 </div>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <h2 className="text-base font-bold text-slate-900 dark:text-zinc-50">{active.title}</h2>
@@ -351,24 +394,6 @@ export function PlaylistsPage() {
                     }}
                     compact
                     onAdded={() => {
-                      if (!selected) return
-                      setVideos((prev) => {
-                        if (prev.some((v) => v.youtube_video_id === active.youtube_video_id)) {
-                          return prev
-                        }
-                        return [
-                          ...prev,
-                          {
-                            youtube_video_id: active.youtube_video_id,
-                            title: active.title,
-                            thumbnail_url: active.thumbnail_url,
-                            youtube_channel_id: active.youtube_channel_id,
-                            channel_name: active.channel_name,
-                            video_order: prev.length + 1,
-                            created_at: new Date().toISOString(),
-                          },
-                        ]
-                      })
                       void refresh()
                     }}
                   />
@@ -383,7 +408,7 @@ export function PlaylistsPage() {
                         isFirst={index === 0}
                         isLast={index === videos.length - 1}
                         reordering={queueHandlers.reordering}
-                        onSelect={() => setActiveVideoId(v.youtube_video_id)}
+                        onSelect={() => playQueueVideo(v.youtube_video_id)}
                         onRemove={() => queueHandlers.handleRemove(v.youtube_video_id)}
                         onMoveUp={() => queueHandlers.handleMoveUp(index)}
                         onMoveDown={() => queueHandlers.handleMoveDown(index)}

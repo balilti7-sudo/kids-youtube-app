@@ -9,6 +9,7 @@ import {
   listPlaylistVideosForChild,
   listPlaylistsForChild,
   listPlaylistsForUser,
+  peekStaleCachedPlaylists,
   playlistIdsContainingVideo,
   playlistIdsContainingVideoForChild,
   removeVideoFromPlaylist,
@@ -16,6 +17,10 @@ import {
   reorderPlaylistVideos,
   reorderPlaylistVideosForChild,
 } from '../lib/playlists'
+import {
+  PLAYLIST_VIDEO_ADDED_EVENT,
+  type PlaylistVideoAddedDetail,
+} from '../lib/playlistEvents'
 
 export type PlaylistMode = 'parent' | 'kid'
 
@@ -25,8 +30,15 @@ export function usePlaylists(opts: {
   childAccessToken: string | null
 }) {
   const { mode, userId, childAccessToken } = opts
-  const [playlists, setPlaylists] = useState<UserPlaylist[]>([])
-  const [loading, setLoading] = useState(false)
+  const cacheKeyId = mode === 'parent' ? userId : childAccessToken
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>(() => {
+    if (!cacheKeyId) return []
+    return peekStaleCachedPlaylists(mode, cacheKeyId) ?? []
+  })
+  const [loading, setLoading] = useState(() => {
+    if (!cacheKeyId) return false
+    return (peekStaleCachedPlaylists(mode, cacheKeyId)?.length ?? 0) === 0
+  })
   const playlistsRef = useRef(playlists)
   playlistsRef.current = playlists
 
@@ -34,8 +46,16 @@ export function usePlaylists(opts: {
     mode === 'parent' ? Boolean(userId) : Boolean(childAccessToken)
 
   const refresh = useCallback(async () => {
-    if (!canLoad) return
-    setLoading((prev) => (playlistsRef.current.length === 0 ? true : prev))
+    if (!canLoad || !cacheKeyId) return
+
+    const stale = peekStaleCachedPlaylists(mode, cacheKeyId)
+    if (stale && stale.length > 0) {
+      setPlaylists(stale)
+      setLoading(false)
+    } else if (playlistsRef.current.length === 0) {
+      setLoading(true)
+    }
+
     try {
       if (mode === 'parent' && userId) {
         const { data, error } = await listPlaylistsForUser(userId)
@@ -51,30 +71,55 @@ export function usePlaylists(opts: {
     } finally {
       setLoading(false)
     }
-  }, [canLoad, mode, userId, childAccessToken])
+  }, [canLoad, cacheKeyId, mode, userId, childAccessToken])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
+  useEffect(() => {
+    const onAdded = (event: Event) => {
+      const detail = (event as CustomEvent<PlaylistVideoAddedDetail>).detail
+      if (!detail?.playlistIds?.length) return
+      const ids = new Set(detail.playlistIds)
+      setPlaylists((prev) =>
+        prev.map((pl) =>
+          ids.has(pl.id) ? { ...pl, video_count: pl.video_count + 1, updated_at: new Date().toISOString() } : pl
+        )
+      )
+    }
+    window.addEventListener(PLAYLIST_VIDEO_ADDED_EVENT, onAdded)
+    return () => window.removeEventListener(PLAYLIST_VIDEO_ADDED_EVENT, onAdded)
+  }, [])
+
   const createPlaylist = useCallback(
     async (name: string) => {
+      const trimmed = name.trim()
+      if (!trimmed) return { data: null, error: new Error('נא להזין שם לפלייליסט') }
+
       if (mode === 'parent' && userId) {
-        return createPlaylistForUser(userId, name)
+        const res = await createPlaylistForUser(userId, trimmed)
+        if (res.data) {
+          setPlaylists((prev) => [res.data!, ...prev.filter((p) => p.id !== res.data!.id)])
+        }
+        return res
       }
       if (mode === 'kid' && childAccessToken) {
-        const trimmed = name.trim()
         const { data: id, error } = await createPlaylistForChild(childAccessToken, trimmed)
         if (error) return { data: null, error }
-        await refresh()
-        return {
-          data: id ? { id, name: trimmed, video_count: 0, updated_at: '' } : null,
-          error: null,
+        if (!id) return { data: null, error: new Error('יצירת הפלייליסט נכשלה') }
+        const created: UserPlaylist = {
+          id,
+          name: trimmed,
+          video_count: 0,
+          updated_at: new Date().toISOString(),
         }
+        setPlaylists((prev) => [created, ...prev.filter((p) => p.id !== id)])
+        return { data: created, error: null }
       }
       return { data: null, error: new Error('לא מחובר') }
     },
-    [mode, userId, childAccessToken, refresh]
+    [mode, userId, childAccessToken]
   )
 
   const fetchVideos = useCallback(

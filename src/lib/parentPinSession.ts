@@ -4,6 +4,8 @@
  * Never persisted to localStorage / sessionStorage.
  */
 
+import { isParentalManagementGateUnlocked } from './parentalManagementGateStorage'
+
 let sessionPin = ''
 
 export function setParentPinSession(pin: string): void {
@@ -16,4 +18,10 @@ export function getParentPinSession(): string {
 
 export function clearParentPinSession(): void {
   sessionPin = ''
+}
+
+/** Gate unlocked or PIN already entered this tab — skip slow verify_parent_pin RPC. */
+export function isParentManagementSessionVerified(): boolean {
+  if (isParentalManagementGateUnlocked()) return true
+  return getParentPinSession().replace(/\D/g, '').length >= 6
 }

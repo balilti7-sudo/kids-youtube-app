@@ -1,24 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Bookmark, Check, ListMusic, Plus, ShieldAlert, Tv } from 'lucide-react'
+import { Bookmark, Check, ListMusic, Plus, Search, ShieldAlert, Trash2, Tv } from 'lucide-react'
 import { ChildChannelsNavCarousel } from '../components/kid/ChildChannelsNavCarousel'
+import { RemoveChannelModal } from '../components/channels/RemoveChannelModal'
+import { TopicDiscoveryModal } from '../components/channels/TopicDiscoveryModal'
+import { ChannelAddedSuccessModal } from '../components/channels/ChannelAddedSuccessModal'
+import { ParentalPinModal } from '../components/parental/ParentalPinModal'
 import { useChannels } from '../hooks/useChannels'
+import { useAuth } from '../hooks/useAuth'
 import { useDeviceOwnerId } from '../hooks/useDeviceOwnerId'
 import { useDevices } from '../hooks/useDevices'
+import { useLongPress } from '../hooks/useLongPress'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Button } from '../components/ui/Button'
 import { ChildWatchPlayerShell } from '../components/kid/ChildWatchPlayerShell'
+import { KidShortsLane } from '../components/kid/KidShortsLane'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
-import { YoutubeSuggestedList } from '../components/youtube/YoutubeSuggestedList'
-import { YoutubeVideoCard } from '../components/youtube/YoutubeVideoCard'
 import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../components/youtube/YoutubeWatchVideoDetails'
 import { YoutubeLikeButton } from '../components/youtube/YoutubeLikeButton'
 import { ChannelVideoBrowseRows } from '../components/kid/ChannelVideoBrowseRows'
-import { YoutubeShortCard } from '../components/youtube/YoutubeShortCard'
+import { ChannelContentTabs, type ChannelContentTab } from '../components/youtube/ChannelContentTabs'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
-import { buildWatchRecommendationQueue } from '../lib/buildDiverseVideoMix'
 import { getChildCachedChannelVideos, getSavedChildAccessToken } from '../lib/childDevice'
 import { supabase } from '../lib/supabase'
 import { getSavedActiveChildProfileId, saveActiveChildProfileId } from '../lib/activeDeviceSelection'
@@ -27,7 +32,10 @@ import { fetchChannelUploadsPage, resolveChannelUploadsCursor } from '../lib/you
 import {
   enrichVideosWithFormat,
   filterVideosRespectingAllowShorts,
+  stabilizeWatchableVideoList,
   toWatchableVideo,
+  buildYoutubeWatchUrl,
+  type VideoFormat,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
 import { formatViewCountLabel } from '../lib/formatYoutubeCount'
@@ -37,16 +45,100 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
-import { isShortsBlockedForProfile } from '../lib/childContentSafety'
-import { buildShortsAwareNavQueue } from '../lib/shortsNavQueue'
+import { isShortsBlockedForProfile, classifyWatchFormat } from '../lib/childContentSafety'
+import { buildShortsAwareNavQueue, itemLooksLikeShort } from '../lib/shortsNavQueue'
+import { buildShortsLaneItem } from '../lib/shortsFeedRank'
 import { listHiddenVideoIdsForChild, listHiddenVideoIdsForDevice } from '../lib/hiddenVideos'
 import { toast } from 'sonner'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
+import { scrollPlayerIntoViewForWatch } from '../lib/scrollPlayerIntoView'
+import {
+  captureBrowseNavContext,
+  restoreBrowseScroll,
+  type BrowseNavContext,
+} from '../lib/watchPlayerNav'
+import { usePlayerOwnedBackNavigation, discardPlayerHistoryLayerQuietly } from '../hooks/usePlayerOwnedBackNavigation'
+import { useChannelYoutubeShorts } from '../hooks/useChannelYoutubeShorts'
+import { requestChromeOffsetRefresh, setChromeVar, usePublishChromeOffset } from '../lib/chromeOffset'
+import {
+  getParentPinSession,
+  isParentManagementSessionVerified,
+  setParentPinSession,
+} from '../lib/parentPinSession'
+import { readLocalParentSession } from '../lib/localParentAdmin'
+import { verifyParentManagementPin } from '../lib/verifyParentManagementPin'
+import type { WhitelistedChannel, YouTubeChannelResult } from '../types'
 
 type ChannelWatchVideo = WatchableVideoBase & {
   channelId: string
   youtubeChannelId: string
   channelName: string
+}
+
+function ChannelHomeCard({
+  channel,
+  onOpen,
+  onRemove,
+}: {
+  channel: WhitelistedChannel
+  onOpen: () => void
+  onRemove: () => void
+}) {
+  const { t } = useTranslation()
+  const longPress = useLongPress(onRemove)
+  const { consumeLongPress, ...pressHandlers } = longPress
+
+  return (
+    <article
+      className="group relative w-full max-w-none justify-self-stretch overflow-hidden rounded-2xl border border-yt-border bg-yt-surface shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:border-yt-border hover:bg-yt-surfaceHover xs:rounded-3xl"
+    >
+      <button
+        type="button"
+        onClick={() => {
+          if (consumeLongPress()) return
+          onOpen()
+        }}
+        {...pressHandlers}
+        className="w-full cursor-pointer text-start focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+      >
+        <div className="h-28 bg-yt-surfaceHover sm:h-32">
+          {channel.channel_thumbnail ? (
+            <img
+              src={channel.channel_thumbnail}
+              alt=""
+              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-yt-textMuted">
+              <Tv className="h-10 w-10" aria-hidden />
+            </div>
+          )}
+        </div>
+        <div className="flex min-h-[108px] flex-col p-3 text-right">
+          <h2 className="line-clamp-2 text-sm font-bold leading-snug text-yt-text">{channel.channel_name}</h2>
+          {channel.category ? (
+            <p className="mt-1 truncate text-xs text-sky-300">{channel.category}</p>
+          ) : null}
+          <span className="mt-auto inline-flex min-h-[38px] w-full items-center justify-center rounded-xl bg-yt-surfaceHover px-3 text-xs font-black text-yt-text shadow-sm shadow-black/20 ring-1 ring-white/10">
+            {t('channels.enterChannel')}
+          </span>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove()
+        }}
+        className="absolute end-2 top-2 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/70 text-red-300 shadow ring-1 ring-red-400/40"
+        aria-label={t('channels.removeAria', { name: channel.channel_name })}
+      >
+        <Trash2 className="h-4 w-4" aria-hidden />
+      </button>
+    </article>
+  )
 }
 
 const CHILD_PERSONAL_PLAYLIST_KEY = 'safetube_child_personal_playlist_v1'
@@ -99,27 +191,63 @@ function savePlaylistIds(deviceId: string, ids: Set<string>) {
 }
 
 function ChannelsPageInner() {
+  const { t } = useTranslation()
   const childRuntime = useChildRuntimeOptional()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { user, profile } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
   const { devices, loading: devicesLoading } = useDevices(ownerUserId)
   const requestedDeviceId = searchParams.get('device') ?? getSavedActiveChildProfileId()
   const requestedChannelId = searchParams.get('channel')
   const [deviceId, setDeviceId] = useState<string | null>(() => requestedDeviceId ?? getSavedActiveChildProfileId())
+  const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
+  const [removeLoading, setRemoveLoading] = useState(false)
+  const [pinOpen, setPinOpen] = useState(false)
+  const pendingRemoveRef = useRef<WhitelistedChannel | null>(null)
+  const [pinPurpose, setPinPurpose] = useState<'remove' | 'add' | null>(null)
+  const [channelSearchOpen, setChannelSearchOpen] = useState(false)
+  const [addedSearchChannelIds, setAddedSearchChannelIds] = useState<Set<string>>(() => new Set())
+  const [addingSearchChannelId, setAddingSearchChannelId] = useState<string | null>(null)
+  const [channelAddSuccessOpen, setChannelAddSuccessOpen] = useState(false)
+  const [channelAddSuccessName, setChannelAddSuccessName] = useState<string | null>(null)
+  const [channelAddSuccessCount, setChannelAddSuccessCount] = useState(1)
+  const childAccessToken = getSavedChildAccessToken()
+  const localParentPinRef = useRef<string | null>(null)
   const [videos, setVideos] = useState<WatchableVideoBase[]>([])
   const [watchStarted, setWatchStarted] = useState(false)
-  const [channelRecommendations, setChannelRecommendations] = useState<ChannelWatchVideo[]>([])
-  const [recommendationsLoading, setRecommendationsLoading] = useState(false)
+  const [channelContentTab, setChannelContentTab] = useState<ChannelContentTab>('home')
+  const [shortsLaneOpen, setShortsLaneOpen] = useState(false)
+  const [shortsLaneSeedVideoId, setShortsLaneSeedVideoId] = useState<string | null>(null)
+  const browseNavContextRef = useRef<BrowseNavContext | null>(null)
   const [videosLoading, setVideosLoading] = useState(false)
   const [videosError, setVideosError] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   /** Snapshot at tap time so the player mounts before discovery/metadata catches up. */
   const [playingVideo, setPlayingVideo] = useState<ChannelWatchVideo | null>(null)
+  /** Lock aspect ratio at play tap — enrich must not flip long↔short mid-playback. */
+  const [playbackFormat, setPlaybackFormat] = useState<VideoFormat>('long')
+  const playerAnchorRef = useRef<HTMLDivElement | null>(null)
+  /** Home tabs + video list — scroll target when entering a channel. */
+  const channelContentRef = useRef<HTMLElement | null>(null)
+  /** Set by openChannel; consumed after the channel section mounts. */
+  const pendingChannelEnterScrollRef = useRef(false)
+  const isWatching = Boolean(watchStarted && activeVideoId)
+  const channelsShellRef = useRef<HTMLDivElement>(null)
+  const channelsPageChromeRef = useRef<HTMLElement | null>(null)
+  usePublishChromeOffset(channelsPageChromeRef, channelsShellRef, '--chrome-page-top', !isWatching)
+
+  useLayoutEffect(() => {
+    if (!isWatching) return
+    const target = channelsShellRef.current
+    if (!target) return
+    setChromeVar(target, '--chrome-page-top', 0)
+    requestChromeOffsetRefresh()
+  }, [isWatching])
   const [videoSearch, setVideoSearch] = useState('')
   const [savedPlaylistIds, setSavedPlaylistIds] = useState<Set<string>>(new Set())
   const [showMyPlaylist, setShowMyPlaylist] = useState(false)
-  const [allowShorts, setAllowShorts] = useState(false)
+  const [allowShorts, setAllowShorts] = useState(true)
   const [videosLoadingMore, setVideosLoadingMore] = useState(false)
   const [uploadsCursor, setUploadsCursor] = useState<{
     nextPageToken: string | null
@@ -145,14 +273,19 @@ function ChannelsPageInner() {
 
   useEffect(() => {
     if (!selectedDevice) return
-    setAllowShorts(Boolean(selectedDevice.allow_shorts))
+    setAllowShorts(true)
     void syncParentalControlPolicy(policyFromDeviceFields(selectedDevice))
   }, [selectedDevice])
 
-  const { whitelist, loading, refreshChannelVideosCache, appendChannelVideosCache } = useChannels(
-    deviceId ?? undefined,
-    ownerUserId
-  )
+  const { whitelist, loading, refreshChannelVideosCache, appendChannelVideosCache, removeFromWhitelist, addToWhitelist } =
+    useChannels(deviceId ?? undefined, ownerUserId, {
+      localAccessToken: ownerUserId ? null : childAccessToken,
+      getLocalParentPin: () =>
+        localParentPinRef.current ||
+        readLocalParentSession()?.pin ||
+        getParentPinSession() ||
+        null,
+    })
 
   useEffect(() => {
     setSavedPlaylistIds(getSavedPlaylistIds(deviceId))
@@ -180,8 +313,6 @@ function ChannelsPageInner() {
       loadedChannelKeyRef.current = null
       forceRefreshedChannelRef.current = null
       setVideos([])
-      setChannelRecommendations([])
-      setRecommendationsLoading(false)
       setVideosError(null)
       setVideosLoading(false)
       setActiveVideoId(null)
@@ -207,9 +338,9 @@ function ChannelsPageInner() {
       setShowMyPlaylist(false)
       setWatchStarted(false)
       setUploadsCursor(null)
+      setVideosLoading(true)
     }
 
-    setVideosLoading(true)
     setVideosError(null)
 
     const mapRows = (
@@ -322,7 +453,7 @@ function ChannelsPageInner() {
         if (requestId !== videosLoadGenRef.current) return
 
         const fast = mapRows(rows)
-        setVideos(fast)
+        setVideos((prev) => (channelChanged ? fast : stabilizeWatchableVideoList(prev, fast)))
         setVideosLoading(false)
         void enrichVideosWithFormat(
           rows.map((row) => ({
@@ -333,7 +464,8 @@ function ChannelsPageInner() {
             publishedAt: row.published_at ?? null,
           }))
         ).then((enriched) => {
-          if (requestId === videosLoadGenRef.current) setVideos(enriched)
+          if (requestId !== videosLoadGenRef.current) return
+          setVideos((prev) => stabilizeWatchableVideoList(prev, enriched as typeof prev))
         })
 
         // Resolve YouTube-like continuation without resetting to page 1 over a filled cache.
@@ -395,7 +527,8 @@ function ChannelsPageInner() {
               if (requestId !== videosLoadGenRef.current) return
               setVideos((prev) => {
                 const byId = new Map(enriched.map((v) => [v.youtube_video_id, v]))
-                return prev.map((v) => byId.get(v.youtube_video_id) ?? v)
+                const merged = prev.map((v) => byId.get(v.youtube_video_id) ?? v)
+                return stabilizeWatchableVideoList(prev, merged as typeof prev)
               })
             })
           }
@@ -425,15 +558,27 @@ function ChannelsPageInner() {
     })()
   }, [selectedChannelDbId, selectedYoutubeChannelId, refreshChannelVideosCache, videosReloadNonce, deviceId])
 
+  const channelShorts = useChannelYoutubeShorts(
+    selectedYoutubeChannelId,
+    Boolean(selectedYoutubeChannelId) && allowShorts
+  )
+  const videosWithChannelShorts = useMemo(() => {
+    const extras = channelShorts.videos
+    if (extras.length === 0) return videos
+    const seen = new Set(videos.map((video) => video.youtube_video_id))
+    const fresh = extras.filter((video) => !seen.has(video.youtube_video_id))
+    return fresh.length === 0 ? videos : [...fresh, ...videos]
+  }, [videos, channelShorts.videos])
+
   const channelScopedVideos = useMemo((): ChannelWatchVideo[] => {
     if (!selectedChannel) return []
-    return videos.map((video) => ({
+    return videosWithChannelShorts.map((video) => ({
       ...video,
       channelId: selectedChannel.id,
       youtubeChannelId: selectedChannel.youtube_channel_id,
       channelName: selectedChannel.channel_name,
     }))
-  }, [videos, selectedChannel])
+  }, [videosWithChannelShorts, selectedChannel])
 
   const playlistSourceVideos = useMemo(
     () =>
@@ -502,7 +647,8 @@ function ChannelsPageInner() {
       ).then((enriched) => {
         setVideos((prev) => {
           const byId = new Map(enriched.map((v) => [v.youtube_video_id, v]))
-          return prev.map((v) => byId.get(v.youtube_video_id) ?? v)
+          const merged = prev.map((v) => byId.get(v.youtube_video_id) ?? v)
+          return stabilizeWatchableVideoList(prev, merged as typeof prev)
         })
       })
 
@@ -548,39 +694,116 @@ function ChannelsPageInner() {
     [playerNavQueue, activeVideoId]
   )
   const hasNextVideo = playerNavIndex >= 0 && playerNavIndex < playerNavQueue.length - 1
-  useEffect(() => {
-    if (!watchStarted || !selectedChannel) {
-      setChannelRecommendations([])
-      setRecommendationsLoading(false)
-      return
-    }
-
-    let cancelled = false
-    setRecommendationsLoading(true)
-
-    const frameId = requestAnimationFrame(() => {
-      const pool = filteredVideos.filter(
-        (video) =>
-          video.youtube_video_id !== activeVideoId && video.channelId === selectedChannel.id
-      )
-      const queue = activeVideo
-        ? buildWatchRecommendationQueue(pool, activeVideo.format === 'short')
-        : pool
-      if (!cancelled) {
-        setChannelRecommendations(queue)
-        setRecommendationsLoading(false)
-      }
-    })
-
-    return () => {
-      cancelled = true
-      cancelAnimationFrame(frameId)
-    }
-  }, [watchStarted, selectedChannel, filteredVideos, activeVideoId, activeVideo])
-
   const playlistCountInChannel = useMemo(
     () => channelScopedVideos.filter((video) => savedPlaylistIds.has(video.youtube_video_id)).length,
     [channelScopedVideos, savedPlaylistIds]
+  )
+
+  const shortsLaneFeed = useMemo(() => {
+    if (!selectedChannel || !allowShorts) return []
+    return filteredVideos
+      .filter((video) =>
+        itemLooksLikeShort({
+          title: video.title,
+          durationSeconds: video.durationSeconds ?? null,
+          youtubeVideoId: video.youtube_video_id,
+          thumbnail_url: video.thumbnail_url,
+          watchUrl: buildYoutubeWatchUrl(video.youtube_video_id),
+          format: video.format,
+        })
+      )
+      .map((video) =>
+        buildShortsLaneItem({
+          videoId: video.youtube_video_id,
+          title: video.title,
+          thumbnail: video.thumbnail_url,
+          youtubeChannelId: selectedChannel.youtube_channel_id,
+          channelName: selectedChannel.channel_name,
+          channelThumbnail: selectedChannel.channel_thumbnail,
+          durationSeconds: video.durationSeconds ?? null,
+          publishedAt: video.publishedAt ?? null,
+        })
+      )
+  }, [filteredVideos, selectedChannel, allowShorts])
+
+  const shortsLaneSeedIndex = useMemo(() => {
+    if (!shortsLaneSeedVideoId) return 0
+    const idx = shortsLaneFeed.findIndex((item) => item.videoId === shortsLaneSeedVideoId)
+    return idx >= 0 ? idx : 0
+  }, [shortsLaneFeed, shortsLaneSeedVideoId])
+
+  const exitShortsSession = useCallback(() => {
+    const ctx = browseNavContextRef.current
+    browseNavContextRef.current = null
+    setShortsLaneOpen(false)
+    setShortsLaneSeedVideoId(null)
+    if (ctx) {
+      const nextTab: ChannelContentTab =
+        ctx.channelContentTab === 'shorts' ? 'home' : (ctx.channelContentTab as ChannelContentTab)
+      setChannelContentTab(nextTab)
+      setActiveVideoId(ctx.priorActiveVideoId)
+      setWatchStarted(Boolean(ctx.watchStarted && ctx.priorActiveVideoId))
+      restoreBrowseScroll(ctx.scrollY)
+    } else {
+      if (channelContentTab === 'shorts') setChannelContentTab('home')
+      setWatchStarted(false)
+    }
+  }, [channelContentTab])
+
+  const exitWatchSession = useCallback(() => {
+    const ctx = browseNavContextRef.current
+    browseNavContextRef.current = null
+    setActiveVideoId(null)
+    setPlayingVideo(null)
+    setWatchStarted(false)
+    setShortsLaneOpen(false)
+    setShortsLaneSeedVideoId(null)
+    if (ctx) {
+      const nextTab: ChannelContentTab =
+        ctx.channelContentTab === 'shorts' ? 'home' : (ctx.channelContentTab as ChannelContentTab)
+      setChannelContentTab(nextTab)
+      restoreBrowseScroll(ctx.scrollY)
+    }
+  }, [])
+
+  const openShortsLane = useCallback(
+    (videoId: string) => {
+      if (!shortsLaneOpen) {
+        browseNavContextRef.current = captureBrowseNavContext({
+          channelContentTab,
+          priorActiveVideoId: null,
+          watchStarted: false,
+        })
+      }
+      setShortsLaneSeedVideoId(videoId)
+      setShortsLaneOpen(true)
+      setActiveVideoId(videoId)
+      setWatchStarted(false)
+    },
+    [shortsLaneOpen, channelContentTab]
+  )
+
+  const { handlePlayerBack } = usePlayerOwnedBackNavigation({
+    enabled: true,
+    isShortsOpen: shortsLaneOpen,
+    isWatchOpen: Boolean(watchStarted && activeVideoId) && !shortsLaneOpen,
+    onExitShorts: exitShortsSession,
+    onExitWatch: exitWatchSession,
+  })
+
+  const handleCloseShortsLane = useCallback(() => {
+    if (shortsLaneOpen) handlePlayerBack()
+    else exitShortsSession()
+  }, [shortsLaneOpen, handlePlayerBack, exitShortsSession])
+
+  const handleChannelContentTabChange = useCallback(
+    (tab: ChannelContentTab) => {
+      setChannelContentTab(tab)
+      if (tab !== 'shorts' && shortsLaneOpen) {
+        handleCloseShortsLane()
+      }
+    },
+    [shortsLaneOpen, handleCloseShortsLane]
   )
 
   const toChannelWatchVideo = useCallback(
@@ -597,13 +820,13 @@ function ChannelsPageInner() {
   )
 
   const selectWatchVideo = useCallback(
-    (input: string | WatchableVideoBase | ChannelWatchVideo) => {
+    (input: string | WatchableVideoBase | ChannelWatchVideo, playAs?: 'short' | 'long') => {
       let videoId: string
       let snapshot: ChannelWatchVideo | null = null
 
       if (typeof input === 'string') {
         videoId = input
-        const base = videos.find((video) => video.youtube_video_id === videoId) ?? null
+        const base = videosWithChannelShorts.find((video) => video.youtube_video_id === videoId) ?? null
         if (base) snapshot = toChannelWatchVideo(base)
       } else if ('channelName' in input) {
         videoId = input.youtube_video_id
@@ -616,7 +839,7 @@ function ChannelsPageInner() {
       void (async () => {
         if (childRuntime?.isBlocked) return
 
-        const gateTarget = snapshot ?? videos.find((v) => v.youtube_video_id === videoId) ?? null
+        const gateTarget = snapshot ?? videosWithChannelShorts.find((v) => v.youtube_video_id === videoId) ?? null
         if (
           gateTarget &&
           isShortsBlockedForProfile(allowShorts, {
@@ -627,23 +850,71 @@ function ChannelsPageInner() {
             format: gateTarget.format,
           })
         ) {
-          toast.error('Shorts חסומים בפרופיל זה')
+          toast.error(t('kid.shortsBlocked'))
           return
         }
         if (gateTarget && shouldHideFromChildBrowse(gateTarget.title, gateTarget.liveBroadcastContent)) {
-          toast.error('תוכן זה אינו זמין לצפייה')
+          toast.error(t('kid.contentUnavailable'))
+          return
+        }
+
+        if (
+          allowShorts &&
+          playAs !== 'long' &&
+          gateTarget &&
+          (playAs === 'short' ||
+            itemLooksLikeShort({
+              title: gateTarget.title,
+              durationSeconds: gateTarget.durationSeconds ?? null,
+              youtubeVideoId: videoId,
+              thumbnail_url: gateTarget.thumbnail_url,
+              watchUrl: buildYoutubeWatchUrl(videoId),
+              format: gateTarget.format,
+            }))
+        ) {
+          if (snapshot) setPlayingVideo(snapshot)
+          openShortsLane(videoId)
           return
         }
 
         if (snapshot) setPlayingVideo(snapshot)
+        setPlaybackFormat(
+          classifyWatchFormat({
+            durationSeconds: snapshot?.durationSeconds ?? gateTarget?.durationSeconds ?? null,
+            youtubeVideoId: videoId,
+            title: snapshot?.title ?? gateTarget?.title,
+            thumbnail: snapshot?.thumbnail_url ?? gateTarget?.thumbnail_url,
+          })
+        )
         logPlaybackStreamRequest(videoId, 'ChannelsPage.selectWatchVideo (play tap)')
+        if (!watchStarted && !shortsLaneOpen) {
+          browseNavContextRef.current = captureBrowseNavContext({
+            channelContentTab,
+            priorActiveVideoId: null,
+            watchStarted: false,
+          })
+        }
         setWatchStarted(true)
         setActiveVideoId(videoId)
-        window.scrollTo({ top: 0, behavior: 'smooth' })
       })()
     },
-    [videos, toChannelWatchVideo, childRuntime, allowShorts]
+    [
+      videosWithChannelShorts,
+      toChannelWatchVideo,
+      childRuntime,
+      allowShorts,
+      openShortsLane,
+      t,
+      watchStarted,
+      shortsLaneOpen,
+      channelContentTab,
+    ]
   )
+
+  useEffect(() => {
+    if (!watchStarted || !activeVideoId || shortsLaneOpen) return
+    scrollPlayerIntoViewForWatch(playerAnchorRef.current)
+  }, [watchStarted, activeVideoId, shortsLaneOpen])
 
   const togglePlaylistVideo = (videoId: string) => {
     if (!deviceId) return
@@ -668,9 +939,11 @@ function ChannelsPageInner() {
           ? 'border-sky-400/60 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
           : 'border-yt-border bg-yt-surfaceHover text-yt-text hover:bg-yt-surfaceHover'
       }`}
-      title={savedPlaylistIds.has(videoId) ? 'הסר מהפלייליסט שלי' : 'הוסף לפלייליסט'}
+      title={savedPlaylistIds.has(videoId) ? t('playlists.removeFromMine') : t('playlists.addToMine')}
       aria-label={
-        savedPlaylistIds.has(videoId) ? `הסר את ${title} מהפלייליסט שלי` : `הוסף את ${title} לפלייליסט שלי`
+        savedPlaylistIds.has(videoId)
+          ? t('playlists.removeFromMineAria', { title })
+          : t('playlists.addToMineAria', { title })
       }
     >
       {savedPlaylistIds.has(videoId) ? <Check className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
@@ -689,13 +962,143 @@ function ChannelsPageInner() {
 
   const openChannel = (youtubeChannelId: string) => {
     if (deviceId) saveActiveChildProfileId(deviceId)
+    setChannelContentTab('home')
+    // Leave watch/shorts so the prior video does not stay visually dominant.
     setWatchStarted(false)
+    setActiveVideoId(null)
+    setPlayingVideo(null)
+    setShortsLaneOpen(false)
+    setShortsLaneSeedVideoId(null)
+    discardPlayerHistoryLayerQuietly()
+    pendingChannelEnterScrollRef.current = true
     const next = new URLSearchParams(searchParams)
     if (deviceId) next.set('device', deviceId)
     next.set('channel', youtubeChannelId)
     navigate({ pathname: '/channels', search: `?${next.toString()}` })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    // Same-channel re-enter: section already mounted — scroll now.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (!pendingChannelEnterScrollRef.current) return
+        const el = channelContentRef.current
+        if (!el) return
+        pendingChannelEnterScrollRef.current = false
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    })
   }
+
+  useEffect(() => {
+    if (!pendingChannelEnterScrollRef.current || !selectedChannelDbId) return
+    pendingChannelEnterScrollRef.current = false
+    window.requestAnimationFrame(() => {
+      const el = channelContentRef.current
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    })
+  }, [selectedChannelDbId])
+
+  const requestRemoveChannel = useCallback((channel: WhitelistedChannel) => {
+    if (isParentManagementSessionVerified()) {
+      setRemoveTarget(channel)
+      return
+    }
+    pendingRemoveRef.current = channel
+    setPinPurpose('remove')
+    setPinOpen(true)
+  }, [])
+
+  const requestOpenChannelSearch = useCallback(() => {
+    if (isParentManagementSessionVerified()) {
+      setChannelSearchOpen(true)
+      return
+    }
+    pendingRemoveRef.current = null
+    setPinPurpose('add')
+    setPinOpen(true)
+  }, [])
+
+  const handleAddChannelFromSearch = useCallback(
+    async (yt: YouTubeChannelResult, opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      setAddedSearchChannelIds((prev) => new Set(prev).add(yt.channelId))
+      setAddingSearchChannelId(null)
+      const { error } = await addToWhitelist(yt, null)
+      if (error) {
+        setAddedSearchChannelIds((prev) => {
+          const next = new Set(prev)
+          next.delete(yt.channelId)
+          return next
+        })
+        toast.error(error.message)
+        return false
+      }
+      if (!opts?.silentSuccess) {
+        setChannelAddSuccessName(yt.title)
+        setChannelAddSuccessCount(1)
+        setChannelAddSuccessOpen(true)
+      }
+      return true
+    },
+    [addToWhitelist]
+  )
+
+  const handleAddChannelsFromSearch = useCallback(
+    async (list: YouTubeChannelResult[]) => {
+      let ok = 0
+      let lastName: string | null = null
+      for (const yt of list) {
+        const added = await handleAddChannelFromSearch(yt, { silentSuccess: true })
+        if (added) {
+          ok += 1
+          lastName = yt.title
+        }
+      }
+      if (ok > 0) {
+        setChannelAddSuccessName(ok === 1 ? lastName : null)
+        setChannelAddSuccessCount(ok)
+        setChannelAddSuccessOpen(true)
+      }
+    },
+    [handleAddChannelFromSearch]
+  )
+
+  const confirmRemoveChannel = useCallback(async () => {
+    if (!removeTarget) return
+    setRemoveLoading(true)
+    const { error } = await removeFromWhitelist(removeTarget.id)
+    setRemoveLoading(false)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success(t('channels.removed'))
+    const removedYt = removeTarget.youtube_channel_id
+    const removedId = removeTarget.id
+    setRemoveTarget(null)
+    if (requestedChannelId === removedYt || requestedChannelId === removedId) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('channel')
+      navigate({ pathname: '/channels', search: next.toString() ? `?${next.toString()}` : '' })
+    }
+  }, [removeTarget, removeFromWhitelist, requestedChannelId, searchParams, navigate, t])
+
+  const verifyRemovePin = useCallback(
+    (pin: string) =>
+      verifyParentManagementPin(
+        {
+          userId: user?.id,
+          profile,
+          localParent: {
+            isActive: Boolean(childAccessToken),
+            pin: readLocalParentSession()?.pin ?? null,
+          },
+        },
+        pin
+      ),
+    [user?.id, profile, childAccessToken]
+  )
 
   const goHome = () => {
     setWatchStarted(false)
@@ -737,35 +1140,42 @@ function ChannelsPageInner() {
     <LionProgressionProvider>
     <DailyWatchBudgetTracker deviceId={deviceId} />
     <div
-      className={`mx-auto flex w-full max-w-[100vw] flex-col gap-3 overflow-x-hidden pb-4 xs:gap-4 ${
+      ref={channelsShellRef}
+      className={`mx-auto flex w-full max-w-[100vw] flex-col gap-3 overflow-x-clip pb-4 xs:gap-4 ${
         selectedChannel ? 'lg:max-w-[1754px]' : 'max-w-5xl xl:max-w-6xl'
       }`}
     >
-      <header className="sticky top-0 z-20 rounded-2xl border border-yt-border bg-yt-surface/95 p-3 shadow-2xl shadow-black/15 backdrop-blur-md xs:rounded-3xl xs:p-4 sm:p-5">
+      <header
+        ref={channelsPageChromeRef}
+        className={`${
+          isWatching ? 'relative z-20' : 'sticky-under-chrome sticky z-20'
+        } rounded-2xl border border-yt-border bg-yt-surface p-3 shadow-2xl shadow-black/15 xs:rounded-3xl xs:p-4 sm:p-5`}
+      >
         <div className="flex min-w-0 items-center gap-2 xs:gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25 xs:h-12 xs:w-12">
             <Tv className="h-6 w-6 xs:h-7 xs:w-7" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-lg font-black text-yt-text xs:text-xl">
-              {selectedChannel ? selectedChannel.channel_name : 'ערוצים'}
+              {selectedChannel ? selectedChannel.channel_name : t('channels.approvedChannelsHeading')}
             </h1>
-            <p className="mt-0.5 line-clamp-2 text-xs text-yt-textMuted xs:mt-1 xs:text-sm">
-              {selectedChannel
-                ? 'צפייה בערוץ — החליפו ערוץ או חזרו לבית מהשורה למטה'
-                : selectedDevice
-                  ? `הערוצים המאושרים של ${selectedDevice.name}`
-                  : 'כל הערוצים המאושרים לצפייה.'}
-            </p>
           </div>
+          <Button
+            type="button"
+            className="shrink-0 gap-1.5 rounded-full !px-3 text-xs font-bold xs:text-sm"
+            onClick={() => requestOpenChannelSearch()}
+          >
+            <Search className="h-4 w-4" aria-hidden />
+            {t('kid.addChannelsShort')}
+          </Button>
           {showLionProfile ? <LionProfileButton /> : null}
         </div>
         {showChannelsNav ? (
           <ChildChannelsNavCarousel
             channels={visibleChannels}
             activeYoutubeChannelId={selectedChannel?.youtube_channel_id ?? null}
-            onHome={goHome}
             onSelectChannel={openChannel}
+            onRemoveChannel={requestRemoveChannel}
             className="md:hidden"
           />
         ) : null}
@@ -784,6 +1194,17 @@ function ChannelsPageInner() {
               onSelectResult={(videoId) => selectWatchVideo(videoId)}
               dropdownLoading={videosLoading}
             />
+            {/* Browse tabs live in this sticky header so they cannot paint over the video grid. */}
+            {!(watchStarted && activeVideoId) ? (
+              <div className="mt-2">
+                <ChannelContentTabs
+                  value={channelContentTab}
+                  onChange={handleChannelContentTabChange}
+                  allowShorts={allowShorts}
+                  appearance="underline"
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </header>
@@ -791,61 +1212,97 @@ function ChannelsPageInner() {
       {devicesLoading || loading ? (
         <div className="flex min-h-48 items-center justify-center gap-3 rounded-3xl border border-yt-border bg-yt-bg text-yt-textMuted">
           <LoadingSpinner className="h-8 w-8 border-2 border-sky-400 border-t-transparent" />
-          טוען ערוצים…
+          {t('channels.loadingChannels')}
         </div>
       ) : devices.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-yt-border bg-yt-bg px-4 py-12 text-center">
           <Tv className="mx-auto mb-3 h-12 w-12 text-yt-textMuted" aria-hidden />
-          <p className="font-semibold text-yt-textMuted">אין עדיין פרופיל ילד מחובר</p>
+          <p className="font-semibold text-yt-textMuted">{t('channels.noProfilesYet')}</p>
         </div>
       ) : visibleChannels.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-yt-border bg-yt-bg px-4 py-12 text-center">
           <Tv className="mx-auto mb-3 h-12 w-12 text-yt-textMuted" aria-hidden />
-          <p className="font-semibold text-yt-textMuted">אין עדיין ערוצים מאושרים</p>
-          <p className="mt-1 text-sm text-yt-text0">ההורה יכול להוסיף ערוצים מתוך בקרת הורים.</p>
+          <p className="font-semibold text-yt-textMuted">{t('channels.noApprovedYet')}</p>
+          <p className="mt-1 text-sm text-yt-text0">{t('kid.addChannelsQuickHint')}</p>
+          <Button
+            type="button"
+            className="mt-4 min-h-12 gap-2 rounded-xl text-sm font-bold"
+            onClick={() => requestOpenChannelSearch()}
+          >
+            <Search className="h-5 w-5" aria-hidden />
+            {t('kid.addChannelsSearch')}
+          </Button>
         </div>
       ) : selectedChannel ? (
         <div className="flex min-w-0 flex-col gap-4 md:grid md:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] md:items-start lg:grid-cols-[minmax(200px,240px)_minmax(0,1fr)]">
-          <aside className="sticky top-[7.5rem] hidden max-h-[calc(100dvh-8rem)] overflow-y-auto rounded-2xl border border-yt-border bg-yt-surface p-2 md:block">
+          <aside className="sticky top-[calc(var(--chrome-top)+var(--chrome-page-top))] hidden max-h-[calc(100dvh-var(--chrome-top)-var(--chrome-page-top))] overflow-y-auto rounded-2xl border border-yt-border bg-yt-surface p-2 md:block">
             <button
               type="button"
               onClick={goHome}
               className="mb-1 flex w-full items-center gap-2 rounded-xl px-2 py-2 text-start text-sm font-semibold text-yt-textMuted transition hover:bg-yt-surfaceHover"
             >
-              בית הערוצים
+              {t('channels.channelsHome')}
             </button>
-            <p className="px-2 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-yt-text0">ערוצים</p>
+            <div className="mb-1 flex items-center justify-between gap-1 px-1">
+              <p className="px-1 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-yt-text0">
+                {t('channels.channelsLabel')}
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="!min-h-8 shrink-0 !rounded-full !px-2.5 !py-1 text-[11px] font-bold"
+                onClick={() => requestOpenChannelSearch()}
+              >
+                <Search className="h-3.5 w-3.5" aria-hidden />
+                {t('kid.addChannelsShort')}
+              </Button>
+            </div>
             <div className="flex flex-col gap-0.5">
               {visibleChannels.map((channel) => {
                 const active = channel.youtube_channel_id === selectedChannel.youtube_channel_id
                 return (
-                  <button
+                  <div
                     key={channel.id}
-                    type="button"
-                    onClick={() => openChannel(channel.youtube_channel_id)}
-                    className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-start transition ${
-                      active ? 'bg-yt-surfaceHover text-yt-text' : 'text-yt-textMuted hover:bg-yt-surfaceHover hover:text-yt-text'
+                    className={`flex items-center gap-0.5 rounded-xl ${
+                      active ? 'bg-yt-surfaceHover text-yt-text' : 'text-yt-textMuted'
                     }`}
                   >
-                    {channel.channel_thumbnail ? (
-                      <img
-                        src={channel.channel_thumbnail}
-                        alt=""
-                        className="h-8 w-8 shrink-0 rounded-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-yt-surfaceHover">
-                        <Tv className="h-4 w-4" aria-hidden />
-                      </span>
-                    )}
-                    <span className="min-w-0 truncate text-sm font-medium">{channel.channel_name}</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => openChannel(channel.youtube_channel_id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-2 text-start transition hover:bg-yt-surfaceHover hover:text-yt-text"
+                    >
+                      {channel.channel_thumbnail ? (
+                        <img
+                          src={channel.channel_thumbnail}
+                          alt=""
+                          className="h-8 w-8 shrink-0 rounded-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-yt-surfaceHover">
+                          <Tv className="h-4 w-4" aria-hidden />
+                        </span>
+                      )}
+                      <span className="min-w-0 truncate text-sm font-medium">{channel.channel_name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => requestRemoveChannel(channel)}
+                      className="me-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-red-400 transition hover:bg-red-950/40"
+                      aria-label={t('channels.removeAria', { name: channel.channel_name })}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
                 )
               })}
             </div>
           </aside>
-        <section className="min-w-0 max-w-full overflow-x-hidden rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-yt-border sm:bg-yt-surface sm:p-4 sm:shadow-xl sm:shadow-black/10">
+        <section
+          ref={channelContentRef}
+          className="min-w-0 max-w-full scroll-mt-chrome overflow-x-clip rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-yt-border sm:bg-yt-surface sm:p-4 sm:shadow-xl sm:shadow-black/10"
+        >
           {videosError ? (
             <p className="rounded-2xl border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
               {videosError}
@@ -855,19 +1312,24 @@ function ChannelsPageInner() {
               className="px-0 pb-2"
               main={
                 <div className="flex w-full min-w-0 flex-col">
-                  <ChildWatchPlayerShell
-                    videoId={activeVideoId}
-                    title={activeVideo?.title ?? playingVideo?.title ?? 'טוען…'}
-                    channelTitle={activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name}
-                    posterUrl={activeVideo?.thumbnail_url ?? playingVideo?.thumbnail_url ?? null}
-                    blankVideoFrame={Boolean(selectedDevice?.hide_thumbnails)}
-                    format={activeVideo?.format ?? playingVideo?.format ?? 'long'}
-                    onPreviousTrack={goPreviousVideo}
-                    onNextTrack={goNextVideo}
-                    hasNextTrack={hasNextVideo}
-                  />
+                  <div ref={playerAnchorRef} className="scroll-mt-chrome w-full" data-safetube-player>
+                    <ChildWatchPlayerShell
+                      videoId={activeVideoId}
+                      title={activeVideo?.title ?? playingVideo?.title ?? t('common.loading')}
+                      channelTitle={activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name}
+                      posterUrl={activeVideo?.thumbnail_url ?? playingVideo?.thumbnail_url ?? null}
+                      blankVideoFrame={false}
+                      format={playbackFormat}
+                      durationSeconds={activeVideo?.durationSeconds ?? playingVideo?.durationSeconds ?? null}
+                      onPreviousTrack={goPreviousVideo}
+                      onNextTrack={goNextVideo}
+                      hasNextTrack={hasNextVideo}
+                      onMiniDismiss={exitWatchSession}
+                      onBack={handlePlayerBack}
+                    />
+                  </div>
                   <YoutubeWatchVideoDetails
-                    title={activeVideo?.title ?? playingVideo?.title ?? 'טוען…'}
+                    title={activeVideo?.title ?? playingVideo?.title ?? t('common.loading')}
                     channelName={
                       activeVideo?.channelName ?? playingVideo?.channelName ?? selectedChannel.channel_name
                     }
@@ -902,6 +1364,15 @@ function ChannelsPageInner() {
                       </>
                     }
                   />
+                  {/* Watch composition: player → details → tabs (normal flow only) → related. */}
+                  <div className="safetube-watch-tabs mt-1 bg-yt-bg sm:bg-yt-surface">
+                    <ChannelContentTabs
+                      value={channelContentTab}
+                      onChange={handleChannelContentTabChange}
+                      allowShorts={allowShorts}
+                      appearance="underline"
+                    />
+                  </div>
                 </div>
               }
               sidebar={
@@ -924,58 +1395,29 @@ function ChannelsPageInner() {
                       </span>
                     </button>
                   </div>
-                  <YoutubeSuggestedList
-                    title={
-                      showMyPlaylist
-                        ? 'הסרטונים ששמרתי'
-                        : (activeVideo?.format ?? playingVideo?.format) === 'short'
-                          ? 'עוד Shorts'
-                          : 'הבא בתור'
-                    }
-                  >
-                    {channelRecommendations.map((video) => (
-                      <li key={`${video.channelId}-${video.youtube_video_id}`} className="w-full">
-                        {video.format === 'short' ? (
-                          <YoutubeShortCard
-                            variant="row"
-                            title={video.title}
-                            thumbnail={video.thumbnail_url}
-                            hideThumbnail={Boolean(selectedDevice?.hide_thumbnails)}
-                            onClick={() => selectWatchVideo(video)}
-                            actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
-                          />
-                        ) : (
-                          <YoutubeVideoCard
-                            layout="row"
-                            title={video.title}
-                            thumbnail={video.thumbnail_url}
-                            hideThumbnail={Boolean(selectedDevice?.hide_thumbnails)}
-                            channelName={video.channelName}
-                            metadata={joinVideoMetadataParts(
-                              formatViewCountLabel(video.viewCount),
-                              formatRelativePublishedAt(video.publishedAt)
-                            )}
-                            active={false}
-                            onClick={() => selectWatchVideo(video)}
-                            actionSlot={renderPlaylistAction(video.youtube_video_id, video.title)}
-                          />
-                        )}
-                      </li>
-                    ))}
-                  </YoutubeSuggestedList>
-                  {channelRecommendations.length === 0 ? (
-                    <p className="rounded-2xl border border-dashed border-yt-border px-4 py-8 text-center text-sm text-yt-text0">
-                      {showMyPlaylist
-                        ? videoSearch.trim()
-                          ? 'אין סרטונים שמורים שמתאימים לחיפוש.'
-                          : 'הפלייליסט שלך עדיין ריק בערוץ הזה.'
-                        : recommendationsLoading || videosLoading
-                          ? 'טוען סרטונים מהערוץ…'
-                          : videoSearch.trim()
-                            ? 'אין סרטונים שמתאימים לחיפוש.'
-                            : 'אין עוד סרטונים בערוץ הזה.'}
+                  {filteredVideos.length === 0 && videoSearch.trim() ? (
+                    <p className="rounded-2xl border border-dashed border-yt-border px-4 py-10 text-center text-sm text-yt-textMuted">
+                      {t('channels.noSearchMatch', { q: videoSearch.trim() })}
                     </p>
-                  ) : null}
+                  ) : (
+                    <ChannelVideoBrowseRows
+                      videos={filteredVideos}
+                      activeVideoId={activeVideoId}
+                      allowShorts={allowShorts}
+                      hideThumbnails={false}
+                      channelName={selectedChannel.channel_name}
+                      variant="sidebar"
+                      tab={channelContentTab}
+                      onTabChange={handleChannelContentTabChange}
+                      hideTabs
+                      onSelectVideo={selectWatchVideo}
+                      hasMore={!videoSearch.trim() && !showMyPlaylist && channelHasMoreVideos}
+                      loadingMore={videosLoadingMore || (channelContentTab === 'shorts' && channelShorts.loading)}
+                      onLoadMore={() => void handleLoadMoreChannelVideos()}
+                      renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
+                      youtubeChannelId={selectedYoutubeChannelId}
+                    />
+                  )}
                 </div>
               }
             />
@@ -1003,22 +1445,23 @@ function ChannelsPageInner() {
             <>
               {filteredVideos.length === 0 && videoSearch.trim() ? (
                 <p className="rounded-2xl border border-dashed border-yt-border px-4 py-10 text-center text-sm text-yt-textMuted">
-                  אין סרטונים שמתאימים לחיפוש &quot;{videoSearch.trim()}&quot;.
+                  {t('channels.noSearchMatch', { q: videoSearch.trim() })}
                 </p>
               ) : (
                 <ChannelVideoBrowseRows
                   videos={filteredVideos}
                   activeVideoId={activeVideoId}
                   allowShorts={allowShorts}
-                  hideThumbnails={Boolean(selectedDevice?.hide_thumbnails)}
+                  hideThumbnails={false}
                   onSelectVideo={selectWatchVideo}
                   hasMore={!videoSearch.trim() && !showMyPlaylist && channelHasMoreVideos}
-                  loadingMore={videosLoadingMore}
+                  loadingMore={videosLoadingMore || (channelContentTab === 'shorts' && channelShorts.loading)}
                   onLoadMore={() => void handleLoadMoreChannelVideos()}
                   renderAction={(video) => renderPlaylistAction(video.youtube_video_id, video.title)}
-                  playlistVideos={channelScopedVideos.filter((video) =>
-                    savedPlaylistIds.has(video.youtube_video_id)
-                  )}
+                  youtubeChannelId={selectedYoutubeChannelId}
+                  tab={channelContentTab}
+                  onTabChange={handleChannelContentTabChange}
+                  hideTabs
                 />
               )}
             </>
@@ -1028,60 +1471,104 @@ function ChannelsPageInner() {
       ) : (
         <>
         <section
-          aria-label="ערוצים מאושרים"
+          aria-label={t('channels.approvedCount', { count: visibleChannels.length })}
           className="mx-auto grid w-full max-w-[1200px] grid-cols-2 gap-2 xs:gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
         >
           {visibleChannels.map((channel) => (
-            <article
+            <ChannelHomeCard
               key={channel.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => openChannel(channel.youtube_channel_id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  openChannel(channel.youtube_channel_id)
-                }
-              }}
-              className="group w-full max-w-none cursor-pointer justify-self-stretch overflow-hidden rounded-2xl border border-yt-border bg-yt-surface shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:border-yt-border hover:bg-yt-surfaceHover focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 xs:rounded-3xl"
-            >
-              <div className="h-28 bg-yt-surfaceHover sm:h-32">
-                {channel.channel_thumbnail ? (
-                  <img
-                    src={channel.channel_thumbnail}
-                    alt=""
-                    className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-yt-textMuted">
-                    <Tv className="h-10 w-10" aria-hidden />
-                  </div>
-                )}
-              </div>
-              <div className="flex min-h-[108px] flex-col p-3 text-right">
-                <h2 className="line-clamp-2 text-sm font-bold leading-snug text-yt-text">{channel.channel_name}</h2>
-                {channel.category ? (
-                  <p className="mt-1 truncate text-xs text-sky-300">{channel.category}</p>
-                ) : null}
-                <Button
-                  type="button"
-                  className="mt-auto min-h-[38px] w-full justify-center rounded-xl bg-yt-surfaceHover px-3 text-xs font-black text-yt-text shadow-sm shadow-black/20 ring-1 ring-white/10 hover:bg-yt-surfaceHover"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    openChannel(channel.youtube_channel_id)
-                  }}
-                >
-                  כנס לערוץ
-                </Button>
-              </div>
-            </article>
+              channel={channel}
+              onOpen={() => openChannel(channel.youtube_channel_id)}
+              onRemove={() => requestRemoveChannel(channel)}
+            />
           ))}
         </section>
         </>
       )}
     </div>
+
+    <RemoveChannelModal
+      open={Boolean(removeTarget)}
+      channel={removeTarget}
+      onClose={() => setRemoveTarget(null)}
+      onConfirm={() => void confirmRemoveChannel()}
+      loading={removeLoading}
+    />
+
+    <TopicDiscoveryModal
+      open={channelSearchOpen}
+      onClose={() => {
+        setChannelSearchOpen(false)
+        setAddedSearchChannelIds(new Set())
+        setAddingSearchChannelId(null)
+      }}
+      onAddChannel={(c) => void handleAddChannelFromSearch(c)}
+      onAddChannels={(list) => void handleAddChannelsFromSearch(list)}
+      onRemoveChannel={(ytId) => {
+        const channel = visibleChannels.find((c) => c.youtube_channel_id === ytId)
+        if (channel) requestRemoveChannel(channel)
+      }}
+      addingId={addingSearchChannelId}
+      addedIds={addedSearchChannelIds}
+      whitelistedChannelIds={new Set(visibleChannels.map((c) => c.youtube_channel_id))}
+      deviceLabel={selectedDevice?.name}
+    />
+
+    <ChannelAddedSuccessModal
+      open={channelAddSuccessOpen}
+      channelName={channelAddSuccessName}
+      addedCount={channelAddSuccessCount}
+      onContinueAdding={() => {
+        setChannelAddSuccessOpen(false)
+        setChannelSearchOpen(true)
+      }}
+      onGoToChannelsList={() => {
+        setChannelAddSuccessOpen(false)
+        setChannelSearchOpen(false)
+        setAddedSearchChannelIds(new Set())
+        setAddingSearchChannelId(null)
+        goHome()
+      }}
+    />
+
+    <ParentalPinModal
+      open={pinOpen}
+      onClose={() => {
+        setPinOpen(false)
+        pendingRemoveRef.current = null
+        setPinPurpose(null)
+      }}
+      verifyPin={verifyRemovePin}
+      onVerified={(pin) => {
+        const trimmed = pin.replace(/\D/g, '').trim()
+        localParentPinRef.current = trimmed
+        setParentPinSession(trimmed)
+        setPinOpen(false)
+        const pending = pendingRemoveRef.current
+        const purpose = pinPurpose
+        pendingRemoveRef.current = null
+        setPinPurpose(null)
+        if (purpose === 'remove' && pending) {
+          setRemoveTarget(pending)
+          return
+        }
+        if (purpose === 'add') setChannelSearchOpen(true)
+      }}
+      title={pinPurpose === 'add' ? t('kid.addChannelsSearch') : t('channels.removePinTitle')}
+      description={
+        pinPurpose === 'add' ? t('kid.addChannelsQuickHint') : t('channels.removePinBody')
+      }
+    />
+
+    {shortsLaneOpen && shortsLaneFeed.length > 0 ? (
+      <KidShortsLane
+        feed={shortsLaneFeed}
+        initialIndex={shortsLaneSeedIndex}
+        hideThumbnails={false}
+        onClose={handleCloseShortsLane}
+        onVideoChange={(videoId) => setActiveVideoId(videoId)}
+      />
+    ) : null}
     </LionProgressionProvider>
     </ScreenTimeChildGate>
   )

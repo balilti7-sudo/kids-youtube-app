@@ -1,36 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { SpeechRecognition } from '@capgo/capacitor-speech-recognition'
 import { toast } from 'sonner'
+import i18n from '../i18n'
 
-type SpeechRecognitionCtor = new () => SpeechRecognitionInstance
+type SpeechRecognitionCtor = new () => WebSpeechRecognitionInstance
 
-type SpeechRecognitionInstance = {
+type WebSpeechRecognitionInstance = {
   lang: string
   continuous: boolean
   interimResults: boolean
   start: () => void
   stop: () => void
   abort: () => void
-  onresult: ((event: SpeechRecognitionResultEvent) => void) | null
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
+  onresult: ((event: WebSpeechRecognitionResultEvent) => void) | null
+  onerror: ((event: { error: string }) => void) | null
   onend: (() => void) | null
 }
 
-type SpeechRecognitionResultEvent = {
-  results: SpeechRecognitionResultList
-}
-
-type SpeechRecognitionResultList = {
-  length: number
-  [index: number]: SpeechRecognitionResult
-}
-
-type SpeechRecognitionResult = {
-  isFinal: boolean
-  [index: number]: { transcript: string }
-}
-
-type SpeechRecognitionErrorEvent = {
-  error: string
+type WebSpeechRecognitionResultEvent = {
+  results: {
+    length: number
+    [index: number]: { isFinal: boolean; [index: number]: { transcript: string } }
+  }
 }
 
 declare global {
@@ -40,13 +32,23 @@ declare global {
   }
 }
 
-function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+function getWebSpeechCtor(): SpeechRecognitionCtor | null {
   if (typeof window === 'undefined') return null
   return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null
 }
 
+function isNativePlatform(): boolean {
+  try {
+    return Capacitor.isNativePlatform()
+  } catch {
+    return false
+  }
+}
+
+/** Native Android/iOS always get a mic path; web needs the Speech API. */
 export function isSpeechToTextSupported(): boolean {
-  return getSpeechRecognitionCtor() !== null
+  if (isNativePlatform()) return true
+  return getWebSpeechCtor() !== null
 }
 
 export function useSpeechToText(opts?: { lang?: string; onResult?: (text: string) => void }) {
@@ -54,39 +56,48 @@ export function useSpeechToText(opts?: { lang?: string; onResult?: (text: string
   const onResultRef = useRef(opts?.onResult)
   onResultRef.current = opts?.onResult
 
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
+  const webRecognitionRef = useRef<WebSpeechRecognitionInstance | null>(null)
+  const nativeBusyRef = useRef(false)
   const [listening, setListening] = useState(false)
   const [supported] = useState(() => isSpeechToTextSupported())
 
   useEffect(() => {
     return () => {
       try {
-        recognitionRef.current?.abort()
+        webRecognitionRef.current?.abort()
       } catch {
         /* ignore */
       }
-      recognitionRef.current = null
+      webRecognitionRef.current = null
+      if (nativeBusyRef.current) {
+        void SpeechRecognition.stop().catch(() => undefined)
+        nativeBusyRef.current = false
+      }
     }
   }, [])
 
   const stop = useCallback(() => {
     try {
-      recognitionRef.current?.stop()
+      webRecognitionRef.current?.stop()
     } catch {
       /* ignore */
+    }
+    if (nativeBusyRef.current) {
+      void SpeechRecognition.stop().catch(() => undefined)
+      nativeBusyRef.current = false
     }
     setListening(false)
   }, [])
 
-  const start = useCallback(() => {
-    const Ctor = getSpeechRecognitionCtor()
+  const startWeb = useCallback(() => {
+    const Ctor = getWebSpeechCtor()
     if (!Ctor) {
-      toast.error('המכשיר לא תומך בקלט קולי. נסו להקליד.')
+      toast.error(i18n.t('voice.unsupported'))
       return
     }
 
     try {
-      recognitionRef.current?.abort()
+      webRecognitionRef.current?.abort()
     } catch {
       /* ignore */
     }
@@ -104,25 +115,82 @@ export function useSpeechToText(opts?: { lang?: string; onResult?: (text: string
     recognition.onerror = (event) => {
       setListening(false)
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        toast.error('יש לאשר גישה למיקרופון בהגדרות המכשיר.')
+        toast.error(i18n.t('voice.permissionDeniedDevice'))
         return
       }
       if (event.error !== 'aborted' && event.error !== 'no-speech') {
-        toast.error('לא הצלחנו לזהות דיבור. נסו שוב.')
+        toast.error(i18n.t('voice.recognizeFailed'))
       }
     }
 
     recognition.onend = () => setListening(false)
 
-    recognitionRef.current = recognition
+    webRecognitionRef.current = recognition
     setListening(true)
     try {
       recognition.start()
     } catch {
       setListening(false)
-      toast.error('לא ניתן להפעיל את המיקרופון כרגע.')
+      toast.error(i18n.t('voice.micUnavailable'))
     }
   }, [lang])
+
+  const startNative = useCallback(async () => {
+    if (nativeBusyRef.current) return
+
+    try {
+      const permission = await SpeechRecognition.requestPermissions()
+      if (permission.speechRecognition !== 'granted') {
+        const again = await SpeechRecognition.checkPermissions()
+        if (again.speechRecognition !== 'granted') {
+          toast.error(i18n.t('voice.permissionDenied'))
+          return
+        }
+      }
+
+      const { available } = await SpeechRecognition.available()
+      if (!available) {
+        toast.error(i18n.t('voice.speechUnavailable'))
+        return
+      }
+
+      nativeBusyRef.current = true
+      setListening(true)
+
+      // System popup is the most reliable path on Android WebView devices.
+      const result = await SpeechRecognition.start({
+        language: lang,
+        maxResults: 3,
+        partialResults: false,
+        popup: true,
+        prompt: i18n.t('voice.speakNow'),
+      })
+
+      const matches = result.matches ?? []
+      const text = matches.map((m) => String(m).trim()).find(Boolean)
+      if (text) {
+        onResultRef.current?.(text)
+      } else {
+        toast.message(i18n.t('voice.noSpeech'))
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      if (!/cancel|abort|user/i.test(message)) {
+        toast.error(i18n.t('voice.recognizeFailed'))
+      }
+    } finally {
+      nativeBusyRef.current = false
+      setListening(false)
+    }
+  }, [lang])
+
+  const start = useCallback(() => {
+    if (isNativePlatform()) {
+      void startNative()
+      return
+    }
+    startWeb()
+  }, [startNative, startWeb])
 
   const toggle = useCallback(() => {
     if (listening) stop()

@@ -38,7 +38,7 @@ export interface Device {
    * Product / payload alias: `allowed_urls`.
    */
   browser_whitelist?: string[]
-  /** Per-profile daily watch budget in minutes (0 = unlimited). */
+  /** Per-profile daily watch budget in minutes (0 = unlimited). Feature currently disabled app-wide. */
   daily_time_limit_minutes?: number
   /** When true, kid UI hides posters and shows a black player frame while audio/video continues. */
   hide_thumbnails?: boolean

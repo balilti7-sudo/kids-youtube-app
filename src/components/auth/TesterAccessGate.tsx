@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { App as CapApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { SafeTubeLogo } from '../branding/SafeTubeLogo'
-import { SplashScreen } from '../branding/SplashScreen'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import {
@@ -18,9 +17,8 @@ type Props = {
 
 export function TesterAccessGate({ children }: Props) {
   const required = isTesterGateRequired()
-  const [status, setStatus] = useState<TesterGateStatus>(() =>
-    required ? { state: 'loading' } : { state: 'open' }
-  )
+  // Fail-open: never cover the whole app with the logo while Remote Config loads.
+  const [status, setStatus] = useState<TesterGateStatus>({ state: 'open' })
   const [code, setCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -29,14 +27,19 @@ export function TesterAccessGate({ children }: Props) {
       setStatus({ state: 'open' })
       return
     }
-    setStatus((prev) => (prev.state === 'open' ? prev : { state: 'loading' }))
-    const next = await resolveTesterGateStatus()
-    setStatus(next)
+    try {
+      const next = await resolveTesterGateStatus()
+      setStatus(next)
+    } catch (e) {
+      console.warn('[TesterAccessGate] refresh failed — leaving app open', e)
+      setStatus({ state: 'open' })
+    }
   }, [])
 
   useEffect(() => {
+    if (!required) return
     void refresh()
-  }, [refresh])
+  }, [required, refresh])
 
   useEffect(() => {
     if (!required || !Capacitor.isNativePlatform()) return
@@ -64,12 +67,9 @@ export function TesterAccessGate({ children }: Props) {
     }
   }
 
-  if (!required || status.state === 'open') {
+  // Only block after we know the gate is locked — never while loading.
+  if (!required || status.state === 'open' || status.state === 'loading') {
     return <>{children}</>
-  }
-
-  if (status.state === 'loading') {
-    return <SplashScreen />
   }
 
   const canEnterCode = status.state === 'locked' && status.reason === 'need_code'

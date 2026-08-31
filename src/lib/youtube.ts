@@ -1,4 +1,5 @@
 import type { YouTubeChannelResult, YouTubeVideoResult } from '../types'
+import { capacitorAwareFetch } from './capacitorHttpFetch'
 import {
   buildMediaBridgeApiUrl,
   getMediaBridgeRequestOrigin,
@@ -13,6 +14,11 @@ const QUOTA_EXCEEDED_MSG = 'מכסת החיפושים הסתיימה להיום,
 function getApiKey(): string | null {
   const k = import.meta.env.VITE_YOUTUBE_API_KEY
   return typeof k === 'string' && k.trim() ? k.trim() : null
+}
+
+/** YouTube Data API from Android WebView must go through CapacitorHttp (no CORS). */
+function ytApiFetch(url: string): Promise<Response> {
+  return capacitorAwareFetch(url, { method: 'GET', credentials: 'omit', cache: 'no-store' })
 }
 
 function formatSubscriberCount(raw: string | undefined): string {
@@ -65,6 +71,8 @@ export interface ChannelVideoItem {
   publishedAt?: string | null
   /** YouTube `snippet.liveBroadcastContent`: none | live | upcoming */
   liveBroadcastContent?: 'none' | 'live' | 'upcoming' | null
+  /** Row came from the channel Shorts playlist (UUSH), not the uploads mix. */
+  fromShortsPlaylist?: boolean
 }
 
 /** Parse YouTube `contentDetails.duration` (ISO 8601) e.g. PT1M30S → seconds. */
@@ -125,7 +133,7 @@ export async function fetchVideoDetailsBatch(videoIds: string[]): Promise<Map<st
       url.searchParams.set('id', chunk.join(','))
       url.searchParams.set('key', key)
 
-      const res = await fetch(url.toString())
+      const res = await ytApiFetch(url.toString())
       const json = (await res.json()) as VideosListDetailsResponse
       if (!res.ok) continue
 
@@ -173,7 +181,7 @@ async function fetchChannelVideosFromRss(channelId: string): Promise<{
   try {
     const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`
     const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`
-    const res = await fetch(proxyUrl)
+    const res = await ytApiFetch(proxyUrl)
     if (!res.ok) {
       return { data: null, error: new Error(`RSS fetch failed (${res.status})`) }
     }
@@ -248,7 +256,7 @@ export async function searchYouTubeChannels(query: string): Promise<{
     searchUrl.searchParams.set('q', q)
     searchUrl.searchParams.set('key', key)
 
-    const res = await fetch(searchUrl.toString())
+    const res = await ytApiFetch(searchUrl.toString())
     const json = (await res.json()) as {
       items?: SearchItem[]
       error?: { message?: string; errors?: { message?: string }[] }
@@ -271,7 +279,7 @@ export async function searchYouTubeChannels(query: string): Promise<{
     chUrl.searchParams.set('maxResults', '50')
     chUrl.searchParams.set('key', key)
 
-    const resCh = await fetch(chUrl.toString())
+    const resCh = await ytApiFetch(chUrl.toString())
     const jsonCh = (await resCh.json()) as {
       items?: ChannelItem[]
       error?: { message?: string }
@@ -667,7 +675,7 @@ export async function getYouTubeChannelById(channelId: string): Promise<{
     chUrl.searchParams.set('maxResults', '1')
     chUrl.searchParams.set('key', key)
 
-    const res = await fetch(chUrl.toString())
+    const res = await ytApiFetch(chUrl.toString())
     const json = (await res.json()) as {
       items?: ChannelItem[]
       error?: { message?: string; errors?: { message?: string }[] }
@@ -735,7 +743,7 @@ async function getYouTubeChannelByHandle(handle: string): Promise<{
     chUrl.searchParams.set('forHandle', clean)
     chUrl.searchParams.set('maxResults', '1')
     chUrl.searchParams.set('key', key)
-    const res = await fetch(chUrl.toString())
+    const res = await ytApiFetch(chUrl.toString())
     const json = (await res.json()) as {
       items?: ChannelItem[]
       error?: { message?: string; errors?: { message?: string }[] }
@@ -789,7 +797,7 @@ async function getYouTubeChannelByUsername(username: string): Promise<{
     chUrl.searchParams.set('forUsername', clean)
     chUrl.searchParams.set('maxResults', '1')
     chUrl.searchParams.set('key', key)
-    const res = await fetch(chUrl.toString())
+    const res = await ytApiFetch(chUrl.toString())
     const json = (await res.json()) as {
       items?: ChannelItem[]
       error?: { message?: string; errors?: { message?: string }[] }
@@ -870,7 +878,7 @@ export async function resolveYouTubeChannelFromInput(input: string): Promise<{
     url.searchParams.set('id', videoId)
     url.searchParams.set('maxResults', '1')
     url.searchParams.set('key', key)
-    const res = await fetch(url.toString())
+    const res = await ytApiFetch(url.toString())
     const json = (await res.json()) as {
       items?: VideoItem[]
       error?: { message?: string; errors?: { message?: string }[] }
@@ -904,6 +912,29 @@ export type ChannelUploadsPageResult = {
   uploadsPlaylistId: string
 }
 
+/** Official YouTube channel playlist (creator-owned, from playlists.list). */
+export type YouTubeChannelPlaylist = {
+  playlistId: string
+  title: string
+  thumbnail: string | null
+  itemCount: number | null
+  description: string | null
+}
+
+type PlaylistsListResponse = {
+  items?: Array<{
+    id?: string
+    snippet?: {
+      title?: string
+      description?: string
+      thumbnails?: { medium?: { url?: string }; default?: { url?: string }; high?: { url?: string } }
+    }
+    contentDetails?: { itemCount?: number }
+  }>
+  nextPageToken?: string
+  error?: { message?: string; errors?: { message?: string }[] }
+}
+
 type ChannelsContentDetailsResponse = {
   items?: Array<{
     contentDetails?: { relatedPlaylists?: { uploads?: string } }
@@ -930,7 +961,7 @@ async function fetchChannelUploadsPlaylistId(channelId: string, key: string): Pr
   url.searchParams.set('part', 'contentDetails')
   url.searchParams.set('id', channelId.trim())
   url.searchParams.set('key', key)
-  const res = await fetch(url.toString())
+  const res = await ytApiFetch(url.toString())
   const json = (await res.json()) as ChannelsContentDetailsResponse
   if (!res.ok) {
     const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
@@ -989,7 +1020,7 @@ async function fetchChannelVideosViaSearchQuery(
     url.searchParams.set('key', key)
     if (pageToken) url.searchParams.set('pageToken', pageToken)
 
-    const res = await fetch(url.toString())
+    const res = await ytApiFetch(url.toString())
     const json = (await res.json()) as SearchListVideoResponse
     if (!res.ok) {
       const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
@@ -1045,7 +1076,7 @@ async function fetchUploadsPlaylistVideos(
     url.searchParams.set('key', key)
     if (pageToken) url.searchParams.set('pageToken', pageToken)
 
-    const res = await fetch(url.toString())
+    const res = await ytApiFetch(url.toString())
     const json = (await res.json()) as PlaylistItemsListResponse
     if (!res.ok) {
       const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
@@ -1372,19 +1403,241 @@ export async function getLatestVideosForChannel(
     const normalized =
       e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני ערוץ נכשלה')
 
-    if (!searchQuery && isQuotaErrorMessage(normalized.message)) {
-      const fallback = await fetchChannelVideosFromRss(id)
-      if (!fallback.error) {
+    return { data: null, error: normalized }
+  }
+}
+
+const CHANNEL_PLAYLISTS_PAGE_GUARD = 4
+
+/**
+ * Official playlists published by a YouTube channel (not SafeTube parent playlists).
+ */
+export async function fetchChannelPlaylists(
+  channelId: string,
+  options?: { maxResults?: number; pageToken?: string | null }
+): Promise<{
+  data: { playlists: YouTubeChannelPlaylist[]; nextPageToken: string | null; hasMore: boolean } | null
+  error: Error | null
+}> {
+  const id = channelId.trim()
+  if (!id) return { data: null, error: new Error('Missing channel id') }
+  const key = getApiKey()
+  if (!key) {
+    return {
+      data: null,
+      error: new Error(
+        'חסר מפתח YouTube: הוסיפו VITE_YOUTUBE_API_KEY לקובץ .env.local והפעילו מחדש את שרת הפיתוח (npm run dev).'
+      ),
+    }
+  }
+
+  try {
+    const out: YouTubeChannelPlaylist[] = []
+    let pageToken: string | undefined = options?.pageToken?.trim() || undefined
+    const maxResults = Math.max(1, Math.min(options?.maxResults ?? 50, 50))
+    let pages = 0
+
+    for (;;) {
+      pages += 1
+      if (pages > CHANNEL_PLAYLISTS_PAGE_GUARD) {
         return {
-          data: fallback.data,
+          data: { playlists: out, nextPageToken: pageToken ?? null, hasMore: Boolean(pageToken) },
           error: null,
-          nextPageToken: null,
-          hasMore: true,
-          uploadsPlaylistId: null,
         }
       }
-    }
 
+      const url = new URL(`${YT_API}/playlists`)
+      url.searchParams.set('part', 'snippet,contentDetails')
+      url.searchParams.set('channelId', id)
+      url.searchParams.set('maxResults', String(maxResults))
+      url.searchParams.set('key', key)
+      if (pageToken) url.searchParams.set('pageToken', pageToken)
+
+      const res = await ytApiFetch(url.toString())
+      const json = (await res.json()) as PlaylistsListResponse
+      if (!res.ok) {
+        const msg = json.error?.message || json.error?.errors?.[0]?.message || `שגיאת YouTube (${res.status})`
+        throw toYouTubeRequestError(res.status, `שגיאת YouTube (${res.status})`, msg)
+      }
+
+      for (const item of json.items ?? []) {
+        const playlistId = item.id?.trim()
+        if (!playlistId) continue
+        const thumbs = item.snippet?.thumbnails
+        out.push({
+          playlistId,
+          title: item.snippet?.title?.trim() || 'פלייליסט',
+          thumbnail:
+            thumbs?.medium?.url ?? thumbs?.high?.url ?? thumbs?.default?.url ?? null,
+          itemCount:
+            typeof item.contentDetails?.itemCount === 'number'
+              ? item.contentDetails.itemCount
+              : null,
+          description: item.snippet?.description?.trim() || null,
+        })
+      }
+
+      const next = json.nextPageToken?.trim() || null
+      if (!next || (json.items?.length ?? 0) === 0) {
+        return { data: { playlists: out, nextPageToken: null, hasMore: false }, error: null }
+      }
+      pageToken = next
+    }
+  } catch (e) {
+    console.error('[youtube] fetchChannelPlaylists', e)
+    const normalized =
+      e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת פלייליסטים נכשלה')
     return { data: null, error: normalized }
+  }
+}
+
+/**
+ * Videos inside an official YouTube playlist (playlistItems.list).
+ */
+export async function fetchYoutubePlaylistVideos(
+  playlistId: string,
+  options?: { maxPages?: number; pageToken?: string | null }
+): Promise<{
+  data: { videos: ChannelVideoItem[]; nextPageToken: string | null; hasMore: boolean } | null
+  error: Error | null
+}> {
+  const id = playlistId.trim()
+  if (!id) return { data: null, error: new Error('Missing playlist id') }
+  const key = getApiKey()
+  if (!key) {
+    return {
+      data: null,
+      error: new Error(
+        'חסר מפתח YouTube: הוסיפו VITE_YOUTUBE_API_KEY לקובץ .env.local והפעילו מחדש את שרת הפיתוח (npm run dev).'
+      ),
+    }
+  }
+
+  try {
+    const page = await fetchUploadsPlaylistVideos(id, key, {
+      maxPages: options?.maxPages ?? 2,
+      pageToken: options?.pageToken,
+    })
+    return {
+      data: {
+        videos: page.videos,
+        nextPageToken: page.nextPageToken,
+        hasMore: page.hasMore,
+      },
+      error: null,
+    }
+  } catch (e) {
+    console.error('[youtube] fetchYoutubePlaylistVideos', e)
+    const normalized =
+      e instanceof Error ? new Error(normalizeYouTubeError(e.message)) : new Error('טעינת סרטוני פלייליסט נכשלה')
+    return { data: null, error: normalized }
+  }
+}
+
+/**
+ * YouTube’s unofficial per-channel Shorts playlist:
+ * `UUSH` + the channel id without the `UC` prefix.
+ */
+export function channelShortsPlaylistId(youtubeChannelId: string): string | null {
+  const id = youtubeChannelId.trim()
+  if (!id.startsWith('UC') || id.length < 4) return null
+  return `UUSH${id.slice(2)}`
+}
+
+function isMissingYoutubePlaylistError(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes('playlistnotfound') ||
+    m.includes('playlist not found') ||
+    m.includes('cannot be found') ||
+    /\b404\b/.test(m)
+  )
+}
+
+function isUnavailablePlaylistTitle(title: string): boolean {
+  const t = title.trim().toLowerCase()
+  return t === 'deleted video' || t === 'private video'
+}
+
+async function fetchChannelShortsViaSearch(
+  channelId: string,
+  key: string
+): Promise<ChannelVideoItem[]> {
+  const url = new URL(`${YT_API}/search`)
+  url.searchParams.set('part', 'snippet')
+  url.searchParams.set('channelId', channelId.trim())
+  url.searchParams.set('type', 'video')
+  url.searchParams.set('videoDuration', 'short')
+  url.searchParams.set('order', 'date')
+  url.searchParams.set('maxResults', '50')
+  url.searchParams.set('key', key)
+
+  const res = await ytApiFetch(url.toString())
+  const json = (await res.json()) as SearchListVideoResponse
+  if (!res.ok) return []
+
+  const out: ChannelVideoItem[] = []
+  const seen = new Set<string>()
+  for (const item of json.items ?? []) {
+    const vid = item.id?.videoId?.trim()
+    if (!vid || seen.has(vid)) continue
+    const title = item.snippet?.title ?? 'ללא כותרת'
+    if (isUnavailablePlaylistTitle(title)) continue
+    seen.add(vid)
+    out.push({
+      videoId: vid,
+      title,
+      thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? '',
+      channelTitle: item.snippet?.channelTitle ?? '',
+      publishedAt: item.snippet?.publishedAt?.trim() || null,
+      fromShortsPlaylist: true,
+    })
+  }
+  return out
+}
+
+/** Fetch the channel Shorts tab (UUSH playlist, then short-duration search). */
+export async function fetchChannelShortsPage(
+  channelId: string,
+  options?: { maxPages?: number; pageToken?: string | null }
+): Promise<{
+  data: { videos: ChannelVideoItem[]; nextPageToken: string | null; hasMore: boolean } | null
+  error: Error | null
+}> {
+  const id = channelId.trim()
+  const playlistId = channelShortsPlaylistId(id)
+  const key = getApiKey()
+
+  let videos: ChannelVideoItem[] = []
+  let nextPageToken: string | null = null
+  let hasMore = false
+
+  if (playlistId) {
+    const result = await fetchYoutubePlaylistVideos(playlistId, {
+      maxPages: options?.maxPages ?? 2,
+      pageToken: options?.pageToken,
+    })
+    if (result.error && !isMissingYoutubePlaylistError(result.error.message)) {
+      // Keep going — search fallback may still find Shorts.
+    } else {
+      videos = (result.data?.videos ?? []).filter((video) => !isUnavailablePlaylistTitle(video.title))
+      nextPageToken = result.data?.nextPageToken ?? null
+      hasMore = result.data?.hasMore ?? false
+    }
+  }
+
+  if (videos.length === 0 && key && !options?.pageToken) {
+    videos = await fetchChannelShortsViaSearch(id, key)
+    nextPageToken = null
+    hasMore = false
+  }
+
+  return {
+    data: {
+      videos: videos.map((video) => ({ ...video, fromShortsPlaylist: true })),
+      nextPageToken,
+      hasMore,
+    },
+    error: null,
   }
 }

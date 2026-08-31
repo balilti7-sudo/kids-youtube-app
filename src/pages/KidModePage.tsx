@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ListMusic, Play, Search, ShieldAlert, Smartphone, Unplug, Users, Globe } from 'lucide-react'
+import { ListMusic, Play, Search, ShieldAlert, Trash2, Unplug, Users, Globe } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { ChannelVideoSearchBar } from '../components/kid/ChannelVideoSearchBar'
 import { useChildImageFilter } from '../hooks/useChildImageFilter'
 import { SafeTubeChannelAvatar } from '../components/ui/SafeTubeChannelAvatar'
 import { ChannelVideoBrowseRows } from '../components/kid/ChannelVideoBrowseRows'
+import { ChannelContentTabs, type ChannelContentTab } from '../components/youtube/ChannelContentTabs'
 import { ChildWatchPlayerShell } from '../components/kid/ChildWatchPlayerShell'
 import { KidGlobalSearchSection } from '../components/kid/KidGlobalSearchSection'
 import { YoutubeWatchLayout } from '../components/youtube/YoutubeWatchLayout'
@@ -31,9 +32,11 @@ import { Modal } from '../components/ui/Modal'
 import { useAuth } from '../hooks/useAuth'
 import {
   childMarkOffline,
+  childAllowedChannelToWhitelist,
   clearChildAccessToken,
   getChildAllowedChannels,
   getChildCachedChannelVideos,
+  getChildContentTagPreferences,
   getChildDeviceState,
   getSavedChildAccessToken,
   type ChildAllowedChannel,
@@ -50,8 +53,9 @@ import { lockManagementAppShell } from '../lib/lockParentApp'
 import { setParentEntryIntent } from '../lib/parentEntryIntent'
 import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import {
+  buildYoutubeShortsUrl,
   buildYoutubeWatchUrl,
-  isVideoShortOrSuspected,
+  type VideoFormat,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
 import { classifyWatchFormat, filterSearchToWhitelistedChannels, isShortsBlockedForProfile } from '../lib/childContentSafety'
@@ -60,7 +64,7 @@ import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import type { ChannelVideoItem } from '../lib/youtube'
 import { searchYouTubeVideos, fetchChannelUploadsPage, fetchVideoDetailsBatch, resolveChannelUploadsCursor } from '../lib/youtube'
-import type { YouTubeVideoResult } from '../types'
+import type { YouTubeChannelResult, YouTubeVideoResult } from '../types'
 import { formatViewCountLabel } from '../lib/formatYoutubeCount'
 import { formatRelativePublishedAt, joinVideoMetadataParts } from '../lib/formatRelativeTime'
 import { listHiddenVideoIdsForChild } from '../lib/hiddenVideos'
@@ -70,10 +74,34 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { logPlaybackStreamRequest } from '../lib/streamApi'
+import { scrollPlayerIntoViewForWatch } from '../lib/scrollPlayerIntoView'
+import { usePublishChromeOffset } from '../lib/chromeOffset'
 import { pauseAllPlayback } from '../lib/playbackController'
+import {
+  captureBrowseNavContext,
+  restoreBrowseScroll,
+  type BrowseNavContext,
+} from '../lib/watchPlayerNav'
+import { usePlayerOwnedBackNavigation, discardPlayerHistoryLayerQuietly } from '../hooks/usePlayerOwnedBackNavigation'
 import { SafeTubeBrandMark } from '../components/branding/SafeTubeBrandMark'
 import { ThemeToggle } from '../components/theme/ThemeToggle'
 import { PARENT_PIN_DIGIT_MAX } from '../lib/parentPin'
+import { KidTagFilterPills } from '../components/kid/KidTagFilterPills'
+import { KidRecommendedChannelsRow } from '../components/kid/KidRecommendedChannelsRow'
+import { KidShortsLane } from '../components/kid/KidShortsLane'
+import { useKidBrowseChannels } from '../hooks/useKidBrowseChannels'
+import { useKidShortsFeed } from '../hooks/useKidShortsFeed'
+import { useKidShortsLanePool } from '../hooks/useKidShortsLanePool'
+import { useChannelYoutubeShorts } from '../hooks/useChannelYoutubeShorts'
+import type { TagPreference } from '../lib/contentTags/types'
+import { itemLooksLikeShort } from '../lib/shortsNavQueue'
+import { RemoveChannelModal } from '../components/channels/RemoveChannelModal'
+import { TopicDiscoveryModal } from '../components/channels/TopicDiscoveryModal'
+import { ChannelAddedSuccessModal } from '../components/channels/ChannelAddedSuccessModal'
+import { RemovableChannelItem } from '../components/channels/RemovableChannelItem'
+import { useChannelStore } from '../stores/channelStore'
+import { getParentPinSession, setParentPinSession } from '../lib/parentPinSession'
+import type { WhitelistedChannel } from '../types'
 
 const KID_APP_DISPLAY_NAME = 'SafeTube Kids'
 const PARENT_MODE_UNLOCK_MS = 10 * 60 * 1000
@@ -87,6 +115,12 @@ function KidModePageInner() {
   const [error, setError] = useState<string | null>(null)
   const [device, setDevice] = useState<ChildDeviceState | null>(null)
   const [channels, setChannels] = useState<ChildAllowedChannel[]>([])
+  const [tagPreferences, setTagPreferences] = useState<TagPreference[]>([])
+  const [activeTagSlug, setActiveTagSlug] = useState<string | null>(null)
+  const [shortsLaneOpen, setShortsLaneOpen] = useState(false)
+  const [shortsLaneSeedVideoId, setShortsLaneSeedVideoId] = useState<string | null>(null)
+  /** Captured once when entering Shorts/Watch — not overwritten on swipes. */
+  const browseNavContextRef = useRef<BrowseNavContext | null>(null)
   const [channelVideos, setChannelVideos] = useState<ChannelVideoItem[]>([])
   const [channelLoading, setChannelLoading] = useState(false)
   const [channelLoadingMore, setChannelLoadingMore] = useState(false)
@@ -98,6 +132,9 @@ function KidModePageInner() {
   } | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
+  const [channelContentTab, setChannelContentTab] = useState<ChannelContentTab>('home')
+  /** Lock player aspect at tap — duration enrich must not flip long↔short layout. */
+  const [playbackFormat, setPlaybackFormat] = useState<VideoFormat>('long')
   const [videoSearch, setVideoSearch] = useState('')
   const [globalSearchInput, setGlobalSearchInput] = useState('')
   const [kidSurface, setKidSurface] = useState<'watch' | 'parent'>('watch')
@@ -115,10 +152,25 @@ function KidModePageInner() {
   const [parentModePinInput, setParentModePinInput] = useState('')
   const [parentModePinError, setParentModePinError] = useState<string | null>(null)
   const [pendingParentAction, setPendingParentAction] = useState<'home' | 'channels' | null>(null)
+  const [pendingRemoveChannel, setPendingRemoveChannel] = useState<ChildAllowedChannel | null>(null)
+  const [pendingOpenChannelSearch, setPendingOpenChannelSearch] = useState(false)
+  const [channelSearchOpen, setChannelSearchOpen] = useState(false)
+  const [addedSearchChannelIds, setAddedSearchChannelIds] = useState<Set<string>>(() => new Set())
+  const [addingSearchChannelId, setAddingSearchChannelId] = useState<string | null>(null)
+  const [channelAddSuccessOpen, setChannelAddSuccessOpen] = useState(false)
+  const [channelAddSuccessName, setChannelAddSuccessName] = useState<string | null>(null)
+  const [channelAddSuccessCount, setChannelAddSuccessCount] = useState(1)
+  const [removeChannelTarget, setRemoveChannelTarget] = useState<WhitelistedChannel | null>(null)
+  const [removeChannelLoading, setRemoveChannelLoading] = useState(false)
+  const removeChannelLocalParent = useChannelStore((s) => s.removeChannelLocalParent)
+  const addChannelLocalParent = useChannelStore((s) => s.addChannelLocalParent)
   const [parentBootstrapBusy, setParentBootstrapBusy] = useState(false)
   const channelVideosRequestRef = useRef(0)
   const channelBrowseRef = useRef<HTMLDivElement>(null)
   const playerAnchorRef = useRef<HTMLDivElement>(null)
+  const kidShellRef = useRef<HTMLDivElement>(null)
+  const kidChromeTopRef = useRef<HTMLElement | null>(null)
+  usePublishChromeOffset(kidChromeTopRef, kidShellRef, '--chrome-top')
   const channelsRef = useRef(channels)
   channelsRef.current = channels
   const [videoSearchFocused, setVideoSearchFocused] = useState(false)
@@ -143,7 +195,6 @@ function KidModePageInner() {
   const [channelBulkOpen, setChannelBulkOpen] = useState(false)
   const [channelBulkLoading, setChannelBulkLoading] = useState(false)
   const parentTabLongPressRef = useRef<number | null>(null)
-  const parentSurfaceHintLongPressRef = useRef<number | null>(null)
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuth()
   const parentDevices = useDeviceStore((s) => s.devices)
@@ -167,29 +218,23 @@ function KidModePageInner() {
     }
   }, [])
 
-  const clearParentSurfaceHintLongPress = useCallback(() => {
-    if (parentSurfaceHintLongPressRef.current != null) {
-      window.clearTimeout(parentSurfaceHintLongPressRef.current)
-      parentSurfaceHintLongPressRef.current = null
-    }
-  }, [])
+  const channelShorts = useChannelYoutubeShorts(activeChannelId, Boolean(activeChannelId))
+  const channelVideosForBrowse = useMemo(() => {
+    const extras = channelShorts.items
+    if (extras.length === 0) return channelVideos
+    const seen = new Set(channelVideos.map((video) => video.videoId))
+    const fresh = extras.filter((video) => !seen.has(video.videoId))
+    return fresh.length === 0 ? channelVideos : [...fresh, ...channelVideos]
+  }, [channelVideos, channelShorts.items])
 
   const filteredVideos = useMemo(() => {
-    const allowShorts = device?.allow_shorts ?? false
-    const bySearch = filterVideosByTitle(channelVideos, videoSearch)
+    const bySearch = filterVideosByTitle(channelVideosForBrowse, videoSearch)
     const childSafe = bySearch.filter((video) => {
       if (shouldHideFromChildBrowse(video.title, video.liveBroadcastContent)) return false
-      if (allowShorts) return true
-      return !isVideoShortOrSuspected({
-        title: video.title,
-        durationSeconds: video.durationSeconds ?? null,
-        watchUrl: buildYoutubeWatchUrl(video.videoId),
-        youtubeVideoId: video.videoId,
-        thumbnail_url: video.thumbnail || null,
-      })
+      return true
     })
     return childSafe
-  }, [channelVideos, videoSearch, device?.allow_shorts])
+  }, [channelVideosForBrowse, videoSearch])
 
   const browseVideos = useMemo((): WatchableVideoBase[] => {
     return filteredVideos.map((video) => ({
@@ -197,13 +242,17 @@ function KidModePageInner() {
       title: video.title,
       thumbnail_url: video.thumbnail || null,
       durationSeconds: video.durationSeconds ?? null,
-      watchUrl: buildYoutubeWatchUrl(video.videoId),
-      format: classifyWatchFormat({
-        durationSeconds: video.durationSeconds,
-        youtubeVideoId: video.videoId,
-        title: video.title,
-        thumbnail: video.thumbnail,
-      }),
+      watchUrl: video.fromShortsPlaylist
+        ? buildYoutubeShortsUrl(video.videoId)
+        : buildYoutubeWatchUrl(video.videoId),
+      format: video.fromShortsPlaylist
+        ? 'short'
+        : classifyWatchFormat({
+            durationSeconds: video.durationSeconds,
+            youtubeVideoId: video.videoId,
+            title: video.title,
+            thumbnail: video.thumbnail,
+          }),
       viewCount: video.viewCount ?? null,
       likeCount: video.likeCount ?? null,
       publishedAt: video.publishedAt ?? null,
@@ -324,8 +373,9 @@ function KidModePageInner() {
     setGlobalSearchHasMore(hasMore)
   }, [globalSearchQuery, globalSearchContinuation, globalSearchLoadingMore, channels])
 
-  const hideKidImages = Boolean(device?.hide_thumbnails)
-  useChildImageFilter(hideKidImages)
+  // Black-screen parental control retired — video/thumbnails always visible.
+  const hideKidImages = false
+  useChildImageFilter(false)
 
   const handleGlobalSearchRequest = useCallback((query: string) => {
     const q = query.trim()
@@ -382,20 +432,162 @@ function KidModePageInner() {
 
   const activeVideo = useMemo(() => {
     if (!activeVideoId) return null
-    return channelVideos.find((v) => v.videoId === activeVideoId) ?? null
-  }, [channelVideos, activeVideoId])
+    return channelVideosForBrowse.find((v) => v.videoId === activeVideoId) ?? null
+  }, [channelVideosForBrowse, activeVideoId])
 
   const activeChannel = useMemo(
     () => channels.find((c) => c.youtube_channel_id === (activeChannelId ?? '')) ?? null,
     [channels, activeChannelId]
   )
 
-  const handleSelectVideo = useCallback(
+  const contentBrowse = useKidBrowseChannels(channels, tagPreferences, activeTagSlug)
+
+  const displayChannels = useMemo(() => {
+    const byYt = new Map(channels.map((c) => [c.youtube_channel_id, c]))
+    return contentBrowse.browseChannels
+      .map((b) => byYt.get(b.youtubeChannelId))
+      .filter((c): c is ChildAllowedChannel => c != null)
+  }, [channels, contentBrowse.browseChannels])
+
+  const visibleRecommendedChannels = useMemo(() => {
+    if (!activeTagSlug) return contentBrowse.recommendedChannels
+    return contentBrowse.recommendedChannels.filter((c) => c.tags.some((t) => t.slug === activeTagSlug))
+  }, [contentBrowse.recommendedChannels, activeTagSlug])
+
+  const allowShorts = true
+  const { pool: shortsLanePool, loading: shortsLanePoolLoading } = useKidShortsLanePool(
+    accessToken,
+    channels,
+    channelVideosForBrowse,
+    activeChannel,
+    allowShorts && shortsLaneOpen
+  )
+  const { feed: shortsLaneFeed, seedIndex: shortsLaneSeedIndex } = useKidShortsFeed(
+    shortsLanePool,
+    tagPreferences,
+    activeTagSlug,
+    shortsLaneSeedVideoId
+  )
+
+  const exitShortsSession = useCallback(() => {
+    const ctx = browseNavContextRef.current
+    browseNavContextRef.current = null
+    setShortsLaneOpen(false)
+    setShortsLaneSeedVideoId(null)
+    if (ctx) {
+      // Avoid re-opening the lane via the Shorts tab; land on home instead.
+      const nextTab: ChannelContentTab =
+        ctx.channelContentTab === 'shorts' ? 'home' : (ctx.channelContentTab as ChannelContentTab)
+      setChannelContentTab(nextTab)
+      setActiveVideoId(ctx.priorActiveVideoId)
+      restoreBrowseScroll(ctx.scrollY)
+    } else {
+      setChannelContentTab((tab) => (tab === 'shorts' ? 'home' : tab))
+      setActiveVideoId(null)
+    }
+  }, [])
+
+  const exitWatchSession = useCallback(() => {
+    const ctx = browseNavContextRef.current
+    browseNavContextRef.current = null
+    setActiveVideoId(null)
+    setShortsLaneOpen(false)
+    setShortsLaneSeedVideoId(null)
+    if (ctx) {
+      const nextTab: ChannelContentTab =
+        ctx.channelContentTab === 'shorts' ? 'home' : (ctx.channelContentTab as ChannelContentTab)
+      setChannelContentTab(nextTab)
+      restoreBrowseScroll(ctx.scrollY)
+    }
+  }, [])
+
+  const openShortsLane = useCallback(
     (videoId: string) => {
+      if (!shortsLaneOpen) {
+        browseNavContextRef.current = captureBrowseNavContext({
+          channelContentTab,
+          priorActiveVideoId: null,
+        })
+      }
+      setShortsLaneSeedVideoId(videoId)
+      setShortsLaneOpen(true)
+      setActiveVideoId(videoId)
+    },
+    [shortsLaneOpen, channelContentTab]
+  )
+
+  const { handlePlayerBack } = usePlayerOwnedBackNavigation({
+    // Playlist tab mounts its own Back owner — avoid dual handlers on /kid.
+    enabled: kidWatchTab === 'channels',
+    isShortsOpen: shortsLaneOpen,
+    isWatchOpen: Boolean(activeVideoId) && !shortsLaneOpen,
+    onExitShorts: exitShortsSession,
+    onExitWatch: exitWatchSession,
+  })
+
+  /** Single exit for X / swipe-down / Android Back / browser Back. */
+  const handleCloseShortsLane = useCallback(() => {
+    if (shortsLaneOpen) handlePlayerBack()
+    else exitShortsSession()
+  }, [shortsLaneOpen, handlePlayerBack, exitShortsSession])
+
+  const handleChannelContentTabChange = useCallback(
+    (tab: ChannelContentTab) => {
+      setChannelContentTab(tab)
+      if (tab !== 'shorts' && shortsLaneOpen) {
+        handleCloseShortsLane()
+      }
+    },
+    [shortsLaneOpen, handleCloseShortsLane]
+  )
+
+  useEffect(() => {
+    if (!shortsLaneOpen || shortsLanePoolLoading) return
+    if (shortsLaneFeed.length === 0) {
+      handleCloseShortsLane()
+      toast.error(t('shortsLane.emptyFeed'))
+    }
+  }, [shortsLaneOpen, shortsLanePoolLoading, shortsLaneFeed.length, t, handleCloseShortsLane])
+
+  useEffect(() => {
+    if (activeTagSlug && !contentBrowse.filterTags.some((t) => t.slug === activeTagSlug)) {
+      setActiveTagSlug(null)
+    }
+  }, [activeTagSlug, contentBrowse.filterTags])
+
+  const handleSelectBrowseChannel = useCallback(
+    (youtubeChannelId: string) => {
+      if (channelMultiSelect.selectionMode) {
+        channelMultiSelect.toggle(youtubeChannelId)
+        return
+      }
+      setVideoSearch('')
+      clearGlobalSearch()
+      setChannelContentTab('home')
+      // Leave watch/shorts so the prior video does not stay visually dominant.
+      browseNavContextRef.current = null
+      setActiveVideoId(null)
+      setShortsLaneOpen(false)
+      setShortsLaneSeedVideoId(null)
+      discardPlayerHistoryLayerQuietly()
+      setActiveChannelId(youtubeChannelId)
+      setChannelPickNonce((n) => n + 1)
+      // After leaving watch, bring Home video rows into view (below chrome/tabs).
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          channelBrowseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      })
+    },
+    [channelMultiSelect, clearGlobalSearch]
+  )
+
+  const handleSelectVideo = useCallback(
+    (videoId: string, playAs?: 'short' | 'long') => {
       if (childRuntime?.isBlocked) return
-      const video = channelVideos.find((v) => v.videoId === videoId)
+      const video = channelVideosForBrowse.find((v) => v.videoId === videoId)
       if (!video) {
-        toast.error('סרטון זה אינו מאושר לצפייה')
+        toast.error(t('kid.videoNotApproved'))
         return
       }
       if (
@@ -406,17 +598,62 @@ function KidModePageInner() {
           thumbnail_url: video.thumbnail || null,
         })
       ) {
-        toast.error('Shorts חסומים בפרופיל זה')
+        toast.error(t('kid.shortsBlocked'))
         return
       }
       if (shouldHideFromChildBrowse(video.title, video.liveBroadcastContent)) {
-        toast.error('תוכן זה אינו זמין לצפייה')
+        toast.error(t('kid.contentUnavailable'))
         return
       }
       logPlaybackStreamRequest(videoId, 'KidModePage.handleSelectVideo (play tap)')
+      if (
+        allowShorts &&
+        playAs !== 'long' &&
+        (playAs === 'short' ||
+          itemLooksLikeShort({
+            title: video.title,
+            durationSeconds: video.durationSeconds ?? null,
+            youtubeVideoId: video.videoId,
+            thumbnail_url: video.thumbnail || null,
+            watchUrl: buildYoutubeWatchUrl(video.videoId),
+            format: classifyWatchFormat({
+              durationSeconds: video.durationSeconds,
+              youtubeVideoId: video.videoId,
+              title: video.title,
+              thumbnail: video.thumbnail,
+            }),
+          }))
+      ) {
+        openShortsLane(videoId)
+        return
+      }
+      setPlaybackFormat(
+        classifyWatchFormat({
+          durationSeconds: video.durationSeconds,
+          youtubeVideoId: video.videoId,
+          title: video.title,
+          thumbnail: video.thumbnail,
+        })
+      )
+      if (!activeVideoId && !shortsLaneOpen) {
+        browseNavContextRef.current = captureBrowseNavContext({
+          channelContentTab,
+          priorActiveVideoId: null,
+        })
+      }
       setActiveVideoId(videoId)
     },
-    [childRuntime?.isBlocked, channelVideos, device?.allow_shorts]
+    [
+      childRuntime?.isBlocked,
+      channelVideosForBrowse,
+      allowShorts,
+      openShortsLane,
+      device?.allow_shorts,
+      t,
+      activeVideoId,
+      shortsLaneOpen,
+      channelContentTab,
+    ]
   )
 
   const handleWatchChannelClick = useCallback(() => {
@@ -445,12 +682,9 @@ function KidModePageInner() {
   )
 
   useEffect(() => {
-    if (!activeVideoId) return
-    const frame = window.requestAnimationFrame(() => {
-      playerAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [activeVideoId])
+    if (!activeVideoId || shortsLaneOpen) return
+    scrollPlayerIntoViewForWatch(playerAnchorRef.current)
+  }, [activeVideoId, shortsLaneOpen])
 
   const playerNavQueue = useMemo(() => {
     if (!activeVideo) return filteredVideos
@@ -578,20 +812,37 @@ function KidModePageInner() {
 
       void fetchVideoDetailsBatch(next.map((v) => v.videoId)).then((details) => {
         if (rid !== channelVideosRequestRef.current) return
-        setChannelVideos((prev) =>
-          prev.map((v) => {
+        setChannelVideos((prev) => {
+          let changed = false
+          const mapped = prev.map((v) => {
             const d = details.get(v.videoId)
             if (!d) return v
+            const durationSeconds = v.durationSeconds ?? d.durationSeconds
+            const viewCount = d.viewCount ?? v.viewCount
+            const likeCount = d.likeCount ?? v.likeCount
+            const publishedAt = v.publishedAt ?? d.publishedAt
+            const liveBroadcastContent = d.liveBroadcastContent ?? v.liveBroadcastContent
+            if (
+              durationSeconds === v.durationSeconds &&
+              viewCount === v.viewCount &&
+              likeCount === v.likeCount &&
+              publishedAt === v.publishedAt &&
+              liveBroadcastContent === v.liveBroadcastContent
+            ) {
+              return v
+            }
+            changed = true
             return {
               ...v,
-              durationSeconds: v.durationSeconds ?? d.durationSeconds,
-              viewCount: d.viewCount ?? v.viewCount,
-              likeCount: d.likeCount ?? v.likeCount,
-              publishedAt: v.publishedAt ?? d.publishedAt,
-              liveBroadcastContent: d.liveBroadcastContent ?? v.liveBroadcastContent,
+              durationSeconds,
+              viewCount,
+              likeCount,
+              publishedAt,
+              liveBroadcastContent,
             }
           })
-        )
+          return changed ? mapped : prev
+        })
       })
 
       // Resolve continuation so every older upload stays reachable via scroll / Load More.
@@ -748,18 +999,10 @@ function KidModePageInner() {
         toast.error('טעינת סרטונים נכשלה', { description: error.message })
         return
       }
-      // Apply same kid-safe filters as browse (shorts / live) when possible.
-      const allowShorts = device?.allow_shorts ?? false
+      // Apply same kid-safe filters as browse (live) when possible.
       const safeVideos = videos.filter((v) => {
         if (shouldHideFromChildBrowse(v.title)) return false
-        if (allowShorts) return true
-        return !isVideoShortOrSuspected({
-          title: v.title,
-          durationSeconds: null,
-          thumbnail_url: v.thumbnail_url,
-          watchUrl: buildYoutubeWatchUrl(v.youtube_video_id),
-          youtubeVideoId: v.youtube_video_id,
-        })
+        return true
       })
       if (safeVideos.length === 0) {
         toast.info('לא נמצאו סרטונים במטמון לערוצים שנבחרו')
@@ -775,10 +1018,14 @@ function KidModePageInner() {
     } finally {
       setChannelBulkLoading(false)
     }
-  }, [accessToken, channels, channelMultiSelect.selectedIds, device?.allow_shorts])
+  }, [accessToken, channels, channelMultiSelect.selectedIds])
 
   const loadChildData = useCallback(async (token: string) => {
-    const [stateRes, channelsRes] = await Promise.all([getChildDeviceState(token), getChildAllowedChannels(token)])
+    const [stateRes, channelsRes, tagPrefsRes] = await Promise.all([
+      getChildDeviceState(token),
+      getChildAllowedChannels(token),
+      getChildContentTagPreferences(token),
+    ])
     if (stateRes.error && !stateRes.data) throw stateRes.error
     if (!stateRes.data) throw new Error('הפרופיל לא נמצא. בחרו פרופיל מחדש או פתחו את בקרת ההורים.')
 
@@ -800,6 +1047,7 @@ function KidModePageInner() {
     setError(null)
     const list = channelsRes.data ?? []
     setChannels(list)
+    setTagPreferences(tagPrefsRes.data ?? [])
     // חשוב: לא לעשות trim כאן כדי לא לשבור התאמה מדויקת מול RPC.
     const availableIds = new Set(list.map((c) => c.youtube_channel_id))
 
@@ -978,11 +1226,11 @@ function KidModePageInner() {
   const confirmPinAndDisconnect = async () => {
     const pinForServer = pinInput.replace(/\s+/g, '').trim()
     if (!accessToken) {
-      setPinError('אין פרופיל פעיל. בחרו פרופיל מחדש.')
+      setPinError(t('kid.noActiveProfile'))
       return
     }
     if (pinForServer.length < 4) {
-      setPinError('PIN שגוי')
+      setPinError(t('kid.wrongPin'))
       return
     }
 
@@ -993,14 +1241,27 @@ function KidModePageInner() {
     })
     const row = Array.isArray(data) ? data[0] : null
     if (error || !row?.device_id) {
-      setPinError('PIN שגוי')
+      setPinError(t('kid.wrongPin'))
       return
     }
     await handleDisconnect()
   }
 
-  const runParentAction = (_action: 'home' | 'channels') => {
+  const runParentAction = (action: 'home' | 'channels') => {
     setParentEntryIntent()
+    if (action === 'channels' && device?.device_id) {
+      const manageTarget = `/dashboard/manage/${encodeURIComponent(device.device_id)}`
+      if (isAuthenticated) {
+        navigate(manageTarget)
+        return
+      }
+      if (getSavedChildAccessToken() && isLocalParentSessionValid()) {
+        navigate(manageTarget)
+        return
+      }
+      navigate(`/auth?next=${encodeURIComponent(manageTarget)}`)
+      return
+    }
     const target = '/dashboard'
     if (isAuthenticated) {
       navigate(target)
@@ -1012,6 +1273,139 @@ function KidModePageInner() {
     }
     navigate(`/auth?next=${encodeURIComponent(target)}`)
   }
+
+  const resolveKidParentPinForMutation = useCallback(() => {
+    const session = readLocalParentSession()
+    return (session?.pin || getParentPinSession() || '').replace(/\D/g, '').trim()
+  }, [])
+
+  const requestRemoveChannelFromKid = useCallback(
+    (channel: ChildAllowedChannel) => {
+      const pinReady = resolveKidParentPinForMutation().length >= 4
+      if (parentModeUnlocked || isLocalParentSessionValid() || pinReady) {
+        setRemoveChannelTarget(childAllowedChannelToWhitelist(channel))
+        return
+      }
+      setPendingRemoveChannel(channel)
+      setPendingParentAction(null)
+      setPendingOpenChannelSearch(false)
+      setParentModePinInput('')
+      setParentModePinError(null)
+      setParentModePinOpen(true)
+    },
+    [parentModeUnlocked, resolveKidParentPinForMutation]
+  )
+
+  const requestOpenChannelSearch = useCallback(() => {
+    if (!accessToken) {
+      toast.error(t('kid.noActiveProfile'))
+      return
+    }
+    const pinReady = resolveKidParentPinForMutation().length >= 4
+    if (parentModeUnlocked || isLocalParentSessionValid() || pinReady) {
+      setChannelSearchOpen(true)
+      return
+    }
+    setPendingOpenChannelSearch(true)
+    setPendingRemoveChannel(null)
+    setPendingParentAction(null)
+    setParentModePinInput('')
+    setParentModePinError(null)
+    setParentModePinOpen(true)
+  }, [accessToken, parentModeUnlocked, resolveKidParentPinForMutation, t])
+
+  const handleAddChannelFromSearch = useCallback(
+    async (yt: YouTubeChannelResult, opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      if (!accessToken) {
+        toast.error(t('kid.noActiveProfile'))
+        return false
+      }
+      const pin = resolveKidParentPinForMutation()
+      if (pin.length < 4) {
+        toast.error(t('kid.wrongPin'))
+        return false
+      }
+      setParentPinSession(pin)
+      setAddedSearchChannelIds((prev) => new Set(prev).add(yt.channelId))
+      setAddingSearchChannelId(null)
+      const { error } = await addChannelLocalParent({ accessToken, pin, yt })
+      if (error) {
+        setAddedSearchChannelIds((prev) => {
+          const next = new Set(prev)
+          next.delete(yt.channelId)
+          return next
+        })
+        toast.error(error.message)
+        return false
+      }
+      void loadChildData(accessToken)
+      if (!opts?.silentSuccess) {
+        setChannelAddSuccessName(yt.title)
+        setChannelAddSuccessCount(1)
+        setChannelAddSuccessOpen(true)
+      }
+      return true
+    },
+    [accessToken, resolveKidParentPinForMutation, addChannelLocalParent, loadChildData, t]
+  )
+
+  const handleAddChannelsFromSearch = useCallback(
+    async (list: YouTubeChannelResult[]) => {
+      let ok = 0
+      let lastName: string | null = null
+      for (const yt of list) {
+        const added = await handleAddChannelFromSearch(yt, { silentSuccess: true })
+        if (added) {
+          ok += 1
+          lastName = yt.title
+        }
+      }
+      if (ok > 0) {
+        setChannelAddSuccessName(ok === 1 ? lastName : null)
+        setChannelAddSuccessCount(ok)
+        setChannelAddSuccessOpen(true)
+      }
+    },
+    [handleAddChannelFromSearch]
+  )
+
+  const handleRemoveChannelFromSearch = useCallback(
+    (youtubeChannelId: string) => {
+      const channel = channels.find((c) => c.youtube_channel_id === youtubeChannelId)
+      if (channel) requestRemoveChannelFromKid(channel)
+    },
+    [channels, requestRemoveChannelFromKid]
+  )
+
+  const confirmRemoveChannelFromKid = useCallback(async () => {
+    if (!removeChannelTarget || !accessToken) return
+    setRemoveChannelLoading(true)
+    const pin = resolveKidParentPinForMutation()
+    if (pin.length >= 4) setParentPinSession(pin)
+    const removedYoutubeId = removeChannelTarget.youtube_channel_id
+    const removedId = removeChannelTarget.id
+    const { error } = await removeChannelLocalParent(accessToken, pin, removedId)
+    setRemoveChannelLoading(false)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success(t('kid.channelRemoved'))
+    setRemoveChannelTarget(null)
+    setChannels((prev) => prev.filter((c) => c.channel_id !== removedId))
+    if (activeChannelId === removedYoutubeId) {
+      setActiveChannelId(null)
+      setActiveVideoId(null)
+      setChannelVideos([])
+    }
+  }, [
+    removeChannelTarget,
+    accessToken,
+    resolveKidParentPinForMutation,
+    removeChannelLocalParent,
+    activeChannelId,
+    t,
+  ])
 
   const lockParentMode = useCallback(() => {
     setParentModeUnlocked(false)
@@ -1052,11 +1446,11 @@ function KidModePageInner() {
     const pinForServer = parentModePinInput.replace(/\s+/g, '').trim()
     const savedToken = getSavedChildAccessToken()
     if (pinForServer.length < 4) {
-      setParentModePinError('PIN שגוי')
+      setParentModePinError(t('kid.wrongPin'))
       return
     }
     if (!savedToken) {
-      setParentModePinError('אין פרופיל פעיל. בחרו פרופיל מחדש.')
+      setParentModePinError(t('kid.noActiveProfile'))
       return
     }
 
@@ -1068,7 +1462,7 @@ function KidModePageInner() {
       })
       const row = Array.isArray(data) ? data[0] : null
       if (error || !row?.device_id) {
-        setParentModePinError('PIN שגוי')
+        setParentModePinError(t('kid.wrongPin'))
         return
       }
       writeLocalParentSession({
@@ -1078,6 +1472,7 @@ function KidModePageInner() {
         accessToken: savedToken,
         pin: pinForServer,
       })
+      setParentPinSession(pinForServer)
     } finally {
       setParentBootstrapBusy(false)
     }
@@ -1087,7 +1482,19 @@ function KidModePageInner() {
     setParentModePinInput('')
     setParentModePinError(null)
     const action = pendingParentAction
+    const pendingRemove = pendingRemoveChannel
+    const pendingSearch = pendingOpenChannelSearch
     setPendingParentAction(null)
+    setPendingRemoveChannel(null)
+    setPendingOpenChannelSearch(false)
+    if (pendingRemove) {
+      setRemoveChannelTarget(childAllowedChannelToWhitelist(pendingRemove))
+      return
+    }
+    if (pendingSearch) {
+      setChannelSearchOpen(true)
+      return
+    }
     if (action) runParentAction(action)
   }
 
@@ -1213,8 +1620,14 @@ function KidModePageInner() {
     <ScreenTimeChildGate>
     <LionProgressionProvider>
     <DailyWatchBudgetTracker deviceId={device?.device_id ?? null} />
-    <div className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40">
-      <header className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90">
+    <div
+      ref={kidShellRef}
+      className="min-h-dvh bg-gradient-to-b from-sky-50 via-white to-violet-50 text-yt-text dark:from-slate-950 dark:via-yt-bg dark:to-indigo-950/40"
+    >
+      <header
+        ref={kidChromeTopRef}
+        className="sticky top-0 z-30 border-b border-sky-200/70 bg-gradient-to-r from-sky-100/95 via-indigo-50/95 to-violet-100/95 backdrop-blur-md dark:border-indigo-900/50 dark:from-indigo-950/90 dark:via-sky-950/80 dark:to-violet-950/90"
+      >
         <div className="mx-auto grid max-w-[1920px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 px-2 py-2 sm:gap-x-4 sm:px-3 sm:py-2">
           <div className="min-w-0 text-right">
             <p className="truncate text-sm font-bold text-yt-text">
@@ -1332,13 +1745,12 @@ function KidModePageInner() {
       {kidSurface === 'parent' ? (
         <main className="mx-auto w-full max-w-lg space-y-4 px-2 py-3 sm:px-3">
           <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
-            <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">ניהול הורה במכשיר הזה</h2>
+            <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-100">{t('kid.parentManageTitle')}</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-              אם כבר התחברתם כהורה באותו דפדפן — עוברים ללוח בלי להקליד שוב אימייל. מצב הילד נשמר במכשיר עד
-              יציאה מפורשת עם PIN.
+              {t('kid.parentManageLead')}
             </p>
             <p className="mt-2 text-[11px] text-slate-500 dark:text-zinc-500">
-              {parentModeUnlocked ? 'מצב הורה (PIN) נפתח ל־10 דקות.' : 'מעבר ללוח/ערוצים דורש PIN הורה או סשן שכבר אומת.'}
+              {parentModeUnlocked ? t('kid.parentModeOpen') : t('kid.parentModeNeedPin')}
             </p>
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Button
@@ -1348,10 +1760,10 @@ function KidModePageInner() {
                 onClick={() => void requestParentAction('home')}
               >
                 {isAuthenticated
-                  ? 'לוח בקרה'
+                  ? t('kid.dashboard')
                   : isLocalParentSessionValid() && getSavedChildAccessToken()
-                    ? 'לוח בקרה'
-                    : 'התחברות — לוח בקרה'}
+                    ? t('kid.dashboard')
+                    : t('kid.loginDashboard')}
               </Button>
               <Button
                 type="button"
@@ -1360,30 +1772,80 @@ function KidModePageInner() {
                 onClick={() => void requestParentAction('channels')}
               >
                 {isAuthenticated
-                  ? 'ניהול ערוצים'
+                  ? t('kid.manageChannels')
                   : isLocalParentSessionValid() && getSavedChildAccessToken()
-                    ? 'ניהול ערוצים'
-                    : 'התחברות — ערוצים'}
+                    ? t('kid.manageChannels')
+                    : t('kid.loginChannels')}
               </Button>
               {parentModeUnlocked ? (
                 <Button type="button" variant="secondary" onClick={lockParentMode} className="w-full min-[400px]:w-auto">
-                  נעל מצב הורה
+                  {t('kid.lockParentMode')}
                 </Button>
-              ) : null}
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full min-[400px]:w-auto"
+                  onClick={() => {
+                    setPendingParentAction(null)
+                    setParentModePinInput('')
+                    setParentModePinError(null)
+                    setParentModePinOpen(true)
+                  }}
+                >
+                  {t('kid.unlockParentForRemove')}
+                </Button>
+              )}
             </div>
+            {parentModeUnlocked && channels.length > 0 ? (
+              <div className="mt-5 border-t border-slate-200 pt-4 dark:border-zinc-800">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-100">
+                  {t('kid.approvedChannelsTitle', { count: channels.length })}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
+                  {t('kid.approvedChannelsHint')}
+                </p>
+                <ul className="mt-3 flex max-h-64 flex-col gap-1.5 overflow-y-auto overscroll-contain">
+                  {channels.map((channel) => (
+                    <li
+                      key={channel.channel_id}
+                      className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/80 px-2 py-2 dark:border-zinc-800 dark:bg-zinc-900/60"
+                    >
+                      <SafeTubeChannelAvatar
+                        name={channel.channel_name}
+                        thumbnail={channel.channel_thumbnail}
+                        hide={hideKidImages}
+                        className="h-10 w-10 shrink-0 rounded-full"
+                      />
+                      <span className="line-clamp-2 min-w-0 flex-1 text-sm font-medium text-slate-800 dark:text-zinc-200">
+                        {channel.channel_name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => requestRemoveChannelFromKid(channel)}
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                        aria-label={t('channels.removeAria', { name: channel.channel_name })}
+                      >
+                        <Trash2 className="h-5 w-5" aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="mt-5 border-t border-slate-200 pt-4 dark:border-zinc-800">
-              <p className="text-xs text-slate-600 dark:text-zinc-400">יציאה ממצב ילד — בחירת פרופיל מחדש (נדרש PIN)</p>
+              <p className="text-xs text-slate-600 dark:text-zinc-400">{t('kid.exitKidHint')}</p>
               <Button
                 type="button"
                 variant="secondary"
                 className="mt-2 w-full border-danger-200 text-danger-700 hover:bg-danger-50 dark:border-danger-800 dark:text-danger-300 dark:hover:bg-danger-950/40 sm:w-auto"
                 onClick={() => setPinModalOpen(true)}
               >
-                יציאה ממצב ילד
+                {t('kid.exitKid')}
               </Button>
             </div>
             <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
-              לחזרה ללוח ההורה: החזיקו לחוץ על לשונית &quot;הורים&quot; למעלה והזינו PIN.
+              {t('kid.parentsLongPressFooter')}
             </p>
           </section>
         </main>
@@ -1393,7 +1855,7 @@ function KidModePageInner() {
             <ShieldAlert className="mx-auto mb-3 h-12 w-12 opacity-90" aria-hidden />
             <h2 className="text-xl font-black tracking-tight">{KID_APP_DISPLAY_NAME}</h2>
             <p className="mt-3 text-sm leading-relaxed opacity-95">
-              הצפייה חסומה כרגע מההורה. בקשו לפתוח — או עברו ללשונית <strong>הורים</strong> לנהל או לצאת ממצב ילד.
+              {t('kid.viewingBlocked')}
             </p>
           </div>
         </section>
@@ -1404,8 +1866,8 @@ function KidModePageInner() {
               {accessToken ? (
                 <KidPlaylistView
                   childAccessToken={accessToken}
-                  allowShorts={Boolean(device?.allow_shorts)}
-                  hideThumbnails={Boolean(device?.hide_thumbnails)}
+                  allowShorts={true}
+                  hideThumbnails={hideKidImages}
                   initialPlaylistId={openedPlaylistId}
                   playlistClient={kidPlaylists}
                   parentQuickBlock={kidParentQuickBlock}
@@ -1415,40 +1877,42 @@ function KidModePageInner() {
             </div>
           ) : channels.length === 0 ? (
             <div className="px-2 py-3 xs:px-3 sm:px-4 md:col-span-2">
-              <div className="rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-5 text-sm leading-relaxed text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/35 dark:text-amber-100">
-                <p className="font-semibold">אין ערוצים מאושרים לפרופיל הזה</p>
-                <p className="mt-2 text-amber-900/95 dark:text-amber-200/90">
-                  בלשונית <strong className="font-bold">הורים</strong> — ניהול ערוצים, ובחרו את הפרופיל &quot;{device.device_name}
-                  &quot;.
+              <div className="rounded-2xl border border-dashed border-sky-300/80 bg-sky-50/90 px-4 py-6 text-center shadow-sm dark:border-sky-900/40 dark:bg-sky-950/30">
+                <p className="text-base font-bold text-slate-800 dark:text-zinc-100">
+                  {t('kid.emptyChannelsTitle')}
                 </p>
-                <p className="mt-2 text-[11px] text-amber-900/90 dark:text-amber-200/85">
-                  לפתיחת אזור ההורים: החזיקו לחוץ על כפתור &quot;הורים&quot; בשורת הכותרת למעלה.
+                <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
+                  {t('kid.addChannelsQuickHint')}
                 </p>
                 <Button
                   type="button"
-                  variant="secondary"
-                  className="mt-3"
-                  title={`החזיקו לחוץ (${PARENT_TAB_LONG_PRESS_MS / 1000} שנ׳)`}
-                  onPointerDown={() => {
-                    clearParentSurfaceHintLongPress()
-                    parentSurfaceHintLongPressRef.current = window.setTimeout(() => {
-                      parentSurfaceHintLongPressRef.current = null
-                      setKidSurface('parent')
-                    }, PARENT_TAB_LONG_PRESS_MS)
-                  }}
-                  onPointerUp={clearParentSurfaceHintLongPress}
-                  onPointerLeave={clearParentSurfaceHintLongPress}
-                  onPointerCancel={clearParentSurfaceHintLongPress}
-                  onContextMenu={(e) => e.preventDefault()}
-                  onClick={(e) => e.preventDefault()}
+                  className="mt-4 min-h-12 w-full max-w-sm gap-2 rounded-xl text-sm font-bold"
+                  onClick={() => requestOpenChannelSearch()}
                 >
-                  לשונית הורים (לחיצה ארוכה)
+                  <Search className="h-5 w-5" aria-hidden />
+                  {t('kid.addChannelsSearch')}
                 </Button>
               </div>
             </div>
           ) : (
             <>
-              <aside className="hidden min-h-0 border-s border-yt-border bg-yt-surface md:sticky md:top-[52px] md:block md:max-h-[calc(100dvh-3rem)] md:shrink-0 md:overflow-y-auto md:pb-6">
+              {contentBrowse.showBrowseUi ? (
+                <div className="min-w-0 px-2 py-2 xs:px-3 md:col-span-2">
+                  <KidTagFilterPills
+                    activeSlug={activeTagSlug}
+                    onChange={setActiveTagSlug}
+                    tags={contentBrowse.filterTags}
+                  />
+                  <KidRecommendedChannelsRow
+                    className="mt-3"
+                    channels={visibleRecommendedChannels}
+                    activeYoutubeChannelId={activeChannelId}
+                    hideThumbnails={hideKidImages}
+                    onSelectChannel={handleSelectBrowseChannel}
+                  />
+                </div>
+              ) : null}
+              <aside className="hidden min-h-0 border-s border-yt-border bg-yt-surface md:sticky md:top-[var(--chrome-top)] md:block md:max-h-[calc(100dvh-var(--chrome-top))] md:shrink-0 md:overflow-y-auto md:pb-6">
                 <div className="border-b border-yt-border p-2">
                   <KidGlobalSearchSection
                     id="kid-global-youtube-search-desktop"
@@ -1456,26 +1920,37 @@ function KidModePageInner() {
                     {...globalSearchSectionProps}
                   />
                 </div>
-                <p className="border-b border-yt-border bg-yt-surface/80 px-3 py-2.5 text-xs font-bold text-yt-textMuted backdrop-blur">
-                  הערוצים שלי
-                  {channelBulkLoading ? (
-                    <span className="ms-2 font-medium text-yt-textMuted">טוען…</span>
-                  ) : null}
-                </p>
+                <div className="flex items-center justify-between gap-2 border-b border-yt-border bg-yt-surface/80 px-3 py-2.5 backdrop-blur">
+                  <p className="text-xs font-bold text-yt-textMuted">
+                    {t('kid.myChannels')}
+                    {channelBulkLoading ? (
+                      <span className="ms-2 font-medium text-yt-textMuted">{t('common.loading')}</span>
+                    ) : null}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="!min-h-8 shrink-0 !rounded-full !px-2.5 !py-1 text-[11px] font-bold"
+                    onClick={() => requestOpenChannelSearch()}
+                  >
+                    <Search className="h-3.5 w-3.5" aria-hidden />
+                    {t('kid.addChannelsShort')}
+                  </Button>
+                </div>
                 {accessToken ? (
                   <div className="border-b border-yt-border px-2 py-2">
                     <PlaylistMultiSelectToolbar
                       compact
                       selectionMode={channelMultiSelect.selectionMode}
                       selectedCount={channelMultiSelect.selectedCount}
-                      totalVisible={channels.length}
-                      itemNoun="ערוצים"
-                      enterLabel="בחירת ערוצים"
-                      addButtonLabel="הוסף לפלייליסט"
+                      totalVisible={displayChannels.length}
+                      itemNoun={t('channels.channelsLabel')}
+                      enterLabel={t('kid.selectChannels')}
+                      addButtonLabel={t('kid.addChannelsToPlaylist')}
                       onEnterSelectionMode={channelMultiSelect.enterSelectionMode}
                       onExitSelectionMode={channelMultiSelect.exitSelectionMode}
                       onSelectAllVisible={() =>
-                        channelMultiSelect.selectMany(channels.map((c) => c.youtube_channel_id))
+                        channelMultiSelect.selectMany(displayChannels.map((c) => c.youtube_channel_id))
                       }
                       onClearSelection={channelMultiSelect.clear}
                       onAddToPlaylist={() => void handleBulkAddChannelsToPlaylist()}
@@ -1483,52 +1958,33 @@ function KidModePageInner() {
                   </div>
                 ) : null}
                 <div className="flex flex-col gap-0.5 p-2">
-                  {channels.map((channel) => {
+                  {displayChannels.map((channel) => {
                     const yt = channel.youtube_channel_id
                     const selected = yt === (activeChannelId ?? '')
                     const checked = channelMultiSelect.isSelected(yt)
                     return (
-                      <button
+                      <RemovableChannelItem
                         key={channel.channel_id}
-                        type="button"
-                        onClick={() => {
-                          if (channelMultiSelect.selectionMode) {
-                            channelMultiSelect.toggle(yt)
-                            return
-                          }
-                          setVideoSearch('')
-                          clearGlobalSearch()
-                          setActiveChannelId(yt)
-                          setChannelPickNonce((n) => n + 1)
-                        }}
-                        className={`flex w-full items-center gap-2 rounded-xl p-2 text-right transition ${
-                          channelMultiSelect.selectionMode && checked
-                            ? 'bg-brand-500/15 ring-1 ring-brand-500/40'
-                            : selected
-                              ? 'bg-slate-200/80 dark:bg-zinc-800'
-                              : 'hover:bg-slate-100 dark:hover:bg-zinc-800/80'
-                        }`}
-                      >
-                        {channelMultiSelect.selectionMode ? (
-                          <PlaylistSelectCheckbox
-                            checked={checked}
-                            onChange={() => channelMultiSelect.toggle(yt)}
-                            className="!h-9 !w-9"
-                          />
-                        ) : null}
-                        <SafeTubeChannelAvatar
-                          name={channel.channel_name}
-                          thumbnail={channel.channel_thumbnail}
-                          hide={hideKidImages}
-                          className="h-10 w-10 shrink-0 rounded-full"
-                        />
-                        <span className="line-clamp-2 min-w-0 flex-1 text-xs font-medium leading-snug text-slate-800 dark:text-zinc-200">
-                          {channel.channel_name}
-                        </span>
-                        {channel.category ? (
-                          <span className="shrink-0 text-[10px] text-brand-600 dark:text-brand-400">{channel.category}</span>
-                        ) : null}
-                      </button>
+                        name={channel.channel_name}
+                        thumbnail={channel.channel_thumbnail}
+                        hideThumbnail={hideKidImages}
+                        selected={
+                          channelMultiSelect.selectionMode ? checked : selected
+                        }
+                        selectionMode={channelMultiSelect.selectionMode}
+                        category={channel.category}
+                        selectionCheckbox={
+                          channelMultiSelect.selectionMode ? (
+                            <PlaylistSelectCheckbox
+                              checked={checked}
+                              onChange={() => channelMultiSelect.toggle(yt)}
+                              className="!h-9 !w-9"
+                            />
+                          ) : null
+                        }
+                        onSelect={() => handleSelectBrowseChannel(yt)}
+                        onRemove={() => requestRemoveChannelFromKid(channel)}
+                      />
                     )
                   })}
                 </div>
@@ -1537,20 +1993,31 @@ function KidModePageInner() {
               <div className="min-w-0 flex-1 bg-gradient-to-b from-sky-50/80 via-white to-violet-50/60 dark:from-slate-950 dark:via-[#0f0f0f] dark:to-indigo-950/20 md:pt-0">
                 <div className="border-b border-black/[0.06] bg-white px-1.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/90 md:hidden">
                   <div className="mb-1.5 flex flex-col gap-1.5 px-0.5">
-                    <p className="text-[11px] font-bold text-slate-500">ערוץ</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-bold text-slate-500">{t('kid.channelLabel')}</p>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="!min-h-8 shrink-0 !rounded-full !px-2.5 !py-1 text-[11px] font-bold"
+                        onClick={() => requestOpenChannelSearch()}
+                      >
+                        <Search className="h-3.5 w-3.5" aria-hidden />
+                        {t('kid.addChannelsShort')}
+                      </Button>
+                    </div>
                     {accessToken ? (
                       <PlaylistMultiSelectToolbar
                         compact
                         selectionMode={channelMultiSelect.selectionMode}
                         selectedCount={channelMultiSelect.selectedCount}
-                        totalVisible={channels.length}
-                        itemNoun="ערוצים"
-                        enterLabel="בחירת ערוצים"
-                        addButtonLabel="הוסף לפלייליסט"
+                        totalVisible={displayChannels.length}
+                        itemNoun={t('channels.channelsLabel')}
+                        enterLabel={t('kid.selectChannels')}
+                        addButtonLabel={t('kid.addChannelsToPlaylist')}
                         onEnterSelectionMode={channelMultiSelect.enterSelectionMode}
                         onExitSelectionMode={channelMultiSelect.exitSelectionMode}
                         onSelectAllVisible={() =>
-                          channelMultiSelect.selectMany(channels.map((c) => c.youtube_channel_id))
+                          channelMultiSelect.selectMany(displayChannels.map((c) => c.youtube_channel_id))
                         }
                         onClearSelection={channelMultiSelect.clear}
                         onAddToPlaylist={() => void handleBulkAddChannelsToPlaylist()}
@@ -1558,102 +2025,105 @@ function KidModePageInner() {
                     ) : null}
                   </div>
                   <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5">
-                    {channels.map((channel) => {
+                    {displayChannels.map((channel) => {
                       const yt = channel.youtube_channel_id
                       const selected = yt === (activeChannelId ?? '')
                       const checked = channelMultiSelect.isSelected(yt)
                       return (
-                        <button
+                        <RemovableChannelItem
                           key={channel.channel_id}
-                          type="button"
-                          onClick={() => {
-                            if (channelMultiSelect.selectionMode) {
-                              channelMultiSelect.toggle(yt)
-                              return
-                            }
-                            setVideoSearch('')
-                            clearGlobalSearch()
-                            setActiveChannelId(yt)
-                            setChannelPickNonce((n) => n + 1)
-                          }}
-                          className={`flex shrink-0 flex-col items-center gap-1 rounded-2xl px-2 py-1.5 ${
+                          variant="chip"
+                          name={channel.channel_name}
+                          thumbnail={channel.channel_thumbnail}
+                          hideThumbnail={hideKidImages}
+                          selected={
+                            channelMultiSelect.selectionMode ? checked : selected
+                          }
+                          selectionMode={channelMultiSelect.selectionMode}
+                          selectionCheckbox={
+                            channelMultiSelect.selectionMode ? (
+                              <span
+                                className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
+                                  checked
+                                    ? 'border-brand-600 bg-brand-600 text-white'
+                                    : 'border-slate-400 text-transparent'
+                                }`}
+                                aria-hidden
+                              >
+                                ✓
+                              </span>
+                            ) : null
+                          }
+                          onSelect={() => handleSelectBrowseChannel(yt)}
+                          onRemove={() => requestRemoveChannelFromKid(channel)}
+                          className={
                             channelMultiSelect.selectionMode && checked
-                              ? 'bg-brand-500/20 ring-1 ring-brand-500/50'
-                              : selected
-                                ? 'bg-slate-200 dark:bg-zinc-800'
-                                : 'bg-slate-100/80 dark:bg-zinc-900/80'
-                          }`}
-                        >
-                          {channelMultiSelect.selectionMode ? (
-                            <span
-                              className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
-                                checked
-                                  ? 'border-brand-600 bg-brand-600 text-white'
-                                  : 'border-slate-400 text-transparent'
-                              }`}
-                              aria-hidden
-                            >
-                              ✓
-                            </span>
-                          ) : null}
-                          <SafeTubeChannelAvatar
-                            name={channel.channel_name}
-                            thumbnail={channel.channel_thumbnail}
-                            hide={hideKidImages}
-                            className="h-12 w-12 rounded-full"
-                          />
-                          <span className="line-clamp-1 max-w-[4.5rem] text-center text-[10px] font-medium text-slate-800 dark:text-zinc-200">
-                            {channel.channel_name}
-                          </span>
-                        </button>
+                              ? 'ring-1 ring-brand-500/50'
+                              : undefined
+                          }
+                        />
                       )
                     })}
                   </div>
                 </div>
 
-                <div className="border-b border-zinc-800/80 bg-[#0f0f0f] px-2 py-2 xs:px-3 xs:py-3 md:hidden">
-                  <ChannelVideoSearchBar
-                    id="kid-channel-video-search-mobile"
-                    value={videoSearch}
-                    onChange={setVideoSearch}
-                    onFocusChange={setVideoSearchFocused}
-                    totalCount={channelVideos.length}
-                    filteredCount={filteredVideos.length}
-                    channelLabel={activeChannel?.channel_name ?? null}
-                    dropdownResults={channelSearchDropdownItems}
-                    activeResultId={activeVideoId}
-                    onSelectResult={handleSelectVideo}
-                    dropdownLoading={channelLoading}
-                    hideThumbnails={hideKidImages}
-                  />
+                {/* Search + browse tabs share one sticky band so tabs cannot overlay the video grid. */}
+                <div
+                  className={`border-b border-zinc-800/80 bg-white dark:bg-[#0f0f0f] ${
+                    activeVideoId ? '' : 'sticky-under-chrome sticky z-20'
+                  }`}
+                >
+                  <div className="px-2 py-2 xs:px-3 xs:py-3 md:hidden">
+                    <ChannelVideoSearchBar
+                      id="kid-channel-video-search-mobile"
+                      value={videoSearch}
+                      onChange={setVideoSearch}
+                      onFocusChange={setVideoSearchFocused}
+                      totalCount={channelVideos.length}
+                      filteredCount={filteredVideos.length}
+                      channelLabel={activeChannel?.channel_name ?? null}
+                      dropdownResults={channelSearchDropdownItems}
+                      activeResultId={activeVideoId}
+                      onSelectResult={handleSelectVideo}
+                      dropdownLoading={channelLoading}
+                      hideThumbnails={hideKidImages}
+                    />
+                  </div>
+                  {!activeVideoId ? (
+                    <div className="mx-auto max-w-[1600px] px-1 xs:px-1.5 sm:px-2 md:px-3">
+                      <ChannelContentTabs
+                        value={channelContentTab}
+                        onChange={handleChannelContentTabChange}
+                        allowShorts
+                        appearance="underline"
+                      />
+                    </div>
+                  ) : null}
                 </div>
-
                 <YoutubeWatchLayout
-                  className="mx-auto max-w-[1600px] px-1 pb-3 pt-1.5 xs:px-1.5 sm:px-2 sm:pb-4 md:px-3 md:pt-2"
+                  className="mx-auto max-w-[1600px] px-1 pb-3 pt-2 xs:px-1.5 sm:px-2 sm:pb-4 md:px-3"
                   main={
-                    channelLoading ? (
+                    channelLoading && !activeVideo ? (
                       <div className="flex aspect-video max-w-5xl items-center justify-center gap-3 rounded-xl bg-black/90 text-zinc-200">
                         <LoadingSpinner className="h-9 w-9 shrink-0 border-2 border-red-500 border-t-transparent" />
                         <span className="text-base font-semibold">טוען…</span>
                       </div>
-                    ) : activeVideo ? (
+                    ) : activeVideo && !shortsLaneOpen ? (
                       <>
-                        <div ref={playerAnchorRef} className="scroll-mt-4 w-full" data-safetube-player>
+                        <div ref={playerAnchorRef} className="scroll-mt-chrome w-full" data-safetube-player>
                           <ChildWatchPlayerShell
                             videoId={activeVideo.videoId}
                             title={activeVideo.title}
                             channelTitle={activeChannel?.channel_name}
-                            posterUrl={device?.hide_thumbnails ? null : activeVideo.thumbnail}
-                            blankVideoFrame={Boolean(device?.hide_thumbnails)}
-                            format={classifyWatchFormat({
-                              durationSeconds: activeVideo.durationSeconds,
-                              youtubeVideoId: activeVideo.videoId,
-                              title: activeVideo.title,
-                              thumbnail: activeVideo.thumbnail,
-                            })}
+                            posterUrl={hideKidImages ? null : activeVideo.thumbnail}
+                            blankVideoFrame={hideKidImages}
+                            format={playbackFormat}
+                            durationSeconds={activeVideo.durationSeconds}
                             onNextTrack={handlePlayerNextTrack}
                             onPreviousTrack={handlePlayerPreviousTrack}
                             hasNextTrack={hasNextChannelVideo}
+                            onMiniDismiss={exitWatchSession}
+                            onBack={handlePlayerBack}
                           />
                         </div>
                         <YoutubeWatchVideoDetails
@@ -1693,6 +2163,15 @@ function KidModePageInner() {
                             </>
                           }
                         />
+                        {/* Watch composition: player → details → tabs (normal flow only) → related. */}
+                        <div className="safetube-watch-tabs bg-[#0f0f0f]">
+                          <ChannelContentTabs
+                            value={channelContentTab}
+                            onChange={handleChannelContentTabChange}
+                            allowShorts
+                            appearance="underline"
+                          />
+                        </div>
                       </>
                     ) : channelVideos.length > 0 && videoSearch.trim() ? (
                       <div className="flex min-h-[min(50vh,320px)] flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-brand-200 bg-gradient-to-b from-white to-slate-50/90 px-5 py-10 text-center dark:border-brand-900/50 dark:from-zinc-900/80 dark:to-zinc-950/90">
@@ -1727,7 +2206,7 @@ function KidModePageInner() {
                     )
                   }
                   sidebar={
-                    <div ref={channelBrowseRef} className="min-h-0">
+                    <div ref={channelBrowseRef} className="min-h-0 scroll-mt-chrome">
                       <ChannelVideoSearchBar
                         id="kid-channel-video-search"
                         value={videoSearch}
@@ -1774,19 +2253,30 @@ function KidModePageInner() {
                       <ChannelVideoBrowseRows
                         videos={browseVideos}
                         activeVideoId={activeVideoId}
-                        allowShorts={Boolean(device?.allow_shorts)}
-                        hideThumbnails={Boolean(device?.hide_thumbnails)}
+                        allowShorts={true}
+                        hideThumbnails={hideKidImages}
+                        channelName={activeChannel?.channel_name ?? null}
+                        variant="sidebar"
+                        tab={channelContentTab}
+                        onTabChange={handleChannelContentTabChange}
+                        hideTabs
                         hasMore={!videoSearch.trim() && channelHasMoreVideos}
-                        loadingMore={channelLoadingMore}
+                        loadingMore={channelLoadingMore || (channelContentTab === 'shorts' && channelShorts.loading)}
                         onLoadMore={() => void handleLoadOlderChannelVideos()}
                         loadMoreLabel={t('channels.loadOlderVideos')}
                         loadingMoreLabel={t('channels.loadingOlderVideos')}
-                        playlists={kidPlaylists.playlists}
-                        onSelectPlaylist={(playlistId) => {
-                          setOpenedPlaylistId(playlistId)
-                          setKidWatchTab('playlist')
-                        }}
-                        onSelectVideo={(video) => {
+                        youtubeChannelId={activeChannelId}
+                        playlistAddVideos={
+                          accessToken
+                            ? {
+                                userId: null,
+                                childAccessToken: accessToken,
+                                mode: 'kid',
+                                initialPlaylists: kidPlaylists.playlists,
+                              }
+                            : undefined
+                        }
+                        onSelectVideo={(video, playAs) => {
                           const payload: PlaylistVideoPayload = {
                             youtube_video_id: video.youtube_video_id,
                             title: video.title,
@@ -1798,7 +2288,7 @@ function KidModePageInner() {
                             videoMultiSelect.toggle(payload)
                             return
                           }
-                          handleSelectVideo(video.youtube_video_id)
+                          handleSelectVideo(video.youtube_video_id, playAs)
                         }}
                         renderAction={(video) =>
                           accessToken ? (
@@ -1838,10 +2328,10 @@ function KidModePageInner() {
                         <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300/90 bg-white/40 px-3 py-6 text-center dark:border-zinc-600 dark:bg-zinc-900/40">
                           <p className="text-sm font-semibold leading-snug text-slate-700 dark:text-zinc-300">
                             {videoSearch.trim()
-                              ? 'אין סרטונים שמתאימים לחיפוש.'
+                              ? t('kid.noMatchingSearch')
                               : channelVideos.length === 0
-                                ? 'אין עדיין סרטונים בערוץ הזה. בקשו מההורה להוסיף סרטונים.'
-                                : 'אין סרטונים.'}
+                                ? t('kid.noVideosAskParent')
+                                : t('kid.noVideos')}
                           </p>
                         </div>
                       ) : null}
@@ -1861,8 +2351,9 @@ function KidModePageInner() {
           setParentModePinInput('')
           setParentModePinError(null)
           setPendingParentAction(null)
+          setPendingRemoveChannel(null)
         }}
-        title="פתיחת מצב הורה"
+        title={pendingRemoveChannel ? t('channels.removePinTitle') : t('kid.openParentPinTitle')}
         footer={
           <>
             <Button
@@ -1872,18 +2363,21 @@ function KidModePageInner() {
                 setParentModePinInput('')
                 setParentModePinError(null)
                 setPendingParentAction(null)
+                setPendingRemoveChannel(null)
               }}
             >
-              ביטול
+              {t('common.cancel')}
             </Button>
             <Button onClick={() => void confirmParentModePin()} disabled={parentBootstrapBusy}>
-              {parentBootstrapBusy ? 'מאמת…' : 'אשר'}
+              {parentBootstrapBusy ? t('kid.verifying') : t('kid.confirm')}
             </Button>
           </>
         }
       >
         <p className="mb-2 text-sm text-slate-600 dark:text-zinc-400">
-          הכניסה לניהול הורה מהמכשיר הזה מוגנת ב-PIN.
+          {pendingRemoveChannel
+            ? t('channels.removePinBodyNamed', { name: pendingRemoveChannel.channel_name })
+            : t('kid.openParentPinBody')}
         </p>
         <Input
           type="password"
@@ -1894,7 +2388,7 @@ function KidModePageInner() {
             setParentModePinInput(e.target.value)
             if (parentModePinError) setParentModePinError(null)
           }}
-          placeholder="PIN הורה"
+          placeholder={t('kid.parentPinPlaceholder')}
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && !parentBootstrapBusy && void confirmParentModePin()}
         />
@@ -1993,6 +2487,58 @@ function KidModePageInner() {
           }}
         />
       ) : null}
+
+      {shortsLaneOpen && shortsLaneFeed.length > 0 ? (
+        <KidShortsLane
+          feed={shortsLaneFeed}
+          initialIndex={shortsLaneSeedIndex}
+          hideThumbnails={hideKidImages}
+          onClose={handleCloseShortsLane}
+          onVideoChange={(videoId) => setActiveVideoId(videoId)}
+        />
+      ) : null}
+
+      <RemoveChannelModal
+        open={Boolean(removeChannelTarget)}
+        channel={removeChannelTarget}
+        onClose={() => setRemoveChannelTarget(null)}
+        onConfirm={() => void confirmRemoveChannelFromKid()}
+        loading={removeChannelLoading}
+      />
+
+      <TopicDiscoveryModal
+        open={channelSearchOpen}
+        onClose={() => {
+          setChannelSearchOpen(false)
+          setAddedSearchChannelIds(new Set())
+          setAddingSearchChannelId(null)
+        }}
+        onAddChannel={(c) => void handleAddChannelFromSearch(c)}
+        onAddChannels={(list) => void handleAddChannelsFromSearch(list)}
+        onRemoveChannel={handleRemoveChannelFromSearch}
+        addingId={addingSearchChannelId}
+        addedIds={addedSearchChannelIds}
+        whitelistedChannelIds={new Set(channels.map((c) => c.youtube_channel_id))}
+        deviceLabel={device?.device_name}
+      />
+
+      <ChannelAddedSuccessModal
+        open={channelAddSuccessOpen}
+        channelName={channelAddSuccessName}
+        addedCount={channelAddSuccessCount}
+        onContinueAdding={() => {
+          setChannelAddSuccessOpen(false)
+          setChannelSearchOpen(true)
+        }}
+        onGoToChannelsList={() => {
+          setChannelAddSuccessOpen(false)
+          setChannelSearchOpen(false)
+          setAddedSearchChannelIds(new Set())
+          setAddingSearchChannelId(null)
+          setKidWatchTab('channels')
+          setKidSurface('watch')
+        }}
+      />
     </div>
     </LionProgressionProvider>
     </ScreenTimeChildGate>

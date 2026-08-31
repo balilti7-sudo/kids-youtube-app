@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { PLAYER_GESTURE_BOTTOM_DEADZONE_PX } from './usePlayerTouchGestures'
 
 const DEFAULT_THRESHOLD_PX = 72
 const AXIS_RATIO = 1.25
-/** Leave room for native / custom video controls at the bottom. */
-const DEFAULT_BOTTOM_DEADZONE_PX = 72
+/** Align with SafeTube player chrome / gesture overlay bottom clear zone (long-form / inline). */
+const DEFAULT_BOTTOM_DEADZONE_PX = PLAYER_GESTURE_BOTTOM_DEADZONE_PX
+/**
+ * Immersive Shorts lane: smaller clear zone — meta card sits above; leave room for intentional swipes.
+ * Must stay below the channel meta card (~5.5rem) so swipes from mid-frame still work.
+ */
+export const SHORTS_LANE_BOTTOM_DEADZONE_PX = 48
+/** Slightly higher threshold so tiny finger noise does not change Shorts. */
+export const SHORTS_LANE_SWIPE_THRESHOLD_PX = 88
 const MAX_DRAG_VISUAL_PX = 120
 
 export type VerticalSwipeNavHandlers = {

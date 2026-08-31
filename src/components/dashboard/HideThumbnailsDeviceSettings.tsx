@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ImageOff } from 'lucide-react'
+import { MonitorOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { useDeviceStore } from '../../stores/deviceStore'
@@ -40,7 +40,7 @@ export function HideThumbnailsDeviceSettings({ device, className, card }: Props)
       className={className}
       card={card}
       accent="zinc"
-      icon={<ImageOff className="h-5 w-5" />}
+      icon={<MonitorOff className="h-5 w-5" />}
       title={t('thumbnails.hideTitle')}
       description={enabled ? t('thumbnails.hintOn') : t('thumbnails.hintOff')}
       checked={enabled}

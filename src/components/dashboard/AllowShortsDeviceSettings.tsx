@@ -42,7 +42,6 @@ export function AllowShortsDeviceSettings({ device, className, card }: Props) {
       accent="sky"
       icon={<Smartphone className="h-5 w-5" />}
       title={t('shorts.allowTitle')}
-      description={enabled ? t('shorts.hintOn') : t('shorts.hintOff')}
       checked={enabled}
       disabled={saving}
       onChange={(next) => {

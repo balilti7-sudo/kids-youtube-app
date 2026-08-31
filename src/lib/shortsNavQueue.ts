@@ -1,4 +1,4 @@
-import { isVideoShortOrSuspected, type VideoFormat } from './videoFormatClassification'
+import { belongsOnShortsShelf, type VideoFormat } from './videoFormatClassification'
 
 type Shortish = {
   format?: VideoFormat
@@ -12,7 +12,7 @@ type Shortish = {
 }
 
 export function itemLooksLikeShort(item: Shortish): boolean {
-  return isVideoShortOrSuspected({
+  return belongsOnShortsShelf({
     format: item.format,
     title: item.title,
     durationSeconds: item.durationSeconds,

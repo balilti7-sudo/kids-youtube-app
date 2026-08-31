@@ -15,6 +15,7 @@ export function ChannelSearch({
   loading,
   error,
   onAdd,
+  onRemove,
   addingId,
   addedIds,
   deviceLabel,
@@ -26,6 +27,7 @@ export function ChannelSearch({
   loading: boolean
   error: string | null
   onAdd: (c: YouTubeChannelResult) => void
+  onRemove?: (c: YouTubeChannelResult) => void
   addingId: string | null
   addedIds?: Set<string>
   deviceLabel?: string
@@ -82,7 +84,6 @@ export function ChannelSearch({
               חפש
             </Button>
           </div>
-          <p className="mt-2 text-xs text-zinc-500">חפשו ערוץ ואז הוסיפו אותו לפרופיל הנבחר.</p>
         </div>
       }
       footer={
@@ -117,6 +118,9 @@ export function ChannelSearch({
               variant="search"
               channel={c}
               onAdd={() => onAdd(c)}
+              onRemove={
+                addedIds?.has(c.channelId) && onRemove ? () => onRemove(c) : undefined
+              }
               adding={addingId === c.channelId}
               added={Boolean(addedIds?.has(c.channelId))}
             />

@@ -1,16 +1,17 @@
 ---
-description: Locked Android player and channel-add files — do not rewrite media attach
+description: Locked Android player files — Media Bridge path (1.1.13)
 globs: src/components/player/CleanPlayer.tsx,src/lib/youtubeEmbedUrl.ts,src/lib/streamApi.ts,src/lib/deviceResolve/**,src/stores/channelStore.ts,android/app/src/main/java/app/safetube/kids/MainActivity.java
 alwaysApply: false
 ---
 
-# Locked media files
+# Locked media files (1.1.13)
 
-These files are the working 1.1.20 playback/add path.
+Do not edit these when building tags, UI, settings, or other features.
 
-- `CleanPlayer.tsx`: Android → `CleanPlayerYoutubeIframe`. Do not route Android to `CleanPlayerMediaBridge`.
-- `youtubeEmbedUrl.ts`: Android embed uses `www.youtube.com` + `autoplay=1`.
-- `MainActivity.java`: `setMediaPlaybackRequiresUserGesture(false)` and third-party cookies on. No googlevideo interceptor.
-- `channelStore.ts`: `requireAuthenticatedParentPin` returns null when the parental gate is already unlocked.
+- `CleanPlayer.tsx`: Android → `CleanPlayerMediaBridge` (default). Iframe only via env flag.
+- `streamApi.ts` / `deviceResolve/**`: Media Bridge fetch and resolve — frozen.
+- `youtubeEmbedUrl.ts`: opt-in iframe helper — do not change for Android routing.
+- `MainActivity.java`: `setMediaPlaybackRequiresUserGesture(false)` + `keepWebViewMediaAlive`. No googlevideo interceptor, no embed-only cookie experiments.
+- `channelStore.ts`: `requireAuthenticatedParentPin` returns null when parental gate is already unlocked.
 
-Layout/CSS around these files is OK. Changing attach/resolve/PIN-verify logic is not, unless the user asked for a playback bugfix.
+If playback breaks: restore `bf6a879` (1.1.13). Do not experiment.

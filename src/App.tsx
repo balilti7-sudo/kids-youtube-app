@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
@@ -39,17 +39,24 @@ function KidModeRoute() {
 
 function SmartEntryRoute() {
   const { isAuthenticated, loading, profileLoading, profile } = useAuth()
+  const [bootTimedOut, setBootTimedOut] = useState(false)
 
   const hasKidToken =
     typeof window !== 'undefined' && Boolean(window.localStorage.getItem('safetube_kid_access_token'))
 
+  // Never stay on the logo forever if getSession / profile hang on bad network.
+  useEffect(() => {
+    if (!loading && !(isAuthenticated && profileLoading)) {
+      setBootTimedOut(false)
+      return
+    }
+    const id = window.setTimeout(() => setBootTimedOut(true), 5_000)
+    return () => window.clearTimeout(id)
+  }, [loading, isAuthenticated, profileLoading])
+
   if (BYPASS_AUTH) return <Navigate to="/dashboard" replace />
 
-  if (loading) {
-    return <SplashScreen />
-  }
-
-  if (isAuthenticated && profileLoading) {
+  if ((loading || (isAuthenticated && profileLoading)) && !bootTimedOut) {
     return <SplashScreen />
   }
 

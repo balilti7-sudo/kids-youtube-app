@@ -197,8 +197,8 @@ export function ChannelPreviewModal({
           <section className="min-w-0" ref={playerAnchorRef}>
             {active ? (
               <>
-                <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-black pt-[56.25%] shadow-sm dark:border-zinc-700">
-                  <div className="absolute inset-0 min-h-0">
+                <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm dark:border-zinc-700">
+                  <div className="min-h-0">
                     <CleanPlayer
                       key={active.videoId}
                       videoId={active.videoId}
@@ -208,7 +208,7 @@ export function ChannelPreviewModal({
                       onPreviousTrack={goPrevPreviewTrack}
                       onNextTrack={goNextPreviewTrack}
                       hasNextTrack={hasNextPreviewVideo}
-                      className="h-full w-full"
+                      className="w-full"
                     />
                   </div>
                 </div>

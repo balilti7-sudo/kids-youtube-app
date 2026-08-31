@@ -16,6 +16,8 @@ type Props = {
   onAddChannel: (channel: YouTubeChannelResult) => void
   /** Bulk whitelist — preferred when multiple channels are selected. */
   onAddChannels?: (channels: YouTubeChannelResult[]) => void
+  /** Remove a channel that is already on the whitelist (by YouTube channel id). */
+  onRemoveChannel?: (youtubeChannelId: string) => void
   addingId: string | null
   addedIds: Set<string>
   /** Channels already on the device whitelist (UC ids). */
@@ -28,7 +30,8 @@ export function TopicDiscoveryModal({
   onClose,
   onAddChannel,
   onAddChannels,
-  addingId,
+  onRemoveChannel,
+  addingId: _addingId,
   addedIds,
   whitelistedChannelIds,
   deviceLabel,
@@ -148,7 +151,7 @@ export function TopicDiscoveryModal({
               <input
                 dir="auto"
                 data-autofocus="true"
-                placeholder="שם ערוץ או נושא — למשל בישול, מדע, מלאכת יד…"
+                placeholder="שם ערוץ…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => {
@@ -178,9 +181,6 @@ export function TopicDiscoveryModal({
               חפש
             </Button>
           </div>
-          <p className="mt-2 text-xs text-zinc-500">
-            חיפוש ערוצים שלמים בלבד — לא סרטונים בודדים. אפשר גם לדבר במקום להקליד.
-          </p>
         </div>
       }
       footer={
@@ -260,12 +260,17 @@ export function TopicDiscoveryModal({
                       {selected ? <Check className="h-4 w-4" aria-hidden /> : null}
                     </button>
                   ) : null}
-                  <div className={cn(!added && 'ps-9')}>
+                  <div className={cn(!added && 'ps-10')}>
                     <ChannelCard
                       variant="search"
                       channel={c}
                       onAdd={() => onAddChannel(c)}
-                      adding={addingId === c.channelId}
+                      onRemove={
+                        added && onRemoveChannel
+                          ? () => onRemoveChannel(c.channelId)
+                          : undefined
+                      }
+                      adding={false}
                       added={added}
                     />
                   </div>

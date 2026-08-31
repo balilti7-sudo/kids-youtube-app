@@ -31,10 +31,15 @@ export type NativeMediaSessionUpdate = {
   canSkipPrev?: boolean
 }
 
+export type NativeOrientationLockMode = 'landscape' | 'portrait' | 'unlocked'
+
 export interface MediaPlaybackPlugin {
   start(options?: NativeMediaSessionUpdate): Promise<void>
   updateSession(options: NativeMediaSessionUpdate): Promise<void>
   stop(): Promise<void>
+  adjustVolume(options: { direction: 'raise' | 'lower' | 'mute' | 'toggleMute' }): Promise<void>
+  /** Fullscreen theater — Activity orientation lock (layout only). */
+  setOrientationLock(options: { mode: NativeOrientationLockMode }): Promise<void>
   addListener(
     eventName: 'mediaAction',
     listenerFunc: (event: NativeMediaActionEvent) => void
@@ -51,6 +56,12 @@ const MediaPlayback = registerPlugin<MediaPlaybackPlugin>('MediaPlayback', {
     },
     async stop() {
       /* no-op */
+    },
+    async adjustVolume() {
+      /* no-op on web — use HTMLMediaElement.volume */
+    },
+    async setOrientationLock() {
+      /* no-op on web — use Screen Orientation API via playerOrientation */
     },
     async addListener() {
       return { remove: async () => undefined }
@@ -143,5 +154,28 @@ export async function stopNativeMediaPlayback(): Promise<void> {
     await MediaPlayback.stop()
   } catch (err) {
     console.warn('[mediaPlayback] stop failed', err)
+  }
+}
+
+/** System music-stream volume (affects YouTube iframe audio on Android). */
+export async function adjustNativeMusicVolume(
+  direction: 'raise' | 'lower' | 'mute' | 'toggleMute'
+): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await MediaPlayback.adjustVolume({ direction })
+  } catch (err) {
+    console.warn('[mediaPlayback] adjustVolume failed', err)
+  }
+}
+
+/** Activity orientation lock for fullscreen theater (does not touch playback). */
+export async function setNativeOrientationLock(mode: NativeOrientationLockMode): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await MediaPlayback.setOrientationLock({ mode })
+  } catch (err) {
+    console.warn('[mediaPlayback] setOrientationLock failed', err)
+    throw err
   }
 }

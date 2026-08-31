@@ -13,15 +13,19 @@ import {
 import { humanizeSupabaseError } from '../lib/supabaseErrorMessage'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
 import { supabase } from '../lib/supabase'
+import {
+  effectiveAllowShorts,
+  effectiveDailyTimeLimitMinutes,
+} from '../lib/parentalLimitsPolicy'
 
 function deviceToSettingsFields(device: Device): DeviceSettingsFields {
   return {
-    allow_shorts: Boolean(device.allow_shorts),
+    allow_shorts: effectiveAllowShorts(device.allow_shorts),
     block_youtube_app: Boolean(device.block_youtube_app),
     browser_filter_enabled: Boolean(device.browser_filter_enabled),
     browser_whitelist: Array.isArray(device.browser_whitelist) ? device.browser_whitelist : [],
-    daily_time_limit_minutes: device.daily_time_limit_minutes ?? 60,
-    hide_thumbnails: Boolean(device.hide_thumbnails),
+    daily_time_limit_minutes: effectiveDailyTimeLimitMinutes(device.daily_time_limit_minutes),
+    hide_thumbnails: false,
   }
 }
 
@@ -101,22 +105,15 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         created_at: new Date(0).toISOString(),
         updated_at: new Date(0).toISOString(),
         channel_count: 0,
-        allow_shorts: data.allow_shorts,
+        allow_shorts: effectiveAllowShorts(data.allow_shorts),
         block_youtube_app: data.block_youtube_app,
         browser_filter_enabled: data.browser_filter_enabled,
         browser_whitelist: data.browser_whitelist,
-        daily_time_limit_minutes: data.daily_time_limit_minutes ?? 60,
+        daily_time_limit_minutes: effectiveDailyTimeLimitMinutes(data.daily_time_limit_minutes),
         hide_thumbnails: data.hide_thumbnails,
       }
       void syncParentalControlPolicy(policyFromDeviceFields(device))
-      cacheDeviceSettings(device.id, {
-        allow_shorts: device.allow_shorts,
-        block_youtube_app: device.block_youtube_app,
-        browser_filter_enabled: device.browser_filter_enabled,
-        browser_whitelist: device.browser_whitelist,
-        daily_time_limit_minutes: device.daily_time_limit_minutes ?? 60,
-        hide_thumbnails: device.hide_thumbnails,
-      })
+      cacheDeviceSettings(device.id, deviceToSettingsFields(device))
       set({ devices: [device], loading: false })
     } catch (err) {
       console.error('[deviceStore.fetchDeviceFromChildToken]', err)
@@ -271,11 +268,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       return { error: new Error('DEVICE_SETTINGS_UPDATE_FAILED') }
     }
     const nextFields = {
-      allow_shorts: data.allowShorts,
+      allow_shorts: effectiveAllowShorts(data.allowShorts),
       block_youtube_app: data.blockYoutubeApp,
       browser_filter_enabled: data.browserFilterEnabled,
       browser_whitelist: data.browserWhitelist,
-      daily_time_limit_minutes: data.dailyTimeLimitMinutes,
+      daily_time_limit_minutes: effectiveDailyTimeLimitMinutes(data.dailyTimeLimitMinutes),
       hide_thumbnails: data.hideThumbnails,
     }
     set({

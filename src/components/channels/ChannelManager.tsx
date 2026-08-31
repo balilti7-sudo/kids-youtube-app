@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useDeviceOwnerId } from '../../hooks/useDeviceOwnerId'
 import { useDevices } from '../../hooks/useDevices'
 import { useChannels } from '../../hooks/useChannels'
+import { useChannelStore } from '../../stores/channelStore'
 import type { WhitelistedChannel, YouTubeChannelResult } from '../../types'
 import { supabase } from '../../lib/supabase'
 import { WhitelistView } from './WhitelistView'
@@ -14,7 +15,11 @@ import { Button } from '../ui/Button'
 import { ParentalPinModal } from '../parental/ParentalPinModal'
 import { verifyParentManagementPin } from '../../lib/verifyParentManagementPin'
 import { isProfileParentPinMissing } from '../../lib/parentPin'
-import { getParentPinSession, setParentPinSession } from '../../lib/parentPinSession'
+import {
+  getParentPinSession,
+  isParentManagementSessionVerified,
+  setParentPinSession,
+} from '../../lib/parentPinSession'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { Skeleton } from '../ui/Skeleton'
@@ -43,9 +48,20 @@ import { YoutubeLikeButton } from '../youtube/YoutubeLikeButton'
 import { YoutubeSuggestedList } from '../youtube/YoutubeSuggestedList'
 import { filterVideosByTitle } from '../../lib/filterVideosByTitle'
 import { listHiddenVideoIdsForDevice, listHiddenVideoIdsLocalParent } from '../../lib/hiddenVideos'
-import { isParentalManagementGateUnlocked } from '../../lib/parentalManagementGateStorage'
+import { ChannelAddedSuccessModal } from './ChannelAddedSuccessModal'
+import { fetchVideoDetailsBatch } from '../../lib/youtube'
+import { formatVideoDurationClock } from '../../lib/formatRelativeTime'
+import { CONTENT_TAGS_ENABLED } from '../../config/contentTags'
+import { TagOnAddPrompt } from '../contentTags/TagOnAddPrompt'
+import { ChannelTagBulkToolbar } from '../contentTags/ChannelTagBulkToolbar'
+import { useContentTagStore } from '../../stores/contentTagStore'
 
-type PreviewRow = { videoId: string; title: string; thumbnail: string | null }
+type PreviewRow = {
+  videoId: string
+  title: string
+  thumbnail: string | null
+  durationSeconds?: number | null
+}
 
 type PendingPinAction =
   | { kind: 'openSearch' }
@@ -53,6 +69,7 @@ type PendingPinAction =
   | { kind: 'add'; channel: YouTubeChannelResult }
   | { kind: 'addMany'; channels: YouTubeChannelResult[] }
   | { kind: 'remove'; channel: WhitelistedChannel }
+  | { kind: 'removeMany'; channels: WhitelistedChannel[] }
 
 type ChannelManagerProps = {
   managedDeviceId?: string | null
@@ -61,7 +78,6 @@ type ChannelManagerProps = {
 
 export function ChannelManager({ managedDeviceId = null, embedded = false }: ChannelManagerProps) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, profile } = useAuth()
   const { ownerUserId } = useDeviceOwnerId()
@@ -74,10 +90,18 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const [searchOpen, setSearchOpen] = useState(false)
   const [addedSearchChannelIds, setAddedSearchChannelIds] = useState<Set<string>>(new Set())
   const [removeTarget, setRemoveTarget] = useState<WhitelistedChannel | null>(null)
+  const [bulkRemoveTargets, setBulkRemoveTargets] = useState<WhitelistedChannel[] | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [removeLoading, setRemoveLoading] = useState(false)
   const [pinModalOpen, setPinModalOpen] = useState(false)
   const [addSuccessModalOpen, setAddSuccessModalOpen] = useState(false)
+  const [lastAddedChannelId, setLastAddedChannelId] = useState<string | null>(null)
+  const [lastAddedChannelName, setLastAddedChannelName] = useState<string | null>(null)
+  const [addSuccessCount, setAddSuccessCount] = useState(1)
+  const [addSuccessTagIds, setAddSuccessTagIds] = useState<Set<string>>(new Set())
+  const [addSuccessTagSaving, setAddSuccessTagSaving] = useState(false)
+  const [bulkTagIds, setBulkTagIds] = useState<Set<string>>(new Set())
+  const [bulkTagApplying, setBulkTagApplying] = useState(false)
   const [previewChannel, setPreviewChannel] = useState<WhitelistedChannel | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -104,6 +128,90 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   const playlistUserId = user?.id ? (ownerUserId ?? user.id) : null
   const playlistChildToken = user?.id ? null : localParent.localAccessToken
   const canUsePlaylists = Boolean(user?.id || localParent.localAccessToken)
+  const tagCatalog = useContentTagStore((s) => s.catalog)
+  const fetchTagCatalog = useContentTagStore((s) => s.fetchCatalog)
+  const fetchDeviceTagPrefs = useContentTagStore((s) => s.fetchDevicePrefs)
+  const setChannelTags = useContentTagStore((s) => s.setChannelTags)
+  const bulkSetChannelTags = useContentTagStore((s) => s.bulkSetChannelTags)
+  const canBulkTag = CONTENT_TAGS_ENABLED && Boolean(deviceId)
+
+  useEffect(() => {
+    if (!CONTENT_TAGS_ENABLED || !deviceId) return
+    void fetchTagCatalog()
+    void fetchDeviceTagPrefs(deviceId)
+  }, [deviceId, fetchTagCatalog, fetchDeviceTagPrefs])
+
+  const toggleAddSuccessTag = useCallback((tagId: string) => {
+    setAddSuccessTagIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(tagId)) next.delete(tagId)
+      else next.add(tagId)
+      return next
+    })
+  }, [])
+
+  const toggleBulkTag = useCallback((tagId: string) => {
+    setBulkTagIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(tagId)) next.delete(tagId)
+      else next.add(tagId)
+      return next
+    })
+  }, [])
+
+  const saveAddSuccessTags = useCallback(async () => {
+    if (!deviceId || !lastAddedChannelId || addSuccessTagIds.size === 0) return true
+    setAddSuccessTagSaving(true)
+    const { error } = await setChannelTags(deviceId, lastAddedChannelId, [...addSuccessTagIds])
+    setAddSuccessTagSaving(false)
+    if (error) {
+      toast.error(t('contentTags.saveFailed'), { description: error.message })
+      return false
+    }
+    return true
+  }, [addSuccessTagIds, deviceId, lastAddedChannelId, setChannelTags, t])
+
+  const closeAddSuccessModal = useCallback(
+    async (next: 'more' | 'done') => {
+      if (addSuccessTagIds.size > 0) {
+        const ok = await saveAddSuccessTags()
+        if (!ok) return
+      }
+      setAddSuccessModalOpen(false)
+      setLastAddedChannelId(null)
+      setLastAddedChannelName(null)
+      setAddSuccessCount(1)
+      setAddSuccessTagIds(new Set())
+      if (next === 'more') {
+        setSearchOpen(true)
+        return
+      }
+      setSearchOpen(false)
+    },
+    [addSuccessTagIds.size, saveAddSuccessTags]
+  )
+
+  const handleBulkApplyTags = useCallback(async () => {
+    if (!deviceId) return
+    const channelIds = [...channelMultiSelect.selectedIds]
+    if (channelIds.length === 0) {
+      toast.message(t('channels.selectAtLeastOne'))
+      return
+    }
+    if (bulkTagIds.size === 0) {
+      toast.message(t('contentTags.pickTagsFirst'))
+      return
+    }
+    const { error } = await bulkSetChannelTags(deviceId, channelIds, [...bulkTagIds])
+    setBulkTagApplying(false)
+    if (error) {
+      toast.error(t('contentTags.saveFailed'), { description: error.message })
+      return
+    }
+    toast.success(t('contentTags.bulkTagDone', { count: channelIds.length }))
+    setBulkTagIds(new Set())
+    channelMultiSelect.exitSelectionMode()
+  }, [bulkSetChannelTags, bulkTagIds, channelMultiSelect, deviceId, t])
 
   const toPreviewPlaylistPayload = useCallback(
     (v: PreviewRow): PlaylistVideoPayload => ({
@@ -276,11 +384,14 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       toast.error(t('channels.noDeviceSelected'))
       return false
     }
-    const showSuccessModal = opts?.showSuccessModal ?? !searchOpen
+    const showSuccessModal = opts?.showSuccessModal ?? true
     const toastSuccess = opts?.toastSuccess ?? !showSuccessModal
-    // Optimistic UI: flip to "✓ Added" immediately while the RPC runs.
+    // Instant UI: mark added immediately; spinner must not override the checkmark.
     setAddedSearchChannelIds((prev) => new Set(prev).add(c.channelId))
-    setAddingId(c.channelId)
+    setAddingId(null)
+    if (toastSuccess && !showSuccessModal) {
+      toast.success(t('channels.channelAddedTitle'), { description: c.title })
+    }
     try {
       const { error, cacheError: _cacheError } = await addToWhitelist(c, null)
       if (error) {
@@ -293,9 +404,14 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         toast.error(error.message)
         return false
       }
-      if (showSuccessModal) setAddSuccessModalOpen(true)
-      else if (toastSuccess) {
-        toast.success(t('channels.channelAddedTitle'), { description: c.title })
+      if (showSuccessModal) {
+        const ch = useChannelStore.getState().whitelist.find((row) => row.youtube_channel_id === c.channelId)
+        setLastAddedChannelId(ch?.id ?? null)
+        setLastAddedChannelName(c.title)
+        setAddSuccessCount(1)
+        setAddSuccessTagIds(new Set())
+        setSearchOpen(false)
+        setAddSuccessModalOpen(true)
       }
       return true
     } catch (e) {
@@ -307,8 +423,6 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       })
       toast.error(e instanceof Error ? e.message : t('errors.generic'))
       return false
-    } finally {
-      setAddingId(null)
     }
   }
 
@@ -323,27 +437,59 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     }
     if (unique.length === 0) return
     let ok = 0
+    let lastName: string | null = null
     const batchSize = 4
     for (let i = 0; i < unique.length; i += batchSize) {
       const slice = unique.slice(i, i + batchSize)
       const results = await Promise.all(
         slice.map((c) => handleAdd(c, { showSuccessModal: false, toastSuccess: false }))
       )
-      ok += results.filter(Boolean).length
+      for (let j = 0; j < results.length; j++) {
+        if (results[j]) {
+          ok += 1
+          lastName = slice[j]?.title ?? lastName
+        }
+      }
     }
-    if (ok > 0) toast.success(t('channels.channelsAddedCount', { count: ok }))
+    if (ok > 0) {
+      setLastAddedChannelName(ok === 1 ? lastName : null)
+      setAddSuccessCount(ok)
+      setLastAddedChannelId(null)
+      setAddSuccessTagIds(new Set())
+      setSearchOpen(false)
+      setAddSuccessModalOpen(true)
+    }
   }
 
   const confirmRemove = async () => {
     if (!removeTarget) return
     setRemoveLoading(true)
-    const { error } = await removeFromWhitelist(removeTarget.id)
+    const removedYoutubeId = removeTarget.youtube_channel_id
+    const removedId = removeTarget.id
+    const { error } = await removeFromWhitelist(removedId)
     setRemoveLoading(false)
     if (error) toast.error(error.message)
     else {
-      toast.success('הוסר')
+      toast.success(t('channels.removed'))
       setRemoveTarget(null)
+      setAddedSearchChannelIds((prev) => {
+        if (!removedYoutubeId || !prev.has(removedYoutubeId)) return prev
+        const next = new Set(prev)
+        next.delete(removedYoutubeId)
+        return next
+      })
+      if (previewChannel?.id === removedId) setPreviewChannel(null)
     }
+  }
+
+  const requestRemoveByYoutubeChannelId = (youtubeChannelId: string) => {
+    const channel =
+      whitelist.find((c) => c.youtube_channel_id === youtubeChannelId) ?? null
+    if (!channel) {
+      toast.error(t('channels.alreadyGone'))
+      return
+    }
+    requestRemoveChannel(channel)
   }
 
   const runPendingAction = (pending: PendingPinAction) => {
@@ -363,6 +509,12 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       void handleAddMany(pending.channels)
       return
     }
+    if (pending.kind === 'removeMany') {
+      setRemoveTarget(null)
+      setBulkRemoveTargets(pending.channels)
+      return
+    }
+    setBulkRemoveTargets(null)
     setRemoveTarget(pending.channel)
   }
 
@@ -398,7 +550,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   }
 
   const requestOpenChannelSearch = () => {
-    if (embedded && isParentalManagementGateUnlocked()) {
+    if (isParentManagementSessionVerified()) {
       setSearchOpen(true)
       return
     }
@@ -406,7 +558,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   }
 
   const requestOpenVideoSearch = () => {
-    if (embedded && isParentalManagementGateUnlocked()) {
+    if (isParentManagementSessionVerified()) {
       setVideoSearchOpenSignal((n) => n + 1)
       return
     }
@@ -414,8 +566,8 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   }
 
   const requestAddChannel = (c: YouTubeChannelResult) => {
-    if (embedded && isParentalManagementGateUnlocked()) {
-      void handleAdd(c, { showSuccessModal: true })
+    if (isParentManagementSessionVerified()) {
+      void handleAdd(c, { showSuccessModal: true, toastSuccess: false })
       return
     }
     beginPinGate({ kind: 'add', channel: c })
@@ -427,7 +579,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
       requestAddChannel(channels[0]!)
       return
     }
-    if (embedded && isParentalManagementGateUnlocked()) {
+    if (isParentManagementSessionVerified()) {
       void handleAddMany(channels)
       return
     }
@@ -435,11 +587,57 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
   }
 
   const requestRemoveChannel = (c: WhitelistedChannel) => {
-    if (embedded && isParentalManagementGateUnlocked()) {
+    if (isParentManagementSessionVerified()) {
+      setBulkRemoveTargets(null)
       setRemoveTarget(c)
       return
     }
     beginPinGate({ kind: 'remove', channel: c })
+  }
+
+  const requestBulkRemoveChannels = (channels: WhitelistedChannel[]) => {
+    if (channels.length === 0) return
+    if (channels.length === 1) {
+      requestRemoveChannel(channels[0]!)
+      return
+    }
+    if (isParentManagementSessionVerified()) {
+      setRemoveTarget(null)
+      setBulkRemoveTargets(channels)
+      return
+    }
+    beginPinGate({ kind: 'removeMany', channels })
+  }
+
+  const confirmBulkRemove = async () => {
+    if (!bulkRemoveTargets?.length) return
+    setRemoveLoading(true)
+    let ok = 0
+    const youtubeIds: string[] = []
+    for (const channel of bulkRemoveTargets) {
+      const { error } = await removeFromWhitelist(channel.id)
+      if (!error) {
+        ok += 1
+        if (channel.youtube_channel_id) youtubeIds.push(channel.youtube_channel_id)
+      }
+    }
+    setRemoveLoading(false)
+    if (ok === 0) {
+      toast.error(t('channels.removeFailed'))
+      return
+    }
+    toast.success(ok === 1 ? t('channels.removed') : t('channels.removedCount', { count: ok }))
+    setBulkRemoveTargets(null)
+    setAddedSearchChannelIds((prev) => {
+      if (youtubeIds.length === 0) return prev
+      const next = new Set(prev)
+      for (const id of youtubeIds) next.delete(id)
+      return next
+    })
+    if (previewChannel && bulkRemoveTargets.some((c) => c.id === previewChannel.id)) {
+      setPreviewChannel(null)
+    }
+    channelMultiSelect.exitSelectionMode()
   }
 
   useEffect(() => {
@@ -480,11 +678,17 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             })
             if (error) throw new Error(error.message)
             rows = ((data ?? []) as Record<string, unknown>[]).map((v) => {
-              const row = v as { youtube_video_id: string; title: string; thumbnail_url: string | null }
+              const row = v as {
+                youtube_video_id: string
+                title: string
+                thumbnail_url: string | null
+                duration_seconds?: number | null
+              }
               return {
                 videoId: row.youtube_video_id,
                 title: row.title,
                 thumbnail: row.thumbnail_url,
+                durationSeconds: row.duration_seconds ?? null,
               }
             })
             const hidRes = await listHiddenVideoIdsLocalParent(localParent.localAccessToken, pin)
@@ -492,16 +696,22 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
           } else if (user) {
             const { data, error } = await supabase
               .from('channel_videos_cache')
-              .select('youtube_video_id, title, thumbnail_url, position')
+              .select('youtube_video_id, title, thumbnail_url, duration_seconds, position')
               .eq('channel_id', channel.id)
               .order('position', { ascending: true })
             if (error) throw new Error(error.message)
             rows = (data ?? []).map((r) => {
-              const row = r as { youtube_video_id: string; title: string; thumbnail_url: string | null }
+              const row = r as {
+                youtube_video_id: string
+                title: string
+                thumbnail_url: string | null
+                duration_seconds?: number | null
+              }
               return {
                 videoId: row.youtube_video_id,
                 title: row.title,
                 thumbnail: row.thumbnail_url,
+                durationSeconds: row.duration_seconds ?? null,
               }
             })
             if (deviceId) {
@@ -540,6 +750,25 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         preferredPreviewVideoIdRef.current = null
         const preferredVisible = preferred && visible.some((r) => r.videoId === preferred) ? preferred : null
         setActivePreviewVideoId(preferredVisible ?? visible[0]?.videoId ?? null)
+
+        const missingDurationIds = rows
+          .filter((r) => r.durationSeconds == null || r.durationSeconds <= 0)
+          .map((r) => r.videoId)
+        if (missingDurationIds.length > 0) {
+          void fetchVideoDetailsBatch(missingDurationIds).then((details) => {
+            if (cancelled) return
+            setPreviewVideos((prev) => {
+              let changed = false
+              const next = prev.map((v) => {
+                const d = details.get(v.videoId)
+                if (!d?.durationSeconds || (v.durationSeconds != null && v.durationSeconds > 0)) return v
+                changed = true
+                return { ...v, durationSeconds: d.durationSeconds }
+              })
+              return changed ? next : prev
+            })
+          })
+        }
       } catch (e) {
         if (cancelled) return
         setPreviewError(e instanceof Error ? e.message : t('channels.loadVideosFailed'))
@@ -672,21 +901,20 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
     setActivePreviewVideoId(videoId)
   }, [])
 
+  const embeddedEmptyChannels =
+    embedded && whitelist.length === 0 && !listLoading && !devLoading && devices.length > 0
+  const compactAddButtons = embeddedEmptyChannels
+
   return (
-    <div className={embedded ? 'flex w-full flex-col gap-2 pb-1' : 'mx-auto flex w-full max-w-5xl flex-col gap-2 pb-3'}>
-      <header className="flex flex-col gap-1.5">
+    <div
+      className={cn(
+        embedded ? 'flex w-full flex-col gap-2' : 'mx-auto flex w-full max-w-5xl flex-col gap-2 pb-3',
+        embeddedEmptyChannels && 'py-2'
+      )}
+    >
+      <header className={cn('flex flex-col gap-2', compactAddButtons && 'w-full')}>
         {!embedded ? (
-          <>
-            <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ניהול ערוצים</h1>
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
-              פתיחת חיפוש ערוץ, הוספת ערוץ או הסרת ערוץ דורשים הזנת קוד ההורה מהחשבון.
-            </p>
-          </>
-        ) : null}
-        {selectedDevice ? (
-          <p className="text-xs text-slate-500 dark:text-zinc-400">
-            המכשיר הפעיל כעת: <span className="font-semibold text-slate-700 dark:text-zinc-200">{selectedDevice.name}</span>
-          </p>
+          <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-50">ניהול ערוצים</h1>
         ) : null}
         {!embedded && devices.length > 1 ? (
           <label className="flex flex-col gap-1.5">
@@ -705,39 +933,50 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             </select>
           </label>
         ) : null}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-          <div className={cn('flex-1', CHANNEL_MANAGER_SEARCH_SHELL_CLASS)}>
+        <div
+          className={cn(
+            'flex flex-col gap-2',
+            compactAddButtons ? 'w-full' : 'sm:flex-row sm:items-stretch'
+          )}
+        >
+          {compactAddButtons ? (
             <Button
               type="button"
-              className={cn(
-                CHANNEL_MANAGER_SEARCH_CONTROL_CLASS,
-                'w-full',
-                whitelist.length === 0 &&
-                  'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-zinc-950 animate-pulse'
-              )}
+              className={cn(CHANNEL_MANAGER_SEARCH_CONTROL_CLASS, 'w-full')}
               onClick={requestOpenChannelSearch}
             >
-              {whitelist.length === 0 ? 'הוספת ערוצים — התחילו כאן' : 'הוספת ערוצים'}
+              הוספת ערוצים
             </Button>
-          </div>
+          ) : (
+            <div className={cn('flex-1', CHANNEL_MANAGER_SEARCH_SHELL_CLASS)}>
+              <Button
+                type="button"
+                className={cn(CHANNEL_MANAGER_SEARCH_CONTROL_CLASS, 'w-full')}
+                onClick={requestOpenChannelSearch}
+              >
+                הוספת ערוצים
+              </Button>
+            </div>
+          )}
           {user?.id || ownerUserId || localParent.localAccessToken ? (
             <ChannelManagerVideoSearch
-              className="flex-1"
+              className={compactAddButtons ? 'w-full' : 'flex-1'}
               userId={user?.id ? (ownerUserId ?? user.id) : null}
               childAccessToken={user?.id ? null : localParent.localAccessToken}
               mode={user?.id ? 'parent' : 'kid'}
               onOpenRequest={requestOpenVideoSearch}
               openSignal={videoSearchOpenSignal}
+              compactTrigger={compactAddButtons}
             />
           ) : null}
         </div>
       </header>
 
       {devLoading || (listLoading && whitelist.length === 0) ? (
-        <Skeleton className="h-32 w-full" />
+        embedded ? null : <Skeleton className="h-32 w-full" />
       ) : devices.length === 0 ? (
         <p className="text-sm text-slate-600 dark:text-zinc-400">הוסיפו מכשיר כדי לנהל ערוצים.</p>
-      ) : (
+      ) : embeddedEmptyChannels ? null : (
         <div className="flex flex-col gap-2">
           <WhitelistView
             channels={whitelist}
@@ -750,29 +989,56 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
             }}
             onOpenSearch={requestOpenChannelSearch}
             canMultiSelect={canUsePlaylists}
+            canBulkTag={canBulkTag}
             selectionMode={channelMultiSelect.selectionMode}
             selectedIds={channelMultiSelect.selectedIds}
             onEnterSelectionMode={channelMultiSelect.enterSelectionMode}
-            onExitSelectionMode={channelMultiSelect.exitSelectionMode}
+            onExitSelectionMode={() => {
+              channelMultiSelect.exitSelectionMode()
+              setBulkTagIds(new Set())
+            }}
             onToggleSelect={channelMultiSelect.toggle}
             onSelectAll={(ids) => channelMultiSelect.selectMany(ids)}
             onClearSelection={channelMultiSelect.clear}
             onBulkAddToPlaylist={() => void handleBulkAddChannelsToPlaylist()}
-            bulkLoading={channelBulkLoading}
+            onBulkRemoveRequest={requestBulkRemoveChannels}
+            bulkLoading={channelBulkLoading || removeLoading}
+            bulkTagToolbar={
+              canBulkTag ? (
+                <ChannelTagBulkToolbar
+                  tags={tagCatalog}
+                  selectedChannelCount={channelMultiSelect.selectedIds.size}
+                  selectedTagIds={bulkTagIds}
+                  onToggleTag={toggleBulkTag}
+                  onApply={() => void handleBulkApplyTags()}
+                  applying={bulkTagApplying}
+                />
+              ) : null
+            }
           />
           {previewChannel ? (
             <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-              <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
                   ניגון ערוץ: {previewChannel.channel_name}
                 </p>
-                <Button
-                  variant="secondary"
-                  className="!px-3 !py-2 text-xs"
-                  onClick={() => setPreviewChannel(null)}
-                >
-                  סגור נגן
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="danger"
+                    className="!px-3 !py-2 text-xs"
+                    onClick={() => requestRemoveChannel(previewChannel)}
+                  >
+                    הסר ערוץ
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="!px-3 !py-2 text-xs"
+                    onClick={() => setPreviewChannel(null)}
+                  >
+                    סגור נגן
+                  </Button>
+                </div>
               </div>
               {previewLoading ? (
                 <p className="text-sm text-slate-600 dark:text-zinc-400">טוען סרטונים מהמטמון…</p>
@@ -820,20 +1086,16 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                   main={
                     <>
                       <div className="relative w-full overflow-hidden rounded-none bg-black sm:rounded-xl">
-                        <div className="relative pt-[56.25%]">
-                          <div className="absolute inset-0 min-h-0">
-                            <CleanPlayer
-                              videoId={activePreviewVideo.videoId}
-                              title={activePreviewVideo.title}
-                              channelTitle={previewChannel.channel_name}
-                              posterUrl={activePreviewVideo.thumbnail}
-                              onPreviousTrack={goPrevManagerPreview}
-                              onNextTrack={goNextManagerPreview}
-                              hasNextTrack={hasNextPreviewVideo}
-                              className="h-full w-full"
-                            />
-                          </div>
-                        </div>
+                        <CleanPlayer
+                          videoId={activePreviewVideo.videoId}
+                          title={activePreviewVideo.title}
+                          channelTitle={previewChannel.channel_name}
+                          posterUrl={activePreviewVideo.thumbnail}
+                          onPreviousTrack={goPrevManagerPreview}
+                          onNextTrack={goNextManagerPreview}
+                          hasNextTrack={hasNextPreviewVideo}
+                          className="w-full"
+                        />
                       </div>
                       <YoutubeWatchVideoDetails
                         title={activePreviewVideo.title}
@@ -916,6 +1178,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
                                 layout="row"
                                 title={v.title}
                                 thumbnail={v.thumbnail}
+                                durationLabel={formatVideoDurationClock(v.durationSeconds)}
                                 active={isCurrent}
                                 playingLabel="מנגן"
                                 onClick={() => {
@@ -1021,6 +1284,7 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         }}
         onAddChannel={requestAddChannel}
         onAddChannels={requestAddChannels}
+        onRemoveChannel={requestRemoveByYoutubeChannelId}
         addingId={addingId}
         addedIds={addedSearchChannelIds}
         whitelistedChannelIds={whitelistedChannelIds}
@@ -1035,6 +1299,30 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         loading={removeLoading}
       />
 
+      <Modal
+        open={Boolean(bulkRemoveTargets?.length)}
+        onClose={() => {
+          if (!removeLoading) setBulkRemoveTargets(null)
+        }}
+        title={t('channels.removeManyTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setBulkRemoveTargets(null)} disabled={removeLoading}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="danger" onClick={() => void confirmBulkRemove()} disabled={removeLoading}>
+              {removeLoading
+                ? t('common.removing')
+                : t('channels.removeSelected', { count: bulkRemoveTargets?.length ?? 0 })}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600 dark:text-zinc-400">
+          {t('channels.removeConfirmMany', { count: bulkRemoveTargets?.length ?? 0 })}
+        </p>
+      </Modal>
+
       <ParentalPinModal
         open={pinModalOpen}
         onClose={() => {
@@ -1047,41 +1335,23 @@ export function ChannelManager({ managedDeviceId = null, embedded = false }: Cha
         description={t('channels.parentVerifyDescription')}
       />
 
-      <Modal
+      <ChannelAddedSuccessModal
         open={addSuccessModalOpen}
-        onClose={() => setAddSuccessModalOpen(false)}
-        title={t('channels.channelAddedTitle')}
-        bodyClassName="max-h-[70vh] overflow-y-auto"
-        footer={
-          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full sm:w-auto"
-              onClick={() => {
-                setAddSuccessModalOpen(false)
-                setSearchOpen(true)
-              }}
-            >
-              הוספת ערוצים נוספים
-            </Button>
-            <Button
-              type="button"
-              className="w-full sm:w-auto"
-              onClick={() => {
-                setAddSuccessModalOpen(false)
-                if (!embedded) navigate('/dashboard')
-              }}
-            >
-              אישור
-            </Button>
-          </div>
-        }
+        channelName={lastAddedChannelName}
+        addedCount={addSuccessCount}
+        busy={addSuccessTagSaving}
+        onContinueAdding={() => void closeAddSuccessModal('more')}
+        onGoToChannelsList={() => void closeAddSuccessModal('done')}
       >
-        <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-300">
-          הערוץ נוסף בהצלחה לרשימת הערוצים המאושרים. אפשר להוסיף עוד ערוצים או ללחוץ אישור לסיום.
-        </p>
-      </Modal>
+        {CONTENT_TAGS_ENABLED && lastAddedChannelId ? (
+          <TagOnAddPrompt
+            tags={tagCatalog}
+            selectedTagIds={addSuccessTagIds}
+            onToggleTag={toggleAddSuccessTag}
+            disabled={addSuccessTagSaving}
+          />
+        ) : null}
+      </ChannelAddedSuccessModal>
 
       {canUsePlaylists ? (
         <AddToPlaylistModal

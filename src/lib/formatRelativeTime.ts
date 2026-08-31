@@ -49,3 +49,20 @@ export function joinVideoMetadataParts(
   const filtered = parts.map((p) => (typeof p === 'string' ? p.trim() : '')).filter(Boolean)
   return filtered.length > 0 ? filtered.join(' · ') : null
 }
+
+/** YouTube-style duration badge text, e.g. `3:05` or `1:02:09`. */
+export function formatVideoDurationClock(
+  durationSeconds: number | null | undefined
+): string | null {
+  if (durationSeconds == null || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return null
+  }
+  const total = Math.floor(durationSeconds)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}

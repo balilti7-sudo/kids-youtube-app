@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { toast } from 'sonner'
 import {
   Lock,
   LockOpen,
   Maximize,
   Minimize,
+  Pause,
   PictureInPicture2,
   Play,
   RectangleHorizontal,
@@ -14,22 +17,43 @@ import {
 import Hls from 'hls.js'
 import { setMediaPlaybackActive, syncNativeMediaSession } from '../../lib/mediaPlaybackActivity'
 import { subscribeNativeMediaActions } from '../../lib/nativeMediaPlayback'
+import {
+  youtubeIframePause,
+  youtubeIframePlay,
+  youtubeIframeSeekTo,
+} from '../../lib/youtubeIframeCommands'
 import { touchParentalGateActivity } from '../../lib/parentalGateActivity'
 import { cn } from '../../lib/utils'
-import { toast } from 'sonner'
-import { useWatchTheaterMode } from '../../hooks/useWatchTheaterMode'
+import { registerPlaybackPauseHandler } from '../../lib/playbackController'
 import {
-  enterElementFullscreen,
-  enterNativeVideoFullscreen,
-  exitDocumentFullscreen,
-  isDocumentFullscreen,
-} from '../../lib/requestElementFullscreen'
+  requestPlayerChromeHold,
+  requestPlayerChromeRelease,
+  useAutoHidePlayerChrome,
+} from '../../hooks/useAutoHidePlayerChrome'
+import {
+  QUEUE_AUTO_ADVANCE_MIN_DURATION_SEC,
+  useQueueAutoAdvanceTimer,
+} from '../../hooks/useQueueAutoAdvanceTimer'
+import { useWatchTheaterMode } from '../../hooks/useWatchTheaterMode'
+import { isPlayerExpanded } from '../../lib/playerTheater'
+import {
+  enterPlayerGestureFullscreen,
+  exitPlayerGestureFullscreen,
+} from '../../hooks/usePlayerTouchGestures'
 import { buildYoutubePrivacyEmbedUrl, sanitizeYoutubeVideoId } from '../../lib/youtubeEmbedUrl'
+import { PlayerGestureOverlay } from './PlayerGestureOverlay'
+import {
+  buildSmoothHlsAbrConfig,
+  decideAdaptiveProgressiveTarget,
+  getForwardBufferSeconds,
+  getNetworkQualityHint,
+  playbackQualityHeight,
+} from '../../lib/adaptivePlaybackQuality'
+import { attachPlayerAudioNormalizer, type PlayerAudioNormalizer } from '../../lib/playerAudioNormalizer'
 import {
   fetchStreamInfo,
   getStreamApiBaseUrl,
   STREAM_START_QUALITY,
-  STREAM_UPGRADE_QUALITY,
   streamResponseToSource,
   type StreamApiResponse,
 } from '../../lib/streamApi'
@@ -37,92 +61,123 @@ import { classifyPlaybackFailure, logPlaybackFailure } from '../../lib/playerPla
 import { UpcomingLiveLionOverlay } from './UpcomingLiveLionOverlay'
 import { PlayerErrorOverlay } from './PlayerErrorOverlay'
 import { DailyLimitOverlay } from '../kid/DailyLimitOverlay'
+import { fetchVideoDetailsBatch } from '../../lib/youtube'
 import { assertChildPlaybackAllowedForStream } from '../../lib/childRuntime'
 import { useDailyWatchBudgetStore } from '../../stores/dailyWatchBudgetStore'
 
 const YOUTUBE_IFRAME_PLAYER = import.meta.env.VITE_YOUTUBE_IFRAME_PLAYER === 'true'
 
-function playbackQualityHeight(raw: string | null | undefined): number {
-  const m = String(raw || '').match(/(\d+)\s*p/i)
-  return m ? Number(m[1]) : 0
-}
-
-function scheduleQualityUpgrade(
+function scheduleAdaptiveQuality(
   el: HTMLVideoElement,
   vid: string,
   startInfo: StreamApiResponse,
   detachHls: () => void,
-  onUpgraded: (info: StreamApiResponse) => void,
+  onQualityChanged: (info: StreamApiResponse) => void,
   opts?: { skip?: boolean }
 ): () => void {
-  const startHeight = playbackQualityHeight(startInfo.quality || STREAM_START_QUALITY)
-  const upgradeHeight = playbackQualityHeight(STREAM_UPGRADE_QUALITY)
-  if (opts?.skip || startHeight >= upgradeHeight) {
-    return () => {}
-  }
+  if (opts?.skip) return () => {}
 
   let cancelled = false
+  let currentInfo = startInfo
+  let switching = false
+  let cooldownUntil = 0
+  let recentlyWaiting = false
+  let waitingClearTimer: number | null = null
+  const COOLDOWN_MS = 18_000
+  const POLL_MS = 4_000
 
-  const hasHealthyBuffer = () => {
+  const onWaiting = () => {
+    recentlyWaiting = true
+    if (waitingClearTimer != null) window.clearTimeout(waitingClearTimer)
+    waitingClearTimer = window.setTimeout(() => {
+      recentlyWaiting = false
+      waitingClearTimer = null
+    }, 6_000)
+  }
+
+  const onPlaying = () => {
+    // Keep recentlyWaiting sticky briefly after recovery so we can decide downgrade.
+  }
+
+  el.addEventListener('waiting', onWaiting)
+  el.addEventListener('playing', onPlaying)
+
+  const trySwitch = async () => {
+    if (cancelled || switching) return
+    const decision = decideAdaptiveProgressiveTarget({
+      currentQuality: currentInfo.quality,
+      forwardBufferSec: getForwardBufferSeconds(el),
+      recentlyWaiting,
+      cooldownActive: Date.now() < cooldownUntil,
+    })
+    if (decision.reason === 'hold') return
+
+    const currentH = playbackQualityHeight(currentInfo.quality || STREAM_START_QUALITY)
+    const targetH = playbackQualityHeight(decision.quality)
+    if (targetH === currentH) return
+
+    // Extra guard: never upgrade while buffer is thin.
+    if (decision.reason === 'upgrade' && getForwardBufferSeconds(el) < 8) return
+
+    switching = true
     try {
-      if (!el.buffered || el.buffered.length === 0) return false
-      const end = el.buffered.end(el.buffered.length - 1)
-      return end - el.currentTime >= 8
-    } catch {
-      return false
-    }
-  }
+      const next = await fetchStreamInfo(vid, { quality: decision.quality })
+      if (cancelled) return
+      const nextH = playbackQualityHeight(next.quality)
+      if (decision.reason === 'upgrade' && nextH <= currentH) return
+      if (decision.reason === 'downgrade' && nextH >= currentH) return
 
-  const runUpgrade = () => {
-    if (cancelled) return
-    // Avoid mid-stream swaps while the buffer is thin — common stutter source.
-    if (!hasHealthyBuffer()) {
-      window.setTimeout(runUpgrade, 2500)
-      return
-    }
-    void (async () => {
-      try {
-        const upgrade = await fetchStreamInfo(vid, { quality: STREAM_UPGRADE_QUALITY })
-        if (cancelled) return
+      console.info(
+        `[CleanPlayer] adaptive ${decision.reason} ${vid} ${currentInfo.quality || '?'} -> ${next.quality || decision.quality}`
+      )
 
-        const resolvedHeight = playbackQualityHeight(upgrade.quality)
-        if (resolvedHeight <= startHeight) return
+      const ok = await swapVideoSourcePreservingTime(el, next, detachHls)
+      if (!ok || cancelled) return
 
-        console.info(
-          `[CleanPlayer] upgrading ${vid} ${startInfo.quality || STREAM_START_QUALITY} -> ${upgrade.quality || STREAM_UPGRADE_QUALITY}`
+      currentInfo = next
+      cooldownUntil = Date.now() + COOLDOWN_MS
+      recentlyWaiting = false
+      onQualityChanged(next)
+    } catch (err) {
+      if (!cancelled) {
+        console.warn(
+          '[CleanPlayer] adaptive quality skipped:',
+          err instanceof Error ? err.message : err
         )
-
-        const ok = await swapVideoSourcePreservingTime(el, upgrade, detachHls)
-        if (!ok || cancelled) return
-
-        onUpgraded(upgrade)
-      } catch (err) {
-        if (!cancelled) {
-          console.warn(
-            '[CleanPlayer] quality upgrade skipped:',
-            err instanceof Error ? err.message : err
-          )
-        }
       }
-    })()
+    } finally {
+      switching = false
+    }
   }
 
-  const onCanPlay = () => {
-    el.removeEventListener('canplay', onCanPlay)
+  const poll = () => {
     if (cancelled) return
-    // Give playback time to stabilize before swapping the media URL.
-    window.setTimeout(runUpgrade, 4500)
+    void trySwitch()
+  }
+
+  let pollTimer: number | null = null
+  let started = false
+  const startPolling = () => {
+    if (cancelled || started) return
+    started = true
+    pollTimer = window.setInterval(poll, POLL_MS)
+    // First evaluation after playback has a chance to buffer.
+    window.setTimeout(poll, 5_000)
   }
 
   if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-    window.setTimeout(runUpgrade, 4500)
+    startPolling()
   } else {
-    el.addEventListener('canplay', onCanPlay, { once: true })
+    el.addEventListener('canplay', startPolling, { once: true })
   }
 
   return () => {
     cancelled = true
-    el.removeEventListener('canplay', onCanPlay)
+    el.removeEventListener('waiting', onWaiting)
+    el.removeEventListener('playing', onPlaying)
+    el.removeEventListener('canplay', startPolling)
+    if (pollTimer != null) window.clearInterval(pollTimer)
+    if (waitingClearTimer != null) window.clearTimeout(waitingClearTimer)
   }
 }
 
@@ -137,9 +192,12 @@ async function swapVideoSourcePreservingTime(
   const { src } = streamResponseToSource(info)
   const savedTime = el.currentTime
   const wasPlaying = !el.paused && !el.ended
-  // Only direct URL sources reach here (hls.js playback skips the upgrade), so the
-  // previous src is a plain http(s) URL we can restore if the new one stalls.
   const previousSrc = el.currentSrc || el.src
+  const previousVolume = el.volume
+  const previousMuted = el.muted
+
+  // Soften audible glitches while the decoder rebinds the new progressive URL.
+  el.muted = true
 
   detachHls()
   el.removeAttribute('src')
@@ -151,6 +209,15 @@ async function swapVideoSourcePreservingTime(
       window.clearTimeout(watchdog)
       el.removeEventListener('loadedmetadata', onReady)
       el.removeEventListener('error', onErr)
+    }
+
+    const restoreAudio = () => {
+      el.muted = previousMuted
+      try {
+        el.volume = previousVolume
+      } catch {
+        /* ignore */
+      }
     }
 
     const seekToSavedTime = () => {
@@ -172,12 +239,15 @@ async function swapVideoSourcePreservingTime(
           'loadedmetadata',
           () => {
             seekToSavedTime()
+            restoreAudio()
             if (wasPlaying) void el.play().catch(() => {})
           },
           { once: true }
         )
         el.src = previousSrc
         el.load()
+      } else {
+        restoreAudio()
       }
       resolve(false)
     }
@@ -187,10 +257,14 @@ async function swapVideoSourcePreservingTime(
       settled = true
       cleanup()
       seekToSavedTime()
-      if (wasPlaying) {
-        void el.play().finally(() => resolve(true))
-      } else {
+      const finish = () => {
+        restoreAudio()
         resolve(true)
+      }
+      if (wasPlaying) {
+        void el.play().finally(finish)
+      } else {
+        finish()
       }
     }
 
@@ -229,12 +303,24 @@ export type CleanPlayerProps = {
   hasNextTrack?: boolean
   /** Kid queue bar (next + loop). Default: true when `onNextTrack` is provided. */
   queueControls?: boolean
+  /**
+   * Mobile “maximize” control. Disable when the host is already immersive
+   * (e.g. Shorts lane) so kids are not trapped in a nested fullscreen.
+   */
+  allowMobileExpand?: boolean
   /** Fired once when playback actually starts for a video (both paths). */
   onVideoPlaybackStarted?: (videoId: string) => void
   /** Fired when the underlying media element starts or stops playing (for watch-time breaks). */
   onPlaybackActiveChange?: (playing: boolean) => void
   /** Current playback position in seconds (native `<video>` path only; throttled ~1 Hz). */
   onPlaybackTimeUpdate?: (currentTimeSeconds: number) => void
+  /** Catalog duration — used for iframe auto-advance when `ended` is unavailable. */
+  durationSeconds?: number | null
+  /**
+   * Immersive host (Shorts lane): no under-player chrome — video fills the frame.
+   * Does not change stream/embed path.
+   */
+  immersive?: boolean
 }
 
 const END_OF_PLAYLIST_TOAST = 'הגעת לסוף הפלייליסט'
@@ -250,11 +336,30 @@ function useNextVideoHandler(onNextTrack?: () => void, hasNextTrack = true) {
   }, [onNextTrack, hasNextTrack])
 }
 
-const CONTROL_BTN_CLASS =
-  'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-zinc-100 transition hover:bg-white/18 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-400 active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 sm:h-11 sm:w-11'
+const CONTROL_BTN_GHOST =
+  'inline-flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full text-white/95 drop-shadow-md transition active:scale-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-40'
 
-const CONTROL_BTN_ACTIVE_CLASS =
-  'border-brand-400/80 bg-brand-600/90 text-white shadow-md shadow-brand-950/30 hover:bg-brand-600'
+const CONTROL_BTN_CENTER =
+  'inline-flex h-16 w-16 shrink-0 touch-manipulation items-center justify-center rounded-full bg-black/55 text-white shadow-xl ring-1 ring-white/25 backdrop-blur-[2px] transition active:scale-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/70'
+
+const CONTROL_BTN_SECONDARY =
+  'inline-flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full bg-black/35 text-white/90 ring-1 ring-white/15 backdrop-blur-[2px] transition active:scale-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-40'
+
+function playerFillsParentHeight(className?: string) {
+  return Boolean(className && (/\bh-full\b/.test(className) || /\binset-0\b/.test(className)))
+}
+
+const CONTROL_BTN_ACTIVE_CLASS = 'bg-brand-600/90 ring-brand-300/50 text-white'
+
+function formatPlayerClock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  const total = Math.floor(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
 
 function PlayerControlBar({
   loopEnabled,
@@ -266,7 +371,12 @@ function PlayerControlBar({
   onTapsLockToggle,
   className,
   videoRef,
-  playerShellRef,
+  iframeRef,
+  fullscreenRootRef,
+  allowMobileExpand = true,
+  onIframePlayingChange,
+  /** When false, buttons stay non-focusable (hidden chrome). */
+  interactive = true,
 }: {
   loopEnabled: boolean
   onLoopToggle: () => void
@@ -278,142 +388,351 @@ function PlayerControlBar({
   onTapsLockToggle?: () => void
   className?: string
   videoRef?: RefObject<HTMLVideoElement | null>
-  playerShellRef?: RefObject<HTMLDivElement | null>
+  iframeRef?: RefObject<HTMLIFrameElement | null>
+  fullscreenRootRef?: RefObject<HTMLElement | null>
+  allowMobileExpand?: boolean
+  onIframePlayingChange?: (playing: boolean) => void
+  interactive?: boolean
 }) {
   const theater = useWatchTheaterMode()
   const [nativeFullscreen, setNativeFullscreen] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [currentSec, setCurrentSec] = useState(0)
+  const [durationSec, setDurationSec] = useState(0)
+  const [scrubbing, setScrubbing] = useState(false)
+  const chromePointerHeldRef = useRef(false)
 
   useEffect(() => {
-    const sync = () => setNativeFullscreen(isDocumentFullscreen())
+    const sync = () => setNativeFullscreen(isPlayerExpanded())
+    sync()
     document.addEventListener('fullscreenchange', sync)
     document.addEventListener('webkitfullscreenchange', sync)
+    const mo = new MutationObserver(sync)
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     return () => {
       document.removeEventListener('fullscreenchange', sync)
       document.removeEventListener('webkitfullscreenchange', sync)
+      mo.disconnect()
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = videoRef?.current
+    if (!el) {
+      setIsPlaying(true)
+      return
+    }
+    const sync = () => {
+      setIsPlaying(!el.paused && !el.ended)
+    }
+    sync()
+    el.addEventListener('play', sync)
+    el.addEventListener('pause', sync)
+    el.addEventListener('ended', sync)
+    return () => {
+      el.removeEventListener('play', sync)
+      el.removeEventListener('pause', sync)
+      el.removeEventListener('ended', sync)
+    }
+  }, [videoRef])
+
+  useEffect(() => {
+    const el = videoRef?.current
+    if (!el) {
+      setCurrentSec(0)
+      setDurationSec(0)
+      return
+    }
+    const syncTime = () => {
+      if (scrubbing) return
+      setCurrentSec(el.currentTime || 0)
+      setDurationSec(Number.isFinite(el.duration) ? el.duration : 0)
+    }
+    syncTime()
+    el.addEventListener('timeupdate', syncTime)
+    el.addEventListener('durationchange', syncTime)
+    el.addEventListener('seeked', syncTime)
+    return () => {
+      el.removeEventListener('timeupdate', syncTime)
+      el.removeEventListener('durationchange', syncTime)
+      el.removeEventListener('seeked', syncTime)
+    }
+  }, [videoRef, scrubbing])
+
+  useEffect(() => {
+    return () => {
+      if (chromePointerHeldRef.current) {
+        chromePointerHeldRef.current = false
+        requestPlayerChromeRelease()
+      }
     }
   }, [])
 
   const handleMobileExpand = useCallback(async () => {
     try {
-      if (isDocumentFullscreen()) {
-        await exitDocumentFullscreen()
+      if (isPlayerExpanded()) {
+        await exitPlayerGestureFullscreen()
+        setNativeFullscreen(false)
         return
       }
-      const video = videoRef?.current
-      if (video) {
-        await enterNativeVideoFullscreen(video)
-        return
-      }
-      const shell = playerShellRef?.current
-      if (shell) await enterElementFullscreen(shell)
+      await enterPlayerGestureFullscreen({
+        video: videoRef?.current ?? null,
+        root: fullscreenRootRef?.current ?? null,
+      })
+      setNativeFullscreen(isPlayerExpanded())
     } catch (e) {
       console.warn('[CleanPlayer] fullscreen', e)
       toast.message('לא ניתן להגדיל למסך מלא במכשיר זה', { duration: 2500 })
     }
-  }, [videoRef, playerShellRef])
+  }, [videoRef, fullscreenRootRef])
 
-  const showMobileExpand = Boolean(videoRef || playerShellRef)
+  const handleTogglePlay = useCallback(() => {
+    const el = videoRef?.current
+    if (el) {
+      if (el.paused || el.ended) {
+        void el.play().catch(() => {})
+        setIsPlaying(true)
+      } else {
+        el.pause()
+        setIsPlaying(false)
+      }
+      return
+    }
+    const iframe = iframeRef?.current
+    if (iframe) {
+      if (isPlaying) {
+        youtubeIframePause(iframe)
+        setIsPlaying(false)
+        onIframePlayingChange?.(false)
+      } else {
+        youtubeIframePlay(iframe)
+        setIsPlaying(true)
+        onIframePlayingChange?.(true)
+      }
+    }
+  }, [videoRef, iframeRef, isPlaying, onIframePlayingChange])
+
+  const showMobileExpand = allowMobileExpand && Boolean(videoRef || fullscreenRootRef)
   const showTheaterDesktop = Boolean(theater)
   const showPrev = showQueueControls && Boolean(onPrevious)
   const showLock = Boolean(onTapsLockToggle)
+  const showTransport = Boolean(videoRef || iframeRef)
+  const showScrubber = Boolean(videoRef)
 
-  if (!showQueueControls && !showTheaterDesktop && !showMobileExpand && !showLock) return null
+  const holdChromeWhilePointer = useCallback((e: ReactPointerEvent<HTMLElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.stopPropagation()
+    if (chromePointerHeldRef.current) return
+    chromePointerHeldRef.current = true
+    requestPlayerChromeHold()
+    const release = () => {
+      window.removeEventListener('pointerup', release, true)
+      window.removeEventListener('pointercancel', release, true)
+      if (!chromePointerHeldRef.current) return
+      chromePointerHeldRef.current = false
+      requestPlayerChromeRelease()
+    }
+    window.addEventListener('pointerup', release, true)
+    window.addEventListener('pointercancel', release, true)
+  }, [])
+
+  if (!showQueueControls && !showTheaterDesktop && !showMobileExpand && !showLock && !showTransport) {
+    return null
+  }
 
   const expandActive = nativeFullscreen
+  const focusable = interactive ? undefined : -1
+  const progressMax = durationSec > 0 ? durationSec : 1
+  const progressValue = Math.min(currentSec, progressMax)
 
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center gap-1.5 border-t border-white/10 bg-black/90 px-2 py-2 sm:gap-2 sm:px-3 sm:py-2.5',
+        'safetube-yt-chrome absolute inset-0 z-30 flex flex-col justify-between',
+        interactive ? 'pointer-events-none' : 'pointer-events-none',
         className
       )}
-      dir="rtl"
+      dir="ltr"
       role="toolbar"
       aria-label="בקרת ניגון"
+      onPointerDownCapture={interactive ? holdChromeWhilePointer : undefined}
     >
-      {showPrev ? (
-        <button
-          type="button"
-          onClick={() => onPrevious?.()}
-          className={CONTROL_BTN_CLASS}
-          title="הסרטון הקודם"
-          aria-label="הסרטון הקודם"
-        >
-          <SkipBack className="h-5 w-5" aria-hidden />
-        </button>
+      {/* Top secondary — SafeTube extras stay quiet */}
+      <div
+        className={cn(
+          'flex items-start justify-between gap-2 bg-gradient-to-b from-black/70 via-black/25 to-transparent px-3 pt-[max(0.5rem,env(safe-area-inset-top,0px))] pb-8',
+          interactive ? 'pointer-events-auto' : 'pointer-events-none',
+          expandActive && 'pt-[max(0.65rem,env(safe-area-inset-top,0px))]'
+        )}
+      >
+        <div className="flex items-center gap-1.5">
+          {showLock ? (
+            <button
+              type="button"
+              onClick={onTapsLockToggle}
+              tabIndex={focusable}
+              aria-pressed={Boolean(tapsLocked)}
+              className={cn(CONTROL_BTN_SECONDARY, tapsLocked && CONTROL_BTN_ACTIVE_CLASS)}
+              title={tapsLocked ? 'בטל נעילת מסך' : 'נעילת מסך'}
+              aria-label={tapsLocked ? 'בטל נעילת מסך' : 'נעילת מסך'}
+            >
+              {tapsLocked ? <Lock className="h-4 w-4" aria-hidden /> : <LockOpen className="h-4 w-4" aria-hidden />}
+            </button>
+          ) : null}
+          {showQueueControls ? (
+            <button
+              type="button"
+              onClick={onLoopToggle}
+              tabIndex={focusable}
+              aria-pressed={loopEnabled}
+              className={cn(CONTROL_BTN_SECONDARY, 'max-[340px]:hidden', loopEnabled && CONTROL_BTN_ACTIVE_CLASS)}
+              title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
+              aria-label={loopEnabled ? 'כיבוי נגן שוב ושוב' : 'הפעלת נגן שוב ושוב'}
+            >
+              <Repeat className="h-4 w-4" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {showTheaterDesktop ? (
+            <button
+              type="button"
+              onClick={theater!.toggleTheaterMode}
+              tabIndex={focusable}
+              aria-pressed={theater!.theaterMode}
+              className={cn(
+                CONTROL_BTN_SECONDARY,
+                'hidden lg:inline-flex',
+                theater!.theaterMode && CONTROL_BTN_ACTIVE_CLASS
+              )}
+              aria-label={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
+            >
+              <RectangleHorizontal className="h-4 w-4" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Center play — primary YouTube affordance */}
+      {showTransport ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div
+            className={cn(
+              'flex items-center gap-5 sm:gap-8',
+              interactive ? 'pointer-events-auto' : 'pointer-events-none'
+            )}
+          >
+            {showPrev ? (
+              <button
+                type="button"
+                onClick={() => onPrevious?.()}
+                tabIndex={focusable}
+                className={CONTROL_BTN_GHOST}
+                aria-label="הסרטון הקודם"
+              >
+                <SkipBack className="h-7 w-7" aria-hidden />
+              </button>
+            ) : (
+              <span className="h-10 w-10" aria-hidden />
+            )}
+            <button
+              type="button"
+              onClick={handleTogglePlay}
+              tabIndex={focusable}
+              className={CONTROL_BTN_CENTER}
+              aria-label={isPlaying ? 'השהייה' : 'ניגון'}
+            >
+              {isPlaying ? <Pause className="h-8 w-8" aria-hidden /> : <Play className="h-8 w-8 translate-x-0.5" aria-hidden />}
+            </button>
+            {showQueueControls ? (
+              <button
+                type="button"
+                onClick={onNext}
+                tabIndex={focusable}
+                className={CONTROL_BTN_GHOST}
+                aria-label="הסרטון הבא"
+              >
+                <SkipForward className="h-7 w-7" aria-hidden />
+              </button>
+            ) : (
+              <span className="h-10 w-10" aria-hidden />
+            )}
+          </div>
+        </div>
       ) : null}
 
-      {showQueueControls ? (
-        <button
-          type="button"
-          onClick={onNext}
-          className={CONTROL_BTN_CLASS}
-          title="הסרטון הבא"
-          aria-label="הסרטון הבא"
-        >
-          <SkipForward className="h-5 w-5" aria-hidden />
-        </button>
-      ) : null}
+      {/* Bottom: scrubber (Media Bridge) + fullscreen */}
+      <div
+        className={cn(
+          'bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pt-10',
+          interactive ? 'pointer-events-auto' : 'pointer-events-none',
+          expandActive
+            ? 'pb-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.65rem))]'
+            : 'pb-[max(0.65rem,calc(env(safe-area-inset-bottom,0px)+0.35rem))]'
+        )}
+      >
+        {showScrubber ? (
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="w-10 shrink-0 text-end text-[11px] font-semibold tabular-nums text-white/90">
+              {formatPlayerClock(currentSec)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={progressMax}
+              step={0.1}
+              value={progressValue}
+              tabIndex={focusable}
+              aria-label="התקדמות הסרטון"
+              className="safetube-yt-scrubber h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/25 accent-red-500"
+              onPointerDown={() => {
+                setScrubbing(true)
+                requestPlayerChromeHold()
+              }}
+              onPointerUp={() => {
+                setScrubbing(false)
+                requestPlayerChromeRelease()
+              }}
+              onPointerCancel={() => {
+                setScrubbing(false)
+                requestPlayerChromeRelease()
+              }}
+              onChange={(e) => {
+                const next = Number(e.target.value)
+                setCurrentSec(next)
+                const el = videoRef?.current
+                if (el && Number.isFinite(next)) el.currentTime = next
+              }}
+            />
+            <span className="w-10 shrink-0 text-start text-[11px] font-semibold tabular-nums text-white/90">
+              {formatPlayerClock(durationSec)}
+            </span>
+          </div>
+        ) : null}
 
-      {showQueueControls ? (
-        <button
-          type="button"
-          onClick={onLoopToggle}
-          aria-pressed={loopEnabled}
-          className={cn(CONTROL_BTN_CLASS, loopEnabled && CONTROL_BTN_ACTIVE_CLASS)}
-          title={loopEnabled ? 'נגן שוב ושוב — פעיל' : 'נגן שוב ושוב'}
-          aria-label={loopEnabled ? 'כיבוי נגן שוב ושוב' : 'הפעלת נגן שוב ושוב'}
-        >
-          <Repeat className="h-5 w-5" aria-hidden />
-        </button>
-      ) : null}
-
-      {showLock ? (
-        <button
-          type="button"
-          onClick={onTapsLockToggle}
-          aria-pressed={Boolean(tapsLocked)}
-          className={cn(CONTROL_BTN_CLASS, tapsLocked && CONTROL_BTN_ACTIVE_CLASS)}
-          title={tapsLocked ? 'בטל נעילת מסך' : 'נעילת מסך — מונע לחיצות בטעות'}
-          aria-label={tapsLocked ? 'בטל נעילת מסך' : 'נעילת מסך'}
-        >
-          {tapsLocked ? <Lock className="h-5 w-5" aria-hidden /> : <LockOpen className="h-5 w-5" aria-hidden />}
-        </button>
-      ) : null}
-
-      {showMobileExpand ? (
-        <button
-          type="button"
-          onClick={() => void handleMobileExpand()}
-          aria-pressed={expandActive}
-          aria-label={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
-          className={cn(CONTROL_BTN_CLASS, 'lg:hidden', expandActive && CONTROL_BTN_ACTIVE_CLASS)}
-          title={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
-        >
-          {expandActive ? (
-            <Minimize className="h-5 w-5" aria-hidden />
-          ) : (
-            <Maximize className="h-5 w-5" aria-hidden />
-          )}
-        </button>
-      ) : null}
-
-      {showTheaterDesktop ? (
-        <button
-          type="button"
-          onClick={theater!.toggleTheaterMode}
-          aria-pressed={theater!.theaterMode}
-          aria-label={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
-          className={cn(
-            CONTROL_BTN_CLASS,
-            'hidden lg:inline-flex',
-            theater!.theaterMode && CONTROL_BTN_ACTIVE_CLASS
-          )}
-          title={theater!.theaterMode ? 'יציאה ממצב תיאטרון' : 'מצב תיאטרון'}
-        >
-          <RectangleHorizontal className="h-5 w-5" aria-hidden />
-        </button>
-      ) : null}
+        <div className="flex items-center justify-end">
+          <div
+            className={cn(
+              'flex items-center',
+              showMobileExpand && !videoRef && 'pointer-events-auto rounded-xl bg-black/80 p-0.5 ps-10'
+            )}
+          >
+            {showMobileExpand ? (
+              <button
+                type="button"
+                onClick={() => void handleMobileExpand()}
+                tabIndex={focusable}
+                aria-pressed={expandActive}
+                aria-label={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
+                className={cn(CONTROL_BTN_SECONDARY, 'lg:hidden', expandActive && CONTROL_BTN_ACTIVE_CLASS)}
+                title={expandActive ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}
+              >
+                {expandActive ? <Minimize className="h-4 w-4" aria-hidden /> : <Maximize className="h-4 w-4" aria-hidden />}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -444,7 +763,8 @@ function PlayerLoadingSkeleton({
     (posterUrl || '').trim() ||
     (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '')
   return (
-    <div className="absolute inset-0 z-10 overflow-hidden bg-zinc-950" aria-hidden>
+    // pointer-events-none: never block taps to the iframe / <video> underneath.
+    <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden bg-zinc-950" aria-hidden>
       {poster ? (
         <img
           src={poster}
@@ -515,28 +835,55 @@ function CleanPlayerYoutubeIframe({
   channelTitle,
   posterUrl,
   blankVideoFrame = false,
+  durationSeconds,
   onNextTrack,
   onPreviousTrack,
   hasNextTrack = true,
   queueControls,
+  allowMobileExpand = true,
   onVideoPlaybackStarted,
   onPlaybackActiveChange,
+  immersive = false,
 }: CleanPlayerProps) {
+  const fullscreenRootRef = useRef<HTMLDivElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
   const isLimitReached = useDailyWatchBudgetStore((s) => s.isLimitReached)
   const [loopEnabled, setLoopEnabled] = useState(false)
   const [tapsLocked, setTapsLocked] = useState(false)
-  const theater = useWatchTheaterMode()
-  const showQueueControls = queueControls ?? Boolean(onNextTrack)
-  const showControlBar = showQueueControls || Boolean(theater)
+  const [iframePlaying, setIframePlaying] = useState(true)
+  const { chromeVisible, bumpChrome } = useAutoHidePlayerChrome({
+    locked: tapsLocked,
+    enabled: false,
+    playing: iframePlaying,
+  })
+  const showQueueControls = !immersive && (queueControls ?? Boolean(onNextTrack))
+  // Always keep the SafeTube bar (lock + queue/theater when available) — except immersive Shorts.
+  const showControlBar = !immersive
+  const fillParent = immersive || playerFillsParentHeight(className)
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
+  const handleNextVideoRef = useRef(handleNextVideo)
+  handleNextVideoRef.current = handleNextVideo
+  const onPreviousTrackRef = useRef(onPreviousTrack)
+  onPreviousTrackRef.current = onPreviousTrack
+  /** Wall-clock estimate of iframe position (no IFrame API currentTime). */
+  const iframePosSecRef = useRef(0)
+  const iframePlayingRef = useRef(true)
   const safeId = sanitizeYoutubeVideoId(videoId)
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
   const [iframeReady, setIframeReady] = useState(false)
   const iframePlaybackNotifiedRef = useRef(false)
+  const [resolvedDurationSec, setResolvedDurationSec] = useState<number | null>(null)
   const src = useMemo(() => {
     if (!safeId || isLimitReached) return ''
-    const base = buildYoutubePrivacyEmbedUrl(safeId, { origin, autoplay: true })
+    const base = buildYoutubePrivacyEmbedUrl(safeId, {
+      origin,
+      autoplay: true,
+      host:
+        Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+          ? 'youtube'
+          : 'nocookie',
+    })
     if (!loopEnabled) return base
     const u = new URL(base)
     u.searchParams.set('loop', '1')
@@ -544,18 +891,258 @@ function CleanPlayerYoutubeIframe({
     return u.toString()
   }, [safeId, origin, loopEnabled, isLimitReached])
 
+  // Leave document fullscreen when the clip changes so next/prev is never stuck off-screen.
+  useEffect(() => {
+    if (!isPlayerExpanded()) return
+    void exitPlayerGestureFullscreen()
+  }, [videoId])
+
   // Reset the skeleton whenever a new video mounts so feedback is instant on tap.
+  // Android WebView often never fires iframe onLoad for youtube.com/embed — clear the
+  // shimmer overlay on a short timeout so it cannot flicker forever over the player.
   useEffect(() => {
     setIframeReady(false)
     iframePlaybackNotifiedRef.current = false
     setTapsLocked(false)
+    setIframePlaying(true)
+    if (!src) return
+    const clearSkeleton = window.setTimeout(() => setIframeReady(true), 900)
+    return () => window.clearTimeout(clearSkeleton)
   }, [src])
+
+  useEffect(() => {
+    setResolvedDurationSec(null)
+    const fromProps = Number(durationSeconds)
+    if (Number.isFinite(fromProps) && fromProps >= QUEUE_AUTO_ADVANCE_MIN_DURATION_SEC) return
+    const id = sanitizeYoutubeVideoId(videoId)
+    if (!id) return
+    let cancelled = false
+    void fetchVideoDetailsBatch([id]).then((map) => {
+      if (cancelled) return
+      const sec = map.get(id)?.durationSeconds
+      if (sec != null && sec >= QUEUE_AUTO_ADVANCE_MIN_DURATION_SEC) {
+        setResolvedDurationSec(sec)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [videoId, durationSeconds])
+
+  const effectiveDurationSec =
+    Number.isFinite(Number(durationSeconds)) && Number(durationSeconds) >= QUEUE_AUTO_ADVANCE_MIN_DURATION_SEC
+      ? Number(durationSeconds)
+      : resolvedDurationSec
+
+  // Android iframe: no `ended` event without IFrame API — advance queue by catalog duration.
+  useQueueAutoAdvanceTimer({
+    enabled: Boolean(onNextTrack) && !isLimitReached && !blankVideoFrame,
+    durationSeconds: effectiveDurationSec,
+    loopEnabled,
+    resetKey: videoId,
+    playbackStarted: iframeReady,
+    onAdvance: () => handleNextVideoRef.current(),
+  })
 
   useEffect(() => {
     if (!isLimitReached) return
     onPlaybackActiveChange?.(false)
     setMediaPlaybackActive(false)
   }, [isLimitReached, onPlaybackActiveChange])
+
+  useEffect(() => {
+    return registerPlaybackPauseHandler(() => {
+      youtubeIframePause(iframeRef.current)
+      iframePlayingRef.current = false
+      syncNativeMediaSession({ playing: false })
+    })
+  }, [])
+
+  // Car / Bluetooth / lock-screen — transport only. Never fight YouTube audio focus.
+  // Play/pause/seek via postMessage (enablejsapi=1, no localhost origin).
+  // Next/previous via queue handlers (safe even if postMessage is ignored).
+  useEffect(() => {
+    type YtBridge = {
+      play: () => void
+      pause: () => void
+      seekToMs: (ms: number) => void
+      seekForwardMs: (ms: number) => void
+      seekBackwardMs: (ms: number) => void
+    }
+    const w = window as unknown as { __safetubeYtPlayer?: YtBridge }
+
+    const markPlaying = (playing: boolean) => {
+      iframePlayingRef.current = playing
+      // Update session state only — do not restart/stop the FGS (avoids focus thrash).
+      syncNativeMediaSession({
+        playing,
+        canSkipNext: hasNextTrack,
+        canSkipPrev: Boolean(onPreviousTrackRef.current),
+        durationMs:
+          effectiveDurationSec != null && effectiveDurationSec > 0
+            ? Math.round(effectiveDurationSec * 1000)
+            : undefined,
+        positionMs: Math.round(Math.max(0, iframePosSecRef.current) * 1000),
+      })
+    }
+
+    const bridge: YtBridge = {
+      play: () => {
+        if (useDailyWatchBudgetStore.getState().isLimitReached) return
+        youtubeIframePlay(iframeRef.current)
+        markPlaying(true)
+      },
+      pause: () => {
+        youtubeIframePause(iframeRef.current)
+        markPlaying(false)
+      },
+      seekToMs: (ms: number) => {
+        const sec = Math.max(0, ms / 1000)
+        iframePosSecRef.current = sec
+        youtubeIframeSeekTo(iframeRef.current, sec)
+        syncNativeMediaSession({ positionMs: Math.round(sec * 1000) })
+      },
+      seekForwardMs: (ms: number) => {
+        const step = (ms || 10_000) / 1000
+        const next = iframePosSecRef.current + step
+        const capped =
+          effectiveDurationSec != null && effectiveDurationSec > 0
+            ? Math.min(next, effectiveDurationSec)
+            : next
+        iframePosSecRef.current = capped
+        youtubeIframeSeekTo(iframeRef.current, capped)
+        syncNativeMediaSession({ positionMs: Math.round(capped * 1000) })
+      },
+      seekBackwardMs: (ms: number) => {
+        const step = (ms || 10_000) / 1000
+        const next = Math.max(0, iframePosSecRef.current - step)
+        iframePosSecRef.current = next
+        youtubeIframeSeekTo(iframeRef.current, next)
+        syncNativeMediaSession({ positionMs: Math.round(next * 1000) })
+      },
+    }
+    w.__safetubeYtPlayer = bridge
+
+    const unsubscribe = subscribeNativeMediaActions((event) => {
+      if (useDailyWatchBudgetStore.getState().isLimitReached && event.action === 'play') {
+        bridge.pause()
+        return
+      }
+      switch (event.action) {
+        case 'play':
+          bridge.play()
+          break
+        case 'pause':
+          bridge.pause()
+          break
+        case 'next':
+          handleNextVideoRef.current()
+          break
+        case 'previous':
+          if (iframePosSecRef.current > 3) {
+            bridge.seekToMs(0)
+          } else if (onPreviousTrackRef.current) {
+            onPreviousTrackRef.current()
+          } else {
+            bridge.seekToMs(0)
+          }
+          break
+        case 'seekto':
+          if (typeof event.seekToMs === 'number') bridge.seekToMs(event.seekToMs)
+          break
+        case 'seekforward':
+          bridge.seekForwardMs(event.seekToMs ?? 10_000)
+          break
+        case 'seekbackward':
+          bridge.seekBackwardMs(event.seekToMs ?? 10_000)
+          break
+        default:
+          break
+      }
+    })
+
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      const ms = navigator.mediaSession
+      try {
+        ms.setActionHandler('play', () => bridge.play())
+        ms.setActionHandler('pause', () => bridge.pause())
+        ms.setActionHandler('previoustrack', () => {
+          if (iframePosSecRef.current > 3) bridge.seekToMs(0)
+          else onPreviousTrackRef.current?.()
+        })
+        ms.setActionHandler('nexttrack', () => handleNextVideoRef.current())
+        ms.setActionHandler('seekbackward', (d) => {
+          bridge.seekBackwardMs((d.seekOffset || 10) * 1000)
+        })
+        ms.setActionHandler('seekforward', (d) => {
+          bridge.seekForwardMs((d.seekOffset || 10) * 1000)
+        })
+        ms.setActionHandler('seekto', (d) => {
+          if (d.seekTime == null || !Number.isFinite(d.seekTime)) return
+          bridge.seekToMs(d.seekTime * 1000)
+        })
+      } catch {
+        /* older WebView */
+      }
+    }
+
+    return () => {
+      unsubscribe()
+      if (w.__safetubeYtPlayer === bridge) delete w.__safetubeYtPlayer
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+        const ms = navigator.mediaSession
+        try {
+          ms.setActionHandler('play', null)
+          ms.setActionHandler('pause', null)
+          ms.setActionHandler('previoustrack', null)
+          ms.setActionHandler('nexttrack', null)
+          ms.setActionHandler('seekbackward', null)
+          ms.setActionHandler('seekforward', null)
+          ms.setActionHandler('seekto', null)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }, [hasNextTrack, effectiveDurationSec])
+
+  // Light position clock for relative seek only — do NOT hammer MediaSession every second.
+  useEffect(() => {
+    if (!iframeReady || isLimitReached) return
+    iframePosSecRef.current = 0
+    iframePlayingRef.current = true
+    const tick = window.setInterval(() => {
+      if (!iframePlayingRef.current) return
+      iframePosSecRef.current += 1
+      if (effectiveDurationSec != null && effectiveDurationSec > 0) {
+        iframePosSecRef.current = Math.min(iframePosSecRef.current, effectiveDurationSec)
+      }
+    }, 1000)
+    return () => window.clearInterval(tick)
+  }, [iframeReady, videoId, isLimitReached, effectiveDurationSec])
+
+  useEffect(() => {
+    if (!iframeReady || isLimitReached) return
+    syncNativeMediaSession({
+      title: title || 'SafeTube',
+      artist: (channelTitle || '').trim() || 'SafeTube',
+      playing: iframePlayingRef.current,
+      canSkipNext: hasNextTrack,
+      canSkipPrev: Boolean(onPreviousTrack),
+      durationMs:
+        effectiveDurationSec != null && effectiveDurationSec > 0
+          ? Math.round(effectiveDurationSec * 1000)
+          : undefined,
+    })
+  }, [
+    iframeReady,
+    isLimitReached,
+    title,
+    channelTitle,
+    hasNextTrack,
+    onPreviousTrack,
+    effectiveDurationSec,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -570,17 +1157,44 @@ function CleanPlayerYoutubeIframe({
 
   const handleIframeLoad = useCallback(() => {
     setIframeReady(true)
+    iframePosSecRef.current = 0
+    iframePlayingRef.current = true
     const id = sanitizeYoutubeVideoId(videoId)
     if (id && onVideoPlaybackStarted && !iframePlaybackNotifiedRef.current) {
       iframePlaybackNotifiedRef.current = true
       onVideoPlaybackStarted(id)
     }
     onPlaybackActiveChange?.(true)
-  }, [videoId, onVideoPlaybackStarted, onPlaybackActiveChange])
+    const artwork = primaryArtworkUrl(id ?? videoId, posterUrl)
+    setMediaPlaybackActive(true, {
+      title: title || 'SafeTube',
+      artist: (channelTitle || '').trim() || 'SafeTube',
+      artworkUrl: artwork ?? undefined,
+      playing: true,
+      canSkipNext: hasNextTrack,
+      canSkipPrev: Boolean(onPreviousTrack),
+      durationMs:
+        effectiveDurationSec != null && effectiveDurationSec > 0
+          ? Math.round(effectiveDurationSec * 1000)
+          : undefined,
+      positionMs: 0,
+    })
+  }, [
+    videoId,
+    title,
+    channelTitle,
+    posterUrl,
+    onVideoPlaybackStarted,
+    onPlaybackActiveChange,
+    hasNextTrack,
+    onPreviousTrack,
+    effectiveDurationSec,
+  ])
 
   useEffect(() => {
     return () => {
       onPlaybackActiveChange?.(false)
+      setMediaPlaybackActive(false)
     }
   }, [videoId, onPlaybackActiveChange])
 
@@ -608,10 +1222,22 @@ function CleanPlayerYoutubeIframe({
 
   return (
     <div
-      className={cn('flex h-full w-full min-h-0 flex-col overflow-hidden bg-black', className)}
+      ref={fullscreenRootRef}
+      className={cn(
+        'safetube-player-root flex w-full min-h-0 flex-col overflow-hidden bg-black',
+        fillParent && 'h-full',
+        className
+      )}
       dir="ltr"
+      onPointerDownCapture={bumpChrome}
     >
-      <div ref={playerShellRef} className="relative min-h-0 flex-1">
+      <div
+        ref={playerShellRef}
+        className={cn(
+          'safetube-player-stage relative min-h-0 w-full overflow-hidden',
+          fillParent ? 'flex-1' : 'aspect-video'
+        )}
+      >
       {isLimitReached ? <DailyLimitOverlay /> : null}
       {!safeId ? (
         <div
@@ -628,46 +1254,97 @@ function CleanPlayerYoutubeIframe({
           ) : null}
           <iframe
             key={src}
+            ref={iframeRef}
             title={title}
             src={src}
-            className={cn('h-full w-full border-0', isLimitReached && 'pointer-events-none invisible')}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+            className={cn(
+              'absolute inset-0 h-full w-full border-0',
+              isLimitReached && 'pointer-events-none invisible'
+            )}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
             loading="eager"
             onLoad={handleIframeLoad}
             referrerPolicy="strict-origin-when-cross-origin"
           />
+          {/* Cover YouTube embed mute (top-end) — cannot remove native iframe chrome. */}
+          {!isLimitReached && !tapsLocked ? (
+            <div
+              className="pointer-events-auto absolute top-1 end-1 z-[22] h-11 w-11 rounded-md bg-black"
+              aria-hidden
+            />
+          ) : null}
           {/* Black cover only — never visibility:hidden the iframe (throttles decode on WebView). */}
           {blankVideoFrame && !isLimitReached ? (
             <div className="pointer-events-none absolute inset-0 z-[5] bg-black" aria-hidden />
           ) : null}
           {tapsLocked && !isLimitReached ? (
-            <div
-              className="absolute inset-0 z-[15] flex items-center justify-center bg-black/25"
-              aria-hidden
-            >
-              <span className="rounded-full bg-black/70 p-3 text-white shadow-lg ring-1 ring-white/20">
-                <Lock className="h-6 w-6" aria-hidden />
-              </span>
+            <div className="safetube-player-lock absolute inset-0 z-[25] flex items-center justify-center bg-black/45 backdrop-blur-[1px]">
+              <button
+                type="button"
+                onClick={() => setTapsLocked(false)}
+                className="inline-flex min-h-12 items-center gap-2 rounded-full bg-black/85 px-5 py-3 text-sm font-semibold text-white shadow-xl ring-2 ring-white/35 touch-manipulation"
+                aria-label="בטל נעילת מסך"
+              >
+                <Lock className="h-5 w-5" aria-hidden />
+                בטל נעילה
+              </button>
             </div>
+          ) : null}
+          {!isLimitReached && !tapsLocked && safeId && src ? (
+            <PlayerGestureOverlay
+              layout="edges"
+              canSeek={false}
+              canSpeed={false}
+              canFullscreen={allowMobileExpand}
+              fullscreenRootRef={fullscreenRootRef}
+            />
           ) : null}
         </>
       )}
       <span className="sr-only">{title}</span>
-      </div>
       {showControlBar ? (
-        <PlayerControlBar
-          loopEnabled={loopEnabled}
-          onLoopToggle={() => setLoopEnabled((v) => !v)}
-          onNext={handleNextVideo}
-          onPrevious={onPreviousTrack}
-          hasNext={hasNextTrack}
-          showQueueControls={showQueueControls}
-          tapsLocked={tapsLocked}
-          onTapsLockToggle={() => setTapsLocked((v) => !v)}
-          playerShellRef={playerShellRef}
-        />
+        <div
+          className={cn(
+            'safetube-player-chrome absolute inset-0 z-30 isolate transition-opacity duration-150 ease-out',
+            chromeVisible || tapsLocked
+              ? 'pointer-events-none opacity-100'
+              : 'pointer-events-none opacity-0'
+          )}
+          aria-hidden={!(chromeVisible || tapsLocked)}
+        >
+          <PlayerControlBar
+            key={videoId}
+            loopEnabled={loopEnabled}
+            onLoopToggle={() => setLoopEnabled((v) => !v)}
+            onNext={handleNextVideo}
+            onPrevious={onPreviousTrack}
+            hasNext={hasNextTrack}
+            showQueueControls={showQueueControls}
+            tapsLocked={tapsLocked}
+            onTapsLockToggle={() => setTapsLocked((v) => !v)}
+            iframeRef={iframeRef}
+            fullscreenRootRef={fullscreenRootRef}
+            allowMobileExpand={allowMobileExpand}
+            interactive={chromeVisible || tapsLocked}
+            onIframePlayingChange={(playing) => {
+              setIframePlaying(playing)
+              iframePlayingRef.current = playing
+              syncNativeMediaSession({
+                playing,
+                canSkipNext: hasNextTrack,
+                canSkipPrev: Boolean(onPreviousTrack),
+                positionMs: Math.round(Math.max(0, iframePosSecRef.current) * 1000),
+                durationMs:
+                  effectiveDurationSec != null && effectiveDurationSec > 0
+                    ? Math.round(effectiveDurationSec * 1000)
+                    : undefined,
+              })
+            }}
+          />
+        </div>
       ) : null}
+      </div>
     </div>
   )
 }
@@ -683,14 +1360,18 @@ function CleanPlayerMediaBridge({
   onPreviousTrack,
   hasNextTrack = true,
   queueControls,
+  allowMobileExpand = true,
   onVideoPlaybackStarted,
   onPlaybackActiveChange,
   onPlaybackTimeUpdate,
+  immersive = false,
 }: CleanPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const fullscreenRootRef = useRef<HTMLDivElement>(null)
   const playerShellRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
-  /** Cancels deferred 720p upgrade when the video changes or unmounts. */
+  const audioNormalizerRef = useRef<PlayerAudioNormalizer | null>(null)
+  /** Cancels deferred adaptive quality polling when the video changes or unmounts. */
   const upgradeCleanupRef = useRef<(() => void) | null>(null)
   /** True while hls.js is driving the `<video>`; suppresses the raw `onError` channel. */
   const hlsJsActiveRef = useRef(false)
@@ -707,9 +1388,15 @@ function CleanPlayerMediaBridge({
   const [loopEnabled, setLoopEnabled] = useState(false)
   const [needsUserGesture, setNeedsUserGesture] = useState(false)
   const [tapsLocked, setTapsLocked] = useState(false)
-  const theater = useWatchTheaterMode()
-  const showQueueControls = queueControls ?? Boolean(onNextTrack)
-  const showControlBar = showQueueControls || Boolean(theater)
+  const [mediaPlaying, setMediaPlaying] = useState(true)
+  const { chromeVisible, bumpChrome } = useAutoHidePlayerChrome({
+    locked: tapsLocked,
+    enabled: false,
+    playing: mediaPlaying,
+  })
+  const showQueueControls = !immersive && (queueControls ?? Boolean(onNextTrack))
+  const showControlBar = !immersive
+  const fillParent = immersive || playerFillsParentHeight(className)
   const blankVideoFrameRef = useRef(blankVideoFrame)
   blankVideoFrameRef.current = blankVideoFrame
   const handleNextVideo = useNextVideoHandler(onNextTrack, hasNextTrack)
@@ -732,7 +1419,23 @@ function CleanPlayerMediaBridge({
     setLoopEnabled(false)
     setNeedsUserGesture(false)
     setTapsLocked(false)
+    setMediaPlaying(true)
+    if (isPlayerExpanded()) {
+      void exitPlayerGestureFullscreen()
+    }
   }, [videoId])
+
+  // Stable volume: soft compressor on the Media Bridge element (once per mount).
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el) return
+    audioNormalizerRef.current?.dispose()
+    audioNormalizerRef.current = attachPlayerAudioNormalizer(el)
+    return () => {
+      audioNormalizerRef.current?.dispose()
+      audioNormalizerRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     playbackNotifiedRef.current = false
@@ -897,7 +1600,7 @@ function CleanPlayerMediaBridge({
 
           const attachUpgradeAfterStart = () => {
             if (!safeId) return
-            upgradeCleanupRef.current = scheduleQualityUpgrade(
+            upgradeCleanupRef.current = scheduleAdaptiveQuality(
               el,
               safeId,
               info,
@@ -906,10 +1609,9 @@ function CleanPlayerMediaBridge({
                 hlsJsActiveRef.current = false
                 setPhase({ kind: 'playing', info: upgrade })
               },
-              // Skip the mid-stream URL swap when:
+              // Skip mid-stream progressive swaps when:
               // - black-screen / audio-first mode (swap stutter is very visible), or
-              // - hls.js is driving playback (it adapts quality itself, and a failed
-              //   swap after detaching hls.js cannot be reverted — frozen player).
+              // - hls.js is driving playback (native ABR handles ladder changes).
               { skip: blankVideoFrameRef.current || hlsJsActiveRef.current }
             )
           }
@@ -921,13 +1623,7 @@ function CleanPlayerMediaBridge({
             }
             hlsJsActiveRef.current = true
             const hls = new Hls({
-              enableWorker: true,
-              lowLatencyMode: false,
-              // Prefer smoother playback over aggressive low-latency ABR on tablets.
-              maxBufferLength: 45,
-              maxMaxBufferLength: 90,
-              backBufferLength: 30,
-              startLevel: -1,
+              ...buildSmoothHlsAbrConfig(),
               xhrSetup: (xhr) => {
                 xhr.withCredentials = false
               },
@@ -945,6 +1641,20 @@ function CleanPlayerMediaBridge({
                 }
               }
               applyPlaybackFailure(new Error(`hls fatal: ${data.type}`), 'hls.js', setPhase)
+            })
+            // Cap upshifts when the network hint is poor (keeps decode time stable).
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              try {
+                if (hls.levels.length <= 1) return
+                const hint = getNetworkQualityHint()
+                if (hint === 'poor') {
+                  hls.autoLevelCapping = Math.min(1, hls.levels.length - 1)
+                } else {
+                  hls.autoLevelCapping = -1
+                }
+              } catch {
+                /* ignore */
+              }
             })
             hls.loadSource(playbackSrc)
             hls.attachMedia(el)
@@ -1515,10 +2225,22 @@ function CleanPlayerMediaBridge({
 
   return (
     <div
-      className={cn('flex h-full w-full min-h-0 flex-col overflow-hidden bg-black', className)}
+      ref={fullscreenRootRef}
+      className={cn(
+        'safetube-player-root flex w-full min-h-0 flex-col overflow-hidden bg-black',
+        fillParent && 'h-full',
+        className
+      )}
       dir="ltr"
+      onPointerDownCapture={bumpChrome}
     >
-      <div ref={playerShellRef} className="relative min-h-0 flex-1">
+      <div
+        ref={playerShellRef}
+        className={cn(
+          'safetube-player-stage relative min-h-0 w-full overflow-hidden',
+          fillParent ? 'flex-1' : 'aspect-video'
+        )}
+      >
       {showLoadingOverlay ? (
         <div
           className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/75 px-4 text-center text-sm leading-relaxed text-zinc-200"
@@ -1574,6 +2296,7 @@ function CleanPlayerMediaBridge({
           onClick={() => {
             const el = videoRef.current
             if (!el) return
+            void audioNormalizerRef.current?.resume()
             void el
               .play()
               .then(() => setNeedsUserGesture(false))
@@ -1597,7 +2320,11 @@ function CleanPlayerMediaBridge({
           </span>
         </button>
       ) : null}
-      {phase.kind === 'playing' && pipSupported && !isLimitReached && !blankVideoFrame ? (
+      {phase.kind === 'playing' &&
+      pipSupported &&
+      !isLimitReached &&
+      !blankVideoFrame &&
+      (chromeVisible || tapsLocked) ? (
         <button
           type="button"
           onClick={() => void handlePipToggle()}
@@ -1613,14 +2340,17 @@ function CleanPlayerMediaBridge({
       ) : null}
       <video
         ref={videoRef}
-        className={cn('h-full w-full', hideVideo && 'pointer-events-none invisible')}
-        controls={!blankVideoFrame}
+        className={cn('absolute inset-0 h-full w-full', hideVideo && 'pointer-events-none invisible')}
+        controls={false}
         tabIndex={hideVideo || blankVideoFrame ? -1 : undefined}
         aria-hidden={hideVideo || blankVideoFrame}
         controlsList="nodownload"
         playsInline
         preload="auto"
         poster={videoPoster}
+        onPlay={() => setMediaPlaying(true)}
+        onPause={() => setMediaPlaying(false)}
+        onEnded={() => setMediaPlaying(false)}
         onError={(e) => {
           if (hlsJsActiveRef.current) return
           const target = e.currentTarget
@@ -1640,44 +2370,78 @@ function CleanPlayerMediaBridge({
         <div className="absolute inset-0 z-[5] bg-black" aria-hidden />
       ) : null}
       {tapsLocked && !isDailyLimit && !isUpcomingLive && !isPlaybackError ? (
-        <div
-          className="absolute inset-0 z-[15] flex items-center justify-center bg-black/25"
-          aria-hidden
-        >
-          <span className="rounded-full bg-black/70 p-3 text-white shadow-lg ring-1 ring-white/20">
-            <Lock className="h-6 w-6" aria-hidden />
-          </span>
+        <div className="safetube-player-lock absolute inset-0 z-[25] flex items-center justify-center bg-black/45 backdrop-blur-[1px]">
+          <button
+            type="button"
+            onClick={() => setTapsLocked(false)}
+            className="inline-flex min-h-12 items-center gap-2 rounded-full bg-black/85 px-5 py-3 text-sm font-semibold text-white shadow-xl ring-2 ring-white/35 touch-manipulation"
+            aria-label="בטל נעילת מסך"
+          >
+            <Lock className="h-5 w-5" aria-hidden />
+            בטל נעילה
+          </button>
         </div>
       ) : null}
-      <span className="sr-only">{title}</span>
-      </div>
-      {showControlBar ? (
-        <PlayerControlBar
-          loopEnabled={loopEnabled}
-          onLoopToggle={() => setLoopEnabled((v) => !v)}
-          onNext={handleNextVideo}
-          onPrevious={onPreviousTrack}
-          hasNext={hasNextTrack}
-          showQueueControls={showQueueControls}
-          tapsLocked={tapsLocked}
-          onTapsLockToggle={() => setTapsLocked((v) => !v)}
+      {phase.kind === 'playing' &&
+      !isDailyLimit &&
+      !isUpcomingLive &&
+      !isPlaybackError &&
+      !tapsLocked &&
+      !blankVideoFrame &&
+      !needsUserGesture ? (
+        <PlayerGestureOverlay
+          layout="full"
+          canSeek
+          canSpeed
+          canFullscreen={allowMobileExpand}
           videoRef={videoRef}
-          playerShellRef={playerShellRef}
+          fullscreenRootRef={fullscreenRootRef}
         />
       ) : null}
+      <span className="sr-only">{title}</span>
+      {showControlBar ? (
+        <div
+          className={cn(
+            'safetube-player-chrome absolute inset-0 z-30 isolate transition-opacity duration-150 ease-out',
+            chromeVisible || tapsLocked
+              ? 'pointer-events-none opacity-100'
+              : 'pointer-events-none opacity-0'
+          )}
+          aria-hidden={!(chromeVisible || tapsLocked)}
+        >
+          <PlayerControlBar
+            key={videoId}
+            loopEnabled={loopEnabled}
+            onLoopToggle={() => setLoopEnabled((v) => !v)}
+            onNext={handleNextVideo}
+            onPrevious={onPreviousTrack}
+            hasNext={hasNextTrack}
+            showQueueControls={showQueueControls}
+            tapsLocked={tapsLocked}
+            onTapsLockToggle={() => setTapsLocked((v) => !v)}
+            videoRef={videoRef}
+            fullscreenRootRef={fullscreenRootRef}
+            allowMobileExpand={allowMobileExpand}
+            interactive={chromeVisible || tapsLocked}
+          />
+        </div>
+      ) : null}
+      </div>
     </div>
   )
 }
 
 /**
- * Default: native `<video>` through the Media Bridge — **not** a YouTube iframe, so there is no
- * YouTube logo / “Watch on YouTube” in the player chrome (stream is proxied).
+ * Android (Capacitor): simple YouTube embed iframe — native YT controls, no IFrame API / custom DOM.
+ * Web/desktop: Media Bridge + native `<video>` (proxied stream).
  *
- * Optional: set `VITE_YOUTUBE_IFRAME_PLAYER=true` to use `youtube-nocookie.com/embed` with
- * `modestbranding=1`, `rel=0`, and related params (see `buildYoutubePrivacyEmbedUrl`).
+ * Optional: set `VITE_YOUTUBE_IFRAME_PLAYER=true` to force iframe on web too.
  */
 export function CleanPlayer(props: CleanPlayerProps) {
-  if (YOUTUBE_IFRAME_PLAYER) {
+  const useEmbed =
+    YOUTUBE_IFRAME_PLAYER ||
+    (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android')
+  if (useEmbed) {
     return <CleanPlayerYoutubeIframe {...props} />
   }
   return <CleanPlayerMediaBridge {...props} />

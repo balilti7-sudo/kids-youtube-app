@@ -17,6 +17,8 @@ import type { WhitelistedChannel } from '../types'
 const CHANNEL_CACHE_INSERT_CHUNK = 500
 /** אצוות קטנות יותר ל־RPC (גודל גוף JSON) */
 const LOCAL_PARENT_CACHE_RPC_CHUNK = 350
+/** Delay before background append pages start (keeps add-channel snappy). */
+const BACKGROUND_APPEND_START_DELAY_MS = 12_000
 /** Delay between background append pages (quota-friendly). */
 const BACKGROUND_APPEND_DELAY_MS = 2500
 /** Soft ceiling for unattended background pages per channel (further pages via scroll). */
@@ -303,23 +305,28 @@ export function useChannels(
           )
           return
         }
-        let pages = 0
-        let hasMore = Boolean(initial.hasMore)
-        while (hasMore && pages < BACKGROUND_APPEND_MAX_PAGES) {
-          await new Promise((r) => setTimeout(r, BACKGROUND_APPEND_DELAY_MS))
-          const next = await refreshChannelVideosCache(channelDbId, youtubeChannelId, 'append')
-          if (next.error) {
-            console.warn(
-              '[useChannels] background cache append failed',
-              next.error.message,
-              youtubeChannelId
-            )
-            break
-          }
-          hasMore = Boolean(next.hasMore)
-          pages += 1
-          if ((next.appended ?? 0) === 0 && !hasMore) break
-        }
+        const initialHasMore = Boolean(initial.hasMore)
+        window.setTimeout(() => {
+          void (async () => {
+            let pages = 0
+            let hasMore = initialHasMore
+            while (hasMore && pages < BACKGROUND_APPEND_MAX_PAGES) {
+              await new Promise((r) => setTimeout(r, BACKGROUND_APPEND_DELAY_MS))
+              const next = await refreshChannelVideosCache(channelDbId, youtubeChannelId, 'append')
+              if (next.error) {
+                console.warn(
+                  '[useChannels] background cache append failed',
+                  next.error.message,
+                  youtubeChannelId
+                )
+                break
+              }
+              hasMore = Boolean(next.hasMore)
+              pages += 1
+              if ((next.appended ?? 0) === 0 && !hasMore) break
+            }
+          })()
+        }, BACKGROUND_APPEND_START_DELAY_MS)
       })()
     },
     [refreshChannelVideosCache]
@@ -342,18 +349,24 @@ export function useChannels(
   )
 
   const loadWhitelist = useCallback(() => {
+    if (localAccessToken) {
+      void fetchWhitelistForLocalParent(localAccessToken)
+      return
+    }
+    // Parent device management — never load child-token snapshot (it overwrote adds).
+    if (deviceId && userId) {
+      void fetchWhitelistForDevice(deviceId)
+      return
+    }
     const kidToken = getSavedChildAccessToken()
     if (kidToken) {
       void fetchWhitelistFromChildToken(kidToken)
       return
     }
-    if (localAccessToken) {
-      void fetchWhitelistForLocalParent(localAccessToken)
-      return
-    }
     if (deviceId) void fetchWhitelistForDevice(deviceId)
   }, [
     deviceId,
+    userId,
     localAccessToken,
     fetchWhitelistForDevice,
     fetchWhitelistForLocalParent,
@@ -410,11 +423,13 @@ export function useChannels(
   const addToWhitelist = useCallback(
     async (yt: import('../types').YouTubeChannelResult, category?: string | null) => {
       if (localAccessToken) {
-        const pin = getLocalParentPin?.() ?? ''
+        const pin = (getLocalParentPin?.() || getParentPinSession() || '').replace(/\D/g, '').trim()
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt, category })
         if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-        if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
+        if (ch?.id && !ch.id.startsWith('opt-')) {
+          scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
+        }
         return { error: null, cacheError: null }
       }
       if (!deviceId || !userId) return { error: new Error('לא מחובר'), cacheError: null }
@@ -427,7 +442,9 @@ export function useChannels(
       })
       if (res.error) return { ...res, cacheError: null as Error | null }
       const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === yt.channelId)
-      if (ch?.id) scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
+      if (ch?.id && !ch.id.startsWith('opt-')) {
+        scheduleChannelVideosCacheRefresh(ch.id, yt.channelId)
+      }
       return { error: null, cacheError: null }
     },
     [
@@ -447,7 +464,7 @@ export function useChannels(
       const { data, error } = await resolveYouTubeChannelFromInput(input)
       if (error || !data) return { error: error ?? new Error('לא נמצא ערוץ מהקישור'), cacheError: null }
       if (localAccessToken) {
-        const pin = getLocalParentPin?.() ?? ''
+        const pin = (getLocalParentPin?.() || getParentPinSession() || '').replace(/\D/g, '').trim()
         const res = await addChannelLocalParent({ accessToken: localAccessToken, pin, yt: data, category })
         if (res.error) return { ...res, cacheError: null as Error | null }
         const ch = useChannelStore.getState().whitelist.find((c) => c.youtube_channel_id === data.channelId)
@@ -483,7 +500,7 @@ export function useChannels(
     async (channelId: string) => {
       if (!deviceId) return { error: new Error('לא נבחר מכשיר') }
       if (localAccessToken) {
-        const pin = getLocalParentPin?.() ?? ''
+        const pin = (getLocalParentPin?.() || getParentPinSession() || '').replace(/\D/g, '').trim()
         return removeChannelLocalParent(localAccessToken, pin, channelId)
       }
       if (!userId) return { error: new Error('לא מחובר') }

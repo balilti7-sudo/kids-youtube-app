@@ -10,6 +10,7 @@ import {
   PlaylistQueueRow,
   type PlaylistBlockConfig,
 } from '../playlists/PlaylistQueueRow'
+import { PlaylistTabVideoSearch } from '../playlists/PlaylistTabVideoSearch'
 import { YoutubeVideoCard } from '../youtube/YoutubeVideoCard'
 import { YoutubeWatchLayout } from '../youtube/YoutubeWatchLayout'
 import { YoutubeWatchVideoDetails } from '../youtube/YoutubeWatchVideoDetails'
@@ -25,7 +26,21 @@ import { filterVideosRespectingAllowShorts } from '../../lib/videoFormatClassifi
 import { buildShortsAwareNavQueue } from '../../lib/shortsNavQueue'
 import { shouldHideFromChildBrowse } from '../../lib/liveStreamPolicy'
 import { saveActivePlaylistId } from '../../lib/activePlaylistSelection'
+import { scrollPlayerIntoViewForWatch } from '../../lib/scrollPlayerIntoView'
+import {
+  captureBrowseNavContext,
+  restoreBrowseScroll,
+  type BrowseNavContext,
+} from '../../lib/watchPlayerNav'
+import { usePlayerOwnedBackNavigation } from '../../hooks/usePlayerOwnedBackNavigation'
+import { formatVideoDurationClock } from '../../lib/formatRelativeTime'
+import { fetchVideoDetailsBatch } from '../../lib/youtube'
 import { usePlaylistQueueHandlers } from '../../hooks/usePlaylistQueueHandlers'
+import {
+  appendPlaylistVideoIfMissing,
+  PLAYLIST_VIDEO_ADDED_EVENT,
+  type PlaylistVideoAddedDetail,
+} from '../../lib/playlistEvents'
 
 export type ParentQuickBlockConfig = {
   enabled: boolean
@@ -47,7 +62,7 @@ type Props = {
 
 export function KidPlaylistView({
   childAccessToken,
-  allowShorts = false,
+  allowShorts = true,
   hideThumbnails = false,
   parentQuickBlock,
   initialPlaylistId = null,
@@ -71,9 +86,14 @@ export function KidPlaylistView({
   } = playlistApi
   const [selectedId, setSelectedId] = useState<string | null>(initialPlaylistId)
   const [videos, setVideos] = useState<PlaylistVideo[]>([])
+  const [videoDurations, setVideoDurations] = useState<Record<string, number>>({})
   const [videosLoading, setVideosLoading] = useState(false)
   const [videosError, setVideosError] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
+  const browseNavContextRef = useRef<BrowseNavContext | null>(null)
+  /** True only after an explicit tap — auto-selected first playlist item does not own Back. */
+  const [watchSessionActive, setWatchSessionActive] = useState(false)
+  const playerAnchorRef = useRef<HTMLDivElement>(null)
   const [newName, setNewName] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -214,21 +234,77 @@ export function KidPlaylistView({
         toast.error('תוכן זה אינו זמין לצפייה')
         return
       }
+      if (!watchSessionActive) {
+        browseNavContextRef.current = captureBrowseNavContext({
+          channelContentTab: 'playlists',
+          priorActiveVideoId: null,
+        })
+        setWatchSessionActive(true)
+      }
       setActiveVideoId(videoId)
+      scrollPlayerIntoViewForWatch(playerAnchorRef.current)
     },
-    [videos, allowShorts]
+    [videos, allowShorts, watchSessionActive]
   )
+
+  const exitWatchSession = useCallback(() => {
+    const ctx = browseNavContextRef.current
+    browseNavContextRef.current = null
+    setWatchSessionActive(false)
+    setActiveVideoId(null)
+    if (ctx) restoreBrowseScroll(ctx.scrollY)
+  }, [])
+
+  const { handlePlayerBack } = usePlayerOwnedBackNavigation({
+    enabled: true,
+    isShortsOpen: false,
+    isWatchOpen: watchSessionActive && Boolean(activeVideoId),
+    onExitShorts: () => {},
+    onExitWatch: exitWatchSession,
+  })
 
   useEffect(() => {
     if (!selectedId) {
       setVideos([])
+      setVideoDurations({})
       setActiveVideoId(null)
+      setWatchSessionActive(false)
+      browseNavContextRef.current = null
       setVideosError(null)
       setVideosLoading(false)
       return
     }
     void loadVideos(selectedId)
   }, [selectedId, loadVideos])
+
+  useEffect(() => {
+    const ids = videos
+      .map((v) => v.youtube_video_id)
+      .filter((id) => videoDurations[id] == null)
+    if (ids.length === 0) return
+    let cancelled = false
+    void fetchVideoDetailsBatch(ids).then((details) => {
+      if (cancelled) return
+      setVideoDurations((prev) => {
+        let changed = false
+        const next = { ...prev }
+        for (const id of ids) {
+          if (next[id] != null) continue
+          const sec = details.get(id)?.durationSeconds
+          if (sec != null && sec > 0) {
+            next[id] = sec
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+    // Only re-run when the playlist video id list changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- videoDurations intentionally omitted
+  }, [videos])
 
   useEffect(() => {
     if (!activeVideoId) return
@@ -258,6 +334,18 @@ export function KidPlaylistView({
   const handlePlaylistMembershipChanged = useCallback(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    const onAdded = (event: Event) => {
+      const detail = (event as CustomEvent<PlaylistVideoAddedDetail>).detail
+      if (!detail?.video || !selectedId) return
+      if (!detail.playlistIds.includes(selectedId)) return
+      setVideos((prev) => appendPlaylistVideoIfMissing(prev, detail.video))
+      void refresh()
+    }
+    window.addEventListener(PLAYLIST_VIDEO_ADDED_EVENT, onAdded)
+    return () => window.removeEventListener(PLAYLIST_VIDEO_ADDED_EVENT, onAdded)
+  }, [selectedId, refresh])
 
   const cancelCreate = () => {
     if (creating) return
@@ -376,6 +464,17 @@ export function KidPlaylistView({
         </Button>
       </div>
 
+      <PlaylistTabVideoSearch
+        className="mb-3"
+        mode="kid"
+        userId={null}
+        childAccessToken={childAccessToken}
+        initialPlaylists={playlists}
+        preferredPlaylistId={selectedId}
+        preferredPlaylistName={selected?.name ?? null}
+        defaultExpanded={false}
+      />
+
       {createOpen ? (
         <div className="mb-3 rounded-xl border border-yt-border bg-yt-surface p-3">
           <label className="mb-2 block text-sm font-semibold text-yt-text">שם הפלייליסט החדש</label>
@@ -447,21 +546,24 @@ export function KidPlaylistView({
           main={
             active ? (
               <>
-                <ChildWatchPlayerShell
-                  videoId={active.youtube_video_id}
-                  title={active.title}
-                  channelTitle={active.channel_name ?? undefined}
-                  posterUrl={hideThumbnails ? null : active.thumbnail_url}
-                  blankVideoFrame={hideThumbnails}
-                  format={classifyWatchFormat({
-                    youtubeVideoId: active.youtube_video_id,
-                    title: active.title,
-                    thumbnail: active.thumbnail_url,
-                  })}
-                  onNextTrack={goNext}
-                  onPreviousTrack={goPrev}
-                  hasNextTrack={hasNextPlaylistVideo}
-                />
+                <div ref={playerAnchorRef} className="scroll-mt-chrome w-full" data-safetube-player>
+                  <ChildWatchPlayerShell
+                    videoId={active.youtube_video_id}
+                    title={active.title}
+                    channelTitle={active.channel_name ?? undefined}
+                    posterUrl={hideThumbnails ? null : active.thumbnail_url}
+                    blankVideoFrame={hideThumbnails}
+                    format={classifyWatchFormat({
+                      youtubeVideoId: active.youtube_video_id,
+                      title: active.title,
+                      thumbnail: active.thumbnail_url,
+                    })}
+                    onNextTrack={goNext}
+                    onPreviousTrack={goPrev}
+                    hasNextTrack={hasNextPlaylistVideo}
+                    onBack={handlePlayerBack}
+                  />
+                </div>
                 <YoutubeWatchVideoDetails
                   title={active.title}
                   channelName={active.channel_name}
@@ -534,6 +636,7 @@ export function KidPlaylistView({
                           thumbnail={video.thumbnail_url}
                           hideThumbnail={hideThumbnails}
                           channelName={video.channel_name}
+                          durationLabel={formatVideoDurationClock(videoDurations[video.youtube_video_id] ?? null)}
                           active={isCurrent}
                           playingLabel="מנגן"
                           actionSlot={

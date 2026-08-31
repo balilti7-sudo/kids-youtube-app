@@ -35,6 +35,10 @@ public class MainActivity extends BridgeActivity {
                 installSafeTubeWebViewGuards(bridge);
                 WebView webView = bridge.getWebView();
                 webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                // Block Android long-press text selection / action mode in the WebView.
+                webView.setOnLongClickListener(v -> true);
+                webView.setLongClickable(false);
+                webView.setHapticFeedbackEnabled(false);
                 CookieManager cookies = CookieManager.getInstance();
                 cookies.setAcceptCookie(true);
                 cookies.setAcceptThirdPartyCookies(webView, true);
@@ -169,13 +173,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPause() {
         super.onPause();
-        pauseWebViewMedia();
+        keepWebViewMediaAlive();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-        pauseWebViewMedia();
+        keepWebViewMediaAlive();
     }
 
     /**
@@ -241,21 +245,22 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * Stop WebView media when the app is backgrounded or the screen is locked.
+     * Capacitor/Cordova keep JS timers when KeepRunning=true, but Chromium still
+     * suspends media when the window is not visible. Re-resume the WebView and
+     * nudge &lt;video&gt;.play() whenever our media FGS is active.
      */
-    private void pauseWebViewMedia() {
+    private void keepWebViewMediaAlive() {
+        if (!MediaPlaybackService.isActive() && !CapacitorWebView.allowBackgroundMedia) return;
         try {
-            CapacitorWebView.allowBackgroundMedia = false;
             if (bridge == null) return;
             WebView webView = bridge.getWebView();
             if (webView == null) return;
+            webView.onResume();
+            webView.resumeTimers();
             webView.evaluateJavascript(
-                "(function(){try{"
-                    + "if(window.__safetubePauseAllPlayback)window.__safetubePauseAllPlayback();"
-                    + "var v=document.querySelector('video');"
-                    + "if(v&&!v.paused&&!v.ended)v.pause();"
-                    + "if(window.__safetubeYtPlayer)window.__safetubeYtPlayer.pause();"
-                    + "}catch(e){}})();",
+                "(function(){try{var v=document.querySelector('video');"
+                    + "if(v&&v.paused&&!v.ended&&v.getAttribute('data-safetube-bg')==='1')"
+                    + "{v.play().catch(function(){})}}catch(e){}})();",
                 null
             );
         } catch (Exception ignored) {

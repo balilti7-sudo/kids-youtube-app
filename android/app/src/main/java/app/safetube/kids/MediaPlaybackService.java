@@ -10,8 +10,6 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -48,8 +46,7 @@ import java.util.concurrent.Executors;
  * Transport commands are forwarded into the Capacitor WebView via {@link MediaPlaybackPlugin}.
  * Hardware volume keys adjust {@link AudioManager#STREAM_MUSIC} (hands-free safe).
  */
-public class MediaPlaybackService extends MediaBrowserServiceCompat
-    implements AudioManager.OnAudioFocusChangeListener {
+public class MediaPlaybackService extends MediaBrowserServiceCompat {
 
     public static final String CHANNEL_ID = "safetube_playback";
     public static final int NOTIFICATION_ID = 4401;
@@ -82,7 +79,6 @@ public class MediaPlaybackService extends MediaBrowserServiceCompat
     private PowerManager.WakeLock wakeLock;
     private MediaSessionCompat mediaSession;
     private AudioManager audioManager;
-    private AudioFocusRequest audioFocusRequest;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
 
@@ -644,73 +640,14 @@ public class MediaPlaybackService extends MediaBrowserServiceCompat
     }
 
     private boolean requestAudioFocus() {
-        if (audioManager == null) return false;
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                if (audioFocusRequest == null) {
-                    audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                        .setAudioAttributes(
-                            new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                                .build()
-                        )
-                        .setOnAudioFocusChangeListener(this)
-                        .setAcceptsDelayedFocusGain(true)
-                        .build();
-                }
-                int res = audioManager.requestAudioFocus(audioFocusRequest);
-                return res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-                    || res == AudioManager.AUDIOFOCUS_REQUEST_DELAYED;
-            }
-            @SuppressWarnings("deprecation")
-            int res = audioManager.requestAudioFocus(
-                this,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN
-            );
-            return res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-        } catch (Exception e) {
-            return false;
-        }
+        // Transport-only MediaSession: do NOT take AUDIOFOCUS_GAIN.
+        // Android YouTube iframe already owns real audio in the WebView; stealing focus
+        // pauses/stalls the embed, and our JS cannot reliably resume it.
+        return true;
     }
 
     private void abandonAudioFocus() {
-        if (audioManager == null) return;
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
-                audioManager.abandonAudioFocusRequest(audioFocusRequest);
-            } else {
-                @SuppressWarnings("deprecation")
-                int ignored = audioManager.abandonAudioFocus(this);
-            }
-        } catch (Exception ignored) {
-            /* ignore */
-        }
-    }
-
-    @Override
-    public void onAudioFocusChange(int focusChange) {
-        switch (focusChange) {
-            case AudioManager.AUDIOFOCUS_LOSS:
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                emit("pause", null);
-                playing = false;
-                publishPlaybackState();
-                refreshNotification();
-                break;
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                /* keep playing — system volume ducking is enough */
-                break;
-            case AudioManager.AUDIOFOCUS_GAIN:
-                emit("play", null);
-                playing = true;
-                publishPlaybackState();
-                refreshNotification();
-                break;
-            default:
-                break;
-        }
+        /* no-op — we never hold exclusive audio focus */
     }
 
     private void acquireWakeLock() {

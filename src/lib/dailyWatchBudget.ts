@@ -1,5 +1,11 @@
 import { getSavedChildAccessToken } from './childDevice'
 import { supabase } from './supabase'
+import {
+  DAILY_WATCH_BUDGET_ENABLED,
+  effectiveDailyTimeLimitMinutes,
+} from './parentalLimitsPolicy'
+
+export { DAILY_WATCH_BUDGET_ENABLED } from './parentalLimitsPolicy'
 
 export type DailyWatchState = {
   deviceId: string
@@ -18,14 +24,19 @@ function mapDailyWatchStateRow(row: Record<string, unknown>): DailyWatchState {
     deviceId: String(row.device_id ?? row.deviceId ?? ''),
     watchDate: String(row.watch_date ?? row.watchDate ?? ''),
     watchSecondsToday: Number(row.watch_seconds_today ?? row.watchSecondsToday ?? 0),
-    dailyTimeLimitMinutes: Number(row.daily_time_limit_minutes ?? row.dailyTimeLimitMinutes ?? 60),
+    // 0 = unlimited; ignore any positive server limit while the feature is off.
+    dailyTimeLimitMinutes: effectiveDailyTimeLimitMinutes(
+      Number(row.daily_time_limit_minutes ?? row.dailyTimeLimitMinutes ?? 0) || 0
+    ),
   }
 }
 
 function mapDailyWatchReportRow(row: Record<string, unknown>): DailyWatchReportResult {
   return {
     watchSecondsToday: Number(row.watch_seconds_today ?? row.watchSecondsToday ?? 0),
-    dailyTimeLimitMinutes: Number(row.daily_time_limit_minutes ?? row.dailyTimeLimitMinutes ?? 60),
+    dailyTimeLimitMinutes: effectiveDailyTimeLimitMinutes(
+      Number(row.daily_time_limit_minutes ?? row.dailyTimeLimitMinutes ?? 0) || 0
+    ),
   }
 }
 
@@ -123,6 +134,7 @@ export function isDailyWatchBudgetExceeded(
   dailyTimeLimitMinutes: number,
   snoozeBonusSeconds = 0
 ): boolean {
+  if (!DAILY_WATCH_BUDGET_ENABLED) return false
   const limitMin = Number(dailyTimeLimitMinutes)
   // Invalid / non-positive limit → do not block playback.
   if (!Number.isFinite(limitMin) || limitMin <= 0) return false

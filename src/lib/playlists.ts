@@ -1,3 +1,4 @@
+import { withMutationTimeout } from './mutationTimeout'
 import { supabase } from './supabase'
 
 export interface UserPlaylist {
@@ -63,7 +64,7 @@ function mapVideoRow(row: Record<string, unknown>): PlaylistVideo | null {
 
 type PlaylistListCacheEntry = { data: UserPlaylist[]; fetchedAt: number }
 const playlistListCache = new Map<string, PlaylistListCacheEntry>()
-const PLAYLIST_LIST_CACHE_MS = 45_000
+const PLAYLIST_LIST_CACHE_MS = 120_000
 
 function playlistListCacheKey(mode: 'parent' | 'kid', id: string) {
   return `${mode}:${id}`
@@ -84,6 +85,16 @@ export function peekCachedPlaylists(mode: 'parent' | 'kid', id: string): UserPla
   return entry.data
 }
 
+/** Stale cache for instant UI while a fresh fetch runs in the background. */
+export function peekStaleCachedPlaylists(mode: 'parent' | 'kid', id: string): UserPlaylist[] | null {
+  return playlistListCache.get(playlistListCacheKey(mode, id))?.data ?? null
+}
+
+function prependPlaylistCache(mode: 'parent' | 'kid', id: string, playlist: UserPlaylist) {
+  const prev = peekStaleCachedPlaylists(mode, id) ?? []
+  writePlaylistListCache(mode, id, [playlist, ...prev.filter((p) => p.id !== playlist.id)])
+}
+
 function writePlaylistListCache(mode: 'parent' | 'kid', id: string, data: UserPlaylist[]) {
   playlistListCache.set(playlistListCacheKey(mode, id), { data, fetchedAt: Date.now() })
 }
@@ -96,11 +107,30 @@ export async function listPlaylistsForUser(userId: string): Promise<{
   const cached = peekCachedPlaylists('parent', userId)
   if (cached) return { data: cached, error: null }
 
-  const { data, error } = await supabase
-    .from('playlists')
-    .select('id, name, updated_at, playlist_videos(count)')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false })
+  const rpc = await withMutationTimeout(supabase.rpc('parent_playlists_list'))
+  if (!rpc.error && Array.isArray(rpc.data)) {
+    const mapped = (rpc.data as Record<string, unknown>[])
+      .map(mapPlaylistRow)
+      .filter((r): r is UserPlaylist => r !== null)
+    writePlaylistListCache('parent', userId, mapped)
+    return { data: mapped, error: null }
+  }
+
+  const rpcMissing =
+    rpc.error &&
+    /parent_playlists_list|could not find|does not exist|42883/i.test(rpc.error.message || '')
+
+  if (!rpcMissing && rpc.error) {
+    return { data: [], error: new Error(rpc.error.message) }
+  }
+
+  const { data, error } = await withMutationTimeout(
+    supabase
+      .from('playlists')
+      .select('id, name, updated_at, playlist_videos(count)')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+  )
 
   if (error) return { data: [], error: new Error(error.message) }
 
@@ -157,11 +187,9 @@ export async function createPlaylistForUser(
   const trimmed = name.trim()
   if (!trimmed) return { data: null, error: new Error('נא להזין שם לפלייליסט') }
 
-  const { data, error } = await supabase
-    .from('playlists')
-    .insert({ user_id: userId, name: trimmed })
-    .select('id, name, updated_at')
-    .single()
+  const { data, error } = await withMutationTimeout(
+    supabase.from('playlists').insert({ user_id: userId, name: trimmed }).select('id, name, updated_at').single()
+  )
 
   if (error) {
     if (error.code === '23505') {
@@ -171,11 +199,14 @@ export async function createPlaylistForUser(
   }
 
   const row = data as { id: string; name: string; updated_at: string }
-  invalidatePlaylistListCache('parent', userId)
-  return {
-    data: { id: row.id, name: row.name, video_count: 0, updated_at: row.updated_at },
-    error: null,
+  const created: UserPlaylist = {
+    id: row.id,
+    name: row.name,
+    video_count: 0,
+    updated_at: row.updated_at,
   }
+  prependPlaylistCache('parent', userId, created)
+  return { data: created, error: null }
 }
 
 export async function deletePlaylistForUser(playlistId: string): Promise<{ error: Error | null }> {
@@ -188,12 +219,14 @@ export async function listPlaylistVideos(playlistId: string): Promise<{
   data: PlaylistVideo[]
   error: Error | null
 }> {
-  const { data, error } = await supabase
-    .from('playlist_videos')
-    .select('youtube_video_id, title, thumbnail_url, youtube_channel_id, channel_name, video_order, created_at')
-    .eq('playlist_id', playlistId)
-    .order('video_order', { ascending: true })
-    .order('created_at', { ascending: true })
+  const { data, error } = await withMutationTimeout(
+    supabase
+      .from('playlist_videos')
+      .select('youtube_video_id, title, thumbnail_url, youtube_channel_id, channel_name, video_order, created_at')
+      .eq('playlist_id', playlistId)
+      .order('video_order', { ascending: true })
+      .order('created_at', { ascending: true })
+  )
 
   if (error) return { data: [], error: new Error(error.message) }
   const mapped = ((data ?? []) as Record<string, unknown>[])
@@ -207,14 +240,17 @@ export async function addVideoToPlaylistViaRpc(
   playlistId: string,
   payload: PlaylistVideoPayload
 ): Promise<{ error: Error | null }> {
-  const { error } = await supabase.rpc('parent_add_video_to_playlist', {
-    p_playlist_id: playlistId,
-    p_youtube_video_id: payload.youtube_video_id,
-    p_title: payload.title,
-    p_thumbnail_url: payload.thumbnail_url ?? null,
-    p_youtube_channel_id: payload.youtube_channel_id ?? null,
-    p_channel_name: payload.channel_name ?? null,
-  })
+  const { error } = await withMutationTimeout(
+    supabase.rpc('parent_add_video_to_playlist', {
+      p_playlist_id: playlistId,
+      p_youtube_video_id: payload.youtube_video_id,
+      p_title: payload.title,
+      p_thumbnail_url: payload.thumbnail_url ?? null,
+      p_youtube_channel_id: payload.youtube_channel_id ?? null,
+      p_channel_name: payload.channel_name ?? null,
+    }),
+    8_000
+  )
 
   if (!error) {
     invalidatePlaylistListCache()
@@ -304,9 +340,11 @@ export async function listPlaylistsForChild(accessToken: string): Promise<{
   const cached = peekCachedPlaylists('kid', accessToken)
   if (cached) return { data: cached, error: null }
 
-  const { data, error } = await supabase.rpc('child_playlists_list', {
-    p_access_token: accessToken,
-  })
+  const { data, error } = await withMutationTimeout(
+    supabase.rpc('child_playlists_list', {
+      p_access_token: accessToken,
+    })
+  )
   if (error) return { data: [], error: new Error(error.message) }
   const mapped = ((data ?? []) as Record<string, unknown>[])
     .map(mapPlaylistRow)
@@ -319,28 +357,40 @@ export async function createPlaylistForChild(
   accessToken: string,
   name: string
 ): Promise<{ data: string | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc('child_playlist_create', {
-    p_access_token: accessToken,
-    p_name: name.trim(),
-  })
+  const { data, error } = await withMutationTimeout(
+    supabase.rpc('child_playlist_create', {
+      p_access_token: accessToken,
+      p_name: name.trim(),
+    })
+  )
   if (error) {
     const msg = error.message
     if (msg.includes('INVALID_PLAYLIST_NAME')) return { data: null, error: new Error('נא להזין שם') }
     if (msg.includes('PLAYLIST_NAME_TOO_LONG')) return { data: null, error: new Error('השם ארוך מדי') }
     return { data: null, error: new Error(msg) }
   }
-  invalidatePlaylistListCache('kid', accessToken)
-  return { data: typeof data === 'string' ? data : null, error: null }
+  const id = typeof data === 'string' ? data : null
+  if (id) {
+    prependPlaylistCache('kid', accessToken, {
+      id,
+      name: name.trim(),
+      video_count: 0,
+      updated_at: new Date().toISOString(),
+    })
+  }
+  return { data: id, error: null }
 }
 
 export async function listPlaylistVideosForChild(
   accessToken: string,
   playlistId: string
 ): Promise<{ data: PlaylistVideo[]; error: Error | null }> {
-  const { data, error } = await supabase.rpc('child_playlist_videos_list', {
-    p_access_token: accessToken,
-    p_playlist_id: playlistId,
-  })
+  const { data, error } = await withMutationTimeout(
+    supabase.rpc('child_playlist_videos_list', {
+      p_access_token: accessToken,
+      p_playlist_id: playlistId,
+    })
+  )
   if (error) return { data: [], error: new Error(error.message) }
   const mapped = ((data ?? []) as Record<string, unknown>[])
     .map(mapVideoRow)
@@ -353,15 +403,18 @@ export async function addVideoToPlaylistForChild(
   playlistId: string,
   payload: PlaylistVideoPayload
 ): Promise<{ error: Error | null }> {
-  const { error } = await supabase.rpc('child_playlist_add_video', {
-    p_access_token: accessToken,
-    p_playlist_id: playlistId,
-    p_youtube_video_id: payload.youtube_video_id,
-    p_title: payload.title,
-    p_thumbnail_url: payload.thumbnail_url ?? null,
-    p_youtube_channel_id: payload.youtube_channel_id ?? null,
-    p_channel_name: payload.channel_name ?? null,
-  })
+  const { error } = await withMutationTimeout(
+    supabase.rpc('child_playlist_add_video', {
+      p_access_token: accessToken,
+      p_playlist_id: playlistId,
+      p_youtube_video_id: payload.youtube_video_id,
+      p_title: payload.title,
+      p_thumbnail_url: payload.thumbnail_url ?? null,
+      p_youtube_channel_id: payload.youtube_channel_id ?? null,
+      p_channel_name: payload.channel_name ?? null,
+    }),
+    8_000
+  )
   if (!error) {
     invalidatePlaylistListCache('kid', accessToken)
     return { error: null }

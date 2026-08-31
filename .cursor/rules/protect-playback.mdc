@@ -1,23 +1,36 @@
 ---
-description: Never break working Android video play or channel add during UI/layout work
+description: SACRED — Android playback is simple YouTube embed. Never IFrame API custom controls.
 alwaysApply: true
 ---
 
-# Protect working playback (1.1.20)
+# Rule #1: Playback is sacred (1.1.20 simple embed on Android)
 
-Videos work on Android. Channel add works after the parent gate. Layout/CSS/positioning must not change that.
+Video playback is the **heart** of SafeTube. Tags, UI, settings are secondary. **Stability beats everything.**
 
-## Do not touch unless the user explicitly asks to change playback
+## Android path (FROZEN — what actually works)
 
-- `src/components/player/CleanPlayer.tsx` — on Capacitor Android, `CleanPlayer` **must** render `CleanPlayerYoutubeIframe` (YouTube `youtube.com/embed`). Do not switch Android back to `<video src=googlevideo>`, hls.js, Media Bridge bytes, custom HLS loaders, or WebView `shouldInterceptRequest` for media.
-- `src/lib/youtubeEmbedUrl.ts` — keep `widget_referrer` and Android `host: 'youtube'`.
-- `android/.../MainActivity.java` — keep `setMediaPlaybackRequiresUserGesture(false)` and third-party cookies. Do not add a googlevideo interceptor.
-- `src/stores/channelStore.ts` — if the parental management gate is already unlocked, **skip** a second `verify_parent_pin` RPC. That extra call hung add-channel forever.
+```
+Tap video → CleanPlayerYoutubeIframe → plain <iframe src=youtube.com/embed> → native YT controls
+```
 
-## UI / design work
+- **Android MUST use** simple iframe embed — **NOT** Media Bridge / googlevideo / hls.js in WebView (freezes/stops after ~1s)
+- **NO** YouTube IFrame API (`useYoutubeIframePlayer`) — caused `insertBefore` crashes
+- **NO** custom DOM controls over the player host
+- **`youtubeEmbedUrl.ts`:** Android uses `host: 'youtube'` + `widget_referrer`
+- **`MainActivity.java`:** `setMediaPlaybackRequiresUserGesture(false)` + third-party cookies
 
-Move, restyle, and reposition screens freely. If a layout change would edit the files above, stop and keep the playback/add logic identical. Do not “improve” streaming, PO tokens, quality swaps, or stall recovery on Android.
+## Web/desktop path
 
-## If playback is reported broken
+Media Bridge + native `<video>` (unless `VITE_YOUTUBE_IFRAME_PLAYER=true`).
 
-Fix by restoring the 1.1.20 Android embed path. Do not invent a new stream pipeline.
+## Frozen files (no edits during feature work)
+
+`CleanPlayer.tsx` (export routing + iframe attach), `youtubeEmbedUrl.ts`, `MainActivity.java` media/cookies, `streamApi.ts` (web path).
+
+## Channel add
+
+`channelStore.ts` — skip second `verify_parent_pin` when gate already unlocked.
+
+## Never reintroduce
+
+`useYoutubeIframePlayer.ts`, `youtubeIframeApi.ts`, `YoutubeStylePlayerControls.tsx`, forced Android → Media Bridge.

@@ -1,6 +1,10 @@
 import { isLocalParentSessionValid, readLocalParentSession } from './localParentAdmin'
 import { humanizeSupabaseError } from './supabaseErrorMessage'
 import { supabase } from './supabase'
+import {
+  effectiveAllowShorts,
+  effectiveDailyTimeLimitMinutes,
+} from './parentalLimitsPolicy'
 
 export type DeviceSettingsUpdate = {
   allowShorts?: boolean | null
@@ -28,18 +32,19 @@ function mapWhitelist(raw: unknown): string[] {
 }
 
 function mapDailyLimit(raw: unknown): number {
-  const n = Number(raw ?? 60)
-  if (!Number.isFinite(n)) return 60
-  const rounded = Math.round(n)
-  if (rounded === 0) return 0
-  if (rounded < 1) return 60
-  return Math.min(1440, rounded)
+  return effectiveDailyTimeLimitMinutes(Number(raw ?? 0))
 }
 
 function mapDeviceSettingsRow(row: Record<string, unknown>): DeviceSettingsRow {
   return {
     deviceId: String(row.id ?? row.device_id ?? row.deviceId ?? ''),
-    allowShorts: Boolean(row.allow_shorts ?? row.allowShorts),
+    allowShorts: effectiveAllowShorts(
+      row.allow_shorts != null
+        ? Boolean(row.allow_shorts)
+        : row.allowShorts != null
+          ? Boolean(row.allowShorts)
+          : undefined
+    ),
     blockYoutubeApp: Boolean(row.block_youtube_app ?? row.blockYoutubeApp),
     browserFilterEnabled: Boolean(
       row.browser_filter_enabled ??

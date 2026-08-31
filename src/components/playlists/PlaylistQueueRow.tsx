@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronUp, ShieldBan, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '../../lib/utils'
@@ -53,6 +54,7 @@ export function PlaylistQueueRow({
   children,
   className,
 }: Props) {
+  const { t } = useTranslation()
   const [busy, setBusy] = useState<'remove' | 'block' | 'up' | 'down' | null>(null)
   const [pinOpen, setPinOpen] = useState(false)
 
@@ -71,7 +73,7 @@ export function PlaylistQueueRow({
         const res = await setVideoHiddenAuthenticated(blockConfig.deviceId, pin, blockVideo, true)
         err = res.error
       } else {
-        err = new Error('לא ניתן לחסום')
+        err = new Error(t('playlists.cannotBlock'))
       }
 
       setBusy(null)
@@ -80,15 +82,15 @@ export function PlaylistQueueRow({
         toast.error(err.message)
         return
       }
-      toast.success('הסרטון נחסם לצמיתות מהילד')
+      toast.success(t('playlists.blockedForeverToast'))
       onBlocked?.()
     },
-    [blockConfig, blockVideo, onBlocked]
+    [blockConfig, blockVideo, onBlocked, t]
   )
 
   const requestBlock = useCallback(() => {
     if (!canBlock) {
-      toast.info('חסימה דורשת אימות הורה — פתחו מצב הורה או השתמשו בלוח ההורים')
+      toast.info(t('playlists.blockNeedsParent'))
       return
     }
     const pin = blockConfig?.cachedPin?.replace(/\D/g, '').trim()
@@ -97,7 +99,7 @@ export function PlaylistQueueRow({
       return
     }
     setPinOpen(true)
-  }, [blockConfig?.cachedPin, canBlock, runBlock])
+  }, [blockConfig?.cachedPin, canBlock, runBlock, t])
 
   const { rowRef, handlers, dragOffsetX, swiping, reset } = useHorizontalSwipeRow({
     enabled: busy === null,
@@ -130,7 +132,7 @@ export function PlaylistQueueRow({
             )}
           >
             <ShieldBan className="h-4 w-4 shrink-0" />
-            <span>חסום לצמיתות</span>
+            <span>{t('playlists.blockForever')}</span>
           </div>
           <div
             className={cn(
@@ -138,13 +140,13 @@ export function PlaylistQueueRow({
               showDeleteHint ? 'opacity-100' : 'opacity-80'
             )}
           >
-            <span>הסר מהפלייליסט</span>
+            <span>{t('playlists.removeFromPlaylist')}</span>
             <Trash2 className="h-4 w-4 shrink-0" />
           </div>
         </div>
 
         <div
-          ref={rowRef}
+          ref={rowRef as React.RefObject<HTMLDivElement>}
           className={cn(
             'relative flex touch-pan-y items-stretch gap-1 bg-white transition-transform dark:bg-zinc-900',
             active && 'ring-1 ring-brand-400 dark:ring-brand-500/60',
@@ -159,7 +161,7 @@ export function PlaylistQueueRow({
           <div className="flex shrink-0 flex-col justify-center gap-0.5 border-l border-slate-100 py-1 pl-1 pr-0.5 dark:border-zinc-800">
             <button
               type="button"
-              aria-label="הזז למעלה"
+              aria-label={t('playlists.moveUp')}
               disabled={isFirst || reordering || busy !== null}
               onClick={(e) => {
                 e.stopPropagation()
@@ -177,7 +179,7 @@ export function PlaylistQueueRow({
             <span className="text-center text-[10px] font-semibold tabular-nums text-slate-400">{index + 1}</span>
             <button
               type="button"
-              aria-label="הזז למטה"
+              aria-label={t('playlists.moveDown')}
               disabled={isLast || reordering || busy !== null}
               onClick={(e) => {
                 e.stopPropagation()
@@ -197,6 +199,14 @@ export function PlaylistQueueRow({
           <div
             role={onSelect ? 'button' : undefined}
             tabIndex={onSelect ? 0 : undefined}
+            onMouseDown={
+              onSelect
+                ? (e) => {
+                    // Prevent focus scroll that jumps the page away from the player.
+                    e.preventDefault()
+                  }
+                : undefined
+            }
             onClick={onSelect}
             onKeyDown={
               onSelect
@@ -217,8 +227,8 @@ export function PlaylistQueueRow({
             {canBlock ? (
               <button
                 type="button"
-                aria-label="חסום לצמיתות"
-                title="חסום לצמיתות"
+                aria-label={t('playlists.blockForever')}
+                title={t('playlists.blockForever')}
                 disabled={busy !== null}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -231,8 +241,8 @@ export function PlaylistQueueRow({
             ) : null}
             <button
               type="button"
-              aria-label="הסר מהפלייליסט"
-              title="הסר מהפלייליסט"
+              aria-label={t('playlists.removeFromPlaylist')}
+              title={t('playlists.removeFromPlaylist')}
               disabled={busy !== null}
               onClick={(e) => {
                 e.stopPropagation()
@@ -273,9 +283,10 @@ export function PlaylistQueueRow({
 }
 
 export function PlaylistQueueHint() {
+  const { t } = useTranslation()
   return (
     <p className="mb-2 text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
-      גררו שמאלה להסרה · ימינה לחסימה לצמיתות · חצים ↑↓ לשינוי סדר · או השתמשו בכפתורים בצד
+      {t('playlists.queueHint')}
     </p>
   )
 }

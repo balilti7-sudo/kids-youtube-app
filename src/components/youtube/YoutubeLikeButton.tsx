@@ -40,6 +40,8 @@ type Props = {
   likeCount?: number | null
   /** Compact icon+count for video grid cards. */
   compact?: boolean
+  /** Vertical Shorts action rail. */
+  rail?: boolean
   className?: string
 }
 
@@ -47,7 +49,7 @@ type Props = {
  * YouTube-styled Like control. Local toggle only (no OAuth) — kids stay inside SafeTube.
  * Shows the public like count when available.
  */
-export function YoutubeLikeButton({ videoId, likeCount, compact = false, className }: Props) {
+export function YoutubeLikeButton({ videoId, likeCount, compact = false, rail = false, className }: Props) {
   const [liked, setLiked] = useState(false)
   const [disliked, setDisliked] = useState(false)
 
@@ -102,6 +104,31 @@ export function YoutubeLikeButton({ videoId, likeCount, compact = false, classNa
 
   const displayCount = (likeCount ?? 0) + (liked ? 1 : 0)
   const label = formatLikeCountLabel(displayCount > 0 ? displayCount : likeCount)
+
+  if (rail) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => toggle(e)}
+        aria-pressed={liked}
+        aria-label={liked ? 'הסר לייק' : 'לייק'}
+        className={cn(
+          'flex flex-col items-center gap-1 text-white touch-manipulation active:scale-95',
+          className
+        )}
+      >
+        <span
+          className={cn(
+            'inline-flex h-11 w-11 items-center justify-center rounded-full ring-1',
+            liked ? 'bg-white text-black ring-white/40' : 'bg-black/55 ring-white/20'
+          )}
+        >
+          <ThumbsUp className={cn('h-6 w-6', liked && 'fill-current')} aria-hidden />
+        </span>
+        <span className="text-[11px] font-semibold drop-shadow">{label || 'לייק'}</span>
+      </button>
+    )
+  }
 
   if (compact) {
     return (

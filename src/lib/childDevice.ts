@@ -1,9 +1,15 @@
 import type { WhitelistedChannel } from '../types'
+import type { ChannelContentTag, TagPreference } from './contentTags/types'
+import { mapChannelContentTags, mapDeviceContentPrefs } from './contentTags/tagPreferences'
 import { supabase } from './supabase'
 import { clearLocalParentSession } from './localParentAdmin'
 import { clearAppMode } from './appMode'
 import { secureGet, secureRemove, secureSet } from './secureStorage'
 import { humanizeSupabaseError } from './supabaseErrorMessage'
+import {
+  effectiveAllowShorts,
+  effectiveDailyTimeLimitMinutes,
+} from './parentalLimitsPolicy'
 
 const CHILD_ACCESS_TOKEN_KEY = 'safetube_kid_access_token'
 const SECURE_TOKEN_KEY = 'kid_access_token'
@@ -44,6 +50,8 @@ export interface ChildAllowedChannel {
   videos_cache_has_more?: boolean
   videos_cache_next_page_token?: string | null
   videos_cache_uploads_playlist_id?: string | null
+  /** Device-scoped content tags (empty when feature disabled or untagged). */
+  tags?: ChannelContentTag[]
 }
 
 export interface ChildCachedChannelVideo {
@@ -144,6 +152,8 @@ function readCachedChildDeviceState(): ChildDeviceState | null {
     return {
       ...parsed,
       browser_whitelist: Array.isArray(parsed.browser_whitelist) ? parsed.browser_whitelist : [],
+      allow_shorts: effectiveAllowShorts(parsed.allow_shorts),
+      daily_time_limit_minutes: effectiveDailyTimeLimitMinutes(parsed.daily_time_limit_minutes),
     }
   } catch {
     return null
@@ -184,7 +194,9 @@ export async function getChildDeviceState(accessToken: string): Promise<{
       is_blocked: Boolean(r.is_blocked),
       is_online: Boolean(r.is_online),
       last_seen_at: r.last_seen_at != null ? String(r.last_seen_at) : null,
-      allow_shorts: Boolean(r.allow_shorts ?? r.allowShorts),
+      allow_shorts: effectiveAllowShorts(
+        r.allow_shorts != null ? Boolean(r.allow_shorts) : r.allowShorts != null ? Boolean(r.allowShorts) : undefined
+      ),
       block_youtube_app: Boolean(r.block_youtube_app ?? r.blockYoutubeApp),
       browser_filter_enabled: Boolean(
         r.browser_filter_enabled ??
@@ -193,15 +205,11 @@ export async function getChildDeviceState(accessToken: string): Promise<{
           r.blockBrowserEnabled
       ),
       browser_whitelist,
-      daily_time_limit_minutes: (() => {
-        const n = Number(r.daily_time_limit_minutes ?? r.dailyTimeLimitMinutes ?? 60)
-        if (!Number.isFinite(n)) return 60
-        const rounded = Math.round(n)
-        if (rounded === 0) return 0
-        if (rounded < 1) return 60
-        return Math.min(1440, rounded)
-      })(),
-      hide_thumbnails: Boolean(r.hide_thumbnails ?? r.hideThumbnails),
+      daily_time_limit_minutes: effectiveDailyTimeLimitMinutes(
+        Number(r.daily_time_limit_minutes ?? r.dailyTimeLimitMinutes ?? 0) || 0
+      ),
+      // Black-screen parental control retired — always show video/thumbnails.
+      hide_thumbnails: false,
     }
   cacheChildDeviceState(next)
   return { data: next, error: null }
@@ -243,6 +251,7 @@ function mapChildAllowedChannelRow(row: Record<string, unknown>): ChildAllowedCh
       row.videos_cache_next_page_token != null ? String(row.videos_cache_next_page_token) : null,
     videos_cache_uploads_playlist_id:
       row.videos_cache_uploads_playlist_id != null ? String(row.videos_cache_uploads_playlist_id) : null,
+    tags: mapChannelContentTags(row.tags),
   }
 }
 
@@ -261,6 +270,18 @@ export function childAllowedChannelToWhitelist(channel: ChildAllowedChannel): Wh
     videos_cache_uploads_playlist_id: channel.videos_cache_uploads_playlist_id ?? null,
     created_at: new Date(0).toISOString(),
   }
+}
+
+export async function getChildContentTagPreferences(accessToken: string): Promise<{
+  data: TagPreference[]
+  error: Error | null
+}> {
+  const { data, error } = await supabase.rpc('child_get_content_tag_preferences', {
+    p_access_token: accessToken,
+  })
+  if (error) return { data: [], error: new Error(error.message) }
+  const prefs = mapDeviceContentPrefs({ tag_preferences: data ?? [] })
+  return { data: prefs.tagPreferences, error: null }
 }
 
 export async function getChildAllowedChannels(accessToken: string): Promise<{

@@ -10,6 +10,7 @@ import { ParentPinSettingsCard } from './ParentPinSettingsCard'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
+import { useDisplayedAppVersion } from '../../hooks/useDisplayedAppVersion'
 
 export function SettingsPanel() {
   const { t } = useTranslation()
@@ -18,6 +19,7 @@ export function SettingsPanel() {
   const { user, profile, signOutClearEverything, refreshProfile } = useAuth()
   const { subscription } = useSubscription(user?.id)
   const showDevTools = import.meta.env.DEV
+  const appVersion = useDisplayedAppVersion()
 
   const linkItems = [
     { to: '/profile', label: t('settings.accountLogin'), icon: UserCircle },
@@ -171,6 +173,10 @@ export function SettingsPanel() {
         <LogOut className="h-5 w-5" />
         {t('auth.logout')}
       </Button>
+
+      <p className="pb-2 text-center text-xs text-slate-400 dark:text-zinc-500">
+        {t('settings.appVersion', { version: appVersion })}
+      </p>
     </div>
   )
 }

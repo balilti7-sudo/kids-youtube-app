@@ -7,8 +7,10 @@ const ROOT_CLASS = 'safetube-hide-images'
 export function useChildImageFilter(enabled: boolean): void {
   useEffect(() => {
     if (typeof document === 'undefined') return
-    document.documentElement.classList.toggle(ROOT_CLASS, enabled)
-    void syncChildDisplayPrefs({ hideThumbnails: enabled })
+    // Feature retired: never hide images / black-frame the player.
+    const active = false
+    document.documentElement.classList.toggle(ROOT_CLASS, active)
+    void syncChildDisplayPrefs({ hideThumbnails: false })
     return () => {
       document.documentElement.classList.remove(ROOT_CLASS)
     }

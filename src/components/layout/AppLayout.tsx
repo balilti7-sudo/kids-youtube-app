@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BYPASS_AUTH } from '../../config/dev'
 import { useAuth } from '../../hooks/useAuth'
@@ -21,18 +22,19 @@ import {
   isParentalManagementGateUnlocked,
   setParentalManagementGateUnlocked,
 } from '../../lib/parentalManagementGateStorage'
+import { usePublishChromeOffset, setChromeVar, subscribeViewportGeometryRefresh } from '../../lib/chromeOffset'
 import { ParentalManagementGate } from '../parental/ParentalManagementGate'
 import { BottomNav } from './BottomNav'
 import { ParentSideNav } from './ParentSideNav'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { PageBackBar } from './PageBackBar'
 import { SafeTubeBrandMark } from '../branding/SafeTubeBrandMark'
-import { ParentAppFooter } from './ParentAppFooter'
 import { ParentManagementBanner } from './ParentManagementBanner'
 import { ProfileSwitcher } from './ProfileSwitcher'
 import { cn } from '../../lib/utils'
 
 export function AppLayout() {
+  const { t } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
   const { profile } = useAuth()
@@ -129,19 +131,50 @@ export function AppLayout() {
   const showParentManagementChrome = pathRequiresParentUnlock
   const juicyChildUi = location.pathname === '/channels'
 
+  const shellRef = useRef<HTMLDivElement>(null)
+  const chromeTopRef = useRef<HTMLDivElement>(null)
+  usePublishChromeOffset(chromeTopRef, shellRef, '--chrome-top', !showGate)
+
+  useLayoutEffect(() => {
+    const shell = shellRef.current
+    if (!shell) return
+
+    const publishBottom = () => {
+      // BottomNav is md:hidden — match .safe-pb-nav phone clearance only.
+      const phone = window.matchMedia('(max-width: 767px)').matches
+      if (!phone) {
+        setChromeVar(shell, '--chrome-bottom', 0)
+        return
+      }
+      const sab = Number.parseFloat(getComputedStyle(shell).getPropertyValue('--sab')) || 0
+      // 4.5rem nav row + safe-area bottom (same formula as .safe-pb-nav)
+      setChromeVar(shell, '--chrome-bottom', 4.5 * 16 + sab)
+    }
+
+    publishBottom()
+    return subscribeViewportGeometryRefresh(publishBottom)
+  }, [])
+
   return (
     <JuicyUiProvider enabled={juicyChildUi}>
-    <div className="relative flex min-h-dvh flex-col bg-yt-bg">
+    <div ref={shellRef} className="relative flex min-h-dvh flex-col bg-yt-bg">
       <a href="#main-content" className="skip-to-content">
-        דלג לתוכן
+        {t('common.skipToContent')}
       </a>
-      {showGate ? <ParentalManagementGate onUnlocked={handleManagementUnlocked} /> : null}
+      {showGate ? (
+        <ParentalManagementGate
+          onUnlocked={handleManagementUnlocked}
+          onReturnToWatching={() => {
+            navigate('/channels', { replace: true })
+          }}
+        />
+      ) : null}
       {!showGate ? (
         <>
           <div className="flex min-h-0 min-w-0 flex-1">
             <ParentSideNav />
             <main id="main-content" tabIndex={-1} className="safe-pb-nav flex min-w-0 flex-1 flex-col outline-none">
-              <div className="sticky top-0 z-30">
+              <div ref={chromeTopRef} className="sticky top-0 z-30">
                 {showParentManagementChrome ? <ParentManagementBanner /> : null}
                 <header className="border-b border-yt-border bg-yt-bg/95 px-2 py-1.5 backdrop-blur-md xs:py-2 sm:px-4 sm:py-2.5">
                   <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-x-2 gap-y-2 overflow-hidden sm:flex-nowrap sm:gap-x-4">
@@ -167,7 +200,6 @@ export function AppLayout() {
                 )}
               >
                 <Outlet />
-                <ParentAppFooter />
               </div>
             </main>
           </div>

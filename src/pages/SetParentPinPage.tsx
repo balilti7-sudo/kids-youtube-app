@@ -102,6 +102,16 @@ export function SetParentPinPage() {
       }
 
       clearPendingParentPin()
+      // New-user path: Google → PIN → parental controls (skip leftover onboarding gate).
+      if (!profile?.onboarding_done) {
+        const { error: onboardError } = await supabase
+          .from('profiles')
+          .update({ onboarding_done: true })
+          .eq('id', user.id)
+        if (onboardError) {
+          console.warn('[SetParentPinPage] onboarding_done update failed', onboardError.message)
+        }
+      }
       await refreshProfile()
       setSkipParentalManagementGateOnce()
       navigate('/dashboard', { replace: true })
@@ -120,8 +130,8 @@ export function SetParentPinPage() {
         <SafeTubeLogo size="sm" className="mb-4" />
         <h1 className="text-xl font-extrabold text-slate-900 dark:text-zinc-100">הגדרת קוד הורה</h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
-          לפני כניסה לדשבורד, הגדירו קוד הורה ({PARENT_PIN_DIGIT_MAX} ספרות). אם בחרתם קוד בהרשמה — הוא
-          מופיע למטה; אחרי השמירה נשלח אליכם מייל עם הקוד לשמירה.
+          אחרי ההרשמה עם Google — הגדירו קוד הורה ({PARENT_PIN_DIGIT_MAX} ספרות). אחר כך תעברו ישר
+          לבקרת הורים. אחרי השמירה נשלח אליכם מייל עם הקוד לשמירה.
         </p>
 
         <form className="mt-5 space-y-3" onSubmit={onSubmit} noValidate>
@@ -148,7 +158,7 @@ export function SetParentPinPage() {
 
           <Button type="submit" className="w-full" disabled={saving}>
             {saving ? <LoadingSpinner className="h-5 w-5 border-2 border-white border-t-transparent" /> : null}
-            {saving ? 'שומר…' : 'שמור והמשך לדשבורד'}
+            {saving ? 'שומר…' : 'שמור ועברו לבקרת הורים'}
           </Button>
         </form>
       </div>

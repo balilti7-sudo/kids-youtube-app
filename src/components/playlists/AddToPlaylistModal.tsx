@@ -15,6 +15,7 @@ import {
   listPlaylistsForChild,
   listPlaylistsForUser,
   peekCachedPlaylists,
+  peekStaleCachedPlaylists,
   playlistIdsContainingVideo,
   playlistIdsContainingVideoForChild,
   removeVideoFromPlaylist,
@@ -22,6 +23,7 @@ import {
 } from '../../lib/playlists'
 import { mapPool } from '../../lib/mapPool'
 import { cn } from '../../lib/utils'
+import { emitPlaylistVideoAdded } from '../../lib/playlistEvents'
 
 type Props = {
   open: boolean
@@ -31,6 +33,8 @@ type Props = {
   childAccessToken: string | null
   /** Preloaded list — modal opens instantly without waiting for network. */
   initialPlaylists?: UserPlaylist[]
+  /** Pre-check this playlist in the picker (user still confirms Save). */
+  preferredPlaylistId?: string | null
   /** Single video (legacy) or many videos for bulk add. Prefer `videos` when both set. */
   video?: PlaylistVideoPayload
   videos?: PlaylistVideoPayload[]
@@ -78,7 +82,7 @@ async function runSaveTasks(
           : { error: new Error('לא מחובר') }
     return res.error ? 0 : 1
   })
-  const succeeded = results.reduce((sum, n) => sum + n, 0)
+  const succeeded = results.reduce<number>((sum, n) => sum + n, 0)
   return { failed: tasks.length - succeeded, succeeded }
 }
 
@@ -89,6 +93,7 @@ export function AddToPlaylistModal({
   userId,
   childAccessToken,
   initialPlaylists,
+  preferredPlaylistId = null,
   video,
   videos,
   onSuccess,
@@ -105,7 +110,13 @@ export function AddToPlaylistModal({
   const cacheKeyId = mode === 'parent' ? userId : childAccessToken
   const seededPlaylists = useMemo(() => {
     if (initialPlaylists && initialPlaylists.length > 0) return initialPlaylists
-    if (cacheKeyId) return peekCachedPlaylists(mode, cacheKeyId) ?? []
+    if (cacheKeyId) {
+      return (
+        peekCachedPlaylists(mode, cacheKeyId) ??
+        peekStaleCachedPlaylists(mode, cacheKeyId) ??
+        []
+      )
+    }
     return []
   }, [initialPlaylists, mode, cacheKeyId])
 
@@ -130,7 +141,9 @@ export function AddToPlaylistModal({
     setError(null)
     setFilterQuery('')
     setNewName('')
-    setSelectedIds(new Set())
+    const preferred = preferredPlaylistId?.trim()
+    const seedSelected = preferred ? new Set([preferred]) : new Set<string>()
+    setSelectedIds(seedSelected)
     initialIdsRef.current = new Set()
 
     const hasSeed = seededPlaylists.length > 0
@@ -146,15 +159,7 @@ export function AddToPlaylistModal({
               ? listPlaylistsForChild(childAccessToken)
               : Promise.resolve({ data: [] as UserPlaylist[], error: null })
 
-        const memberPromise =
-          membershipVideoId && mode === 'parent' && userId
-            ? playlistIdsContainingVideo(userId, membershipVideoId)
-            : membershipVideoId && childAccessToken
-              ? playlistIdsContainingVideoForChild(childAccessToken, membershipVideoId)
-              : Promise.resolve({ data: [] as string[], error: null })
-
-        const [listResult, memberResult] = await Promise.all([listPromise, memberPromise])
-
+        const listResult = await listPromise
         if (cancelled) return
 
         if (listResult.error) {
@@ -162,10 +167,31 @@ export function AddToPlaylistModal({
           return
         }
 
-        const ids = isBulk ? new Set<string>() : new Set(memberResult.data ?? [])
         setPlaylists(listResult.data)
+        setLoading(false)
+
+        if (!membershipVideoId || isBulk) {
+          // Bulk / no membership probe: keep preferred folder pre-checked so user still confirms.
+          setSelectedIds(seedSelected)
+          initialIdsRef.current = new Set()
+          return
+        }
+
+        const memberResult =
+          mode === 'parent' && userId
+            ? await playlistIdsContainingVideo(userId, membershipVideoId)
+            : childAccessToken
+              ? await playlistIdsContainingVideoForChild(childAccessToken, membershipVideoId)
+              : { data: [] as string[], error: null }
+
+        if (cancelled) return
+
+        const ids = new Set(memberResult.data ?? [])
+        if (preferred && listResult.data.some((pl) => pl.id === preferred)) {
+          ids.add(preferred)
+        }
         setSelectedIds(ids)
-        initialIdsRef.current = ids
+        initialIdsRef.current = new Set(memberResult.data ?? [])
       } catch {
         if (!cancelled && !hasSeed) setError('טעינת פלייליסטים נכשלה')
       } finally {
@@ -186,6 +212,7 @@ export function AddToPlaylistModal({
     membershipVideoId,
     isBulk,
     seededPlaylists,
+    preferredPlaylistId,
   ])
 
   const filteredPlaylists = useMemo(() => {
@@ -241,8 +268,22 @@ export function AddToPlaylistModal({
   }
 
   const persistChanges = async (tasks: SaveTask[], successMessage: string) => {
+    const addedByPlaylist = new Map<string, PlaylistVideoPayload[]>()
+    for (const task of tasks) {
+      if (task.kind !== 'add') continue
+      const list = addedByPlaylist.get(task.playlistId) ?? []
+      list.push(task.video)
+      addedByPlaylist.set(task.playlistId, list)
+    }
+    for (const [playlistId, vids] of addedByPlaylist) {
+      for (const video of vids) {
+        emitPlaylistVideoAdded({ playlistIds: [playlistId], video })
+      }
+    }
+
     onSuccess?.()
     onClose()
+    toast.success(successMessage)
 
     const { failed, succeeded } = await runSaveTasks(tasks, mode, childAccessToken)
     if (failed > 0 && succeeded === 0) {
@@ -251,9 +292,7 @@ export function AddToPlaylistModal({
     }
     if (failed > 0) {
       toast.warning(`${successMessage} (${failed} פעולות נכשלו)`)
-      return
     }
-    toast.success(successMessage)
   }
 
   const handleSave = () => {
@@ -312,7 +351,7 @@ export function AddToPlaylistModal({
     void persistChanges(tasks, message).finally(() => setSaving(false))
   }
 
-  const titleText = isBulk ? 'הוספה מרובה לפלייליסט' : 'הוסף לפלייליסט'
+  const titleText = isBulk ? 'בחרו תיקיות להוספה' : 'לאיזו תיקיית פלייליסט להוסיף?'
   const summaryText = isBulk
     ? `${resolvedVideos.length} סרטונים נבחרו — בחרו לאלו פלייליסטים להוסיף אותם.`
     : primaryVideo?.title ?? ''

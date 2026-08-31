@@ -5,10 +5,13 @@
  * - `rel=0` — related videos are limited to the same channel (per current embed behavior).
  * - `iv_load_policy=3` — video annotations are not shown by default.
  * - `playsinline=1` — inline playback on mobile.
- * - `enablejsapi=0` — no JS API (we are not driving the player from JS).
+ * - `enablejsapi=1` — postMessage play/pause/seek for car + under-bar controls.
+ *   Never pair with Capacitor `origin=https://localhost` (that combination blacks the embed).
+ * - `fs=0` — hide YouTube’s fullscreen control (Android WebView often traps users with no exit).
+ * - `disablekb=1` — reduce keyboard shortcuts leaking out of the embed.
  *
- * Note: `CleanPlayer` normally uses the Media Bridge + native `<video>` (no iframe), so these
- * params apply only when you render this URL in an `<iframe>` (see `VITE_YOUTUBE_IFRAME_PLAYER`).
+ * Android uses `www.youtube.com` + `widget_referrer` (WebView embed contract).
+ * Web iframe opt-in uses `youtube-nocookie.com`.
  */
 export function sanitizeYoutubeVideoId(raw: string): string | null {
   const id = raw.trim()
@@ -18,7 +21,7 @@ export function sanitizeYoutubeVideoId(raw: string): string | null {
 
 export function buildYoutubePrivacyEmbedUrl(
   videoId: string,
-  opts?: { origin?: string; autoplay?: boolean }
+  opts?: { origin?: string; autoplay?: boolean; host?: 'nocookie' | 'youtube' }
 ): string {
   const id = sanitizeYoutubeVideoId(videoId)
   if (!id) return ''
@@ -28,7 +31,9 @@ export function buildYoutubePrivacyEmbedUrl(
     rel: '0',
     iv_load_policy: '3',
     playsinline: '1',
-    enablejsapi: '0',
+    enablejsapi: '1',
+    fs: '0',
+    disablekb: '1',
   })
 
   // Autoplay for instant playback the moment the player mounts on tap.
@@ -37,10 +42,15 @@ export function buildYoutubePrivacyEmbedUrl(
     params.set('mute', '0')
   }
 
+  // Capacitor WebView origin (https://localhost) + enablejsapi blacks the player.
+  // Only forward real https origins (e.g. production web).
   const origin = opts?.origin?.trim()
-  if (origin) {
+  if (origin && /^https:\/\//i.test(origin) && !/localhost|127\.0\.0\.1|capacitor/i.test(origin)) {
     params.set('origin', origin)
   }
 
-  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${params.toString()}`
+  params.set('widget_referrer', 'https://www.youtube.com/')
+
+  const host = opts?.host === 'youtube' ? 'www.youtube.com' : 'www.youtube-nocookie.com'
+  return `https://${host}/embed/${encodeURIComponent(id)}?${params.toString()}`
 }

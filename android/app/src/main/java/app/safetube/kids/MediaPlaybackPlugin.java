@@ -1,6 +1,8 @@
 package app.safetube.kids;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -44,6 +46,7 @@ public class MediaPlaybackPlugin extends Plugin {
                 plugin.notifyListeners("mediaAction", data);
 
                 // Hard fallback when listeners are not yet registered (cold background).
+                // Prefer __safetubeYtPlayer (iframe postMessage bridge on Android) then <video>.
                 String js =
                     "(function(){try{"
                         + "var d={action:" + jsString(action)
@@ -57,6 +60,7 @@ public class MediaPlaybackPlugin extends Plugin {
                         + "else if(d.action==='seekto'&&typeof d.seekToMs==='number'){yp.seekToMs(d.seekToMs)}"
                         + "else if(d.action==='seekforward'){yp.seekForwardMs(d.seekToMs||10000)}"
                         + "else if(d.action==='seekbackward'){yp.seekBackwardMs(d.seekToMs||10000)}"
+                        // next/previous handled by __safetubeMediaAction → CleanPlayer queue
                         + "return;"
                         + "}"
                         + "var v=document.querySelector('video[data-safetube-bg=\"1\"]');"
@@ -67,7 +71,6 @@ public class MediaPlaybackPlugin extends Plugin {
                         + "else if(d.action==='seekto'&&typeof d.seekToMs==='number'){v.currentTime=d.seekToMs/1000}"
                         + "else if(d.action==='seekforward'){v.currentTime=Math.min((v.duration||1e9),v.currentTime+((d.seekToMs||10000)/1000))}"
                         + "else if(d.action==='seekbackward'){v.currentTime=Math.max(0,v.currentTime-((d.seekToMs||10000)/1000))}"
-                        // next/previous rely on __safetubeMediaAction → CleanPlayer queue handlers
                         + "}catch(e){}})();";
                 WebView webView = plugin.getBridge() != null ? plugin.getBridge().getWebView() : null;
                 if (webView != null) webView.evaluateJavascript(js, null);
@@ -189,5 +192,64 @@ public class MediaPlaybackPlugin extends Plugin {
             /* ignore */
         }
         call.resolve();
+    }
+
+    /** Raise / lower / toggle-mute STREAM_MUSIC (YouTube iframe + Media Bridge). */
+    @PluginMethod
+    public void adjustVolume(PluginCall call) {
+        String direction = call.getString("direction", "raise");
+        try {
+            android.media.AudioManager am =
+                (android.media.AudioManager) getContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            if (am != null) {
+                int adj = android.media.AudioManager.ADJUST_RAISE;
+                if ("lower".equalsIgnoreCase(direction)) {
+                    adj = android.media.AudioManager.ADJUST_LOWER;
+                } else if ("mute".equalsIgnoreCase(direction) || "toggleMute".equalsIgnoreCase(direction)) {
+                    adj = android.media.AudioManager.ADJUST_TOGGLE_MUTE;
+                }
+                am.adjustStreamVolume(
+                    android.media.AudioManager.STREAM_MUSIC,
+                    adj,
+                    android.media.AudioManager.FLAG_SHOW_UI
+                );
+            }
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+        call.resolve();
+    }
+
+    /**
+     * Fullscreen theater orientation owner. WebView {@code screen.orientation.lock}
+     * is unreliable in Capacitor; Activity lock is the smallest reliable path.
+     * mode: "landscape" | "portrait" | "unlocked"
+     */
+    @PluginMethod
+    public void setOrientationLock(PluginCall call) {
+        String mode = call.getString("mode", "unlocked");
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.resolve();
+            return;
+        }
+        final int orientation;
+        if ("landscape".equalsIgnoreCase(mode)) {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+        } else if ("portrait".equalsIgnoreCase(mode)) {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        } else {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        }
+        activity.runOnUiThread(
+            () -> {
+                try {
+                    activity.setRequestedOrientation(orientation);
+                } catch (Exception ignored) {
+                    /* ignore — expand still works without lock */
+                }
+                call.resolve();
+            }
+        );
     }
 }

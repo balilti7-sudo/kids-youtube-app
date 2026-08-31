@@ -1,6 +1,12 @@
 import { fetchVideoDetailsBatch } from './youtube'
 
+/** Classic Short length (vertical player / #shorts). */
 export const SHORT_MAX_DURATION_SECONDS = 60
+/**
+ * YouTube channel “Videos” tab style: only clips longer than 3 minutes.
+ * Anything at or under this goes to the Shorts shelf when duration is known.
+ */
+export const LONG_FORM_MIN_DURATION_SECONDS = 180
 
 export type VideoFormat = 'short' | 'long'
 
@@ -62,10 +68,29 @@ type ShortClassificationFields = VideoFormatInput & {
 }
 
 /**
+ * True when we are confident this is a YouTube Short (duration / #shorts / /shorts/ URL).
+ * Used for playback layout, Shorts lane, and allow_shorts blocking — never thumbnail-only guesses
+ * (those mis-route long channel uploads into a vertical player shell).
+ */
+export function isConfidentYoutubeShort(video: ShortClassificationFields): boolean {
+  const url = (video.watchUrl ?? '').trim().toLowerCase()
+  if (url.includes('/shorts/')) return true
+  if (titleSuggestsYoutubeShort(video.title)) return true
+
+  const duration = video.durationSeconds
+  if (duration != null && Number.isFinite(duration) && duration > 0) {
+    return duration <= SHORT_MAX_DURATION_SECONDS
+  }
+
+  return false
+}
+
+/**
  * True when the item belongs on the Shorts shelf — includes suspected Shorts while duration is still loading.
  * Long-form shelf must use the inverse so vertical items never bleed into "סרטונים".
  */
 export function isVideoShortOrSuspected(video: ShortClassificationFields): boolean {
+  if (isConfidentYoutubeShort(video)) return true
   if (video.format === 'short') return true
 
   const classified = classifyYoutubeVideo({
@@ -82,8 +107,30 @@ export function isVideoShortOrSuspected(video: ShortClassificationFields): boole
   return titleSuggestsYoutubeShort(video.title) || thumbnailSuggestsYoutubeShort(video.thumbnail_url)
 }
 
+/**
+ * Same rule as the Shorts browse shelf: ≤ 3 minutes, or a Short signal while duration is unknown.
+ * Playback (Shorts lane) must follow this — not the stricter 60s "confident Short" gate —
+ * otherwise tapping a vertical card only marks it "playing" in the landscape player.
+ */
+export function belongsOnShortsShelf(
+  video: ShortClassificationFields,
+  portraitThumbnailIds?: ReadonlySet<string>
+): boolean {
+  const duration = video.durationSeconds
+  const durationKnown = duration != null && Number.isFinite(duration) && duration > 0
+  if (durationKnown) return duration <= LONG_FORM_MIN_DURATION_SECONDS
+  if (isVideoShortOrSuspected(video)) return true
+  const id = video.youtubeVideoId
+  return Boolean(id && portraitThumbnailIds?.has(id))
+}
+
 export function buildYoutubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
+}
+
+/** Marks the item as a Short for classification even before duration is known. */
+export function buildYoutubeShortsUrl(videoId: string): string {
+  return `https://www.youtube.com/shorts/${encodeURIComponent(videoId)}`
 }
 
 export type LiveBroadcastContent = 'none' | 'live' | 'upcoming'
@@ -189,11 +236,29 @@ export function partitionVideosForBrowse<T extends WatchableVideoBase>(
   const longForm: T[] = []
   const shorts: T[] = []
   for (const video of videos) {
-    if (isVideoShortOrSuspected(video) || portraitThumbnailIds?.has(video.youtube_video_id)) {
-      shorts.push(video)
-    } else {
-      longForm.push(video)
+    const duration = video.durationSeconds
+    const durationKnown = duration != null && Number.isFinite(duration) && duration > 0
+
+    // Known length: Videos = over 3 minutes; Shorts = 3 minutes or less (YouTube-like).
+    if (durationKnown) {
+      if (duration > LONG_FORM_MIN_DURATION_SECONDS) longForm.push(video)
+      else shorts.push(video)
+      continue
     }
+
+    if (isVideoShortOrSuspected(video)) {
+      shorts.push(video)
+      continue
+    }
+
+    // Portrait probe is a weak guess — never yank a known long-form video off Videos.
+    if (portraitThumbnailIds?.has(video.youtube_video_id)) {
+      shorts.push(video)
+      continue
+    }
+
+    // Duration still loading and no Short signal — keep on Videos until enrich moves it.
+    longForm.push(video)
   }
   return { longForm, shorts }
 }
@@ -202,11 +267,50 @@ export function partitionVideosByFormat<T extends WatchableVideoBase>(videos: T[
   return partitionVideosForBrowse(videos)
 }
 
+/** Reuse previous row objects when enrich/reload did not change visible fields — stops list flicker. */
+export function stabilizeWatchableVideoList<T extends WatchableVideoBase>(
+  prev: T[],
+  next: T[]
+): T[] {
+  if (prev.length === 0) return next
+  if (next.length === 0) return prev.length === 0 ? prev : next
+
+  const prevById = new Map(prev.map((v) => [v.youtube_video_id, v]))
+  let changed = prev.length !== next.length
+
+  const out = next.map((n, index) => {
+    const p = prevById.get(n.youtube_video_id)
+    if (!p) {
+      changed = true
+      return n
+    }
+    if (prev[index]?.youtube_video_id !== n.youtube_video_id) changed = true
+    if (
+      p.title === n.title &&
+      p.thumbnail_url === n.thumbnail_url &&
+      p.durationSeconds === n.durationSeconds &&
+      p.format === n.format &&
+      p.viewCount === n.viewCount &&
+      p.likeCount === n.likeCount &&
+      p.publishedAt === n.publishedAt &&
+      p.liveBroadcastContent === n.liveBroadcastContent &&
+      p.watchUrl === n.watchUrl
+    ) {
+      return p
+    }
+    changed = true
+    return n
+  })
+
+  return changed ? out : prev
+}
+
 /** Drop Shorts from a list when the device policy disables them. */
 export function filterVideosRespectingAllowShorts<T extends ShortClassificationFields>(
   videos: T[],
   allowShorts: boolean
 ): T[] {
-  if (allowShorts) return videos
-  return videos.filter((video) => !isVideoShortOrSuspected(video))
+  // Shorts blocking is off app-wide — always keep Shorts in browse/search lists.
+  void allowShorts
+  return videos
 }

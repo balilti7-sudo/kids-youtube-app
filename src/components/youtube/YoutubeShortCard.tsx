@@ -12,6 +12,7 @@ type Props = {
   className?: string
   /** Horizontal shelf vs sidebar row */
   variant?: 'shelf' | 'row'
+  durationLabel?: string | null
 }
 
 export function YoutubeShortCard({
@@ -23,6 +24,7 @@ export function YoutubeShortCard({
   actionSlot,
   className,
   variant = 'shelf',
+  durationLabel,
 }: Props) {
   const juicy = useJuicyUiEnabled()
   const juicyBurst = useJuicyPointerBurst()
@@ -56,8 +58,13 @@ export function YoutubeShortCard({
         )}
       </button>
       {active ? (
-        <span className="pointer-events-none absolute bottom-1 end-1 rounded bg-yt-red px-1 py-0.5 text-[9px] font-bold text-white">
+        <span className="pointer-events-none absolute bottom-1 start-1 rounded bg-yt-red px-1 py-0.5 text-[9px] font-bold text-white">
           מנגן
+        </span>
+      ) : null}
+      {durationLabel ? (
+        <span className="pointer-events-none absolute bottom-1 end-1 z-[2] rounded-[3px] bg-black/85 px-1 py-0.5 text-[10px] font-bold leading-none text-white tabular-nums">
+          {durationLabel}
         </span>
       ) : null}
     </div>

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, MouseEvent } from 'react'
 import { JUICY_THUMB_INNER_CLASS, useJuicyPointerBurst, useJuicyUiEnabled, juicyPressableClass } from '../../contexts/JuicyUiContext'
 import { cn } from '../../lib/utils'
 
@@ -7,6 +7,8 @@ export type YoutubeVideoCardProps = {
   thumbnail: string | null
   channelName?: string | null
   metadata?: string | null
+  /** Clock duration overlay on the thumbnail (e.g. `12:34`). */
+  durationLabel?: string | null
   active?: boolean
   playingLabel?: string
   layout?: 'grid' | 'row'
@@ -23,10 +25,12 @@ function ThumbnailOverlays({
   active,
   playingLabel,
   thumbnailAction,
+  durationLabel,
 }: {
   active?: boolean
   playingLabel: string
   thumbnailAction?: ReactNode
+  durationLabel?: string | null
 }) {
   return (
     <>
@@ -36,8 +40,13 @@ function ThumbnailOverlays({
         </div>
       ) : null}
       {active ? (
-        <span className="pointer-events-none absolute bottom-1 end-1 rounded-[2px] bg-yt-red px-1 py-0.5 text-[10px] font-bold leading-none text-white">
+        <span className="pointer-events-none absolute bottom-1 left-1 z-[1] rounded-[2px] bg-yt-red px-1 py-0.5 text-[10px] font-bold leading-none text-white">
           {playingLabel}
+        </span>
+      ) : null}
+      {durationLabel ? (
+        <span className="pointer-events-none absolute bottom-1 end-1 z-[2] rounded-[3px] bg-black/85 px-1 py-0.5 text-[11px] font-bold leading-none text-white tabular-nums shadow-sm">
+          {durationLabel}
         </span>
       ) : null}
       <div className="pointer-events-none absolute inset-0 bg-black/0 transition duration-200 group-hover:bg-black/10" />
@@ -46,7 +55,7 @@ function ThumbnailOverlays({
 }
 
 const ROW_THUMB_CLASS =
-  'relative h-[84px] w-[150px] shrink-0 overflow-hidden rounded-[4px] bg-yt-surfaceHover xs:h-[94px] xs:w-[168px]'
+  'relative h-[94px] w-[168px] shrink-0 overflow-hidden rounded-lg bg-yt-surfaceHover'
 
 /**
  * Native YouTube-style video card — grid feed or compact sidebar row.
@@ -56,6 +65,7 @@ export function YoutubeVideoCard({
   thumbnail,
   channelName,
   metadata,
+  durationLabel,
   active,
   playingLabel = 'מנגן עכשיו',
   layout = 'grid',
@@ -70,6 +80,10 @@ export function YoutubeVideoCard({
 
   const wrapClick = (handler?: () => void) => ({
     onPointerDown: juicyBurst,
+    onMouseDown: (e: MouseEvent) => {
+      // Keep the player in view — don't let focus scroll the tapped card into the viewport.
+      if (handler) e.preventDefault()
+    },
     onClick: handler,
   })
 
@@ -102,12 +116,21 @@ export function YoutubeVideoCard({
       />
     )
 
+  const overlays = (
+    <ThumbnailOverlays
+      active={active}
+      playingLabel={playingLabel}
+      thumbnailAction={thumbnailAction}
+      durationLabel={durationLabel}
+    />
+  )
+
   if (layout === 'row') {
     return (
       <article
         className={cn(
-          'group flex w-full items-start gap-2 rounded-sm py-1 transition-colors duration-150',
-          active ? 'bg-yt-surface/90' : 'hover:bg-yt-surface/70',
+          'group flex w-full items-start gap-2 rounded-xl px-1 py-1.5 transition-colors duration-150',
+          active ? 'bg-yt-surfaceHover/90' : 'hover:bg-yt-surfaceHover/60',
           className
         )}
       >
@@ -119,7 +142,7 @@ export function YoutubeVideoCard({
           >
             {thumbImage}
           </button>
-          <ThumbnailOverlays active={active} playingLabel={playingLabel} thumbnailAction={thumbnailAction} />
+          {overlays}
         </div>
         <div className="flex min-w-0 flex-1 items-start gap-1">
           <button
@@ -127,7 +150,9 @@ export function YoutubeVideoCard({
             {...wrapClick(onClick)}
             className={juicyPressableClass(juicy, 'min-w-0 flex-1 py-0.5 text-start')}
           >
-            {titleEl}
+            <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug text-yt-text sm:text-sm">
+              {title}
+            </h3>
             {metaEl}
           </button>
           {actionSlot ? (
@@ -148,7 +173,7 @@ export function YoutubeVideoCard({
         >
           {thumbImage}
         </button>
-        <ThumbnailOverlays active={active} playingLabel={playingLabel} thumbnailAction={thumbnailAction} />
+        {overlays}
       </div>
       <button
         type="button"

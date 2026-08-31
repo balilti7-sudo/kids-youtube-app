@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Loader2, Shield } from 'lucide-react'
+import { Loader2, PlayCircle, Shield } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useLocalParentManagement } from '../../hooks/useLocalParentManagement'
 import { contiguousDigitsFromPinSlots, isValidParentPinDigits } from '../../lib/parentPin'
@@ -22,9 +22,17 @@ const EMPTY_SIX: SixDigit = ['', '', '', '', '', '']
 const SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const
 
 /**
- * שכבת מסך מלאה — חובה להזין את קוד ההורה לפני גישה לאזור הניהול (דשבורד, ערוצים וכו׳).
+ * Full-screen parent PIN gate before management (dashboard, settings, …).
+ * Always offers an escape back to watching so a child who opened this by mistake is not stuck.
  */
-export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void }) {
+export function ParentalManagementGate({
+  onUnlocked,
+  onReturnToWatching,
+}: {
+  onUnlocked: () => void
+  /** Escape without PIN — back to kid watch / channels. */
+  onReturnToWatching: () => void
+}) {
   const { user, profile } = useAuth()
   const localParent = useLocalParentManagement()
   const signOut = useAuthStore((s) => s.signOut)
@@ -48,8 +56,8 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
 
   useEffect(() => {
     resetDigits()
-    const t = window.setTimeout(() => inputRefs.current[0]?.focus(), 150)
-    return () => window.clearTimeout(t)
+    // Do not autofocus PIN on open — that pops the soft keyboard and hid the escape
+    // button on phones. Parent can tap a digit box when ready.
   }, [resetDigits])
 
   const verifyPin = useCallback(
@@ -199,6 +207,21 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
           </div>
 
           <div className="space-y-5 px-5 py-6">
+            {/* Escape first — above PIN / keyboard so a child is never stuck behind the soft keyboard. */}
+            <Button
+              type="button"
+              variant="primary"
+              className="w-full min-h-12 gap-2 text-base font-bold"
+              disabled={verifying}
+              onClick={() => {
+                for (const el of inputRefs.current) el?.blur()
+                onReturnToWatching()
+              }}
+            >
+              <PlayCircle className="h-5 w-5 shrink-0" aria-hidden />
+              חזרה לערוצים ולפלייליסטים
+            </Button>
+
             <p className="text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
               כדי לגשת לבקרת ההורים ולהגדרות — הזינו את קוד ההורה בן 6 הספרות מהפרופיל. לאחר מילוי כל הספרות הכניסה תתבצע אוטומטית.
             </p>
@@ -270,7 +293,13 @@ export function ParentalManagementGate({ onUnlocked }: { onUnlocked: () => void 
             </div>
 
             <div className="border-t border-slate-200/80 pt-4 dark:border-zinc-700/80">
-              <Button type="button" variant="secondary" className="w-full" onClick={() => void signOut()}>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                disabled={verifying}
+                onClick={() => void signOut()}
+              >
                 התנתקות
               </Button>
             </div>

@@ -8,7 +8,6 @@ import { ChildRuntimeProvider } from '../../contexts/ChildRuntimeContext'
 import { StatsGrid } from './StatsGrid'
 import { DashboardDevicesSection } from './DashboardDevicesSection'
 import { ParentSetupGuide } from './ParentSetupGuide'
-import { LocalScreenTimeParentCard } from './LocalScreenTimeParentCard'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
 const SETUP_GUIDE_DISMISS_KEY = 'safetube_parent_setup_guide_dismissed_v1'
@@ -86,7 +85,6 @@ function ParentDashboardInner() {
       <DashboardDevicesSection onManageChannels={(id) => navigate(`/dashboard/manage/${id}`)} />
 
       <StatsGrid devices={devices} />
-      <LocalScreenTimeParentCard />
     </div>
   )
 }

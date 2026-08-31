@@ -9,19 +9,27 @@ import { initCapacitorDeviceResolve } from './lib/deviceResolve/capacitorBridge'
 import { initCapacitorAuthDeepLinks } from './lib/capacitorAuth'
 import { initParentalControlNativeBridge } from './lib/parentalControlNative'
 import { initDeviceSettingsSyncQueue } from './lib/deviceSettingsSyncQueue'
+import { initContentPrefsSyncQueue } from './lib/contentTags/contentPrefsSyncQueue'
 import { initSafeAreaInsets } from './lib/safeArea'
+import { installPlayerTheaterRecovery } from './lib/playerTheater'
 import { installSafeTubeSandboxGuards } from './lib/safeTubeSandbox'
+import { installDisableTextSelection } from './lib/disableTextSelection'
+import { clearStaleParentalLimitCaches } from './lib/parentalLimitsPolicy'
 import App from './App.tsx'
 
 installAuthDiagnostics()
 installSafeTubeSandboxGuards()
+installDisableTextSelection()
+clearStaleParentalLimitCaches()
 void hydrateChildAccessToken()
 initTheme()
 initSafeAreaInsets()
+installPlayerTheaterRecovery()
 initCapacitorDeviceResolve()
 initCapacitorAuthDeepLinks()
 initParentalControlNativeBridge()
 initDeviceSettingsSyncQueue()
+initContentPrefsSyncQueue()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

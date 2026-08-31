@@ -1,27 +1,13 @@
 import { create } from 'zustand'
 import type { WhitelistedChannel, WhitelistedVideo, YouTubeChannelResult, YouTubeVideoResult } from '../types'
 import { childAllowedChannelToWhitelist, getChildAllowedChannels } from '../lib/childDevice'
-import { verifyLoggedInUserParentPin } from '../lib/verifyParentProfilePin'
-import { isParentalManagementGateUnlocked } from '../lib/parentalManagementGateStorage'
+import { withMutationTimeout } from '../lib/mutationTimeout'
 import { supabase } from '../lib/supabase'
 
-async function requireAuthenticatedParentPin(
-  userId: string,
-  parentPin: string | undefined
-): Promise<Error | null> {
-  const pin = (parentPin || '').replace(/\D/g, '').trim()
-  // The parent already unlocked the management area this session. A second
-  // verify_parent_pin RPC is what made "Add channel" spin forever (and then
-  // fail) whenever Supabase/Cloudflare was slow. RLS still requires login.
-  if (isParentalManagementGateUnlocked()) {
-    return null
-  }
-  if (!pin) {
-    return new Error('נדרש קוד הורה לביצוע הפעולה')
-  }
-  const result = await verifyLoggedInUserParentPin(userId, pin)
-  if (!result.ok) {
-    return new Error(result.errorMessage || 'קוד שגוי')
+/** Logged-in parent mutations use Supabase auth + RLS. PIN is checked in UI only — never block on verify_parent_pin RPC here (that RPC hung add-channel on slow networks). */
+async function requireAuthenticatedParentPin(userId: string): Promise<Error | null> {
+  if (!userId.trim()) {
+    return new Error('לא מחובר')
   }
   return null
 }
@@ -198,75 +184,164 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     set({ approvedVideos: videos, loading: false })
   },
 
-  addChannelToDevice: async ({ deviceId, userId, yt, category, parentPin }) => {
-    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+  addChannelToDevice: async ({ deviceId, userId, yt, category }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId)
     if (pinErr) return { error: pinErr }
-    let channelId: string
+
     const normalizedCategory = category?.trim() ? category.trim() : null
-    const existing = await supabase
-      .from('whitelisted_channels')
-      .select('id, category')
-      .eq('youtube_channel_id', yt.channelId)
-      .maybeSingle()
 
-    if (existing.data?.id) {
-      channelId = existing.data.id
-      if (normalizedCategory && existing.data.category !== normalizedCategory) {
-        const { error: updateError } = await supabase
+    // Optimistic — channel appears in the list immediately while the network runs.
+    const optimisticId = `opt-${yt.channelId}`
+    upsertWhitelistChannel(set, get, channelFromSearchResult(optimisticId, yt, category))
+
+    try {
+      const { data, error } = await withMutationTimeout(
+        supabase.rpc('parent_add_channel_to_device', {
+          p_device_id: deviceId,
+          p_youtube_channel_id: yt.channelId,
+          p_channel_name: yt.title,
+          p_channel_thumbnail: yt.thumbnail ?? '',
+          p_subscriber_count: yt.subscriberCount ?? '',
+          p_description: yt.description ?? '',
+          p_category: normalizedCategory ?? '',
+        }),
+        8_000
+      )
+
+      if (!error && data && typeof data === 'object') {
+        const row = data as { ok?: boolean; error?: string; channel_id?: string }
+        if (row.ok && row.channel_id) {
+          const list = get().whitelist.filter(
+            (c) => c.id !== optimisticId && c.youtube_channel_id !== yt.channelId
+          )
+          set({
+            whitelist: [...list, channelFromSearchResult(row.channel_id, yt, category)],
+          })
+          return { error: null }
+        }
+        if (row.error === 'device_not_found') {
+          throw new Error('המכשיר לא נמצא')
+        }
+        if (row.error === 'not_authenticated') {
+          throw new Error('יש להתחבר מחדש')
+        }
+      }
+
+      const rpcMissing =
+        error &&
+        /parent_add_channel_to_device|could not find|does not exist|42883/i.test(error.message || '')
+
+      if (!rpcMissing) {
+        throw new Error(error?.message || 'שגיאה בהוספת ערוץ')
+      }
+
+      // Fallback when migration 076 is not applied yet — legacy 3-step path.
+      let channelId: string
+      const existing = await withMutationTimeout(
+        supabase
           .from('whitelisted_channels')
-          .update({ category: normalizedCategory })
-          .eq('id', channelId)
-        if (updateError) return { error: new Error(updateError.message) }
+          .select('id, category')
+          .eq('youtube_channel_id', yt.channelId)
+          .maybeSingle()
+      )
+
+      if (existing.data?.id) {
+        channelId = existing.data.id
+        if (normalizedCategory && existing.data.category !== normalizedCategory) {
+          const { error: updateError } = await withMutationTimeout(
+            supabase.from('whitelisted_channels').update({ category: normalizedCategory }).eq('id', channelId)
+          )
+          if (updateError) throw new Error(updateError.message)
+        }
+      } else {
+        const ins = await withMutationTimeout(
+          supabase
+            .from('whitelisted_channels')
+            .insert({
+              youtube_channel_id: yt.channelId,
+              channel_name: yt.title,
+              category: normalizedCategory,
+              channel_thumbnail: yt.thumbnail || null,
+              subscriber_count: yt.subscriberCount || null,
+              description: yt.description || null,
+            })
+            .select('id')
+            .single()
+        )
+        if (ins.error) throw new Error(ins.error.message)
+        channelId = ins.data.id
       }
-    } else {
-      const ins = await supabase
-        .from('whitelisted_channels')
-        .insert({
-          youtube_channel_id: yt.channelId,
-          channel_name: yt.title,
-          category: normalizedCategory,
-          channel_thumbnail: yt.thumbnail || null,
-          subscriber_count: yt.subscriberCount || null,
-          description: yt.description || null,
+
+      const link = await withMutationTimeout(
+        supabase.from('device_whitelist').insert({
+          device_id: deviceId,
+          channel_id: channelId,
+          added_by: userId,
         })
-        .select('id')
-        .single()
-      if (ins.error) return { error: new Error(ins.error.message) }
-      channelId = ins.data.id
-    }
-
-    const link = await supabase.from('device_whitelist').insert({
-      device_id: deviceId,
-      channel_id: channelId,
-      added_by: userId,
-    })
-    if (link.error) {
-      if (link.error.code === '23505') {
-        upsertWhitelistChannel(set, get, channelFromSearchResult(channelId, yt, category))
-        return { error: null }
+      )
+      if (link.error && link.error.code !== '23505') {
+        throw new Error(link.error.message)
       }
-      return { error: new Error(link.error.message) }
+
+      const list = get().whitelist.filter(
+        (c) => c.id !== optimisticId && c.youtube_channel_id !== yt.channelId
+      )
+      set({ whitelist: [...list, channelFromSearchResult(channelId, yt, category)] })
+      return { error: null }
+    } catch (e) {
+      set({
+        whitelist: get().whitelist.filter(
+          (c) => c.id !== optimisticId && c.youtube_channel_id !== yt.channelId
+        ),
+      })
+      return { error: e instanceof Error ? e : new Error('שגיאה בהוספת ערוץ') }
     }
-
-    upsertWhitelistChannel(set, get, channelFromSearchResult(channelId, yt, category))
-    return { error: null }
   },
 
-  removeChannelFromDevice: async (deviceId, channelId, { userId, parentPin }) => {
-    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+  removeChannelFromDevice: async (deviceId, channelId, { userId }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId)
     if (pinErr) return { error: pinErr }
-    const { error } = await supabase
-      .from('device_whitelist')
-      .delete()
-      .eq('device_id', deviceId)
-      .eq('channel_id', channelId)
-    if (error) return { error: new Error(error.message) }
-    set({ whitelist: get().whitelist.filter((c) => c.id !== channelId) })
-    return { error: null }
+
+    const prev = get().whitelist
+    set({ whitelist: prev.filter((c) => c.id !== channelId) })
+
+    try {
+      const { data, error } = await withMutationTimeout(
+        supabase.rpc('parent_remove_channel_from_device', {
+          p_device_id: deviceId,
+          p_channel_id: channelId,
+        })
+      )
+
+      if (!error && data && typeof data === 'object') {
+        const row = data as { ok?: boolean; error?: string }
+        if (row.ok) return { error: null }
+        if (row.error === 'device_not_found') throw new Error('המכשיר לא נמצא')
+        if (row.error === 'not_linked') throw new Error('הערוץ לא מקושר לפרופיל')
+        if (row.error === 'not_authenticated') throw new Error('יש להתחבר מחדש')
+      }
+
+      const rpcMissing =
+        error &&
+        /parent_remove_channel_from_device|could not find|does not exist|42883/i.test(error.message || '')
+
+      if (!rpcMissing) {
+        throw new Error(error?.message || 'שגיאה בהסרת ערוץ')
+      }
+
+      const { error: deleteError } = await withMutationTimeout(
+        supabase.from('device_whitelist').delete().eq('device_id', deviceId).eq('channel_id', channelId)
+      )
+      if (deleteError) throw new Error(deleteError.message)
+      return { error: null }
+    } catch (e) {
+      set({ whitelist: prev })
+      return { error: e instanceof Error ? e : new Error('שגיאה בהסרת ערוץ') }
+    }
   },
 
-  addVideoToDevice: async ({ deviceId, userId, yt, parentPin }) => {
-    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+  addVideoToDevice: async ({ deviceId, userId, yt }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId)
     if (pinErr) return { error: pinErr }
     const videoIdPattern = /^[a-zA-Z0-9_-]{11}$/
     if (!videoIdPattern.test(yt.videoId)) {
@@ -289,8 +364,8 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return { error: null }
   },
 
-  removeVideoFromDevice: async (deviceId, videoId, { userId, parentPin }) => {
-    const pinErr = await requireAuthenticatedParentPin(userId, parentPin)
+  removeVideoFromDevice: async (deviceId, videoId, { userId }) => {
+    const pinErr = await requireAuthenticatedParentPin(userId)
     if (pinErr) return { error: pinErr }
     const { error } = await supabase
       .from('device_video_whitelist')
@@ -341,42 +416,69 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
   addChannelLocalParent: async ({ accessToken, pin, yt, category }) => {
     const normalizedCategory = category?.trim() ? category.trim() : null
-    const { data, error } = await supabase.rpc('local_parent_add_channel', {
-      p_access_token: accessToken,
-      p_pin: pin,
-      p_youtube_channel_id: yt.channelId,
-      p_channel_name: yt.title,
-      p_channel_thumbnail: yt.thumbnail ?? '',
-      p_subscriber_count: yt.subscriberCount ?? '',
-      p_description: yt.description ?? '',
-      p_category: normalizedCategory ?? '',
-    })
-    if (error) return { error: new Error(error.message) }
-    const row = data as { ok?: boolean; error?: string; channel_id?: string } | null
-    if (!row?.ok) {
-      const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה בהוספת ערוץ'
-      return { error: new Error(msg) }
+    const optimisticId = `opt-${yt.channelId}`
+    upsertWhitelistChannel(set, get, channelFromSearchResult(optimisticId, yt, category))
+
+    try {
+      const { data, error } = await withMutationTimeout(
+        supabase.rpc('local_parent_add_channel', {
+          p_access_token: accessToken,
+          p_pin: pin,
+          p_youtube_channel_id: yt.channelId,
+          p_channel_name: yt.title,
+          p_channel_thumbnail: yt.thumbnail ?? '',
+          p_subscriber_count: yt.subscriberCount ?? '',
+          p_description: yt.description ?? '',
+          p_category: normalizedCategory ?? '',
+        }),
+        8_000
+      )
+      if (error) throw new Error(error.message)
+      const row = data as { ok?: boolean; error?: string; channel_id?: string } | null
+      if (!row?.ok) {
+        const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה בהוספת ערוץ'
+        throw new Error(msg)
+      }
+      if (row.channel_id) {
+        const list = get().whitelist.filter(
+          (c) => c.id !== optimisticId && c.youtube_channel_id !== yt.channelId
+        )
+        set({ whitelist: [...list, channelFromSearchResult(row.channel_id, yt, category)] })
+      }
+      return { error: null }
+    } catch (e) {
+      set({
+        whitelist: get().whitelist.filter(
+          (c) => c.id !== optimisticId && c.youtube_channel_id !== yt.channelId
+        ),
+      })
+      return { error: e instanceof Error ? e : new Error('שגיאה בהוספת ערוץ') }
     }
-    if (row.channel_id) {
-      upsertWhitelistChannel(set, get, channelFromSearchResult(row.channel_id, yt, category))
-    }
-    return { error: null }
   },
 
   removeChannelLocalParent: async (accessToken, pin, channelId) => {
-    const { data, error } = await supabase.rpc('local_parent_remove_channel', {
-      p_access_token: accessToken,
-      p_pin: pin,
-      p_channel_id: channelId,
-    })
-    if (error) return { error: new Error(error.message) }
-    const row = data as { ok?: boolean; error?: string } | null
-    if (!row?.ok) {
-      const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה בהסרה'
-      return { error: new Error(msg) }
+    const prev = get().whitelist
+    set({ whitelist: prev.filter((c) => c.id !== channelId) })
+
+    try {
+      const { data, error } = await withMutationTimeout(
+        supabase.rpc('local_parent_remove_channel', {
+          p_access_token: accessToken,
+          p_pin: pin,
+          p_channel_id: channelId,
+        })
+      )
+      if (error) throw new Error(error.message)
+      const row = data as { ok?: boolean; error?: string } | null
+      if (!row?.ok) {
+        const msg = row?.error === 'invalid_pin' ? 'PIN שגוי' : row?.error ?? 'שגיאה בהסרה'
+        throw new Error(msg)
+      }
+      return { error: null }
+    } catch (e) {
+      set({ whitelist: prev })
+      return { error: e instanceof Error ? e : new Error('שגיאה בהסרה') }
     }
-    set({ whitelist: get().whitelist.filter((c) => c.id !== channelId) })
-    return { error: null }
   },
 
   replaceChannelCacheLocalParent: async ({

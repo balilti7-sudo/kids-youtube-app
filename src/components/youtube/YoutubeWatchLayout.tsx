@@ -47,7 +47,7 @@ export function YoutubeWatchLayout({ main, sidebar, className }: YoutubeWatchLay
             'w-full min-w-0 max-w-full overflow-x-hidden transition-all duration-500 ease-in-out',
             theaterMode
               ? 'border-t border-yt-border pt-4 lg:static lg:max-h-none lg:overflow-visible'
-              : 'lg:w-[360px] lg:shrink-0 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:ps-1 lg:pe-0 xl:w-[402px]'
+              : 'lg:w-[360px] lg:shrink-0 lg:sticky lg:top-[calc(var(--chrome-top)+var(--chrome-page-top))] lg:max-h-[calc(100dvh-var(--chrome-top)-var(--chrome-page-top))] lg:overflow-y-auto lg:overflow-x-hidden lg:ps-1 lg:pe-0 xl:w-[402px]'
           )}
         >
           {sidebar}

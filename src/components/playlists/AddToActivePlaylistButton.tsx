@@ -1,113 +1,81 @@
-import { useCallback, useEffect, useState } from 'react'
-import { ListMusic, Plus } from 'lucide-react'
-import { toast } from 'sonner'
-import { cn } from '../../lib/utils'
-import {
-  ACTIVE_PLAYLIST_CHANGED_EVENT,
-  getSavedActivePlaylistId,
-  getSavedActivePlaylistName,
-} from '../../lib/activePlaylistSelection'
-import { addVideoToPlaylistViaRpc, type PlaylistVideoPayload } from '../../lib/playlists'
-import { LoadingSpinner } from '../ui/LoadingSpinner'
-
-type Props = {
-  userId: string | null
-  video: PlaylistVideoPayload
-  compact?: boolean
-  className?: string
-  onAdded?: () => void
-}
-
-export function AddToActivePlaylistButton({
-  userId,
-  video,
-  compact,
-  className,
-  onAdded,
-}: Props) {
-  const [activePlaylistName, setActivePlaylistName] = useState<string | null>(() =>
-    getSavedActivePlaylistName()
-  )
-  const [adding, setAdding] = useState(false)
-
-  const refreshActivePlaylist = useCallback(() => {
-    const savedId = getSavedActivePlaylistId()
-    if (!savedId) {
-      setActivePlaylistName(null)
-      return
-    }
-    setActivePlaylistName(getSavedActivePlaylistName())
-  }, [])
-
-  useEffect(() => {
-    refreshActivePlaylist()
-  }, [refreshActivePlaylist])
-
-  useEffect(() => {
-    const handler = () => refreshActivePlaylist()
-    window.addEventListener(ACTIVE_PLAYLIST_CHANGED_EVENT, handler)
-    return () => window.removeEventListener(ACTIVE_PLAYLIST_CHANGED_EVENT, handler)
-  }, [refreshActivePlaylist])
-
-  const handleAdd = async () => {
-    if (!userId) {
-      toast.error('לא מחובר')
-      return
-    }
-
-    const playlistId = getSavedActivePlaylistId()
-    if (!playlistId) {
-      toast.error('חובה לפתוח פלייליסט לפני הוספת סרטונים בודדים')
-      return
-    }
-
-    const playlistName = getSavedActivePlaylistName()
-    setAdding(true)
-
-    const { error } = await addVideoToPlaylistViaRpc(playlistId, video)
-    setAdding(false)
-
-    if (error) {
-      if (error.message.includes('PLAYLIST_NOT_FOUND')) {
-        toast.error('חובה לפתוח פלייליסט לפני הוספת סרטונים בודדים')
-        return
-      }
-      toast.error('לא ניתן להוסיף לפלייליסט', { description: error.message })
-      return
-    }
-
-    toast.success(playlistName ? `נוסף ל"${playlistName}"` : 'נוסף לפלייליסט')
-    onAdded?.()
-  }
-
-  return (
-    <button
-      type="button"
-      aria-label="הוסף לפלייליסט"
-      title={
-        activePlaylistName
-          ? `הוסף ל"${activePlaylistName}"`
-          : 'פתחו פלייליסט בלשונית הפלייליסטים לפני הוספה'
-      }
-      disabled={adding || !userId}
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-yt-border bg-yt-surface font-semibold text-yt-text transition hover:bg-yt-surfaceHover disabled:cursor-not-allowed disabled:opacity-50',
-        compact ? 'min-h-[40px] min-w-[40px] px-2 text-xs' : 'min-h-[44px] px-4 text-sm',
-        className
-      )}
-      onClick={(e) => {
-        e.stopPropagation()
-        void handleAdd()
-      }}
-    >
-      {adding ? (
-        <LoadingSpinner className={cn('shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5')} />
-      ) : activePlaylistName ? (
-        <ListMusic className={cn('shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5')} aria-hidden />
-      ) : (
-        <Plus className={cn('shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5')} strokeWidth={2.5} aria-hidden />
-      )}
-      {!compact ? <span>הוסף לפלייליסט</span> : null}
-    </button>
-  )
-}
+import { useState } from 'react'
+import { Plus } from 'lucide-react'
+import { cn } from '../../lib/utils'
+import type { PlaylistVideoPayload, UserPlaylist } from '../../lib/playlists'
+import type { PlaylistMode } from '../../hooks/usePlaylists'
+import {
+  ACTIVE_PLAYLIST_CHANGED_EVENT,
+  getSavedActivePlaylistId,
+} from '../../lib/activePlaylistSelection'
+import { useEffect } from 'react'
+import { AddToPlaylistModal } from './AddToPlaylistModal'
+
+type Props = {
+  mode?: PlaylistMode
+  userId: string | null
+  childAccessToken?: string | null
+  video: PlaylistVideoPayload
+  initialPlaylists?: UserPlaylist[]
+  compact?: boolean
+  className?: string
+  onAdded?: () => void
+}
+
+/**
+ * Opens playlist-folder picker (never silent-add to the "active" playlist).
+ */
+export function AddToActivePlaylistButton({
+  mode = 'parent',
+  userId,
+  childAccessToken = null,
+  video,
+  initialPlaylists,
+  compact,
+  className,
+  onAdded,
+}: Props) {
+  const [open, setOpen] = useState(false)
+  const [preferredId, setPreferredId] = useState<string | null>(() => getSavedActivePlaylistId())
+
+  useEffect(() => {
+    const refresh = () => setPreferredId(getSavedActivePlaylistId())
+    refresh()
+    window.addEventListener(ACTIVE_PLAYLIST_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(ACTIVE_PLAYLIST_CHANGED_EVENT, refresh)
+  }, [])
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="הוסף לפלייליסט"
+        title="בחרו תיקיית פלייליסט להוספה"
+        disabled={!userId && !childAccessToken}
+        className={cn(
+          'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-yt-border bg-yt-surface font-semibold text-yt-text transition hover:bg-yt-surfaceHover disabled:cursor-not-allowed disabled:opacity-50',
+          compact ? 'min-h-[40px] min-w-[40px] px-2 text-xs' : 'min-h-[44px] px-4 text-sm',
+          className
+        )}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(true)
+        }}
+      >
+        <Plus className={cn('shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5')} strokeWidth={2.5} aria-hidden />
+        {!compact ? <span>הוסף לפלייליסט</span> : null}
+      </button>
+      <AddToPlaylistModal
+        open={open}
+        onClose={() => setOpen(false)}
+        mode={mode}
+        userId={userId}
+        childAccessToken={childAccessToken}
+        initialPlaylists={initialPlaylists}
+        preferredPlaylistId={preferredId}
+        video={video}
+        onSuccess={onAdded}
+      />
+    </>
+  )
+}
+

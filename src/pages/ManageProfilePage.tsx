@@ -4,7 +4,6 @@ import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { PageBackBar } from '../components/layout/PageBackBar'
 import { ChannelManager } from '../components/channels/ChannelManager'
-import { HideThumbnailsDeviceSettings } from '../components/dashboard/HideThumbnailsDeviceSettings'
 import { TastePreferenceCard } from '../components/contentTags/TastePreferenceCard'
 import { CONTENT_TAGS_ENABLED } from '../config/contentTags'
 import { Button } from '../components/ui/Button'
@@ -73,10 +72,6 @@ function ManageProfilePageInner() {
         <PageBackBar fallback="/dashboard" flush />
         <h1 className="px-1 text-xl font-bold tracking-tight text-zinc-50 sm:text-2xl">{device.name}</h1>
       </header>
-
-      <section aria-label={t('manageProfile.controlsTitle')}>
-        <HideThumbnailsDeviceSettings device={device} />
-      </section>
 
       {CONTENT_TAGS_ENABLED ? (
         <section

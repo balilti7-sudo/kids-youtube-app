@@ -1,4 +1,8 @@
 import type { DeviceSettingsUpdate } from './deviceSettings'
+import {
+  effectiveAllowShorts,
+  effectiveDailyTimeLimitMinutes,
+} from './parentalLimitsPolicy'
 
 const CACHE_KEY = 'safetube_device_settings_cache_v1'
 const QUEUE_KEY = 'safetube_device_settings_queue_v1'
@@ -99,7 +103,7 @@ export function mergeDeviceSettingsFields(
   current: DeviceSettingsFields,
   updates: DeviceSettingsUpdate
 ): DeviceSettingsFields {
-  return {
+  const merged = {
     allow_shorts: typeof updates.allowShorts === 'boolean' ? updates.allowShorts : current.allow_shorts,
     block_youtube_app:
       typeof updates.blockYoutubeApp === 'boolean' ? updates.blockYoutubeApp : current.block_youtube_app,
@@ -116,5 +120,10 @@ export function mergeDeviceSettingsFields(
         : current.daily_time_limit_minutes,
     hide_thumbnails:
       typeof updates.hideThumbnails === 'boolean' ? updates.hideThumbnails : current.hide_thumbnails,
+  }
+  return {
+    ...merged,
+    allow_shorts: effectiveAllowShorts(merged.allow_shorts),
+    daily_time_limit_minutes: effectiveDailyTimeLimitMinutes(merged.daily_time_limit_minutes),
   }
 }

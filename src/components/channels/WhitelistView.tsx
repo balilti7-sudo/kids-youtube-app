@@ -1,8 +1,10 @@
+import type { ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Search, Tv, X } from 'lucide-react'
 import type { WhitelistedChannel } from '../../types'
 import { ChannelCard } from './ChannelCard'
 import { EmptyState } from '../ui/EmptyState'
+import { Button } from '../ui/Button'
 import { PlaylistMultiSelectToolbar } from '../playlists/PlaylistMultiSelectToolbar'
 import { RtlSearchInput } from '../search/RtlSearchInput'
 import { supabase } from '../../lib/supabase'
@@ -31,7 +33,13 @@ type Props = {
   onSelectAll?: (visibleChannelIds: string[]) => void
   onClearSelection?: () => void
   onBulkAddToPlaylist?: () => void
+  /** Remove all currently selected whitelist channels */
+  onBulkRemoveRequest?: (channels: WhitelistedChannel[]) => void
   bulkLoading?: boolean
+  /** Optional toolbar (e.g. bulk content tagging) shown while selection mode is active */
+  bulkTagToolbar?: ReactNode
+  /** Allow multi-select for tagging even when playlists are unavailable */
+  canBulkTag?: boolean
   className?: string
 }
 
@@ -66,7 +74,10 @@ export function WhitelistView({
   onSelectAll,
   onClearSelection,
   onBulkAddToPlaylist,
+  onBulkRemoveRequest,
   bulkLoading = false,
+  bulkTagToolbar,
+  canBulkTag = false,
   className,
 }: Props) {
   const { t } = useTranslation()
@@ -155,8 +166,7 @@ export function WhitelistView({
     return (
       <EmptyState
         icon={<Tv className="mx-auto h-10 w-10" />}
-        title="אין ערוצים מאושרים עדיין"
-        description="חפשו ערוץ למעלה והוסיפו אותו — רק אז הילד יוכל לצפות."
+        title="אין ערוצים עדיין"
         action={
           onOpenSearch ? (
             <button
@@ -164,7 +174,7 @@ export function WhitelistView({
               onClick={onOpenSearch}
               className="mt-1 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white dark:bg-white dark:text-zinc-900"
             >
-              חיפוש ערוץ עכשיו
+              הוספת ערוצים
             </button>
           ) : undefined
         }
@@ -235,23 +245,70 @@ export function WhitelistView({
         </p>
       </div>
 
-      {canMultiSelect &&
+      {(canMultiSelect || canBulkTag) &&
       onEnterSelectionMode &&
-      onExitSelectionMode &&
-      onBulkAddToPlaylist ? (
-        <PlaylistMultiSelectToolbar
-          selectionMode={selectionMode}
-          selectedCount={selectedIds?.size ?? 0}
-          totalVisible={filteredChannels.length}
-          itemNoun="ערוצים"
-          enterLabel="בחירת ערוצים"
-          addButtonLabel="הוסף סרטונים לפלייליסט"
-          onEnterSelectionMode={onEnterSelectionMode}
-          onExitSelectionMode={onExitSelectionMode}
-          onSelectAllVisible={() => onSelectAll?.(filteredChannels.map((c) => c.id))}
-          onClearSelection={onClearSelection}
-          onAddToPlaylist={onBulkAddToPlaylist}
-        />
+      onExitSelectionMode ? (
+        <>
+          {canMultiSelect && onBulkAddToPlaylist ? (
+            <PlaylistMultiSelectToolbar
+              selectionMode={selectionMode}
+              selectedCount={selectedIds?.size ?? 0}
+              totalVisible={filteredChannels.length}
+              itemNoun={t('playlists.selectChannels')}
+              enterLabel={t('playlists.selectChannels')}
+              addButtonLabel={t('playlists.addVideosToPlaylist')}
+              onEnterSelectionMode={onEnterSelectionMode}
+              onExitSelectionMode={onExitSelectionMode}
+              onSelectAllVisible={() => onSelectAll?.(filteredChannels.map((c) => c.id))}
+              onClearSelection={onClearSelection}
+              onAddToPlaylist={onBulkAddToPlaylist}
+            />
+          ) : canBulkTag ? (
+            selectionMode ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-2.5">
+                <p className="text-sm font-semibold text-yt-text">
+                  {selectedIds?.size
+                    ? t('contentTags.bulkSelected', { count: selectedIds.size })
+                    : t('contentTags.bulkSelectPrompt')}
+                </p>
+                <button
+                  type="button"
+                  onClick={onExitSelectionMode}
+                  className="text-xs font-medium text-yt-textMuted hover:text-yt-text"
+                >
+                  {t('playlists.cancelSelection')}
+                </button>
+              </div>
+            ) : (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={onEnterSelectionMode}
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-violet-500/40 bg-violet-500/10 px-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/20"
+                >
+                  {t('contentTags.enterBulkTag')}
+                </button>
+              </div>
+            )
+          ) : null}
+          {selectionMode && onBulkRemoveRequest && (selectedIds?.size ?? 0) > 0 ? (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="danger"
+                className="!h-9 !px-3 !text-xs"
+                disabled={bulkLoading}
+                onClick={() => {
+                  const selected = channels.filter((c) => selectedIds?.has(c.id))
+                  if (selected.length > 0) onBulkRemoveRequest(selected)
+                }}
+              >
+                הסר נבחרים ({selectedIds?.size ?? 0})
+              </Button>
+            </div>
+          ) : null}
+          {selectionMode && bulkTagToolbar ? bulkTagToolbar : null}
+        </>
       ) : null}
 
       {/* Fixed-height video hits region — empty state keeps layout stable while searching. */}

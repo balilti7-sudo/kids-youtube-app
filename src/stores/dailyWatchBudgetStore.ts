@@ -74,7 +74,7 @@ export const useDailyWatchBudgetStore = create<DailyWatchBudgetStore>((set, get)
   deviceId: null,
   watchDate: null,
   watchSecondsToday: 0,
-  dailyTimeLimitMinutes: 60,
+  dailyTimeLimitMinutes: 0,
   snoozeBonusSeconds: 0,
   isLimitReached: false,
 
@@ -86,7 +86,7 @@ export const useDailyWatchBudgetStore = create<DailyWatchBudgetStore>((set, get)
         deviceId: null,
         watchDate: null,
         watchSecondsToday: 0,
-        dailyTimeLimitMinutes: 60,
+        dailyTimeLimitMinutes: 0,
         snoozeBonusSeconds: 0,
         isLimitReached: false,
       })
@@ -96,7 +96,7 @@ export const useDailyWatchBudgetStore = create<DailyWatchBudgetStore>((set, get)
       deviceId: trimmed,
       watchDate: null,
       watchSecondsToday: 0,
-      dailyTimeLimitMinutes: 60,
+      dailyTimeLimitMinutes: 0,
       snoozeBonusSeconds: 0,
       isLimitReached: false,
     })

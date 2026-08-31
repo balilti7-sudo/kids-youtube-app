@@ -66,7 +66,7 @@ export function SafeBrowserPage() {
   if (loading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-zinc-950">
-        <LoadingSpinner label={t('common.loading')} />
+        <LoadingSpinner />
       </div>
     )
   }

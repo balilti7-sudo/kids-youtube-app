@@ -1,5 +1,6 @@
 import { getSavedChildAccessToken } from './childDevice'
 import { supabase } from './supabase'
+import { SCREEN_TIME_BLOCKING_ENABLED } from './parentalLimitsPolicy'
 
 export type ScreenTimePhase = 'idle' | 'active' | 'challenge' | 'locked'
 
@@ -123,13 +124,14 @@ export function mapChildRuntimeRow(row: Record<string, unknown>): ServerChildRun
     phase === 'active' || phase === 'challenge' || phase === 'locked' || phase === 'idle' ? phase : 'idle'
 
   const isBlocked = Boolean(row.is_blocked)
-  const screenTimeBlocksPlayback = validPhase === 'challenge' || validPhase === 'locked'
+  const screenTimeBlocksPlayback =
+    SCREEN_TIME_BLOCKING_ENABLED && (validPhase === 'challenge' || validPhase === 'locked')
 
   return {
     serverNow: String(row.server_now ?? new Date().toISOString()),
     deviceId: String(row.device_id ?? ''),
     isBlocked,
-    screenTimePhase: validPhase,
+    screenTimePhase: SCREEN_TIME_BLOCKING_ENABLED ? validPhase : 'idle',
     screenTimeLimitMinutes:
       typeof row.screen_time_limit_minutes === 'number' && row.screen_time_limit_minutes > 0
         ? row.screen_time_limit_minutes
@@ -138,8 +140,14 @@ export function mapChildRuntimeRow(row: Record<string, unknown>): ServerChildRun
       typeof row.remaining_seconds === 'number' && Number.isFinite(row.remaining_seconds)
         ? Math.max(0, Math.round(row.remaining_seconds))
         : null,
-    playbackBlocked: Boolean(row.playback_blocked) || isBlocked || screenTimeBlocksPlayback,
-    challengeTask: typeof row.challenge_task === 'string' ? row.challenge_task : null,
+    playbackBlocked:
+      isBlocked ||
+      screenTimeBlocksPlayback ||
+      (SCREEN_TIME_BLOCKING_ENABLED && Boolean(row.playback_blocked)),
+    challengeTask:
+      SCREEN_TIME_BLOCKING_ENABLED && typeof row.challenge_task === 'string'
+        ? row.challenge_task
+        : null,
     lionLevel: typeof row.lion_level === 'number' && row.lion_level >= 1 ? row.lion_level : 1,
     lionXp: typeof row.lion_xp === 'number' && row.lion_xp >= 0 ? row.lion_xp : 0,
     lionActiveOutfit: typeof row.lion_active_outfit === 'string' ? row.lion_active_outfit : 'cub',

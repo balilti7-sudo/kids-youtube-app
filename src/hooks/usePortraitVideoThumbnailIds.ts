@@ -18,11 +18,20 @@ function probeThumbnailPortrait(url: string): Promise<boolean> {
   })
 }
 
+function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false
+  for (const id of a) {
+    if (!b.has(id)) return false
+  }
+  return true
+}
+
 /** Detects portrait thumbnails client-side so vertical Shorts stay off the long-form shelf. */
 export function usePortraitVideoThumbnailIds(
   videos: Array<{ youtube_video_id: string; thumbnail_url: string | null }>
 ): ReadonlySet<string> {
   const [portraitIds, setPortraitIds] = useState<ReadonlySet<string>>(() => new Set())
+  // Signature-only deps — enrich/metadata updates must not re-probe and reshuffle the grid.
   const thumbSignature = useMemo(
     () => videos.map((v) => `${v.youtube_video_id}:${v.thumbnail_url ?? ''}`).join('|'),
     [videos]
@@ -30,9 +39,21 @@ export function usePortraitVideoThumbnailIds(
 
   useEffect(() => {
     let cancelled = false
-    const withThumb = videos.filter((v) => v.thumbnail_url?.trim())
+    if (!thumbSignature) {
+      setPortraitIds((prev) => (prev.size === 0 ? prev : new Set()))
+      return
+    }
+
+    const entries = thumbSignature.split('|').map((part) => {
+      const idx = part.indexOf(':')
+      return {
+        youtube_video_id: part.slice(0, idx),
+        thumbnail_url: part.slice(idx + 1) || null,
+      }
+    })
+    const withThumb = entries.filter((v) => v.thumbnail_url?.trim())
     if (withThumb.length === 0) {
-      setPortraitIds(new Set())
+      setPortraitIds((prev) => (prev.size === 0 ? prev : new Set()))
       return
     }
 
@@ -44,13 +65,14 @@ export function usePortraitVideoThumbnailIds(
           if (portrait) found.add(video.youtube_video_id)
         })
       )
-      if (!cancelled) setPortraitIds(found)
+      if (cancelled) return
+      setPortraitIds((prev) => (setsEqual(prev, found) ? prev : found))
     })()
 
     return () => {
       cancelled = true
     }
-  }, [thumbSignature, videos])
+  }, [thumbSignature])
 
   return portraitIds
 }

@@ -7,7 +7,9 @@
 #
 # Toolchain lives in C:\android-tools (JDK 21 + Android SDK 36), set up outside the repo.
 param(
-  [switch]$Release
+  [switch]$Release,
+  # When set, stamp all version sources to this semver and skip Gradle auto-bump.
+  [string]$Version = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +37,23 @@ function Read-AndroidVersion {
   return @{ Name = $versionName; Code = $versionCode }
 }
 
+function Write-AndroidVersion([string]$versionName, [int]$versionCode) {
+  $propsPath = Join-Path $root 'android\app\version.properties'
+  @(
+    '# Auto-bumped by Gradle on APK/AAB packaging. Do not edit versionCode by hand.',
+    "VERSION_CODE=$versionCode",
+    "VERSION_NAME=$versionName"
+  ) | Set-Content -Path $propsPath -Encoding UTF8
+}
+
+function VersionNameToCode([string]$versionName) {
+  $parts = $versionName.Split('.')
+  $major = if ($parts.Length -gt 0) { [int]$parts[0] } else { 1 }
+  $minor = if ($parts.Length -gt 1) { [int]$parts[1] } else { 0 }
+  $patch = if ($parts.Length -gt 2) { [int]$parts[2] } else { 0 }
+  return ($major * 10000) + ($minor * 100) + $patch
+}
+
 function Sync-PackageJsonVersion([string]$versionName) {
   $pkgPath = Join-Path $root 'package.json'
   $raw = Get-Content $pkgPath -Raw
@@ -55,11 +74,28 @@ function Stamp-AppDisplayName([string]$versionName) {
   return $displayName
 }
 
+function Sync-AllVersionSources([string]$versionName, [int]$versionCode) {
+  Write-AndroidVersion $versionName $versionCode
+  Sync-PackageJsonVersion $versionName
+  $displayName = Stamp-AppDisplayName $versionName
+  return @{ DisplayName = $displayName; Name = $versionName; Code = $versionCode }
+}
+
 $buildStamp = Get-Date -Format 'yyyyMMdd-HHmm'
 $variant = if ($Release) { 'release' } else { 'debug' }
 $gradleTask = if ($Release) { 'assembleRelease' } else { 'assembleDebug' }
+$skipGradleBump = $false
 
-Write-Host "Building SafeTube Android $variant APK..."
+if ($Version) {
+  $targetCode = VersionNameToCode $Version
+  $ver = Sync-AllVersionSources $Version $targetCode
+  $skipGradleBump = $true
+} else {
+  $ver = Read-AndroidVersion
+  $ver = Sync-AllVersionSources $ver.Name $ver.Code
+}
+
+Write-Host "Building SafeTube Android $variant APK (v$($ver.Name), code $($ver.Code))..."
 
 node ./scripts/patch-capacitor-webview.mjs
 if ($LASTEXITCODE -ne 0) { throw 'capacitor webview patch failed' }
@@ -68,17 +104,21 @@ if ($LASTEXITCODE -ne 0) { throw 'web build failed' }
 npx cap sync android
 if ($LASTEXITCODE -ne 0) { throw 'cap sync failed' }
 
-# Gradle bumps version.properties during configuration of assemble*
+# Gradle bumps version.properties during configuration of assemble* unless -PnoVersionBump
 Set-Location (Join-Path $root 'android')
-.\gradlew.bat $gradleTask
+if ($skipGradleBump) {
+  .\gradlew.bat $gradleTask -PnoVersionBump
+} else {
+  .\gradlew.bat $gradleTask
+}
 if ($LASTEXITCODE -ne 0) { throw "gradle $gradleTask failed" }
 Set-Location $root
 
 $ver = Read-AndroidVersion
 $versionName = $ver.Name
 $versionCode = $ver.Code
-Sync-PackageJsonVersion $versionName
-$displayName = Stamp-AppDisplayName $versionName
+Sync-AllVersionSources $versionName $versionCode | Out-Null
+$displayName = "SafeTube $versionName"
 
 $outDir = Join-Path $root "android\app\build\outputs\apk\$variant"
 $defaultApkName = if ($Release) { 'app-release.apk' } else { 'app-debug.apk' }
@@ -102,4 +142,4 @@ Write-Host "APK ready: $versionedApk ($([math]::Round((Get-Item $versionedApk).L
 Write-Host "Also at:   $defaultApk"
 Write-Host "Repo root: $rootCopy"
 Write-Host "App label: $displayName | versionName=$versionName | versionCode=$versionCode | variant=$variant"
-Write-Host "(version auto-bumped by Gradle; package.json synced)"
+Write-Host "(package.json, strings.xml, and version.properties synced to $versionName)"

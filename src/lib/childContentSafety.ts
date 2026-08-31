@@ -1,11 +1,14 @@
 import {
   buildYoutubeWatchUrl,
-  isVideoShortOrSuspected,
+  isConfidentYoutubeShort,
   type VideoFormat,
   classifyYoutubeVideo,
 } from './videoFormatClassification'
+import { SHORTS_BLOCKING_ENABLED } from './parentalLimitsPolicy'
 
-/** Red-line: refuse Shorts when the profile has allow_shorts=false. */
+export { SHORTS_BLOCKING_ENABLED } from './parentalLimitsPolicy'
+
+/** Red-line: refuse Shorts when the profile has allow_shorts=false (disabled while SHORTS_BLOCKING_ENABLED is false). */
 export function isShortsBlockedForProfile(
   allowShorts: boolean | null | undefined,
   video: {
@@ -16,8 +19,9 @@ export function isShortsBlockedForProfile(
     format?: VideoFormat
   }
 ): boolean {
+  if (!SHORTS_BLOCKING_ENABLED) return false
   if (allowShorts) return false
-  return isVideoShortOrSuspected({
+  return isConfidentYoutubeShort({
     title: video.title,
     durationSeconds: video.durationSeconds,
     watchUrl: video.youtubeVideoId ? buildYoutubeWatchUrl(video.youtubeVideoId) : null,
@@ -48,8 +52,9 @@ export function classifyWatchFormat(video: {
   title?: string | null
   thumbnail?: string | null
 }): VideoFormat {
+  // Playback shell must not flip to vertical Shorts layout on thumbnail guesses.
   if (
-    isVideoShortOrSuspected({
+    isConfidentYoutubeShort({
       title: video.title,
       durationSeconds: video.durationSeconds,
       youtubeVideoId: video.youtubeVideoId,

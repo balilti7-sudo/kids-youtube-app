@@ -36,7 +36,6 @@ deploy/windows-server/bridge.secrets.env
 /npm
 /npx
 
-# Gradle/debug APKs stay local. Keep versioned SafeTube builds at repo root
-# so they show in Cursor and GitHub like before.
+# APKs stay local — never commit (includes SafeTube-*.apk at repo root).
 *.apk
-!/SafeTube-*.apk
+/SafeTube-*.apk
