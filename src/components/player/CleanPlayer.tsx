@@ -873,6 +873,8 @@ function CleanPlayerYoutubeIframe({
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined
   const [iframeReady, setIframeReady] = useState(false)
   const iframePlaybackNotifiedRef = useRef(false)
+  /** After first paint, keep the same iframe DOM node across Short/queue src swaps. */
+  const initialSkeletonDoneRef = useRef(false)
   const [resolvedDurationSec, setResolvedDurationSec] = useState<number | null>(null)
   const src = useMemo(() => {
     if (!safeId || isLimitReached) return ''
@@ -897,16 +899,20 @@ function CleanPlayerYoutubeIframe({
     void exitPlayerGestureFullscreen()
   }, [videoId])
 
-  // Reset the skeleton whenever a new video mounts so feedback is instant on tap.
-  // Android WebView often never fires iframe onLoad for youtube.com/embed — clear the
-  // shimmer overlay on a short timeout so it cannot flicker forever over the player.
+  // First open: skeleton until load/timeout (Android WebView often skips iframe onLoad).
+  // Later videoId/src swaps: do NOT set iframeReady=false — that flashes PlayerLoadingSkeleton
+  // with the next Short's poster/logo. React updates src on the same iframe (no key={src}).
   useEffect(() => {
-    setIframeReady(false)
     iframePlaybackNotifiedRef.current = false
     setTapsLocked(false)
     setIframePlaying(true)
     if (!src) return
-    const clearSkeleton = window.setTimeout(() => setIframeReady(true), 900)
+    if (initialSkeletonDoneRef.current) return
+    setIframeReady(false)
+    const clearSkeleton = window.setTimeout(() => {
+      initialSkeletonDoneRef.current = true
+      setIframeReady(true)
+    }, 900)
     return () => window.clearTimeout(clearSkeleton)
   }, [src])
 
@@ -1156,6 +1162,7 @@ function CleanPlayerYoutubeIframe({
   }, [videoId])
 
   const handleIframeLoad = useCallback(() => {
+    initialSkeletonDoneRef.current = true
     setIframeReady(true)
     iframePosSecRef.current = 0
     iframePlayingRef.current = true
@@ -1253,7 +1260,6 @@ function CleanPlayerYoutubeIframe({
             <PlayerLoadingSkeleton posterUrl={posterUrl} videoId={safeId} />
           ) : null}
           <iframe
-            key={src}
             ref={iframeRef}
             title={title}
             src={src}
