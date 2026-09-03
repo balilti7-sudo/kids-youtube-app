@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../stores/authStore'
 import { Input } from '../ui/Input'
@@ -20,6 +20,7 @@ export function EmailQuickAuthForm() {
   const signInWithMagicLink = useAuthStore((s) => s.signInWithMagicLink)
   const verifyEmailOtp = useAuthStore((s) => s.verifyEmailOtp)
   const location = useLocation()
+  const navigate = useNavigate()
   const emailId = useId()
   const codeId = useId()
   const emailRef = useRef<HTMLInputElement>(null)
@@ -77,6 +78,7 @@ export function EmailQuickAuthForm() {
         setSubmitError(error.message)
         return
       }
+      navigate(getSafeNextFromUrl(location.search), { replace: true })
     } finally {
       setBusy(false)
     }
