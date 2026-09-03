@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Heart, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { CleanPlayer } from '../player/CleanPlayer'
+import { PlayerModeProvider } from '../../contexts/PlayerModeContext'
 import { WatchBackButton } from '../player/WatchBackButton'
 import { SafeTubeChannelAvatar } from '../ui/SafeTubeChannelAvatar'
 import { YoutubeLikeButton } from '../youtube/YoutubeLikeButton'
@@ -218,24 +219,34 @@ export function KidShortsLane({
           </div>
         ) : null}
 
-        <div className="absolute inset-0 z-10 flex min-h-0 flex-col">
+        <div className="absolute inset-0 z-10 flex min-h-0 items-center justify-center">
           {/*
-            No React key on CleanPlayer — videoId prop updates in place so the shell
-            stays stable; CleanPlayer already handles src/session reset per id.
+            Same Short host as Playlists (ChildWatchPlayerShell): 9:16 watch-stage
+            + expand enabled. Do not use immersive / allowMobileExpand={false} —
+            that skipped enterShortVideoExpand / safetube-theater-short.
           */}
-          <CleanPlayer
-            videoId={activeItem.videoId}
-            title={activeItem.title}
-            channelTitle={activeItem.channelName}
-            posterUrl={hideThumbnails ? null : activeItem.thumbnail}
-            blankVideoFrame={hideThumbnails}
-            onNextTrack={hasNext ? goNext : undefined}
-            onPreviousTrack={hasPrevious ? goPrevious : undefined}
-            hasNextTrack={hasNext}
-            allowMobileExpand={false}
-            immersive
-            className="h-full w-full"
-          />
+          <PlayerModeProvider contentShape="short">
+            <div
+              className="safetube-watch-stage safetube-watch-stage--short relative mx-auto w-full max-w-[min(100%,420px)] overflow-hidden bg-black touch-manipulation"
+              data-format="short"
+              aria-roledescription="shorts player"
+            >
+              <div className="absolute inset-0 min-h-0 w-full">
+                <CleanPlayer
+                  videoId={activeItem.videoId}
+                  title={activeItem.title}
+                  channelTitle={activeItem.channelName}
+                  posterUrl={hideThumbnails ? null : activeItem.thumbnail}
+                  blankVideoFrame={hideThumbnails}
+                  durationSeconds={activeItem.durationSeconds}
+                  onNextTrack={hasNext ? goNext : undefined}
+                  onPreviousTrack={hasPrevious ? goPrevious : undefined}
+                  hasNextTrack={hasNext}
+                  className="h-full w-full"
+                />
+              </div>
+            </div>
+          </PlayerModeProvider>
           {/*
             Swipe capture leaves the bottom dead-zone open so accidental swipes near
             chrome/meta do not steal navigation; iframe keeps center play if needed.
