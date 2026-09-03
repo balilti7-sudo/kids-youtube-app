@@ -673,6 +673,26 @@ html.safetube-theater-portrait .safetube-player-root:-webkit-full-screen .safetu
   max-height: none !important;
 }
 
+/* Shorts lane is already a fullscreen shell — player must fill it edge-to-edge. */
+.safetube-shorts-lane .safetube-player-root,
+.safetube-shorts-lane .safetube-player-stage {
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  aspect-ratio: unset !important;
+}
+
+.safetube-shorts-lane .safetube-player-stage iframe,
+.safetube-shorts-lane .safetube-player-stage video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* Content tag chip color tokens (neutral pastels) */
 .safetube-tag-tag-sky {
   border-color: rgb(56 189 248 / 0.35);

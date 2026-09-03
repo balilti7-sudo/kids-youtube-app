@@ -1268,7 +1268,7 @@ function CleanPlayerYoutubeIframe({
             referrerPolicy="strict-origin-when-cross-origin"
           />
           {/* Cover YouTube embed mute (top-end) — cannot remove native iframe chrome. */}
-          {!isLimitReached && !tapsLocked ? (
+          {!isLimitReached && !tapsLocked && chromeVisible ? (
             <div
               className="pointer-events-auto absolute top-1 end-1 z-[22] h-11 w-11 rounded-md bg-black"
               aria-hidden

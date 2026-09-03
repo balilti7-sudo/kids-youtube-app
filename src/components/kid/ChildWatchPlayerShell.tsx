@@ -6,6 +6,7 @@ import { CleanPlayer } from '../player/CleanPlayer'
 import { PlayerAmbientFrame } from '../player/PlayerAmbientFrame'
 import { WatchBackButton } from '../player/WatchBackButton'
 import { PlayerModeProvider } from '../../contexts/PlayerModeContext'
+import { PLAYER_THEATER_STATE_CHANGED } from '../../lib/playerTheater'
 import { cn } from '../../lib/utils'
 
 export type ChildWatchPlayerShellProps = {
@@ -62,6 +63,7 @@ function ChildWatchPlayerShellBody(props: ChildWatchPlayerShellProps) {
 
   const [miniLarge, setMiniLarge] = useState(false)
   const [miniOffset, setMiniOffset] = useState({ x: 0, y: 0 })
+  const [theaterActive, setTheaterActive] = useState(false)
   const dragRef = useRef<{
     pointerId: number
     startX: number
@@ -78,6 +80,18 @@ function ChildWatchPlayerShellBody(props: ChildWatchPlayerShellProps) {
       setMiniLarge(false)
     }
   }, [sticky.isMini, videoId])
+
+  useEffect(() => {
+    const sync = () => {
+      setTheaterActive(
+        typeof document !== 'undefined' &&
+          document.documentElement.classList.contains('safetube-theater')
+      )
+    }
+    sync()
+    window.addEventListener(PLAYER_THEATER_STATE_CHANGED, sync)
+    return () => window.removeEventListener(PLAYER_THEATER_STATE_CHANGED, sync)
+  }, [])
 
   const expandFromMini = useCallback(() => {
     sticky.sentinelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -145,7 +159,7 @@ function ChildWatchPlayerShellBody(props: ChildWatchPlayerShellProps) {
 
   return (
     <>
-      {onBack && !sticky.isMini ? (
+      {onBack && !sticky.isMini && !theaterActive ? (
         <div className="mb-2 flex items-center px-0.5">
           <WatchBackButton onClick={onBack} />
         </div>

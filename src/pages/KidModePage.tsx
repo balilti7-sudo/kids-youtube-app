@@ -232,9 +232,13 @@ function KidModePageInner() {
   const channelVideosForBrowse = useMemo(() => {
     const extras = channelShorts.items
     if (extras.length === 0) return channelVideos
+    const extraIds = new Set(extras.map((video) => video.videoId))
+    const tagged = channelVideos.map((video) =>
+      extraIds.has(video.videoId) ? { ...video, fromShortsPlaylist: true } : video
+    )
     const seen = new Set(channelVideos.map((video) => video.videoId))
     const fresh = extras.filter((video) => !seen.has(video.videoId))
-    return fresh.length === 0 ? channelVideos : [...fresh, ...channelVideos]
+    return fresh.length === 0 ? tagged : [...fresh, ...tagged]
   }, [channelVideos, channelShorts.items])
 
   const filteredVideos = useMemo(() => {

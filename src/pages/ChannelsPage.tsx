@@ -575,9 +575,19 @@ function ChannelsPageInner() {
   const videosWithChannelShorts = useMemo(() => {
     const extras = channelShorts.videos
     if (extras.length === 0) return videos
+    const extrasById = new Map(extras.map((video) => [video.youtube_video_id, video]))
+    const merged = videos.map((video) => {
+      const extra = extrasById.get(video.youtube_video_id)
+      if (!extra) return video
+      return {
+        ...video,
+        watchUrl: extra.watchUrl ?? video.watchUrl,
+        format: 'short' as const,
+      }
+    })
     const seen = new Set(videos.map((video) => video.youtube_video_id))
     const fresh = extras.filter((video) => !seen.has(video.youtube_video_id))
-    return fresh.length === 0 ? videos : [...fresh, ...videos]
+    return fresh.length === 0 ? merged : [...fresh, ...merged]
   }, [videos, channelShorts.videos])
 
   const channelScopedVideos = useMemo((): ChannelWatchVideo[] => {

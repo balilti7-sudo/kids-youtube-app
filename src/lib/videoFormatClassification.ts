@@ -287,6 +287,13 @@ export function partitionVideosForBrowse<T extends WatchableVideoBase>(
   const longForm: T[] = []
   const shorts: T[] = []
   for (const video of videos) {
+    const officialShort =
+      video.format === 'short' || Boolean(video.watchUrl?.toLowerCase().includes('/shorts/'))
+    if (officialShort) {
+      shorts.push(video)
+      continue
+    }
+
     const duration = video.durationSeconds
     const durationKnown = duration != null && Number.isFinite(duration) && duration > 0
 
