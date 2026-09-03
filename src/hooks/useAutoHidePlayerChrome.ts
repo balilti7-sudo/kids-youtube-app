@@ -53,6 +53,8 @@ export function useAutoHidePlayerChrome(options?: {
   const timerRef = useRef<number | null>(null)
   const holdDepthRef = useRef(0)
   const visibleRef = useRef(true)
+  /** When the chrome last transitioned hidden→visible — lets toggle() ignore the same tap that showed it. */
+  const lastShownAtRef = useRef(0)
 
   const clearTimer = useCallback(() => {
     if (timerRef.current != null) {
@@ -69,6 +71,7 @@ export function useAutoHidePlayerChrome(options?: {
     }
     if (!visibleRef.current) {
       visibleRef.current = true
+      lastShownAtRef.current = Date.now()
       setChromeVisible(true)
     }
     clearTimer()
@@ -96,6 +99,12 @@ export function useAutoHidePlayerChrome(options?: {
       return
     }
     if (holdDepthRef.current > 0) return
+    // The pointerdown of this same tap may have just bump-shown the chrome —
+    // hiding it again here would make taps look like a flicker. Keep it visible.
+    if (visibleRef.current && Date.now() - lastShownAtRef.current < 600) {
+      bump()
+      return
+    }
     if (visibleRef.current) hide()
     else bump()
   }, [enabled, locked, playing, bump, hide])
@@ -105,6 +114,7 @@ export function useAutoHidePlayerChrome(options?: {
     clearTimer()
     if (!visibleRef.current) {
       visibleRef.current = true
+      lastShownAtRef.current = Date.now()
       setChromeVisible(true)
     }
   }, [clearTimer])

@@ -852,9 +852,9 @@ function CleanPlayerYoutubeIframe({
   const [loopEnabled, setLoopEnabled] = useState(false)
   const [tapsLocked, setTapsLocked] = useState(false)
   const [iframePlaying, setIframePlaying] = useState(true)
+  // YouTube-like: controls fade after ~3s while playing, stay while paused/locked, tap toggles.
   const { chromeVisible, bumpChrome } = useAutoHidePlayerChrome({
     locked: tapsLocked,
-    enabled: false,
     playing: iframePlaying,
   })
   const showQueueControls = !immersive && (queueControls ?? Boolean(onNextTrack))
@@ -1389,9 +1389,9 @@ function CleanPlayerMediaBridge({
   const [needsUserGesture, setNeedsUserGesture] = useState(false)
   const [tapsLocked, setTapsLocked] = useState(false)
   const [mediaPlaying, setMediaPlaying] = useState(true)
+  // YouTube-like: controls fade after ~3s while playing, stay while paused/locked, tap toggles.
   const { chromeVisible, bumpChrome } = useAutoHidePlayerChrome({
     locked: tapsLocked,
-    enabled: false,
     playing: mediaPlaying,
   })
   const showQueueControls = !immersive && (queueControls ?? Boolean(onNextTrack))
