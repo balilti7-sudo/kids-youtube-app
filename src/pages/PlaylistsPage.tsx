@@ -18,7 +18,7 @@ import { useHideVideoContext } from '../hooks/useHideVideoContext'
 import { usePlaylistQueueHandlers } from '../hooks/usePlaylistQueueHandlers'
 import { cn } from '../lib/utils'
 import { scrollPlayerIntoViewForWatch } from '../lib/scrollPlayerIntoView'
-import { classifyWatchFormat } from '../lib/childContentSafety'
+import { classifyContentShape } from '../lib/videoFormatClassification'
 import { toast } from 'sonner'
 import {
   appendPlaylistVideoIfMissing,
@@ -368,7 +368,7 @@ export function PlaylistsPage() {
                     title={active.title}
                     channelTitle={active.channel_name ?? undefined}
                     posterUrl={active.thumbnail_url}
-                    format={classifyWatchFormat({
+                    format={classifyContentShape({
                       youtubeVideoId: active.youtube_video_id,
                       title: active.title,
                       thumbnail: active.thumbnail_url,

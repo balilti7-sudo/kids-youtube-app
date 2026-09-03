@@ -1,4 +1,4 @@
-import { belongsOnShortsShelf, type VideoFormat } from './videoFormatClassification'
+import { shouldRouteToShortsLane, type VideoFormat } from './videoFormatClassification'
 
 type Shortish = {
   format?: VideoFormat
@@ -11,8 +11,9 @@ type Shortish = {
   watchUrl?: string | null
 }
 
+/** @deprecated Prefer {@link shouldRouteToShortsLane} from `videoFormatClassification`. */
 export function itemLooksLikeShort(item: Shortish): boolean {
-  return belongsOnShortsShelf({
+  return shouldRouteToShortsLane({
     format: item.format,
     title: item.title,
     durationSeconds: item.durationSeconds,

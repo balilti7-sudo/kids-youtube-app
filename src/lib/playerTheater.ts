@@ -22,6 +22,14 @@ const THEATER_PORTRAIT_LEGACY_CLASS = 'safetube-theater-portrait'
 
 export type PlayerExpandMode = 'long' | 'short'
 
+/** Dispatched when theater classes / activeExpandMode change (enter or exit). */
+export const PLAYER_THEATER_STATE_CHANGED = 'safetube-theater-state-changed'
+
+function notifyTheaterStateChanged(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(PLAYER_THEATER_STATE_CHANGED))
+}
+
 /** True only after native document fullscreen actually engaged for this expand session. */
 let nativeFullscreenEngaged = false
 let recoveryInstalled = false
@@ -69,6 +77,7 @@ function clearTheaterDom(root?: HTMLElement | null): void {
   })
   nativeFullscreenEngaged = false
   activeExpandMode = null
+  notifyTheaterStateChanged()
 }
 
 function enterTheaterMode(mode: PlayerExpandMode, root?: HTMLElement | null): void {
@@ -81,6 +90,7 @@ function enterTheaterMode(mode: PlayerExpandMode, root?: HTMLElement | null): vo
   if (root) root.classList.add('safetube-theater-root')
   requestChromeOffsetRefresh()
   requestPlayerChromeBump()
+  notifyTheaterStateChanged()
 }
 
 /** Long-form expand theater — landscape-facing 16:9 letterbox contract. */

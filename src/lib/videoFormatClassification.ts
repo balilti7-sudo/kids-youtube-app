@@ -10,6 +10,18 @@ export const LONG_FORM_MIN_DURATION_SECONDS = 180
 
 export type VideoFormat = 'short' | 'long'
 
+/** Playback-shell / expand layout shape — same values as {@link VideoFormat}. */
+export type ContentShape = VideoFormat
+
+export type ContentShapeInput = {
+  durationSeconds?: number | null
+  youtubeVideoId?: string | null
+  title?: string | null
+  thumbnail?: string | null
+  /** Alias used by some call sites. */
+  thumbnail_url?: string | null
+}
+
 export type VideoFormatInput = {
   durationSeconds?: number | null
   watchUrl?: string | null
@@ -122,6 +134,45 @@ export function belongsOnShortsShelf(
   if (isVideoShortOrSuspected(video)) return true
   const id = video.youtubeVideoId
   return Boolean(id && portraitThumbnailIds?.has(id))
+}
+
+function normalizeContentShapeInput(input: ContentShapeInput): ShortClassificationFields & {
+  watchUrl: string | null
+} {
+  const youtubeVideoId = input.youtubeVideoId ?? null
+  return {
+    durationSeconds: input.durationSeconds,
+    youtubeVideoId,
+    title: input.title,
+    thumbnail_url: input.thumbnail ?? input.thumbnail_url ?? null,
+    watchUrl: youtubeVideoId ? buildYoutubeWatchUrl(youtubeVideoId) : null,
+  }
+}
+
+/**
+ * Authoritative playback-shell content shape (inline layout + expand routing).
+ * Preserves the former `classifyWatchFormat` product rule:
+ * confident Short signals (≤60s, #shorts, /shorts/ URL) — never thumbnail-only guesses.
+ */
+export function classifyContentShape(input: ContentShapeInput): ContentShape {
+  const video = normalizeContentShapeInput(input)
+  if (isConfidentYoutubeShort(video)) return 'short'
+  return classifyYoutubeVideo({
+    durationSeconds: video.durationSeconds,
+    watchUrl: video.watchUrl,
+    youtubeVideoId: video.youtubeVideoId,
+  })
+}
+
+/**
+ * Authoritative Shorts shelf / lane routing rule (≤3 minutes when duration known,
+ * or suspected Short while duration is loading). Separate from playback-shell shape.
+ */
+export function shouldRouteToShortsLane(
+  video: ShortClassificationFields,
+  portraitThumbnailIds?: ReadonlySet<string>
+): boolean {
+  return belongsOnShortsShelf(video, portraitThumbnailIds)
 }
 
 export function buildYoutubeWatchUrl(videoId: string): string {

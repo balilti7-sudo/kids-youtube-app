@@ -21,8 +21,8 @@ import { usePlaylists, type PlaylistsClient } from '../../hooks/usePlaylists'
 import type { PlaylistVideo, UserPlaylist } from '../../lib/playlists'
 import type { ParentPinVerifyResult } from '../../lib/verifyParentManagementPin'
 import { cn } from '../../lib/utils'
-import { classifyWatchFormat, isShortsBlockedForProfile } from '../../lib/childContentSafety'
-import { filterVideosRespectingAllowShorts } from '../../lib/videoFormatClassification'
+import { classifyContentShape, filterVideosRespectingAllowShorts } from '../../lib/videoFormatClassification'
+import { isShortsBlockedForProfile } from '../../lib/childContentSafety'
 import { buildShortsAwareNavQueue } from '../../lib/shortsNavQueue'
 import { shouldHideFromChildBrowse } from '../../lib/liveStreamPolicy'
 import { saveActivePlaylistId } from '../../lib/activePlaylistSelection'
@@ -201,7 +201,7 @@ export function KidPlaylistView({
             title: v.title,
             thumbnail_url: v.thumbnail_url,
             durationSeconds: null as number | null,
-            format: classifyWatchFormat({
+            format: classifyContentShape({
               youtubeVideoId: v.youtube_video_id,
               title: v.title,
               thumbnail: v.thumbnail_url,
@@ -359,7 +359,7 @@ export function KidPlaylistView({
     return buildShortsAwareNavQueue(
       visibleVideos.map((v) => ({
         ...v,
-        format: classifyWatchFormat({
+        format: classifyContentShape({
           youtubeVideoId: v.youtube_video_id,
           title: v.title,
           thumbnail: v.thumbnail_url,
@@ -367,7 +367,7 @@ export function KidPlaylistView({
       })),
       {
         ...active,
-        format: classifyWatchFormat({
+        format: classifyContentShape({
           youtubeVideoId: active.youtube_video_id,
           title: active.title,
           thumbnail: active.thumbnail_url,
@@ -553,7 +553,7 @@ export function KidPlaylistView({
                     channelTitle={active.channel_name ?? undefined}
                     posterUrl={hideThumbnails ? null : active.thumbnail_url}
                     blankVideoFrame={hideThumbnails}
-                    format={classifyWatchFormat({
+                    format={classifyContentShape({
                       youtubeVideoId: active.youtube_video_id,
                       title: active.title,
                       thumbnail: active.thumbnail_url,

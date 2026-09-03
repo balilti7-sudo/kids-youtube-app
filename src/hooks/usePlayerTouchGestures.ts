@@ -14,6 +14,13 @@ import {
   exitPlayerTheater,
   isPlayerExpanded,
 } from '../lib/playerTheater'
+import { shortExpandDebug, shortExpandDebugClear } from '../lib/shortExpandDebug'
+import type { NativeOrientationLockResult } from '../lib/nativeMediaPlayback'
+import { getPlaybackContentShape } from '../lib/playbackContentShape'
+import { getPlaybackPresentationShape } from '../lib/playbackPresentationShape'
+import { resolvePresentationShapeForExpand } from '../lib/playbackPresentationContext'
+import { setPlaybackPlayerMode } from '../lib/playbackPlayerMode'
+import { theaterModeForPresentation } from '../lib/playerMode'
 
 export const PLAYER_GESTURE_SEEK_STEP_SEC = 10
 export const PLAYER_GESTURE_DOUBLE_TAP_MS = 320
@@ -47,31 +54,78 @@ async function unlockOrientationIfPossible(): Promise<void> {
   await unlockPlayerOrientationSafe()
 }
 
-type ExpandTarget = {
+export type ExpandTarget = {
   video?: HTMLVideoElement | null
   root?: HTMLElement | null
 }
 
 /**
- * Detect short watch surface from DOM only.
- * Used by the thin router — long/short enter paths do not share orientation logic.
+ * @deprecated DOM probe — debug only. Expand routing uses {@link getPlaybackPresentationShape}.
  */
 export function isShortWatchSurface(root?: HTMLElement | null, video?: HTMLVideoElement | null): boolean {
-  const el = root ?? video
-  if (!el) {
-    return Boolean(
-      document.querySelector('.safetube-shorts-lane, [data-format="short"], .safetube-watch-stage--short')
-    )
-  }
-  return (
-    el.closest('[data-format="short"]') != null ||
-    el.closest('.safetube-watch-stage--short') != null ||
-    el.closest('.safetube-shorts-lane') != null ||
-    el.closest('[aria-roledescription="shorts player"]') != null
-  )
+  return diagnoseShortWatchSurface(root, video).isShort
 }
 
-/** Wait until orientation / visualViewport settle — failures still resolve (never block theater). */
+export type ShortWatchSurfaceDiagnosis = {
+  isShort: boolean
+  probeFrom: 'root' | 'video' | 'document-fallback' | 'none'
+  rootTag: string | null
+  checks: {
+    dataFormatShort: boolean
+    dataFormatOnClosest: string | null
+    watchStageShortClass: boolean
+    watchStageClassList: string | null
+    shortsLane: boolean
+    ariaShortsPlayer: boolean
+    documentHasShortMarker: boolean
+  }
+}
+
+/** Detailed probe for expand-router debug overlay. */
+export function diagnoseShortWatchSurface(
+  root?: HTMLElement | null,
+  video?: HTMLVideoElement | null
+): ShortWatchSurfaceDiagnosis {
+  const el = root ?? video ?? null
+  const closestFormat = el?.closest?.('[data-format]') as HTMLElement | null
+  const closestStage = el?.closest?.('.safetube-watch-stage') as HTMLElement | null
+  const dataFormatShort = el != null && el.closest('[data-format="short"]') != null
+  const watchStageShortClass = el != null && el.closest('.safetube-watch-stage--short') != null
+  const shortsLane = el != null && el.closest('.safetube-shorts-lane') != null
+  const ariaShortsPlayer = el != null && el.closest('[aria-roledescription="shorts player"]') != null
+  const documentHasShortMarker = Boolean(
+    document.querySelector(
+      '.safetube-shorts-lane, [data-format="short"], .safetube-watch-stage--short, [aria-roledescription="shorts player"]'
+    )
+  )
+
+  let isShort = false
+  let probeFrom: ShortWatchSurfaceDiagnosis['probeFrom'] = 'none'
+  if (el) {
+    probeFrom = root ? 'root' : 'video'
+    isShort = dataFormatShort || watchStageShortClass || shortsLane || ariaShortsPlayer
+  } else {
+    probeFrom = 'document-fallback'
+    isShort = documentHasShortMarker
+  }
+
+  return {
+    isShort,
+    probeFrom,
+    rootTag: root ? `${root.tagName}.${root.className}` : null,
+    checks: {
+      dataFormatShort,
+      dataFormatOnClosest: closestFormat?.getAttribute('data-format') ?? null,
+      watchStageShortClass,
+      watchStageClassList: closestStage?.className ?? null,
+      shortsLane,
+      ariaShortsPlayer,
+      documentHasShortMarker,
+    },
+  }
+}
+
+/** Wait until orientation / visualViewport settle — long expand only (unchanged). */
 async function waitForViewportSettle(): Promise<void> {
   await new Promise<void>((resolve) => {
     let settled = false
@@ -107,6 +161,85 @@ async function waitForViewportSettle(): Promise<void> {
     window.visualViewport?.addEventListener('resize', onResize)
     window.setTimeout(finish, 480)
   })
+}
+
+function isPortraitViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(orientation: portrait)').matches
+}
+
+export type ShortPortraitWaitResult = {
+  reason:
+    | 'already-portrait'
+    | 'plugin-config-matched'
+    | 'plugin-config-timeout'
+    | 'mql-change'
+    | 'mql-timeout'
+  portraitBefore: boolean
+  portraitAfter: boolean
+  plugin?: NativeOrientationLockResult | null
+}
+
+/**
+ * Short expand only: lock portrait, then wait until the viewport is actually portrait.
+ * Android: MediaPlayback.setOrientationLock resolves after Configuration matches.
+ * Web / fallback: matchMedia('(orientation: portrait)') change (abort after 2.5s).
+ */
+async function lockAndWaitForPortrait(): Promise<ShortPortraitWaitResult> {
+  const portraitBefore = isPortraitViewport()
+  const plugin = (await lockPlayerOrientation('portrait')) as NativeOrientationLockResult | void
+  const pluginResult =
+    plugin && typeof plugin === 'object' ? (plugin as NativeOrientationLockResult) : null
+
+  if (pluginResult) {
+    if (pluginResult.applied) {
+      return {
+        reason: portraitBefore ? 'already-portrait' : 'plugin-config-matched',
+        portraitBefore,
+        portraitAfter: isPortraitViewport(),
+        plugin: pluginResult,
+      }
+    }
+    // Configuration wait timed out — fall through to matchMedia
+  } else if (isPortraitViewport()) {
+    return {
+      reason: 'already-portrait',
+      portraitBefore,
+      portraitAfter: true,
+      plugin: pluginResult,
+    }
+  }
+
+  const mqlReason = await new Promise<'mql-change' | 'mql-timeout'>((resolve) => {
+    const mql = window.matchMedia('(orientation: portrait)')
+    if (mql.matches) {
+      resolve('mql-change')
+      return
+    }
+    let settled = false
+    const done = (reason: 'mql-change' | 'mql-timeout') => {
+      if (settled) return
+      settled = true
+      mql.removeEventListener('change', onChange)
+      resolve(reason)
+    }
+    const onChange = () => {
+      if (mql.matches) done('mql-change')
+    }
+    mql.addEventListener('change', onChange)
+    window.setTimeout(() => done('mql-timeout'), 2500)
+  })
+
+  let reason: ShortPortraitWaitResult['reason'] = mqlReason
+  if (pluginResult?.timedOut && mqlReason === 'mql-timeout') {
+    reason = 'plugin-config-timeout'
+  }
+
+  return {
+    reason,
+    portraitBefore,
+    portraitAfter: isPortraitViewport(),
+    plugin: pluginResult,
+  }
 }
 
 /**
@@ -155,9 +288,23 @@ export async function enterLongVideoExpand(opts: ExpandTarget): Promise<void> {
   }
 }
 
+function rectSnapshot(el: Element | null) {
+  if (!el) return null
+  const r = el.getBoundingClientRect()
+  return {
+    width: Math.round(r.width),
+    height: Math.round(r.height),
+    top: Math.round(r.top),
+    left: Math.round(r.left),
+  }
+}
+
 /**
- * Short expand only: portrait lock + short theater.
+ * Short expand only: wait for real portrait, then short theater.
  * Never uses native <video> fullscreen (Android forces landscape).
+ * Stage CSS fills the fixed player-root (no svh/svw race).
+ *
+ * TEMP: on-screen + console debug overlay (shortExpandDebug) — remove after diagnosis.
  */
 export async function enterShortVideoExpand(opts: ExpandTarget): Promise<void> {
   if (isPlayerExpanded()) {
@@ -167,14 +314,46 @@ export async function enterShortVideoExpand(opts: ExpandTarget): Promise<void> {
   }
   const root = opts.root
 
+  shortExpandDebugClear()
+  shortExpandDebug('1.before lockAndWaitForPortrait', {
+    matchMediaPortrait: isPortraitViewport(),
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+  })
+
+  let waitResult: ShortPortraitWaitResult | null = null
   try {
-    await lockPlayerOrientation('portrait')
-    await waitForViewportSettle()
-  } catch {
-    /* continue — class theater still fills the viewport */
+    waitResult = await lockAndWaitForPortrait()
+    shortExpandDebug('2.lockAndWaitForPortrait done', {
+      reason: waitResult.reason,
+      portraitBefore: waitResult.portraitBefore,
+      portraitAfter: waitResult.portraitAfter,
+      pluginApplied: waitResult.plugin?.applied ?? null,
+      pluginTimedOut: waitResult.plugin?.timedOut ?? null,
+      pluginAttempts: waitResult.plugin?.attempts ?? null,
+      pluginOrientation: waitResult.plugin?.orientation ?? null,
+    })
+  } catch (err) {
+    shortExpandDebug('2.lockAndWaitForPortrait threw', String(err))
   }
 
   enterShortVideoTheater(root)
+  shortExpandDebug('3.after enterShortVideoTheater html.className', document.documentElement.className)
+
+  // rAF so theater CSS has a chance to apply before measuring
+  await new Promise<void>((r) => requestAnimationFrame(() => r()))
+
+  shortExpandDebug('4.stage rect', rectSnapshot(document.querySelector('.safetube-player-stage')))
+  shortExpandDebug(
+    '5.player-root rect',
+    rectSnapshot(root ?? document.querySelector('.safetube-player-root'))
+  )
+  shortExpandDebug('6.viewport', {
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    matchMediaPortrait: isPortraitViewport(),
+  })
+
   requestPlayerChromeHold()
 
   try {
@@ -194,10 +373,34 @@ export async function enterShortVideoExpand(opts: ExpandTarget): Promise<void> {
 
 /**
  * Thin router for existing call sites (CleanPlayer / gestures).
- * Detection happens once; then a dedicated long or short machine runs.
+ * Routes from authoritative presentation shape — never from DOM markers.
+ * Content shape (Short vs long) remains separate and unchanged.
  */
 export async function enterPlayerGestureFullscreen(opts: ExpandTarget): Promise<void> {
-  if (isShortWatchSurface(opts.root, opts.video)) {
+  shortExpandDebugClear()
+  const contentShape = getPlaybackContentShape()
+  const presentationShape = resolvePresentationShapeForExpand()
+  const domDiagnosis = diagnoseShortWatchSurface(opts.root, opts.video)
+  shortExpandDebug('router.presentationShape', {
+    presentationShape,
+    contentShape,
+    willEnter:
+      presentationShape === 'portrait' ? 'enterShortVideoExpand' : 'enterLongVideoExpand',
+    rootPresent: Boolean(opts.root),
+    videoPresent: Boolean(opts.video),
+    note: 'Expand geometry from presentationShape — contentShape is product classification only.',
+  })
+  shortExpandDebug('router.domDiagnosis (debug only)', {
+    isShort: domDiagnosis.isShort,
+    dataFormatOnClosest: domDiagnosis.checks.dataFormatOnClosest,
+    watchStageShortClass: domDiagnosis.checks.watchStageShortClass,
+  })
+
+  // Set theater playerMode before async portrait lock / DOM — prevents sticky-mini
+  // fixed/transform wrapper from constraining the theater player-root (1.1.77 regression).
+  setPlaybackPlayerMode(theaterModeForPresentation(presentationShape))
+
+  if (presentationShape === 'portrait') {
     await enterShortVideoExpand(opts)
     return
   }

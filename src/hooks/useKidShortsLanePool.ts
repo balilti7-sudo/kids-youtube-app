@@ -21,28 +21,37 @@ type ChannelVideoRow = {
   fromShortsPlaylist?: boolean
 }
 
-function videoLooksLikeShort(input: {
-  videoId: string
-  title: string
-  thumbnail?: string | null
-  durationSeconds?: number | null
-  fromShortsPlaylist?: boolean
-}): boolean {
+function videoLooksLikeShort(
+  input: {
+    videoId: string
+    title: string
+    thumbnail?: string | null
+    durationSeconds?: number | null
+    fromShortsPlaylist?: boolean
+  },
+  portraitThumbnailIds?: ReadonlySet<string>
+): boolean {
   if (input.fromShortsPlaylist) return true
-  return belongsOnShortsShelf({
-    title: input.title,
-    durationSeconds: input.durationSeconds ?? null,
-    youtubeVideoId: input.videoId,
-    thumbnail_url: input.thumbnail ?? null,
-    watchUrl: buildYoutubeWatchUrl(input.videoId),
-  })
+  return belongsOnShortsShelf(
+    {
+      title: input.title,
+      durationSeconds: input.durationSeconds ?? null,
+      youtubeVideoId: input.videoId,
+      thumbnail_url: input.thumbnail ?? null,
+      watchUrl: input.fromShortsPlaylist
+        ? `https://www.youtube.com/shorts/${encodeURIComponent(input.videoId)}`
+        : buildYoutubeWatchUrl(input.videoId),
+    },
+    portraitThumbnailIds
+  )
 }
 
 function mergeShortsPool(
   cached: ShortsLaneItem[],
   channelVideos: ChannelVideoRow[],
   activeChannel: ChildAllowedChannel | null,
-  tagMap: Map<string, ChannelContentTag[]>
+  tagMap: Map<string, ChannelContentTag[]>,
+  portraitThumbnailIds?: ReadonlySet<string>
 ): ShortsLaneItem[] {
   const byId = new Map<string, ShortsLaneItem>()
   for (const item of cached) {
@@ -53,13 +62,16 @@ function mergeShortsPool(
     for (const video of channelVideos) {
       if (shouldHideFromChildBrowse(video.title, video.liveBroadcastContent ?? 'none')) continue
       if (
-        !videoLooksLikeShort({
-          videoId: video.videoId,
-          title: video.title,
-          thumbnail: video.thumbnail,
-          durationSeconds: video.durationSeconds,
-          fromShortsPlaylist: video.fromShortsPlaylist,
-        })
+        !videoLooksLikeShort(
+          {
+            videoId: video.videoId,
+            title: video.title,
+            thumbnail: video.thumbnail,
+            durationSeconds: video.durationSeconds,
+            fromShortsPlaylist: video.fromShortsPlaylist,
+          },
+          portraitThumbnailIds
+        )
       )
         continue
       byId.set(
@@ -88,7 +100,8 @@ export function useKidShortsLanePool(
   channelVideos: ChannelVideoRow[],
   activeChannel: ChildAllowedChannel | null,
   /** Load cross-channel cache only when Shorts Lane is open — avoids heavy RPC on kid boot. */
-  enabled: boolean
+  enabled: boolean,
+  portraitThumbnailIds?: ReadonlySet<string>
 ) {
   const [cachedPool, setCachedPool] = useState<ShortsLaneItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -136,11 +149,14 @@ export function useKidShortsLanePool(
         if (!id) continue
         if (shouldHideFromChildBrowse(video.title, 'none')) continue
         if (
-          !videoLooksLikeShort({
-            videoId: id,
-            title: video.title,
-            thumbnail: video.thumbnail_url,
-          })
+          !videoLooksLikeShort(
+            {
+              videoId: id,
+              title: video.title,
+              thumbnail: video.thumbnail_url,
+            },
+            portraitThumbnailIds
+          )
         ) {
           continue
         }
@@ -169,11 +185,11 @@ export function useKidShortsLanePool(
     return () => {
       cancelled = true
     }
-  }, [accessToken, enabled, channelKey, channels, tagMap])
+  }, [accessToken, enabled, channelKey, channels, tagMap, portraitThumbnailIds])
 
   const pool = useMemo(
-    () => mergeShortsPool(cachedPool, channelVideos, activeChannel, tagMap),
-    [cachedPool, channelVideos, activeChannel, tagMap]
+    () => mergeShortsPool(cachedPool, channelVideos, activeChannel, tagMap, portraitThumbnailIds),
+    [cachedPool, channelVideos, activeChannel, tagMap, portraitThumbnailIds]
   )
 
   return { pool, loading }

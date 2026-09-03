@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Maximize2, X } from 'lucide-react'
-import type { VideoFormat } from '../../lib/videoFormatClassification'
+import type { ContentShape } from '../../lib/videoFormatClassification'
 import { useStickyMiniPlayer } from '../../hooks/useStickyMiniPlayer'
 import { CleanPlayer } from '../player/CleanPlayer'
 import { PlayerAmbientFrame } from '../player/PlayerAmbientFrame'
 import { WatchBackButton } from '../player/WatchBackButton'
+import { PlayerModeProvider } from '../../contexts/PlayerModeContext'
 import { cn } from '../../lib/utils'
 
 export type ChildWatchPlayerShellProps = {
@@ -12,7 +13,7 @@ export type ChildWatchPlayerShellProps = {
   title: string
   channelTitle?: string
   posterUrl?: string | null
-  format: VideoFormat
+  format: ContentShape
   blankVideoFrame?: boolean
   durationSeconds?: number | null
   onPreviousTrack?: () => void
@@ -30,20 +31,21 @@ const MINI_DOUBLE_TAP_MS = 280
  * Watch Surface — layout/geometry only around CleanPlayer.
  * MiniPlayer: same mounted CleanPlayer — drag, double-tap size, tap restore, X dismiss.
  */
-function ChildWatchPlayerShellInner({
-  videoId,
-  title,
-  channelTitle,
-  posterUrl,
-  format,
-  blankVideoFrame = false,
-  durationSeconds,
-  onPreviousTrack,
-  onNextTrack,
-  hasNextTrack,
-  onMiniDismiss,
-  onBack,
-}: ChildWatchPlayerShellProps) {
+function ChildWatchPlayerShellBody(props: ChildWatchPlayerShellProps) {
+  const {
+    videoId,
+    title,
+    channelTitle,
+    posterUrl,
+    format,
+    blankVideoFrame = false,
+    durationSeconds,
+    onPreviousTrack,
+    onNextTrack,
+    hasNextTrack,
+    onMiniDismiss,
+    onBack,
+  } = props
   const isShort = format === 'short'
   const onNextRef = useRef(onNextTrack)
   const onPrevRef = useRef(onPreviousTrack)
@@ -250,6 +252,14 @@ function ChildWatchPlayerShellInner({
         </div>
       </div>
     </>
+  )
+}
+
+function ChildWatchPlayerShellInner(props: ChildWatchPlayerShellProps) {
+  return (
+    <PlayerModeProvider contentShape={props.format}>
+      <ChildWatchPlayerShellBody {...props} />
+    </PlayerModeProvider>
   )
 }
 

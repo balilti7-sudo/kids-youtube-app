@@ -33,13 +33,23 @@ export type NativeMediaSessionUpdate = {
 
 export type NativeOrientationLockMode = 'landscape' | 'portrait' | 'unlocked'
 
+/** Returned by Android setOrientationLock when mode is portrait (Configuration wait). */
+export type NativeOrientationLockResult = {
+  applied?: boolean
+  orientation?: string
+  attempts?: number
+  timedOut?: boolean
+}
+
 export interface MediaPlaybackPlugin {
   start(options?: NativeMediaSessionUpdate): Promise<void>
   updateSession(options: NativeMediaSessionUpdate): Promise<void>
   stop(): Promise<void>
   adjustVolume(options: { direction: 'raise' | 'lower' | 'mute' | 'toggleMute' }): Promise<void>
   /** Fullscreen theater — Activity orientation lock (layout only). */
-  setOrientationLock(options: { mode: NativeOrientationLockMode }): Promise<void>
+  setOrientationLock(options: {
+    mode: NativeOrientationLockMode
+  }): Promise<NativeOrientationLockResult | void>
   addListener(
     eventName: 'mediaAction',
     listenerFunc: (event: NativeMediaActionEvent) => void
@@ -170,10 +180,12 @@ export async function adjustNativeMusicVolume(
 }
 
 /** Activity orientation lock for fullscreen theater (does not touch playback). */
-export async function setNativeOrientationLock(mode: NativeOrientationLockMode): Promise<void> {
+export async function setNativeOrientationLock(
+  mode: NativeOrientationLockMode
+): Promise<NativeOrientationLockResult | void> {
   if (!Capacitor.isNativePlatform()) return
   try {
-    await MediaPlayback.setOrientationLock({ mode })
+    return await MediaPlayback.setOrientationLock({ mode })
   } catch (err) {
     console.warn('[mediaPlayback] setOrientationLock failed', err)
     throw err

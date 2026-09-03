@@ -4,7 +4,10 @@
  * Web: best-effort Screen Orientation API.
  */
 import { Capacitor } from '@capacitor/core'
-import { setNativeOrientationLock } from './nativeMediaPlayback'
+import {
+  setNativeOrientationLock,
+  type NativeOrientationLockResult,
+} from './nativeMediaPlayback'
 
 export type PlayerOrientationMode = 'landscape' | 'portrait' | 'unlocked'
 
@@ -15,13 +18,14 @@ export function getPlayerOrientationLock(): PlayerOrientationMode {
   return lastRequestedMode
 }
 
-export async function lockPlayerOrientation(mode: PlayerOrientationMode): Promise<void> {
+export async function lockPlayerOrientation(
+  mode: PlayerOrientationMode
+): Promise<NativeOrientationLockResult | void> {
   lastRequestedMode = mode
 
   if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
     try {
-      await setNativeOrientationLock(mode)
-      return
+      return await setNativeOrientationLock(mode)
     } catch {
       /* fall through to web API */
     }

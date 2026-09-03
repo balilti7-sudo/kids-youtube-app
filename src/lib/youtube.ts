@@ -1596,7 +1596,39 @@ async function fetchChannelShortsViaSearch(
   return out
 }
 
-/** Fetch the channel Shorts tab (UUSH playlist, then short-duration search). */
+const CHANNEL_SHORTS_CACHE_PREFIX = 'safetube_channel_shorts_v1_'
+
+function readChannelShortsCache(channelId: string): ChannelVideoItem[] {
+  try {
+    const raw = localStorage.getItem(`${CHANNEL_SHORTS_CACHE_PREFIX}${channelId}`)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (v): v is ChannelVideoItem =>
+        typeof v === 'object' && v != null && typeof (v as ChannelVideoItem).videoId === 'string'
+    )
+  } catch {
+    return []
+  }
+}
+
+function writeChannelShortsCache(channelId: string, videos: ChannelVideoItem[]): void {
+  try {
+    localStorage.setItem(
+      `${CHANNEL_SHORTS_CACHE_PREFIX}${channelId}`,
+      JSON.stringify(videos.slice(0, 100))
+    )
+  } catch {
+    /* storage full/unavailable — cache is best-effort */
+  }
+}
+
+/**
+ * Fetch the channel Shorts tab (UUSH playlist, then short-duration search).
+ * Result is cached per channel in localStorage so transient API/quota failures
+ * never blank the Shorts tab — stale Shorts beat an empty screen.
+ */
 export async function fetchChannelShortsPage(
   channelId: string,
   options?: { maxPages?: number; pageToken?: string | null }
@@ -1630,6 +1662,17 @@ export async function fetchChannelShortsPage(
     videos = await fetchChannelShortsViaSearch(id, key)
     nextPageToken = null
     hasMore = false
+  }
+
+  if (!options?.pageToken) {
+    if (videos.length > 0) {
+      writeChannelShortsCache(id, videos)
+    } else {
+      // Live sources failed or returned nothing — serve the last known Shorts list.
+      videos = readChannelShortsCache(id)
+      nextPageToken = null
+      hasMore = false
+    }
   }
 
   return {

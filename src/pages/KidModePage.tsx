@@ -55,10 +55,20 @@ import { filterVideosByTitle } from '../lib/filterVideosByTitle'
 import {
   buildYoutubeShortsUrl,
   buildYoutubeWatchUrl,
+  classifyContentShape,
+  shouldRouteToShortsLane,
   type VideoFormat,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
-import { classifyWatchFormat, filterSearchToWhitelistedChannels, isShortsBlockedForProfile } from '../lib/childContentSafety'
+import { filterSearchToWhitelistedChannels, isShortsBlockedForProfile } from '../lib/childContentSafety'
+import { setPlaybackContentShape } from '../lib/playbackContentShape'
+import { setPlaybackPresentationShape } from '../lib/playbackPresentationShape'
+import {
+  setPlaybackPresentationContext,
+  setPlaybackPortraitThumbnailIds,
+} from '../lib/playbackPresentationContext'
+import { inferPresentationShape } from '../lib/presentationShape'
+import { usePortraitVideoThumbnailIds } from '../hooks/usePortraitVideoThumbnailIds'
 import { buildShortsAwareNavQueue } from '../lib/shortsNavQueue'
 import { shouldHideFromChildBrowse } from '../lib/liveStreamPolicy'
 import { policyFromDeviceFields, syncParentalControlPolicy } from '../lib/syncParentalControlPolicy'
@@ -89,12 +99,12 @@ import { PARENT_PIN_DIGIT_MAX } from '../lib/parentPin'
 import { KidTagFilterPills } from '../components/kid/KidTagFilterPills'
 import { KidRecommendedChannelsRow } from '../components/kid/KidRecommendedChannelsRow'
 import { KidShortsLane } from '../components/kid/KidShortsLane'
+import { buildShortsLaneItem } from '../lib/shortsFeedRank'
 import { useKidBrowseChannels } from '../hooks/useKidBrowseChannels'
 import { useKidShortsFeed } from '../hooks/useKidShortsFeed'
 import { useKidShortsLanePool } from '../hooks/useKidShortsLanePool'
 import { useChannelYoutubeShorts } from '../hooks/useChannelYoutubeShorts'
 import type { TagPreference } from '../lib/contentTags/types'
-import { itemLooksLikeShort } from '../lib/shortsNavQueue'
 import { RemoveChannelModal } from '../components/channels/RemoveChannelModal'
 import { TopicDiscoveryModal } from '../components/channels/TopicDiscoveryModal'
 import { ChannelAddedSuccessModal } from '../components/channels/ChannelAddedSuccessModal'
@@ -247,7 +257,7 @@ function KidModePageInner() {
         : buildYoutubeWatchUrl(video.videoId),
       format: video.fromShortsPlaylist
         ? 'short'
-        : classifyWatchFormat({
+        : classifyContentShape({
             durationSeconds: video.durationSeconds,
             youtubeVideoId: video.videoId,
             title: video.title,
@@ -259,6 +269,12 @@ function KidModePageInner() {
       liveBroadcastContent: video.liveBroadcastContent ?? 'none',
     }))
   }, [filteredVideos])
+
+  const portraitThumbnailIds = usePortraitVideoThumbnailIds(browseVideos)
+
+  useEffect(() => {
+    setPlaybackPortraitThumbnailIds(portraitThumbnailIds)
+  }, [portraitThumbnailIds])
 
   const channelSearchDropdownItems = useMemo(
     () =>
@@ -460,14 +476,34 @@ function KidModePageInner() {
     channels,
     channelVideosForBrowse,
     activeChannel,
-    allowShorts && shortsLaneOpen
+    allowShorts && (shortsLaneOpen || channelContentTab === 'shorts'),
+    portraitThumbnailIds
   )
-  const { feed: shortsLaneFeed, seedIndex: shortsLaneSeedIndex } = useKidShortsFeed(
+  const { feed: rankedShortsLaneFeed, seedIndex: shortsLaneSeedIndex } = useKidShortsFeed(
     shortsLanePool,
     tagPreferences,
     activeTagSlug,
     shortsLaneSeedVideoId
   )
+  const shortsLaneFeed = useMemo(() => {
+    if (rankedShortsLaneFeed.length > 0) return rankedShortsLaneFeed
+    const seed = shortsLaneSeedVideoId
+      ? channelVideosForBrowse.find((video) => video.videoId === shortsLaneSeedVideoId)
+      : null
+    if (!seed || !activeChannel) return rankedShortsLaneFeed
+    return [
+      buildShortsLaneItem({
+        videoId: seed.videoId,
+        title: seed.title,
+        thumbnail: seed.thumbnail || null,
+        youtubeChannelId: activeChannel.youtube_channel_id,
+        channelName: activeChannel.channel_name,
+        channelThumbnail: activeChannel.channel_thumbnail,
+        durationSeconds: seed.durationSeconds ?? null,
+        publishedAt: seed.publishedAt ?? null,
+      }),
+    ]
+  }, [rankedShortsLaneFeed, shortsLaneSeedVideoId, channelVideosForBrowse, activeChannel])
 
   const exitShortsSession = useCallback(() => {
     const ctx = browseNavContextRef.current
@@ -509,11 +545,27 @@ function KidModePageInner() {
           priorActiveVideoId: null,
         })
       }
+      const video = channelVideosForBrowse.find((v) => v.videoId === videoId)
+      setPlaybackContentShape('short')
+      setPlaybackPresentationContext({
+        youtubeVideoId: videoId,
+        thumbnail_url: video?.thumbnail || null,
+        fromShortsPlaylist: Boolean(video?.fromShortsPlaylist),
+      })
+      setPlaybackPresentationShape(
+        inferPresentationShape({
+          youtubeVideoId: videoId,
+          thumbnail_url: video?.thumbnail || null,
+          fromShortsPlaylist: Boolean(video?.fromShortsPlaylist),
+          contentShape: 'short',
+          portraitThumbnailIds,
+        })
+      )
       setShortsLaneSeedVideoId(videoId)
       setShortsLaneOpen(true)
       setActiveVideoId(videoId)
     },
-    [shortsLaneOpen, channelContentTab]
+    [shortsLaneOpen, channelContentTab, channelVideosForBrowse, portraitThumbnailIds]
   )
 
   const { handlePlayerBack } = usePlayerOwnedBackNavigation({
@@ -543,11 +595,18 @@ function KidModePageInner() {
 
   useEffect(() => {
     if (!shortsLaneOpen || shortsLanePoolLoading) return
-    if (shortsLaneFeed.length === 0) {
+    if (shortsLaneFeed.length === 0 && !shortsLaneSeedVideoId) {
       handleCloseShortsLane()
       toast.error(t('shortsLane.emptyFeed'))
     }
-  }, [shortsLaneOpen, shortsLanePoolLoading, shortsLaneFeed.length, t, handleCloseShortsLane])
+  }, [
+    shortsLaneOpen,
+    shortsLanePoolLoading,
+    shortsLaneFeed.length,
+    shortsLaneSeedVideoId,
+    t,
+    handleCloseShortsLane,
+  ])
 
   useEffect(() => {
     if (activeTagSlug && !contentBrowse.filterTags.some((t) => t.slug === activeTagSlug)) {
@@ -610,29 +669,49 @@ function KidModePageInner() {
         allowShorts &&
         playAs !== 'long' &&
         (playAs === 'short' ||
-          itemLooksLikeShort({
-            title: video.title,
-            durationSeconds: video.durationSeconds ?? null,
-            youtubeVideoId: video.videoId,
-            thumbnail_url: video.thumbnail || null,
-            watchUrl: buildYoutubeWatchUrl(video.videoId),
-            format: classifyWatchFormat({
-              durationSeconds: video.durationSeconds,
-              youtubeVideoId: video.videoId,
+          Boolean(video.fromShortsPlaylist) ||
+          shouldRouteToShortsLane(
+            {
               title: video.title,
-              thumbnail: video.thumbnail,
-            }),
-          }))
+              durationSeconds: video.durationSeconds ?? null,
+              youtubeVideoId: video.videoId,
+              thumbnail_url: video.thumbnail || null,
+              watchUrl: video.fromShortsPlaylist
+                ? buildYoutubeShortsUrl(video.videoId)
+                : buildYoutubeWatchUrl(video.videoId),
+              format: classifyContentShape({
+                durationSeconds: video.durationSeconds,
+                youtubeVideoId: video.videoId,
+                title: video.title,
+                thumbnail: video.thumbnail,
+              }),
+            },
+            portraitThumbnailIds
+          ))
       ) {
         openShortsLane(videoId)
         return
       }
-      setPlaybackFormat(
-        classifyWatchFormat({
-          durationSeconds: video.durationSeconds,
+      const shape = classifyContentShape({
+        durationSeconds: video.durationSeconds,
+        youtubeVideoId: video.videoId,
+        title: video.title,
+        thumbnail: video.thumbnail,
+      })
+      setPlaybackFormat(shape)
+      setPlaybackContentShape(shape)
+      setPlaybackPresentationContext({
+        youtubeVideoId: video.videoId,
+        thumbnail_url: video.thumbnail || null,
+        fromShortsPlaylist: Boolean(video.fromShortsPlaylist),
+      })
+      setPlaybackPresentationShape(
+        inferPresentationShape({
           youtubeVideoId: video.videoId,
-          title: video.title,
-          thumbnail: video.thumbnail,
+          thumbnail_url: video.thumbnail || null,
+          fromShortsPlaylist: video.fromShortsPlaylist,
+          contentShape: shape,
+          portraitThumbnailIds,
         })
       )
       if (!activeVideoId && !shortsLaneOpen) {
@@ -653,8 +732,25 @@ function KidModePageInner() {
       activeVideoId,
       shortsLaneOpen,
       channelContentTab,
+      portraitThumbnailIds,
     ]
   )
+
+  /** Refresh presentation when async portrait thumbnail probe completes (expand-only axis). */
+  useEffect(() => {
+    if (!activeVideoId) return
+    const video = channelVideosForBrowse.find((v) => v.videoId === activeVideoId)
+    if (!video) return
+    setPlaybackPresentationShape(
+      inferPresentationShape({
+        youtubeVideoId: activeVideoId,
+        thumbnail_url: video.thumbnail || null,
+        fromShortsPlaylist: video.fromShortsPlaylist,
+        contentShape: playbackFormat,
+        portraitThumbnailIds,
+      })
+    )
+  }, [activeVideoId, playbackFormat, channelVideosForBrowse, portraitThumbnailIds])
 
   const handleWatchChannelClick = useCallback(() => {
     if (!activeChannelId) return
@@ -695,7 +791,7 @@ function KidModePageInner() {
       channelTitle: activeVideo.channelTitle || '',
       durationSeconds: activeVideo.durationSeconds,
       thumbnail: activeVideo.thumbnail,
-      format: classifyWatchFormat({
+      format: classifyContentShape({
         durationSeconds: activeVideo.durationSeconds,
         youtubeVideoId: activeVideo.videoId,
         title: activeVideo.title,
@@ -707,7 +803,7 @@ function KidModePageInner() {
         ...v,
         youtube_video_id: v.videoId,
         thumbnail: v.thumbnail,
-        format: classifyWatchFormat({
+        format: classifyContentShape({
           durationSeconds: v.durationSeconds,
           youtubeVideoId: v.videoId,
           title: v.title,

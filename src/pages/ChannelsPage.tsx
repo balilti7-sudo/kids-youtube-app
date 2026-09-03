@@ -35,6 +35,8 @@ import {
   stabilizeWatchableVideoList,
   toWatchableVideo,
   buildYoutubeWatchUrl,
+  classifyContentShape,
+  shouldRouteToShortsLane,
   type VideoFormat,
   type WatchableVideoBase,
 } from '../lib/videoFormatClassification'
@@ -45,8 +47,16 @@ import { LionProgressionProvider } from '../contexts/LionProgressionContext'
 import { ChildRuntimeProvider, useChildRuntimeOptional } from '../contexts/ChildRuntimeContext'
 import { LionProfileButton } from '../components/kid/LionProfileButton'
 import { DailyWatchBudgetTracker } from '../components/kid/DailyWatchBudgetTracker'
-import { isShortsBlockedForProfile, classifyWatchFormat } from '../lib/childContentSafety'
-import { buildShortsAwareNavQueue, itemLooksLikeShort } from '../lib/shortsNavQueue'
+import { isShortsBlockedForProfile } from '../lib/childContentSafety'
+import { setPlaybackContentShape } from '../lib/playbackContentShape'
+import { setPlaybackPresentationShape } from '../lib/playbackPresentationShape'
+import {
+  setPlaybackPresentationContext,
+  setPlaybackPortraitThumbnailIds,
+} from '../lib/playbackPresentationContext'
+import { inferPresentationShape } from '../lib/presentationShape'
+import { usePortraitVideoThumbnailIds } from '../hooks/usePortraitVideoThumbnailIds'
+import { buildShortsAwareNavQueue } from '../lib/shortsNavQueue'
 import { buildShortsLaneItem } from '../lib/shortsFeedRank'
 import { listHiddenVideoIdsForChild, listHiddenVideoIdsForDevice } from '../lib/hiddenVideos'
 import { toast } from 'sonner'
@@ -595,6 +605,12 @@ function ChannelsPageInner() {
     return filterVideosRespectingAllowShorts(withoutUpcoming, allowShorts)
   }, [playlistSourceVideos, videoSearch, allowShorts])
 
+  const portraitThumbnailIds = usePortraitVideoThumbnailIds(filteredVideos)
+
+  useEffect(() => {
+    setPlaybackPortraitThumbnailIds(portraitThumbnailIds)
+  }, [portraitThumbnailIds])
+
   const handleLoadMoreChannelVideos = useCallback(async () => {
     if (!selectedYoutubeChannelId || !selectedChannelDbId || videosLoadingMore) return
     const token = uploadsCursor?.nextPageToken
@@ -701,17 +717,28 @@ function ChannelsPageInner() {
 
   const shortsLaneFeed = useMemo(() => {
     if (!selectedChannel || !allowShorts) return []
-    return filteredVideos
-      .filter((video) =>
-        itemLooksLikeShort({
-          title: video.title,
-          durationSeconds: video.durationSeconds ?? null,
-          youtubeVideoId: video.youtube_video_id,
-          thumbnail_url: video.thumbnail_url,
-          watchUrl: buildYoutubeWatchUrl(video.youtube_video_id),
-          format: video.format,
-        })
-      )
+    const shortsIds = new Set(
+      channelShorts.items.filter((item) => item.fromShortsPlaylist).map((item) => item.videoId)
+    )
+    const feed = filteredVideos
+      .filter((video) => {
+        const fromShortsPlaylist =
+          shortsIds.has(video.youtube_video_id) || Boolean(video.watchUrl?.includes('/shorts/'))
+        return (
+          fromShortsPlaylist ||
+          shouldRouteToShortsLane(
+            {
+              title: video.title,
+              durationSeconds: video.durationSeconds ?? null,
+              youtubeVideoId: video.youtube_video_id,
+              thumbnail_url: video.thumbnail_url,
+              watchUrl: video.watchUrl ?? buildYoutubeWatchUrl(video.youtube_video_id),
+              format: video.format,
+            },
+            portraitThumbnailIds
+          )
+        )
+      })
       .map((video) =>
         buildShortsLaneItem({
           videoId: video.youtube_video_id,
@@ -724,7 +751,36 @@ function ChannelsPageInner() {
           publishedAt: video.publishedAt ?? null,
         })
       )
-  }, [filteredVideos, selectedChannel, allowShorts])
+    if (
+      shortsLaneSeedVideoId &&
+      !feed.some((item) => item.videoId === shortsLaneSeedVideoId)
+    ) {
+      const seed = videosWithChannelShorts.find((video) => video.youtube_video_id === shortsLaneSeedVideoId)
+      if (seed) {
+        feed.unshift(
+          buildShortsLaneItem({
+            videoId: seed.youtube_video_id,
+            title: seed.title,
+            thumbnail: seed.thumbnail_url,
+            youtubeChannelId: selectedChannel.youtube_channel_id,
+            channelName: selectedChannel.channel_name,
+            channelThumbnail: selectedChannel.channel_thumbnail,
+            durationSeconds: seed.durationSeconds ?? null,
+            publishedAt: seed.publishedAt ?? null,
+          })
+        )
+      }
+    }
+    return feed
+  }, [
+    filteredVideos,
+    selectedChannel,
+    allowShorts,
+    portraitThumbnailIds,
+    channelShorts.items,
+    shortsLaneSeedVideoId,
+    videosWithChannelShorts,
+  ])
 
   const shortsLaneSeedIndex = useMemo(() => {
     if (!shortsLaneSeedVideoId) return 0
@@ -775,12 +831,34 @@ function ChannelsPageInner() {
           watchStarted: false,
         })
       }
+      const video = videosWithChannelShorts.find((v) => v.youtube_video_id === videoId)
+      setPlaybackContentShape('short')
+      setPlaybackPresentationContext({
+        youtubeVideoId: videoId,
+        thumbnail_url: video?.thumbnail_url ?? null,
+        fromShortsPlaylist: Boolean(
+          channelShorts.items.some((item) => item.videoId === videoId && item.fromShortsPlaylist) ||
+            video?.watchUrl?.includes('/shorts/')
+        ),
+      })
+      setPlaybackPresentationShape(
+        inferPresentationShape({
+          youtubeVideoId: videoId,
+          thumbnail_url: video?.thumbnail_url ?? null,
+          fromShortsPlaylist: Boolean(
+            channelShorts.items.some((item) => item.videoId === videoId && item.fromShortsPlaylist) ||
+              video?.watchUrl?.includes('/shorts/')
+          ),
+          contentShape: 'short',
+          portraitThumbnailIds,
+        })
+      )
       setShortsLaneSeedVideoId(videoId)
       setShortsLaneOpen(true)
       setActiveVideoId(videoId)
       setWatchStarted(false)
     },
-    [shortsLaneOpen, channelContentTab]
+    [shortsLaneOpen, channelContentTab, videosWithChannelShorts, channelShorts.items, portraitThumbnailIds]
   )
 
   const { handlePlayerBack } = usePlayerOwnedBackNavigation({
@@ -863,14 +941,21 @@ function ChannelsPageInner() {
           playAs !== 'long' &&
           gateTarget &&
           (playAs === 'short' ||
-            itemLooksLikeShort({
-              title: gateTarget.title,
-              durationSeconds: gateTarget.durationSeconds ?? null,
-              youtubeVideoId: videoId,
-              thumbnail_url: gateTarget.thumbnail_url,
-              watchUrl: buildYoutubeWatchUrl(videoId),
-              format: gateTarget.format,
-            }))
+            shouldRouteToShortsLane(
+              {
+                title: gateTarget.title,
+                durationSeconds: gateTarget.durationSeconds ?? null,
+                youtubeVideoId: videoId,
+                thumbnail_url: gateTarget.thumbnail_url,
+                watchUrl: gateTarget.watchUrl ?? buildYoutubeWatchUrl(videoId),
+                format: gateTarget.format,
+              },
+              portraitThumbnailIds
+            ) ||
+            Boolean(
+              channelShorts.items.some((item) => item.videoId === videoId && item.fromShortsPlaylist) ||
+                gateTarget.watchUrl?.includes('/shorts/')
+            ))
         ) {
           if (snapshot) setPlayingVideo(snapshot)
           openShortsLane(videoId)
@@ -878,12 +963,30 @@ function ChannelsPageInner() {
         }
 
         if (snapshot) setPlayingVideo(snapshot)
-        setPlaybackFormat(
-          classifyWatchFormat({
-            durationSeconds: snapshot?.durationSeconds ?? gateTarget?.durationSeconds ?? null,
+        const shape = classifyContentShape({
+          durationSeconds: snapshot?.durationSeconds ?? gateTarget?.durationSeconds ?? null,
+          youtubeVideoId: videoId,
+          title: snapshot?.title ?? gateTarget?.title,
+          thumbnail: snapshot?.thumbnail_url ?? gateTarget?.thumbnail_url,
+        })
+        setPlaybackFormat(shape)
+        setPlaybackContentShape(shape)
+        const fromShortsPlaylist = Boolean(
+          channelShorts.items.some((item) => item.videoId === videoId && item.fromShortsPlaylist) ||
+            gateTarget?.watchUrl?.includes('/shorts/')
+        )
+        setPlaybackPresentationContext({
+          youtubeVideoId: videoId,
+          thumbnail_url: snapshot?.thumbnail_url ?? gateTarget?.thumbnail_url ?? null,
+          fromShortsPlaylist,
+        })
+        setPlaybackPresentationShape(
+          inferPresentationShape({
             youtubeVideoId: videoId,
-            title: snapshot?.title ?? gateTarget?.title,
-            thumbnail: snapshot?.thumbnail_url ?? gateTarget?.thumbnail_url,
+            thumbnail_url: snapshot?.thumbnail_url ?? gateTarget?.thumbnail_url ?? null,
+            fromShortsPlaylist,
+            contentShape: shape,
+            portraitThumbnailIds,
           })
         )
         logPlaybackStreamRequest(videoId, 'ChannelsPage.selectWatchVideo (play tap)')
@@ -908,8 +1011,30 @@ function ChannelsPageInner() {
       watchStarted,
       shortsLaneOpen,
       channelContentTab,
+      portraitThumbnailIds,
+      channelShorts.items,
     ]
   )
+
+  /** Refresh presentation when async portrait thumbnail probe completes (expand-only axis). */
+  useEffect(() => {
+    if (!activeVideoId) return
+    const gateTarget = videosWithChannelShorts.find((v) => v.youtube_video_id === activeVideoId) ?? null
+    if (!gateTarget) return
+    const fromShortsPlaylist = Boolean(
+      channelShorts.items.some((item) => item.videoId === activeVideoId && item.fromShortsPlaylist) ||
+        gateTarget.watchUrl?.includes('/shorts/')
+    )
+    setPlaybackPresentationShape(
+      inferPresentationShape({
+        youtubeVideoId: activeVideoId,
+        thumbnail_url: gateTarget.thumbnail_url,
+        fromShortsPlaylist,
+        contentShape: playbackFormat,
+        portraitThumbnailIds,
+      })
+    )
+  }, [activeVideoId, playbackFormat, videosWithChannelShorts, portraitThumbnailIds, channelShorts.items])
 
   useEffect(() => {
     if (!watchStarted || !activeVideoId || shortsLaneOpen) return

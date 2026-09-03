@@ -42,12 +42,17 @@ export function useChannelYoutubeShorts(youtubeChannelId: string | null | undefi
       if (gen !== genRef.current) return
       setLoading(false)
       if (result.error) {
-        setVideos([])
-        setItems([])
+        // Keep whatever we already have — an error must not blank the Shorts tab.
         setError(result.error.message)
         return
       }
       const rows = result.data?.videos ?? []
+      if (rows.length === 0) {
+        // Empty refresh (quota/network hiccup) — keep the previous non-empty list.
+        setItems((prev) => (prev.length > 0 ? prev : rows))
+        setVideos((prev) => (prev.length > 0 ? prev : []))
+        return
+      }
       setItems(rows)
       setVideos(rows.map(toShortsWatchable))
     })

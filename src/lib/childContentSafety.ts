@@ -1,8 +1,9 @@
 import {
   buildYoutubeWatchUrl,
+  classifyContentShape,
   isConfidentYoutubeShort,
+  type ContentShapeInput,
   type VideoFormat,
-  classifyYoutubeVideo,
 } from './videoFormatClassification'
 import { SHORTS_BLOCKING_ENABLED } from './parentalLimitsPolicy'
 
@@ -46,27 +47,7 @@ export function filterSearchToWhitelistedChannels<T extends { channelId?: string
   })
 }
 
-export function classifyWatchFormat(video: {
-  durationSeconds?: number | null
-  youtubeVideoId?: string | null
-  title?: string | null
-  thumbnail?: string | null
-}): VideoFormat {
-  // Playback shell must not flip to vertical Shorts layout on thumbnail guesses.
-  if (
-    isConfidentYoutubeShort({
-      title: video.title,
-      durationSeconds: video.durationSeconds,
-      youtubeVideoId: video.youtubeVideoId,
-      thumbnail_url: video.thumbnail,
-      watchUrl: video.youtubeVideoId ? buildYoutubeWatchUrl(video.youtubeVideoId) : null,
-    })
-  ) {
-    return 'short'
-  }
-  return classifyYoutubeVideo({
-    durationSeconds: video.durationSeconds,
-    youtubeVideoId: video.youtubeVideoId,
-    watchUrl: video.youtubeVideoId ? buildYoutubeWatchUrl(video.youtubeVideoId) : null,
-  })
+/** @deprecated Prefer {@link classifyContentShape} from `videoFormatClassification`. */
+export function classifyWatchFormat(video: ContentShapeInput): VideoFormat {
+  return classifyContentShape(video)
 }

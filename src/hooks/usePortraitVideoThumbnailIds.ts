@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import { dimensionsSuggestPortrait } from '../lib/presentationShape'
 
 function probeThumbnailPortrait(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image()
     img.referrerPolicy = 'no-referrer'
     img.onload = () => {
-      const w = img.naturalWidth
-      const h = img.naturalHeight
-      if (!w || !h) {
-        resolve(false)
-        return
-      }
-      resolve(h / w >= 1.12)
+      resolve(dimensionsSuggestPortrait(img.naturalWidth, img.naturalHeight))
     }
     img.onerror = () => resolve(false)
     img.src = url

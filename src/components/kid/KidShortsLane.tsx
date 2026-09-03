@@ -17,6 +17,7 @@ import { pauseAllPlayback } from '../../lib/playbackController'
 import { SHORTS_LANE_CALM_BREAK_EVERY, SHORTS_LANE_HEART_XP } from '../../config/shortsLane'
 import type { ShortsLaneItem } from '../../lib/shortsFeedRank'
 import { cn } from '../../lib/utils'
+import { PLAYER_THEATER_STATE_CHANGED } from '../../lib/playerTheater'
 
 type Props = {
   feed: ShortsLaneItem[]
@@ -47,6 +48,7 @@ export function KidShortsLane({
   /** YouTube-like clear screen — hide meta/chrome overlays. */
   const [cleanScreen, setCleanScreen] = useState(false)
   const [chromeVisible, setChromeVisible] = useState(true)
+  const [theaterShortActive, setTheaterShortActive] = useState(false)
   const swipeCountRef = useRef(0)
   const lastTapRef = useRef(0)
   const chromeHideTimerRef = useRef<number | null>(null)
@@ -73,6 +75,21 @@ export function KidShortsLane({
       if (chromeHideTimerRef.current != null) window.clearTimeout(chromeHideTimerRef.current)
     }
   }, [bumpShortsChrome])
+
+  // Keep Shorts swipe navigation usable while the player is in short theater mode.
+  // Theater makes `.safetube-player-root` a fixed overlay with a huge z-index,
+  // which would otherwise block the swipe handler (and makes minimize harder to click).
+  useEffect(() => {
+    const sync = () => {
+      setTheaterShortActive(
+        typeof document !== 'undefined' &&
+          document.documentElement.classList.contains('safetube-theater-short')
+      )
+    }
+    sync()
+    window.addEventListener(PLAYER_THEATER_STATE_CHANGED, sync)
+    return () => window.removeEventListener(PLAYER_THEATER_STATE_CHANGED, sync)
+  }, [])
 
   useEffect(() => {
     if (cleanScreen) {
@@ -138,12 +155,14 @@ export function KidShortsLane({
     bumpShortsChrome()
   }, [bumpShortsChrome])
 
+  const bottomDeadzonePx = theaterShortActive ? SHORTS_LANE_BOTTOM_DEADZONE_PX + 56 : SHORTS_LANE_BOTTOM_DEADZONE_PX
+
   const { containerRef, handlers, dragOffsetY, swiping } = useVerticalSwipeNav({
     enabled: feed.length > 1,
     onSwipeUp: goNext,
     onSwipeDown: goPrevious,
     thresholdPx: SHORTS_LANE_SWIPE_THRESHOLD_PX,
-    bottomDeadzonePx: SHORTS_LANE_BOTTOM_DEADZONE_PX,
+    bottomDeadzonePx,
   })
 
   const handleTopExitPointerDown = useCallback((e: React.PointerEvent) => {
@@ -241,8 +260,8 @@ export function KidShortsLane({
               onNextTrack={hasNext ? goNext : undefined}
               onPreviousTrack={hasPrevious ? goPrevious : undefined}
               hasNextTrack={hasNext}
-              allowMobileExpand={false}
-              immersive
+              allowMobileExpand={true}
+              immersive={false}
               className="h-full w-full"
             />
             {/*
@@ -252,8 +271,11 @@ export function KidShortsLane({
             <div
               ref={containerRef as React.RefObject<HTMLDivElement>}
               {...handlers}
-              className="absolute inset-x-0 top-0 z-[15] touch-pan-y"
-              style={{ bottom: SHORTS_LANE_BOTTOM_DEADZONE_PX }}
+              className={cn(
+                'absolute top-0 touch-pan-y',
+                theaterShortActive ? 'left-0 right-[72px] z-[2147483001]' : 'inset-x-0 z-[15]'
+              )}
+              style={{ bottom: bottomDeadzonePx }}
               onClick={handleDoubleTapHeart}
             />
           </div>
@@ -266,38 +288,41 @@ export function KidShortsLane({
         ) : null}
       </div>
 
-      <div
-        className={cn(
-          'relative z-20 flex shrink-0 items-end justify-between gap-3 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 transition-opacity duration-200',
-          showLaneChrome ? 'opacity-100' : 'opacity-0'
-        )}
-      >
-        <div className="min-w-0 flex-1 rounded-2xl bg-black/55 px-3 py-2.5 shadow-lg ring-1 ring-white/10 backdrop-blur-md">
-          <div className="flex items-center gap-2.5">
-            <SafeTubeChannelAvatar
-              name={activeItem.channelName}
-              thumbnail={activeItem.channelThumbnail}
-              hide={hideThumbnails}
-              className="h-9 w-9 shrink-0 rounded-full ring-1 ring-white/20"
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold drop-shadow-sm">{activeItem.channelName}</p>
-              <p className="line-clamp-2 text-xs text-white/85 drop-shadow-sm">{activeItem.title}</p>
-            </div>
-          </div>
-          <p className="mt-1.5 text-[11px] font-medium text-white/70">
-            {t('shortsLane.position', { current: activeIndex + 1, total: feed.length })}
-          </p>
-        </div>
+      {!theaterShortActive ? (
         <div
           className={cn(
-            'flex shrink-0 flex-col items-center gap-3 pb-1',
-            showLaneChrome ? 'pointer-events-auto' : 'pointer-events-none'
+            'relative z-20 flex shrink-0 items-end justify-between gap-3 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 transition-opacity duration-200',
+            showLaneChrome ? 'opacity-100' : 'opacity-0'
           )}
         >
-          <YoutubeLikeButton videoId={activeItem.videoId} rail />
+          <div
+            className={cn(
+              'flex shrink-0 flex-col items-center gap-3 pb-1',
+              showLaneChrome ? 'pointer-events-auto' : 'pointer-events-none'
+            )}
+          >
+            <YoutubeLikeButton videoId={activeItem.videoId} rail />
+          </div>
+
+          <div className="min-w-0 flex-1 rounded-2xl bg-black/55 px-3 py-2.5 shadow-lg ring-1 ring-white/10 backdrop-blur-md">
+            <div className="flex items-center gap-2.5">
+              <SafeTubeChannelAvatar
+                name={activeItem.channelName}
+                thumbnail={activeItem.channelThumbnail}
+                hide={hideThumbnails}
+                className="h-9 w-9 shrink-0 rounded-full ring-1 ring-white/20"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold drop-shadow-sm">{activeItem.channelName}</p>
+                <p className="line-clamp-2 text-xs text-white/85 drop-shadow-sm">{activeItem.title}</p>
+              </div>
+            </div>
+            <p className="mt-1.5 text-[11px] font-medium text-white/70">
+              {t('shortsLane.position', { current: activeIndex + 1, total: feed.length })}
+            </p>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <span className="sr-only">{t('shortsLane.swipeHint')}</span>
 

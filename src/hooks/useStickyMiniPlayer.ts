@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { requestPlayerChromeBump } from './useAutoHidePlayerChrome'
 import { requestChromeOffsetRefresh, subscribeViewportGeometryRefresh } from '../lib/chromeOffset'
-import { isPlayerExpanded, isPlayerTheaterActive } from '../lib/playerTheater'
+import { isPlayerExpanded } from '../lib/playerTheater'
+import { getPlaybackPlayerMode } from '../lib/playbackPlayerMode'
+import { modeBlocksStickyMini, usePlayerModeOptional } from '../contexts/PlayerModeContext'
 
 /**
  * When the primary player slot scrolls out of view, pin the same mounted player
  * node to the bottom corner (no remount / no second stream).
- * Layout guard: never assert mini while document fullscreen / CSS theater is active.
+ * Layout guard: never assert mini while theater / shorts lane is active.
  */
 export function useStickyMiniPlayer(options?: { enabled?: boolean; resetKey?: string }) {
   const enabled = options?.enabled ?? true
@@ -15,8 +17,11 @@ export function useStickyMiniPlayer(options?: { enabled?: boolean; resetKey?: st
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const [isMini, setIsMini] = useState(false)
   const [slotHeight, setSlotHeight] = useState<number | null>(null)
-  const [theaterActive, setTheaterActive] = useState(false)
   const wasMiniRef = useRef(false)
+  const playerMode = usePlayerModeOptional()
+  const layoutMode = playerMode?.mode ?? getPlaybackPlayerMode()
+  // isPlayerExpanded: sync guard — React playerMode updates after theater DOM (Phase 1 regression fix).
+  const theaterActive = modeBlocksStickyMini(layoutMode) || isPlayerExpanded()
 
   // Only drop mini when the feature turns off (e.g. Shorts). Do NOT reset on
   // videoId — toggling fixed/transform around a YouTube iframe blacks the
@@ -26,28 +31,16 @@ export function useStickyMiniPlayer(options?: { enabled?: boolean; resetKey?: st
     setIsMini(false)
     setSlotHeight(null)
     wasMiniRef.current = false
-  }, [enabled])
+    playerMode?.notifyMiniActive(false)
+  }, [enabled, playerMode])
 
   useEffect(() => {
-    const syncTheater = () => {
-      const on = isPlayerExpanded() || isPlayerTheaterActive()
-      setTheaterActive(on)
-      if (on) {
-        setIsMini(false)
-        setSlotHeight(null)
-      }
+    if (theaterActive) {
+      setIsMini(false)
+      setSlotHeight(null)
+      playerMode?.notifyMiniActive(false)
     }
-    syncTheater()
-    document.addEventListener('fullscreenchange', syncTheater)
-    document.addEventListener('webkitfullscreenchange', syncTheater)
-    const mo = new MutationObserver(syncTheater)
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => {
-      document.removeEventListener('fullscreenchange', syncTheater)
-      document.removeEventListener('webkitfullscreenchange', syncTheater)
-      mo.disconnect()
-    }
-  }, [])
+  }, [theaterActive, playerMode])
 
   useEffect(() => {
     if (!enabled || theaterActive) return
@@ -58,9 +51,10 @@ export function useStickyMiniPlayer(options?: { enabled?: boolean; resetKey?: st
     const io = new IntersectionObserver(
       ([entry]) => {
         if (!entry) return
-        if (isPlayerExpanded()) {
+        if (isPlayerExpanded() || modeBlocksStickyMini(playerMode?.mode ?? getPlaybackPlayerMode())) {
           setIsMini(false)
           setSlotHeight(null)
+          playerMode?.notifyMiniActive(false)
           return
         }
         if (!entry.isIntersecting) {
@@ -76,9 +70,13 @@ export function useStickyMiniPlayer(options?: { enabled?: boolean; resetKey?: st
     )
     io.observe(sentinel)
     return () => io.disconnect()
-  }, [enabled, resetKey, theaterActive])
+  }, [enabled, resetKey, theaterActive, playerMode])
 
   const effectiveMini = isMini && !theaterActive
+
+  useEffect(() => {
+    playerMode?.notifyMiniActive(effectiveMini)
+  }, [effectiveMini, playerMode])
 
   useEffect(() => {
     if (wasMiniRef.current === effectiveMini) return
