@@ -26,6 +26,7 @@
     "express": "^4.21.1",
     "jsdom": "^29.1.1",
     "resend": "^4.8.0",
+    "saxes": "^6.0.0",
     "undici": "^7.8.0",
     "youtubei.js": "^17.2.0",
     "yt-search": "^2.13.1",

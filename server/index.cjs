@@ -96,6 +96,8 @@ const corsOptions = buildCorsOptions();
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '8mb' }));
+require('./youtube-catalog.cjs').registerYoutubeCatalog(app);
+if (process.env.YOUTUBE_WEBSUB_ENABLED === '1') require('./youtube-websub.cjs').registerYoutubeWebSub(app);
 
 void import('./register-email-routes.mjs')
   .then(({ registerBridgeEmailRoutes }) => registerBridgeEmailRoutes(app))
