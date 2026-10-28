@@ -39,6 +39,13 @@ function createRegistry(db) {
     return null;
   }
   async function remember(request,payload) {
+    if (request.endpoint === 'videos' && request.params.has('id')) {
+      const returned = new Set((payload.items||[]).map(item=>item.id));
+      const missing = request.params.get('id').split(',').filter(id=>VIDEO.test(id)&&!returned.has(id));
+      // A successful upstream response omitting a requested ID must invalidate
+      // its previous individual metadata (deleted/private/unavailable).
+      if (missing.length) check(await db.from('youtube_videos_registry').delete().in('video_id',missing));
+    }
     if (request.endpoint === 'channels') {
       const rows = (payload.items||[]).filter(item=>CHANNEL.test(item.id)&&typeof item.snippet?.title==='string')
         .map(item=>({channel_id:item.id,title:item.snippet.title,handle:item.snippet.customUrl||'',
@@ -58,6 +65,15 @@ function createRegistry(db) {
     if (!channels.size) return;
     const known = check(await db.from('youtube_channels_registry').select('channel_id').in('channel_id',[...channels]));
     if (known.length) check(await db.from('youtube_catalog_channels').upsert(known.map(row=>({cache_key:request.key,channel_id:row.channel_id}))));
+    if (request.endpoint === 'videos') {
+      // Reuse individual video metadata across differently batched requests.
+      // A playlist/search snippet is not a videos.list payload; never store it
+      // here as though it contained duration/statistics or a verified video ID.
+      const knownIds = new Set(known.map(row=>row.channel_id));
+      const rows = (payload.items||[]).filter(item=>VIDEO.test(item.id)&&knownIds.has(item.snippet?.channelId))
+        .map(item=>({video_id:item.id,channel_id:item.snippet.channelId,payload:item,refreshed_at:new Date().toISOString()}));
+      if (rows.length) check(await db.from('youtube_videos_registry').upsert(rows));
+    }
   }
   return {lookup,remember};
 }

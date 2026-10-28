@@ -1,5 +1,6 @@
 'use strict';
 const { createHash, randomUUID } = require('node:crypto');
+const { createSearchQueue } = require('./search-queue.cjs');
 const ENDPOINTS = new Set(['channels', 'videos', 'playlistItems', 'playlists', 'search']);
 const FIELDS = {
   channels: new Set(['part','id','forHandle','forUsername','maxResults','pageToken']),
@@ -29,14 +30,14 @@ function canonicalRequest(endpoint, input) {
 function createCatalog({ store, fetchUpstream, registry, now = Date.now }) {
   const memory = new Map();
   const pending = new Map();
+  const schedule = createSearchQueue({ concurrency: 32 });
   const metrics = { requests:0, memoryHits:0, sharedHits:0, upstream:0, stale:0, unavailable:0 };
   async function resolve(request) {
     metrics.requests++;
     const cached = memory.get(request.key);
     if (cached && cached.expires > now()) {metrics.memoryHits++;return cached.value;}
     if (pending.has(request.key)) return pending.get(request.key);
-    if (pending.size >= 32) {metrics.unavailable++;return null;}
-    const work = (async () => {
+    const work = schedule(async () => {
       if (registry) {
         try {
           const local = await registry.lookup(request);
@@ -49,9 +50,17 @@ function createCatalog({ store, fetchUpstream, registry, now = Date.now }) {
         } catch { /* The normal catalog can still serve an existing response. */ }
       }
       const owner = randomUUID();
-      const row = await store.claim(request.key, owner, request.bucket === 'search' ? 3600 : 1800);
+      const freshSeconds = request.bucket === 'search' ? 3600 : 1800;
+      let row = await store.claim(request.key, owner, freshSeconds);
+      // Another replica may be filling a cold cache. One poller per key, bounded
+      // independently of the injected cache clock and without spending API quota.
+      for (let attempt = 0; !row.acquired && !row.payload && attempt < 9; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, attempt < 2 ? 250 : 1000));
+        row = await store.claim(request.key, owner, freshSeconds);
+      }
       const fallback = row.payload ? {payload:row.payload, stale:true} : null;
       let value;
+      let fetchedPayload = null;
       if (!row.acquired) {
         metrics.sharedHits++;
         const age = now() - Date.parse(row.refreshedAt || '');
@@ -67,10 +76,13 @@ function createCatalog({ store, fetchUpstream, registry, now = Date.now }) {
           }
         } catch { /* Serve previous public metadata on temporary upstream failure. */ }
         finally {await store.finish(request.key,owner,payload,request.bucket,quotaError);}
+        fetchedPayload = payload;
         value = payload ? {payload, stale:false} : fallback;
       }
-      if (registry && value && !value.stale) {
-        try { await registry.remember(request,value.payload); } catch { metrics.registryErrors=(metrics.registryErrors||0)+1; }
+      // Only an actual upstream response renews registry freshness. Reading the
+      // shared cache must not make old metadata look newly verified indefinitely.
+      if (registry && fetchedPayload) {
+        try { await registry.remember(request,fetchedPayload); } catch { metrics.registryErrors=(metrics.registryErrors||0)+1; }
       }
       if (value?.stale) metrics.stale++;
       if (!value) metrics.unavailable++;
@@ -78,7 +90,11 @@ function createCatalog({ store, fetchUpstream, registry, now = Date.now }) {
       if (memory.size >= 500) memory.delete(memory.keys().next().value);
       memory.set(request.key,{value,expires:now()+(value ? 60_000 : 2000)});
       return value;
-    })();
+    }).catch(error => {
+      if (error.code !== 'SEARCH_BUSY') throw error;
+      metrics.unavailable++;
+      return null;
+    });
     pending.set(request.key,work);
     try {return await work;} finally {pending.delete(request.key);}
   }
@@ -92,13 +108,16 @@ function registerYoutubeCatalog(app) {
   if (!apiKey || !serviceKey || !supabaseUrl) throw new Error('YouTube catalog server configuration missing');
   const {createClient} = require('@supabase/supabase-js');
   const db = createClient(supabaseUrl,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
+  require('./youtube-catalog-maintenance.cjs').startCatalogMaintenance(db);
   const rpc = async (name,args) => {const result=await db.rpc(name,args);if(result.error)throw new Error('Catalog storage unavailable');return result.data;};
   const store = {
     claim:(key,owner,fresh)=>rpc('catalog_claim',{p_key:key,p_owner:owner,p_fresh_seconds:fresh}),
     takeBudget:bucket=>rpc('catalog_take_budget',{p_bucket:bucket}),
     finish:(key,owner,payload,bucket,quota)=>rpc('catalog_finish',{p_key:key,p_owner:owner,p_payload:payload,p_bucket:bucket,p_quota_error:quota}),
   };
-  const registry = process.env.YOUTUBE_REGISTRY_ENABLED === '1' ? require('./youtube-registry.cjs').createRegistry(db) : null;
+  // Migrations 083/084 are required for the shared catalog. Accumulate public
+  // metadata automatically; an explicit zero remains an operational rollback.
+  const registry = process.env.YOUTUBE_REGISTRY_ENABLED !== '0' ? require('./youtube-registry.cjs').createRegistry(db) : null;
   const catalog = createCatalog({store,registry,fetchUpstream:async request=>{
     const url=new URL('https://www.googleapis.com/youtube/v3/'+request.endpoint);
     url.search=request.params.toString();url.searchParams.set('key',apiKey);
