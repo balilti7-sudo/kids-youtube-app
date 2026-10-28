@@ -1,6 +1,12 @@
 'use strict';
-const {check}=require('./youtube-registry.cjs');
 const DAY=86400_000;
+function check(result) {
+  if(result.error) {
+    const code=String(result.error.code||result.status||'network').replace(/[^\w-]/g,'').slice(0,32);
+    throw Object.assign(new Error('Catalog maintenance request failed'),{code});
+  }
+  return result.data;
+}
 
 // Only disposable public metadata is touched. No approvals, users or playlists.
 // Recheck the cutoff on DELETE so a concurrent refresh cannot be deleted after
@@ -27,15 +33,23 @@ async function pruneCatalog(db, now=Date.now()) {
 }
 function startCatalogMaintenance(db) {
   let running=false;
+  let stopped=false;
+  let timer;
   const cycle=async()=>{
-    if(running)return;
+    if(running||stopped)return;
     running=true;
+    let delay=3600_000;
     try {console.info('[catalog-maintenance]',JSON.stringify(await pruneCatalog(db)));}
-    catch {console.warn('[catalog-maintenance] cleanup failed; will retry');}
-    finally {running=false;}
+    catch(error) {
+      delay=60_000;
+      console.warn('[catalog-maintenance] cleanup failed; retry in 60 seconds',error.code||'network');
+    }
+    finally {
+      running=false;
+      if(!stopped){timer=setTimeout(cycle,delay);timer.unref();}
+    }
   };
   void cycle();
-  const timer=setInterval(cycle,3600_000);timer.unref();
-  return ()=>clearInterval(timer);
+  return ()=>{stopped=true;clearTimeout(timer);};
 }
 module.exports={pruneCatalog,startCatalogMaintenance};
